@@ -1,6 +1,20 @@
 import { useState, useEffect, useCallback } from "react";
-import { Upload, RefreshCw, Database, Users, TrendingUp, Calendar } from "lucide-react";
+import { Upload, RefreshCw, Database, Users, TrendingUp, Calendar, Wallet, PiggyBank } from "lucide-react";
 import api from "../api";
+
+
+const fmtBRL = (v) =>
+  (Number(v) || 0).toLocaleString("pt-BR", {
+    style: "currency",
+    currency: "BRL",
+    minimumFractionDigits: 2,
+  });
+
+const fmtBRLcompacto = (v) => {
+  const n = Number(v) || 0;
+  if (n >= 1000) return `R$ ${(n / 1000).toFixed(1)}k`;
+  return fmtBRL(n);
+};
 
 
 function KpiCard({ label, value, sub, color = "text-cyan-400", Icon }) {
@@ -15,6 +29,7 @@ function KpiCard({ label, value, sub, color = "text-cyan-400", Icon }) {
     </div>
   );
 }
+
 
 export default function BDAtivadosDashboard() {
   const [resumo, setResumo] = useState(null);
@@ -48,9 +63,11 @@ export default function BDAtivadosDashboard() {
       const { data } = await api.post(`/bd-ativados/upload`, form, {
         headers: { "Content-Type": "multipart/form-data" },
       });
+      const ativos = data?.estatisticas?.ativos ?? 0;
+      const liquido = data?.estatisticas?.liquido_pos_mkt ?? 0;
       setMsg({
         tipo: "ok",
-        texto: `✅ ${data.total_registros} registros processados — ${data.estatisticas.ativos} ativos, ${data.estatisticas.arquivados} arquivados. MRR: R$ ${data.estatisticas.mrr_total.toLocaleString("pt-BR", {minimumFractionDigits:2})}`,
+        texto: `✅ ${data.total_registros} registros — ${ativos} ativos. MRR Líquido: ${fmtBRL(liquido)}`,
       });
       carregar();
     } catch (err) {
@@ -96,8 +113,8 @@ export default function BDAtivadosDashboard() {
         </div>
       )}
 
-      {/* KPIs */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+      {/* KPIs gerais (linha 1) */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
         <KpiCard
           label="Total de Clientes"
           value={resumo?.total ?? 0}
@@ -112,32 +129,58 @@ export default function BDAtivadosDashboard() {
           Icon={Users}
         />
         <KpiCard
-          label="MRR Mensal"
-          value={resumo?.mrr_total
-            ? `R$ ${(resumo.mrr_total / 1000).toFixed(1)}k`
-            : "R$ 0"}
-          color="text-yellow-400"
-          Icon={TrendingUp}
-        />
-        <KpiCard
           label="Contadores"
           value={resumo?.contadores_distintos ?? 0}
           sub={`${resumo?.com_integracao ?? 0} com integração`}
           color="text-orange-400"
           Icon={Users}
         />
+        <KpiCard
+          label="Data emissão"
+          value={resumo?.data_emissao ? resumo.data_emissao.split(" ")[0] : "—"}
+          sub={resumo?.data_emissao ? resumo.data_emissao.split(" ")[1] : null}
+          color="text-slate-300"
+          Icon={Calendar}
+        />
       </div>
 
-      {/* Último upload */}
-      {resumo?.ultimo_upload && (
+      {/* KPIs de MRR (linha 2) — destaque */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
+        <KpiCard
+          label="MRR Bruto"
+          value={fmtBRLcompacto(resumo?.mrr_bruto)}
+          sub="Soma das mensalidades ACTIVE"
+          color="text-cyan-400"
+          Icon={TrendingUp}
+        />
+        <KpiCard
+          label="Repasse Franqueado"
+          value={fmtBRLcompacto(resumo?.repasse_franqueado)}
+          sub="30,51% do MRR Bruto"
+          color="text-yellow-400"
+          Icon={Wallet}
+        />
+        <KpiCard
+          label="MRR Líquido (pós-mkt)"
+          value={fmtBRLcompacto(resumo?.liquido_pos_mkt)}
+          sub="Repasse − 2,5% fundo de marketing"
+          color="text-emerald-400"
+          Icon={PiggyBank}
+        />
+      </div>
+
+      {/* Última atualização */}
+      {resumo?.data_upload && (
         <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 mb-6">
           <div className="flex items-center gap-2 text-xs text-slate-500 mb-1">
             <Calendar size={12} />
             <span>Última atualização</span>
           </div>
           <p className="text-sm text-slate-300">
-            {new Date(resumo.ultimo_upload.data_upload).toLocaleString("pt-BR")} —{" "}
-            <span className="text-slate-500">{resumo.ultimo_upload.nome_arquivo}</span>
+            {new Date(resumo.data_upload).toLocaleString("pt-BR")}
+            {resumo.data_emissao && (
+              <span className="text-slate-500"> — planilha emitida em {resumo.data_emissao}</span>
+            )}
           </p>
         </div>
       )}
@@ -152,28 +195,40 @@ export default function BDAtivadosDashboard() {
             Nenhum upload realizado. Faça o primeiro upload do BD Ativados.
           </div>
         ) : (
-          <table className="w-full text-xs">
-            <thead>
-              <tr className="text-slate-500 border-b border-slate-800 text-left">
-                <th className="px-4 py-3">Data</th>
-                <th className="px-4 py-3">Arquivo</th>
-                <th className="px-4 py-3">Usuário</th>
-                <th className="px-4 py-3 text-right">Registros</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-800">
-              {historico.map((h, i) => (
-                <tr key={i} className="hover:bg-slate-800/40">
-                  <td className="px-4 py-3 text-slate-300">
-                    {new Date(h.data_upload).toLocaleString("pt-BR")}
-                  </td>
-                  <td className="px-4 py-3 text-slate-400">{h.nome_arquivo}</td>
-                  <td className="px-4 py-3 text-slate-400">{h.usuario_nome || "—"}</td>
-                  <td className="px-4 py-3 text-right text-slate-300 font-mono">{h.total_registros}</td>
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="text-slate-500 border-b border-slate-800 text-left">
+                  <th className="px-4 py-3">Data</th>
+                  <th className="px-4 py-3">Arquivo</th>
+                  <th className="px-4 py-3">Usuário</th>
+                  <th className="px-4 py-3 text-right">Ativos</th>
+                  <th className="px-4 py-3 text-right">MRR Bruto</th>
+                  <th className="px-4 py-3 text-right">Líquido pós-mkt</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody className="divide-y divide-slate-800">
+                {historico.map((h, i) => (
+                  <tr key={h.id ?? i} className="hover:bg-slate-800/40">
+                    <td className="px-4 py-3 text-slate-300">
+                      {new Date(h.data_upload).toLocaleString("pt-BR")}
+                    </td>
+                    <td className="px-4 py-3 text-slate-400">{h.nome_arquivo}</td>
+                    <td className="px-4 py-3 text-slate-400">{h.usuario_nome || "—"}</td>
+                    <td className="px-4 py-3 text-right text-slate-300 font-mono">
+                      {h.linhas_ativas ?? "—"}
+                    </td>
+                    <td className="px-4 py-3 text-right text-slate-300 font-mono">
+                      {h.mrr_bruto != null ? fmtBRL(h.mrr_bruto) : "—"}
+                    </td>
+                    <td className="px-4 py-3 text-right text-emerald-400 font-mono font-bold">
+                      {h.liquido_pos_mkt != null ? fmtBRL(h.liquido_pos_mkt) : "—"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
     </div>
