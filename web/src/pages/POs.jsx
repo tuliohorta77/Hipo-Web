@@ -73,10 +73,22 @@ export default function POsDashboard() {
       const { data } = await api.post(`/po/upload`, form, {
         headers: { "Content-Type": "multipart/form-data" },
       });
-      setMsg({
-        tipo: "ok",
-        texto: `✅ PO processada — ${data.tipo}${data.tem_enabler ? " (Enabler)" : ""} — ${data.total_linhas} linhas. Semana: ${data.semana_ref || "não identificada"}`,
-      });
+      const aReceber = Number(data.valor_a_receber || 0).toLocaleString("pt-BR", {style: "currency", currency: "BRL"});
+      const tipoLabel = `${data.tipo}${data.tem_enabler ? " (Enabler)" : ""}`;
+      const poLabel = data.numero_po ? ` PO #${data.numero_po}` : "";
+      const semana = data.semana_ref || "não identificada";
+
+      if (data.tem_diferenca_calculo) {
+        setMsg({
+          tipo: "aviso",
+          texto: `⚠️ ${tipoLabel}${poLabel} processada com AVISO — ${data.total_linhas} linhas, semana ${semana}. Valor a receber: ${aReceber}. ${data.observacao_calculo || ""}`,
+        });
+      } else {
+        setMsg({
+          tipo: "ok",
+          texto: `✅ ${tipoLabel}${poLabel} processada — ${data.total_linhas} linhas, semana ${semana}. Valor a receber: ${aReceber}.${data.observacao_calculo ? " " + data.observacao_calculo : ""}`,
+        });
+      }
       carregar();
     } catch (err) {
       setMsg({ tipo: "erro", texto: `Erro: ${err.response?.data?.detail || err.message}` });
@@ -118,6 +130,8 @@ export default function POsDashboard() {
         <div className={`mb-4 px-4 py-3 rounded-lg text-sm ${
           msg.tipo === "ok"
             ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/30"
+            : msg.tipo === "aviso"
+            ? "bg-yellow-500/10 text-yellow-400 border border-yellow-500/30"
             : "bg-red-500/10 text-red-400 border border-red-500/30"
         }`}>
           {msg.texto}
@@ -298,12 +312,30 @@ export default function POsDashboard() {
             <div className="p-8 text-center text-slate-500 text-sm">Sem histórico de uploads.</div>
           ) : (
             historico.map((h, i) => (
-              <div key={i} className="bg-slate-900 border border-slate-800 rounded-xl px-4 py-3 flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-bold text-slate-200">{h.nome_arquivo}</p>
-                  <p className="text-xs text-slate-500">{new Date(h.data_upload).toLocaleString("pt-BR")} — Semana: {h.semana_ref || "—"}</p>
+              <div key={i} className={`border rounded-xl px-4 py-3 flex items-center justify-between ${
+                h.tem_diferenca_calculo
+                  ? "bg-yellow-500/5 border-yellow-500/40"
+                  : "bg-slate-900 border-slate-800"
+              }`}>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-bold text-slate-200 truncate">
+                    {h.nome_arquivo}
+                    {h.tem_diferenca_calculo && (
+                      <span className="ml-2 text-xs text-yellow-400" title={h.observacao_calculo}>⚠️</span>
+                    )}
+                  </p>
+                  <p className="text-xs text-slate-500">
+                    {new Date(h.data_upload).toLocaleString("pt-BR")}
+                    {h.numero_po && <> — PO #{h.numero_po}</>}
+                    {h.semana_ref && <> — Semana: {h.semana_ref}</>}
+                  </p>
                 </div>
-                <div className="flex items-center gap-4 text-xs">
+                <div className="flex items-center gap-4 text-xs shrink-0">
+                  {h.valor_a_receber != null && (
+                    <span className="text-cyan-400 font-bold">
+                      R$ {Number(h.valor_a_receber).toLocaleString("pt-BR", {minimumFractionDigits:2})}
+                    </span>
+                  )}
                   <span className="text-emerald-400">{h.conformes} ✓</span>
                   {h.ausentes > 0 && <span className="text-red-400">{h.ausentes} ausentes</span>}
                   {h.divergentes > 0 && <span className="text-yellow-400">{h.divergentes} div.</span>}

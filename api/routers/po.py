@@ -47,11 +47,16 @@ async def upload_po(
         os.remove(caminho)
         raise HTTPException(422, {"erros": resultado["erros"]})
 
-    # Registra o upload
+    # Registra o upload com totais agregados (Migration 002)
     upload_id = await conn.fetchval(
         """
-        INSERT INTO po_uploads (nome_arquivo, tipo, tem_enabler, semana_ref, total_linhas)
-        VALUES ($1, $2, $3, $4, $5)
+        INSERT INTO po_uploads (
+            nome_arquivo, tipo, tem_enabler, semana_ref, total_linhas,
+            numero_po, soma_operacoes, fundo_marketing_total,
+            valor_a_receber, subtotal_planilha,
+            tem_diferenca_calculo, observacao_calculo
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
         RETURNING id
         """,
         nome,
@@ -59,44 +64,29 @@ async def upload_po(
         resultado["tem_enabler"],
         resultado["semana_ref"],
         resultado["total"],
+        resultado.get("numero_po"),
+        resultado.get("soma_operacoes"),
+        resultado.get("fundo_marketing_total"),
+        resultado.get("valor_a_receber"),
+        resultado.get("subtotal_planilha"),
+        resultado.get("tem_diferenca_calculo", False),
+        resultado.get("observacao_calculo"),
     )
 
-    # Insere as linhas
-    for linha in resultado["linhas"]:
-        await conn.execute(
-            """
-            INSERT INTO po_linhas (
-                upload_id, tipo, tem_enabler, referencia_aplicativo,
-                razao_social, cnpj, plano, valor_bruto, valor_liquido,
-                impostos, fundo_marketing, data_ativacao,
-                contador_nome, contador_cnpj, comissao_contador,
-                ativado_por_email, premio,
-                parcela_numero, parcela_total, ep_email
-            ) VALUES (
-                $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20
-            )
-            """,
-            str(upload_id),
-            linha["tipo"],
-            linha["tem_enabler"],
-            linha.get("referencia_aplicativo"),
-            linha.get("razao_social"),
-            linha.get("cnpj"),
-            linha.get("plano"),
-            linha.get("valor_bruto"),
-            linha.get("valor_liquido"),
-            linha.get("impostos"),
-            linha.get("fundo_marketing"),
-            linha.get("data_ativacao"),
-            linha.get("contador_nome"),
-            linha.get("contador_cnpj"),
-            linha.get("comissao_contador"),
-            linha.get("ativado_por_email"),
-            linha.get("premio"),
-            linha.get("parcela_numero"),
-            linha.get("parcela_total"),
-            linha.get("ep_email"),
-        )
+    # Insere linhas de operação (clientes/transações reais)
+    for linha in resultado["linhas_operacao"]:
+        await _inserir_linha_po(conn, str(upload_id), linha,
+                                numero_po=resultado.get("numero_po"))
+
+    # Insere linha especial de Fundo de Marketing (se existir)
+    if resultado.get("linha_fundo"):
+        await _inserir_linha_po(conn, str(upload_id), resultado["linha_fundo"],
+                                numero_po=resultado.get("numero_po"))
+
+    # Insere linha especial de Subtotal (se existir)
+    if resultado.get("linha_subtotal"):
+        await _inserir_linha_po(conn, str(upload_id), resultado["linha_subtotal"],
+                                numero_po=resultado.get("numero_po"))
 
     # Executa reconciliação
     await _reconciliar(conn, str(upload_id), resultado["semana_ref"])
@@ -115,10 +105,68 @@ async def upload_po(
         "upload_id": str(upload_id),
         "tipo": resultado["tipo"],
         "tem_enabler": resultado["tem_enabler"],
+        "numero_po": resultado.get("numero_po"),
         "total_linhas": resultado["total"],
         "semana_ref": str(resultado["semana_ref"]) if resultado["semana_ref"] else None,
+        "soma_operacoes": resultado.get("soma_operacoes"),
+        "fundo_marketing_total": resultado.get("fundo_marketing_total"),
+        "valor_a_receber": resultado.get("valor_a_receber"),
+        "subtotal_planilha": resultado.get("subtotal_planilha"),
+        "tem_diferenca_calculo": resultado.get("tem_diferenca_calculo", False),
+        "observacao_calculo": resultado.get("observacao_calculo"),
         "message": "PO processada e reconciliação executada com sucesso.",
     }
+
+
+# ── HELPER DE INSERÇÃO ────────────────────────────────────────────────────────
+
+async def _inserir_linha_po(conn, upload_id: str, linha: dict, numero_po=None):
+    """
+    Insere uma linha em po_linhas. Suporta tanto operações reais quanto
+    linhas especiais (Fundo de Marketing / Subtotal).
+    """
+    await conn.execute(
+        """
+        INSERT INTO po_linhas (
+            upload_id, tipo, tem_enabler, referencia_aplicativo,
+            razao_social, cnpj, plano, valor_bruto, valor_liquido,
+            impostos, fundo_marketing, data_ativacao,
+            contador_nome, contador_cnpj, comissao_contador,
+            ativado_por_email, premio,
+            parcela_numero, parcela_total, ep_email,
+            nfse_numero, nfse_data,
+            eh_linha_especial, tipo_linha_especial, numero_po
+        ) VALUES (
+            $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,
+            $21,$22,$23,$24,$25
+        )
+        """,
+        upload_id,
+        linha["tipo"],
+        linha["tem_enabler"],
+        linha.get("referencia_aplicativo"),
+        linha.get("razao_social"),
+        linha.get("cnpj"),
+        linha.get("plano"),
+        linha.get("valor_bruto"),
+        linha.get("valor_liquido"),
+        linha.get("impostos"),
+        linha.get("fundo_marketing"),
+        linha.get("data_ativacao"),
+        linha.get("contador_nome"),
+        linha.get("contador_cnpj"),
+        linha.get("comissao_contador"),
+        linha.get("ativado_por_email"),
+        linha.get("premio"),
+        linha.get("parcela_numero"),
+        linha.get("parcela_total"),
+        linha.get("ep_email"),
+        linha.get("nfse_numero"),
+        linha.get("nfse_data"),
+        linha.get("eh_linha_especial", False),
+        linha.get("tipo_linha_especial"),
+        numero_po,
+    )
 
 
 # ── RECONCILIAÇÃO ─────────────────────────────────────────────────────────────
@@ -138,9 +186,10 @@ async def _reconciliar(conn, upload_id: str, semana_ref):
     )
     proj_map = {r["referencia_aplicativo"]: r for r in projecao}
 
-    # Classifica linhas recebidas
+    # Classifica linhas recebidas (ignora linhas especiais como Fundo Marketing)
     linhas = await conn.fetch(
-        "SELECT * FROM po_linhas WHERE upload_id = $1", upload_id
+        "SELECT * FROM po_linhas WHERE upload_id = $1 AND eh_linha_especial = FALSE",
+        upload_id
     )
 
     for linha in linhas:
@@ -206,7 +255,7 @@ async def _atualizar_repasse_calendario(conn, upload_id: str):
     linhas = await conn.fetch(
         """
         SELECT * FROM po_linhas
-        WHERE upload_id = $1 AND tipo = 'REPASSE'
+        WHERE upload_id = $1 AND tipo = 'REPASSE' AND eh_linha_especial = FALSE
         """, upload_id
     )
     for linha in linhas:
@@ -261,6 +310,7 @@ async def reconciliacao_ultima(conn=Depends(get_conn)):
         WHERE pu.semana_ref = (
             SELECT MAX(semana_ref) FROM po_uploads WHERE processado = TRUE
         )
+          AND pl.eh_linha_especial = FALSE
         GROUP BY pl.tipo, pl.tem_enabler, pl.status_reconciliacao
         ORDER BY pl.tipo, pl.status_reconciliacao
     """)
@@ -287,6 +337,7 @@ async def po_ausentes(conn=Depends(get_conn)):
           AND pu.semana_ref = (
             SELECT MAX(semana_ref) FROM po_uploads WHERE processado = TRUE
           )
+          AND pl.eh_linha_especial = FALSE
         ORDER BY pl.valor_esperado DESC NULLS LAST
     """)
     return [dict(r) for r in rows]
@@ -311,6 +362,7 @@ async def po_divergentes(conn=Depends(get_conn)):
           AND pu.semana_ref = (
             SELECT MAX(semana_ref) FROM po_uploads WHERE processado = TRUE
           )
+          AND pl.eh_linha_especial = FALSE
         ORDER BY ABS(pl.divergencia_valor) DESC NULLS LAST
     """)
     return [dict(r) for r in rows]
@@ -336,13 +388,19 @@ async def historico_uploads(conn=Depends(get_conn)):
             pu.nome_arquivo,
             pu.tipo,
             pu.tem_enabler,
+            pu.numero_po,
             pu.semana_ref,
             pu.total_linhas,
             pu.data_upload,
-            COUNT(pl.id) FILTER (WHERE pl.status_reconciliacao = 'CONFORME')   AS conformes,
-            COUNT(pl.id) FILTER (WHERE pl.status_reconciliacao = 'AUSENTE')     AS ausentes,
-            COUNT(pl.id) FILTER (WHERE pl.status_reconciliacao = 'DIVERGENTE')  AS divergentes,
-            COUNT(pl.id) FILTER (WHERE pl.status_reconciliacao = 'INESPERADO')  AS inesperados
+            pu.soma_operacoes,
+            pu.fundo_marketing_total,
+            pu.valor_a_receber,
+            pu.tem_diferenca_calculo,
+            pu.observacao_calculo,
+            COUNT(pl.id) FILTER (WHERE pl.status_reconciliacao = 'CONFORME'   AND pl.eh_linha_especial = FALSE) AS conformes,
+            COUNT(pl.id) FILTER (WHERE pl.status_reconciliacao = 'AUSENTE'    AND pl.eh_linha_especial = FALSE) AS ausentes,
+            COUNT(pl.id) FILTER (WHERE pl.status_reconciliacao = 'DIVERGENTE' AND pl.eh_linha_especial = FALSE) AS divergentes,
+            COUNT(pl.id) FILTER (WHERE pl.status_reconciliacao = 'INESPERADO' AND pl.eh_linha_especial = FALSE) AS inesperados
         FROM po_uploads pu
         LEFT JOIN po_linhas pl ON pl.upload_id = pu.id
         WHERE pu.processado = TRUE
@@ -366,6 +424,7 @@ async def resumo_financeiro(conn=Depends(get_conn)):
         FROM po_linhas pl
         JOIN po_uploads pu ON pu.id = pl.upload_id
         WHERE pu.data_upload >= DATE_TRUNC('month', CURRENT_DATE)
+          AND pl.eh_linha_especial = FALSE
         GROUP BY pl.tipo, pl.tem_enabler
         ORDER BY pl.tipo
     """)

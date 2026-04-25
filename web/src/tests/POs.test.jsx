@@ -107,7 +107,8 @@ describe('POsDashboard', () => {
     })
     fireEvent.change(input, { target: { files: [file] } })
     await waitFor(() => {
-      expect(screen.getByText(/PO processada/i)).toBeInTheDocument()
+      // mensagem nova: "✅ COMISSAO processada — ..." (em vez de "PO processada")
+      expect(screen.getByText(/COMISSAO.*processada/i)).toBeInTheDocument()
     })
   })
 
