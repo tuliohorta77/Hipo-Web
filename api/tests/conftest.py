@@ -1,7 +1,10 @@
 """
-Fixtures compartilhadas para todos os testes do HIPO.
+Fixtures para testes do HIPO.
+Usa anyio_backend + loop por função para evitar conflito de event loop
+com asyncpg no pytest-asyncio 0.23.
 """
 import os
+import asyncio
 import pytest
 import asyncpg
 import bcrypt
@@ -15,12 +18,18 @@ os.environ.setdefault("UPLOAD_DIR", "/tmp/hipo_test_uploads")
 from main import app
 
 _SENHA_TESTE = "test123"
+_DB_URL = os.environ["DATABASE_URL"]
+
+
+@pytest.fixture
+def anyio_backend():
+    return "asyncio"
 
 
 @pytest.fixture
 async def db_conn():
-    """Conexão direta por teste — evita conflito de event loop."""
-    conn = await asyncpg.connect(os.environ["DATABASE_URL"])
+    """Conexão direta por teste com event loop próprio."""
+    conn = await asyncpg.connect(_DB_URL)
     await conn.execute("""
         TRUNCATE TABLE
             po_linhas, po_uploads, po_projecao_semanal, repasse_calendario,
@@ -36,8 +45,12 @@ async def db_conn():
 
 @pytest.fixture
 async def client():
+    """
+    Cliente HTTP com lifespan desabilitado — evita que o pool asyncpg
+    da aplicação seja criado no event loop errado.
+    """
     async with AsyncClient(
-        transport=ASGITransport(app=app),
+        transport=ASGITransport(app=app, raise_app_exceptions=True),
         base_url="http://test"
     ) as c:
         yield c
@@ -45,7 +58,6 @@ async def client():
 
 @pytest.fixture
 async def usuario_adm(db_conn, client):
-    # bcrypt direto — sem passlib, sem limite de 72 bytes no detect_wrap_bug
     pwd_hash = bcrypt.hashpw(_SENHA_TESTE.encode(), bcrypt.gensalt()).decode()
     await db_conn.execute("""
         INSERT INTO usuarios (nome, email, senha_hash, cargo)
@@ -55,6 +67,7 @@ async def usuario_adm(db_conn, client):
         "/auth/login",
         data={"username": "adm@teste.com", "password": _SENHA_TESTE}
     )
+    assert resp.status_code == 200, f"Login falhou: {resp.text}"
     token = resp.json()["access_token"]
     return {
         "email": "adm@teste.com",

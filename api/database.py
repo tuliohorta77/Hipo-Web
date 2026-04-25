@@ -1,20 +1,16 @@
 import asyncpg
 from config import settings
 
-_pool = None
-
-async def get_pool() -> asyncpg.Pool:
-    global _pool
-    if _pool is None:
-        _pool = await asyncpg.create_pool(
-            settings.DATABASE_URL,
-            min_size=2,
-            max_size=20,
-            command_timeout=60,
-        )
-    return _pool
 
 async def get_conn():
-    pool = await get_pool()
-    async with pool.acquire() as conn:
+    """
+    Cria uma conexão direta por request — sem pool global.
+    Isso evita conflito de event loop nos testes e é seguro
+    com uvicorn workers (cada worker tem seu próprio loop).
+    Em produção com carga alta, trocar por pool por worker via lifespan.
+    """
+    conn = await asyncpg.connect(settings.DATABASE_URL)
+    try:
         yield conn
+    finally:
+        await conn.close()
