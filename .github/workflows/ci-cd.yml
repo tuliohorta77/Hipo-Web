@@ -1,0 +1,179 @@
+name: HIPO CI/CD
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+env:
+  PYTHON_VERSION: "3.11"
+  NODE_VERSION: "20"
+
+jobs:
+  # ── TESTES DE BACKEND ───────────────────────────────────────────────────────
+  test-backend:
+    name: Backend Tests
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: hipo_test
+          POSTGRES_PASSWORD: hipo_test
+          POSTGRES_DB: hipo_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: api/requirements.txt
+
+      - name: Instalar dependências
+        run: |
+          cd api
+          pip install -r requirements.txt
+
+      - name: Criar schema de teste
+        env:
+          PGPASSWORD: hipo_test
+        run: |
+          psql -h localhost -U hipo_test -d hipo_test -f api/schema.sql
+
+      - name: Executar testes com cobertura
+        env:
+          DATABASE_URL: postgresql://hipo_test:hipo_test@localhost:5432/hipo_test
+          JWT_SECRET: test-secret-key-ci
+          JWT_EXPIRE_HOURS: "1"
+          UPLOAD_DIR: /tmp/hipo_uploads
+        run: |
+          mkdir -p /tmp/hipo_uploads
+          cd api
+          pytest --cov=. --cov-report=xml --cov-report=term-missing
+
+      - name: Upload cobertura para Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          file: api/coverage.xml
+          flags: backend
+          fail_ci_if_error: false
+
+  # ── TESTES DE FRONTEND ──────────────────────────────────────────────────────
+  test-frontend:
+    name: Frontend Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Instalar dependências
+        run: |
+          cd web
+          npm ci
+
+      - name: Executar testes com cobertura
+        run: |
+          cd web
+          npm run test -- --coverage --reporter=verbose
+
+      - name: Build de produção
+        run: |
+          cd web
+          npm run build
+
+      - name: Upload artefato de build
+        uses: actions/upload-artifact@v4
+        with:
+          name: hipo-web-dist
+          path: web/dist/
+          retention-days: 1
+
+  # ── DEPLOY PARA PRODUÇÃO (só na main) ──────────────────────────────────────
+  deploy:
+    name: Deploy → EC2
+    runs-on: ubuntu-latest
+    needs: [test-backend, test-frontend]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download artefato de build do frontend
+        uses: actions/download-artifact@v4
+        with:
+          name: hipo-web-dist
+          path: web/dist/
+
+      - name: Configurar chave SSH
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.EC2_SSH_KEY }}
+
+      - name: Adicionar EC2 aos hosts conhecidos
+        run: |
+          ssh-keyscan -H ${{ secrets.EC2_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Deploy do Backend
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_USER: ${{ secrets.EC2_USER }}
+        run: |
+          # Sincroniza o código da API
+          rsync -avz --delete \
+            --exclude='.venv' \
+            --exclude='__pycache__' \
+            --exclude='*.pyc' \
+            --exclude='uploads/' \
+            --exclude='.env' \
+            api/ $EC2_USER@$EC2_HOST:/home/hipo/app/api/
+
+          # Reinicia o serviço
+          ssh $EC2_USER@$EC2_HOST "sudo systemctl restart hipo-api"
+
+          # Aguarda o serviço subir e verifica health
+          sleep 5
+          ssh $EC2_USER@$EC2_HOST "curl -sf http://localhost:8001/health || exit 1"
+
+      - name: Deploy do Frontend
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_USER: ${{ secrets.EC2_USER }}
+        run: |
+          # Sincroniza o build
+          rsync -avz --delete web/dist/ $EC2_USER@$EC2_HOST:/var/www/hipo/
+
+          # Ajusta permissões
+          ssh $EC2_USER@$EC2_HOST "sudo chmod -R 755 /var/www/hipo"
+
+      - name: Verificar deploy
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_USER: ${{ secrets.EC2_USER }}
+        run: |
+          ssh $EC2_USER@$EC2_HOST "curl -sf http://localhost/health || echo 'Frontend OK'"
+          echo "Deploy concluído com sucesso."
+
+      - name: Notificar falha no deploy
+        if: failure()
+        run: |
+          echo "::error::Deploy falhou! Verificar logs no EC2."
+          echo "Comando para debug: ssh ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} 'sudo journalctl -u hipo-api -n 50'"
