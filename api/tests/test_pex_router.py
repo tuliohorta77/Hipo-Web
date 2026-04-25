@@ -151,7 +151,7 @@ class TestAuth:
     async def test_login_valido(self, client, usuario_adm):
         resp = await client.post(
             "/auth/login",
-            data={"username": usuario_adm["email"], "password": "senha123"},
+            data={"username": usuario_adm["email"], "password": "test123"},
         )
         assert resp.status_code == 200
         assert "access_token" in resp.json()
