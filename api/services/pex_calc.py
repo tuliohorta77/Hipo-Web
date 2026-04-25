@@ -94,8 +94,8 @@ def _pts_uso_cromie(pct: float) -> float:
 
 def _classificar_risco(total: float) -> str:
     if total >= 75: return "VERDE"
-    if total >= 55: return "AMARELO"
-    if total >= 35: return "LARANJA"
+    if total >= 55: return "LARANJA"
+    if total >= 36: return "AMARELO"
     return "VERMELHO"
 
 

@@ -8,6 +8,7 @@ import shutil
 from datetime import date
 from fastapi import APIRouter, UploadFile, File, HTTPException, Depends, Query
 from database import get_conn
+from routers.auth import usuario_atual
 from parsers.cromie_parser import parse_cromie_arquivo
 from services.pex_calc import calcular_pex_snapshot, calcular_gaps_compliance
 
@@ -22,6 +23,7 @@ UPLOAD_DIR = os.getenv("UPLOAD_DIR", "/home/hipo/app/uploads")
 async def upload_cromie(
     arquivo: UploadFile = File(...),
     conn=Depends(get_conn),
+    _user=Depends(usuario_atual),
 ):
     """
     Recebe o Excel do CROmie, processa as 4 abas,

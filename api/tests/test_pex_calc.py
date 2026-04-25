@@ -97,8 +97,8 @@ class TestPontuacaoUtilizacaoDesconto:
 
 class TestClassificarRisco:
     def test_verde(self):    assert _classificar_risco(80) == "VERDE"
-    def test_amarelo(self):  assert _classificar_risco(65) == "AMARELO"
-    def test_laranja(self):  assert _classificar_risco(45) == "LARANJA"
+    def test_amarelo(self):  assert _classificar_risco(45) == "AMARELO"
+    def test_laranja(self):  assert _classificar_risco(65) == "LARANJA"
     def test_vermelho(self): assert _classificar_risco(30) == "VERMELHO"
     def test_limiar_36(self):
         # 36,5 (resultado de março) deve ser AMARELO — acima do limiar de descredenciamento

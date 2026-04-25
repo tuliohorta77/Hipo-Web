@@ -103,7 +103,7 @@ export default function PEXDashboard() {
         <div>
           <h1 className="text-xl font-bold text-slate-100 tracking-wide">Painel PEX</h1>
           <p className="text-xs text-slate-500 mt-0.5">
-            {painel ? `Última atualização: ${new Date(painel.created_at).toLocaleString("pt-BR")}` : "Nenhum dado carregado"}
+            {painel ? `Última atualização: ${new Date(painel.created_at).toLocaleString("pt-BR")}` : "Aguardando primeiro upload"}
           </p>
         </div>
         <div className="flex items-center gap-3">

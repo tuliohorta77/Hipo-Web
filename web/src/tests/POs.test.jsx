@@ -64,8 +64,8 @@ describe('POsDashboard', () => {
 
   it('mostra lista de ausentes ao clicar na aba', async () => {
     renderPOs()
-    await waitFor(() => screen.getAllByText(/AUSENTES/i)[0])
-    fireEvent.click(screen.getAllByText(/AUSENTES/i)[0])
+    await waitFor(() => screen.getByTestId('tab-ausentes'))
+    fireEvent.click(screen.getByTestId('tab-ausentes'))
     await waitFor(() => {
       expect(screen.getByText('Empresa Sumida Ltda')).toBeInTheDocument()
       expect(screen.getByText('Silva Contabilidade')).toBeInTheDocument()
@@ -74,8 +74,8 @@ describe('POsDashboard', () => {
 
   it('mostra lista de divergentes ao clicar na aba', async () => {
     renderPOs()
-    await waitFor(() => screen.getAllByText(/DIVERGENTES/i)[0])
-    fireEvent.click(screen.getAllByText(/DIVERGENTES/i)[0])
+    await waitFor(() => screen.getByTestId('tab-divergentes'))
+    fireEvent.click(screen.getByTestId('tab-divergentes'))
     await waitFor(() => {
       expect(screen.getByText('Empresa Divergente SA')).toBeInTheDocument()
     })

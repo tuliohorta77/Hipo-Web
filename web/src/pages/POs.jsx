@@ -141,6 +141,7 @@ export default function POsDashboard() {
       <div className="flex gap-1 mb-6 border-b border-slate-800">
         {[["resumo","Resumo"], ["ausentes","Ausentes"], ["divergentes","Divergentes"], ["historico","Histórico"]].map(([k, l]) => (
           <button key={k} onClick={() => setTab(k)}
+            data-testid={`tab-${k}`}
             className={`px-4 py-2.5 text-xs font-bold tracking-wider transition-all ${
               tab === k ? "text-cyan-400 border-b-2 border-cyan-400" : "text-slate-500 hover:text-slate-300"
             }`}>

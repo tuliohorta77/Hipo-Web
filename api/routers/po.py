@@ -8,6 +8,7 @@ import shutil
 from datetime import date
 from fastapi import APIRouter, UploadFile, File, HTTPException, Depends
 from database import get_conn
+from routers.auth import usuario_atual
 from parsers.po_parser import parse_po_arquivo, detectar_tipo
 
 router = APIRouter()
@@ -21,6 +22,7 @@ UPLOAD_DIR = os.getenv("UPLOAD_DIR", "/home/hipo/app/uploads")
 async def upload_po(
     arquivo: UploadFile = File(...),
     conn=Depends(get_conn),
+    _user=Depends(usuario_atual),
 ):
     """
     Recebe um arquivo de PO, detecta o tipo, persiste e executa a reconciliação.

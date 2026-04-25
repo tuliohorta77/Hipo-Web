@@ -70,13 +70,21 @@ def _col(df: pd.DataFrame, nomes: list) -> Optional[str]:
 def _auditar_schema(df: pd.DataFrame, schema_esperado: list, nome_aba: str) -> dict:
     """
     Compara as colunas do DataFrame com o schema esperado.
+    Usa busca bidirecional: coluna real contém termo esperado OU termo esperado contém coluna real.
     Retorna: { colunas_reais, novas, removidas, alterado }
     """
     colunas_reais = list(df.columns)
-    colunas_lower = [c.lower() for c in colunas_reais]
-    esperadas_lower = [e.lower() for e in schema_esperado]
-    novas = [c for c in colunas_reais if not any(e in c.lower() for e in esperadas_lower)]
-    removidas = [e for e in schema_esperado if not any(e in c.lower() for c in colunas_reais)]
+
+    def _matched(col_real: str, termos_esperados: list) -> bool:
+        c = col_real.lower().replace(" ", "_").replace("-", "_")
+        for e in termos_esperados:
+            e_norm = e.lower().replace(" ", "_").replace("-", "_")
+            if e_norm in c or c in e_norm:
+                return True
+        return False
+
+    novas = [c for c in colunas_reais if not _matched(c, schema_esperado)]
+    removidas = [e for e in schema_esperado if not _matched(e, [c for c in colunas_reais])]
     return {
         "colunas_reais": colunas_reais,
         "novas": novas,
@@ -200,7 +208,8 @@ def parse_cromie_arquivo(caminho: str) -> dict:
         chave_normalizada = sheet_name.strip().lower()
         # Encontra a aba correspondente no mapa
         aba_key = next(
-            (k for k in ABA_MAP if k in chave_normalizada),
+            (k for k in sorted(ABA_MAP.keys(), key=len, reverse=True)
+             if k in chave_normalizada),
             None
         )
         if not aba_key:

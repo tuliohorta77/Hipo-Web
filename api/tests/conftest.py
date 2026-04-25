@@ -1,6 +1,5 @@
 """
 Fixtures compartilhadas para todos os testes do HIPO.
-Usa banco PostgreSQL de teste isolado — não toca no banco de produção.
 """
 import os
 import pytest
@@ -14,31 +13,21 @@ os.environ.setdefault("UPLOAD_DIR", "/tmp/hipo_test_uploads")
 
 from main import app
 
+# Senha curta e fixa — bcrypt tem limite de 72 bytes
+_SENHA_TESTE = "test123"
+
 
 @pytest.fixture
 async def db_conn():
-    """
-    Conexão direta por teste — evita conflito de event loop do pytest-asyncio.
-    Cada teste recebe uma conexão limpa e independente.
-    """
+    """Conexão direta por teste — evita conflito de event loop."""
     conn = await asyncpg.connect(os.environ["DATABASE_URL"])
     await conn.execute("""
         TRUNCATE TABLE
-            po_linhas,
-            po_uploads,
-            po_projecao_semanal,
-            repasse_calendario,
-            cromie_cliente_final,
-            cromie_tarefa_cliente,
-            cromie_contador,
-            cromie_tarefa_contador,
-            cromie_uploads,
-            pex_snapshot,
-            pex_compliance_gaps,
-            pex_metas_mensais,
-            bd_ativados,
-            bd_ativados_upload,
-            usuarios
+            po_linhas, po_uploads, po_projecao_semanal, repasse_calendario,
+            cromie_cliente_final, cromie_tarefa_cliente, cromie_contador,
+            cromie_tarefa_contador, cromie_uploads, pex_snapshot,
+            pex_compliance_gaps, pex_metas_mensais,
+            bd_ativados, bd_ativados_upload, usuarios
         CASCADE
     """)
     yield conn
@@ -47,7 +36,6 @@ async def db_conn():
 
 @pytest.fixture
 async def client():
-    """Cliente HTTP assíncrono para testar os endpoints."""
     async with AsyncClient(
         transport=ASGITransport(app=app),
         base_url="http://test"
@@ -57,16 +45,15 @@ async def client():
 
 @pytest.fixture
 async def usuario_adm(db_conn, client):
-    """Cria um usuário ADM de teste e retorna o token JWT."""
     from passlib.context import CryptContext
-    pwd = CryptContext(schemes=["bcrypt"]).hash("senha123")
+    pwd = CryptContext(schemes=["bcrypt"]).hash(_SENHA_TESTE)
     await db_conn.execute("""
         INSERT INTO usuarios (nome, email, senha_hash, cargo)
         VALUES ('ADM Teste', 'adm@teste.com', $1, 'ADM')
     """, pwd)
     resp = await client.post(
         "/auth/login",
-        data={"username": "adm@teste.com", "password": "senha123"}
+        data={"username": "adm@teste.com", "password": _SENHA_TESTE}
     )
     token = resp.json()["access_token"]
     return {
@@ -78,7 +65,6 @@ async def usuario_adm(db_conn, client):
 
 @pytest.fixture
 async def meta_abril(db_conn):
-    """Insere metas de Abril/2026 para os cálculos do PEX."""
     await db_conn.execute("""
         INSERT INTO pex_metas_mensais
             (mes_ref, nmrr_meta, demos_outbound_meta,
