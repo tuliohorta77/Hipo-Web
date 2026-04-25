@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { Upload, RefreshCw, AlertTriangle, CheckCircle, TrendingUp, Users } from "lucide-react";
+import { Upload, RefreshCw, AlertTriangle, CheckCircle, TrendingUp, Users, BarChart3 } from "lucide-react";
 import axios from "axios";
 
 const API = "/api";
