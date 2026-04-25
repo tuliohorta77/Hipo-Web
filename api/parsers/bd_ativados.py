@@ -49,6 +49,20 @@ def _d(v) -> Optional[date]:
     try: return pd.to_datetime(v).date()
     except Exception: return None
 
+def _data_emissao_do_arquivo(caminho: str) -> Optional[str]:
+    """Extrai 'DD/MM/AAAA HH:MM' da célula 'Emitido por Integração em ...' (linhas 0-1)."""
+    try:
+        prev = pd.read_excel(caminho, engine="openpyxl", header=None, nrows=3)
+        for i in range(len(prev)):
+            for j in range(prev.shape[1]):
+                v = str(prev.iat[i, j])
+                m = re.search(r"(\d{2}/\d{2}/\d{4}\s+\d{2}:\d{2})", v)
+                if m and "Emitido" in v:
+                    return m.group(1)
+    except Exception:
+        pass
+    return None
+
 def _b(v) -> bool:
     """Booleano permissivo. Vazio/N/A/0/Não → False; resto → True."""
     if pd.isna(v): return False
@@ -156,6 +170,11 @@ def parse_bd_ativados_arquivo(caminho: str) -> dict:
                              ("contains", "valor mensal - informado"),
                              ("contains", "valor mensal"),
                              ("contains", "mensalidade")])
+    # Tipo do plano (Omie completo / Fit / BPO / Omie completo - Start)
+    col_tipo     = _col(df, [("eq", "tipo")])
+    # Valor mensal "informado na ativação" — guardamos pra auditoria
+    col_mensal_inf = _col(df, [("contains", "valor mensal - informado"),
+                                ("contains", "valor mensal informado")])
     col_integ    = _col(df, [("contains", "integracao contabil"),
                              ("contains", "integracao")])
     col_acesso   = _col(df, [("eq", "ultimo acesso"),
@@ -219,10 +238,12 @@ def parse_bd_ativados_arquivo(caminho: str) -> dict:
             "cnpj":                  _s(r.get(col_cnpj)) if col_cnpj else None,
             "situacao":              _s(r.get(col_situacao)) if col_situacao else None,
             "saude_paciente":        _s(r.get(col_saude)) if col_saude else None,
+            "tipo":                  _s(r.get(col_tipo)) if col_tipo else None,
             "dia_faturamento":       _i(r.get(col_dia_fat)) if col_dia_fat else None,
             "vencimento":            _i(r.get(col_venc)) if col_venc else None,
             "tipo_faturamento":      _s(r.get(col_tipo_fat)) if col_tipo_fat else None,
             "valor_mensalidade":     _f(r.get(col_mensal)) if col_mensal else None,
+            "valor_mensal_informado": _f(r.get(col_mensal_inf)) if col_mensal_inf else None,
             "integracao_contabil":   _b(r.get(col_integ)) if col_integ else False,
             "ultimo_acesso":         _d(r.get(col_acesso)) if col_acesso else None,
             "modulo_financeiro":     _b(r.get(col_mod_fin)) if col_mod_fin else False,
@@ -236,6 +257,65 @@ def parse_bd_ativados_arquivo(caminho: str) -> dict:
             "contador_nome":         contador_raw,
             "data_ativacao":         _d(r.get(col_data_at)) if col_data_at else None,
             "data_cancelamento":     _d(r.get(col_data_can)) if col_data_can else None,
+            "mrr_bruto":             0.0,  # preenchido em pós-processamento abaixo
         })
 
-    return {"linhas": linhas, "total": len(linhas), "erros": erros}
+    # ── Pós-processamento: cálculo do mrr_bruto por linha ──
+    # Regra (validada contra planilha oficial — match 100%):
+    #   ACTIVE + tipo='BPO' → valor_mensalidade / N(linhas BPO ACTIVE do mesmo CNPJ)
+    #   ACTIVE + tipo!='BPO' → valor_mensalidade
+    #   != ACTIVE             → 0
+    # Equivalente Excel:
+    #   =SE(situacao="ACTIVE";
+    #       SE(tipo="BPO";
+    #           val_atual / CONT.SES(tipo;tipo;situacao;situacao;cnpj;cnpj);
+    #           val_atual);
+    #       "")
+    # IMPORTANTE: o Excel arredonda só na agregação (=SOMA na coluna), não por linha.
+    # Pra bater no centavo com o oficial, mantemos Decimal não-arredondado por linha
+    # e só arredondamos no total. O `mrr_bruto` armazenado por linha vai arredondado
+    # (visualização), mas o agregado vem da soma dos valores não-arredondados.
+    from decimal import Decimal, ROUND_HALF_UP
+
+    contagem_bpo_active: dict = {}
+    for l in linhas:
+        if (l["situacao"] or "").upper() == "ACTIVE" and l["tipo"] == "BPO":
+            chave = l.get("cnpj") or "__sem_cnpj__"
+            contagem_bpo_active[chave] = contagem_bpo_active.get(chave, 0) + 1
+
+    soma_decimal = Decimal("0")
+    for l in linhas:
+        sit = (l["situacao"] or "").upper()
+        if sit != "ACTIVE":
+            l["mrr_bruto"] = 0.0
+            continue
+        val = l.get("valor_mensalidade") or 0.0
+        val_dec = Decimal(str(val))
+        if l["tipo"] == "BPO":
+            chave = l.get("cnpj") or "__sem_cnpj__"
+            n = contagem_bpo_active.get(chave, 1) or 1
+            d_exato = val_dec / Decimal(n)
+        else:
+            d_exato = val_dec
+        soma_decimal += d_exato
+        # Por linha guardamos a versão arredondada (display); soma usa o exato.
+        l["mrr_bruto"] = float(d_exato.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
+
+    # Agregados (arredonda só aqui, no fim)
+    TAXA_REPASSE = Decimal("0.3051")
+    TAXA_LIQUIDO = Decimal("0.975")
+    linhas_ativas = sum(1 for l in linhas if (l["situacao"] or "").upper() == "ACTIVE")
+    mrr_bruto_total = float(soma_decimal.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
+    repasse_dec = (soma_decimal * TAXA_REPASSE).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    liquido_dec = (repasse_dec * TAXA_LIQUIDO).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+    return {
+        "linhas": linhas,
+        "total": len(linhas),
+        "linhas_ativas": linhas_ativas,
+        "mrr_bruto": mrr_bruto_total,
+        "repasse_franqueado": float(repasse_dec),
+        "liquido_pos_mkt": float(liquido_dec),
+        "data_emissao": _data_emissao_do_arquivo(caminho),
+        "erros": erros,
+    }

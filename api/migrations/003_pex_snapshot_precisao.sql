@@ -6,13 +6,17 @@
 -- de 1000% se a carteira mapeada é pequena vs a base ativada).
 --
 -- Aplica:
---   ALTER TYPE para NUMERIC(8,2) — aceita até 999.999,99
+--   DROP da view vw_pex_mes_atual (depende das colunas alteradas)
+--   ALTER 21 colunas para NUMERIC(8,2) — aceita até 999.999,99
+--   Recria a view igual
 --
 -- Rodar na EC2:
 --   psql $DATABASE_URL -f migrations/003_pex_snapshot_precisao.sql
 -- ============================================================
 
 BEGIN;
+
+DROP VIEW IF EXISTS vw_pex_mes_atual;
 
 ALTER TABLE pex_snapshot
     ALTER COLUMN nmrr_pct                      TYPE NUMERIC(8,2),
@@ -36,5 +40,27 @@ ALTER TABLE pex_snapshot
     ALTER COLUMN total_gestao_pts              TYPE NUMERIC(8,2),
     ALTER COLUMN total_engajamento_pts         TYPE NUMERIC(8,2),
     ALTER COLUMN total_geral_pts               TYPE NUMERIC(8,2);
+
+CREATE VIEW vw_pex_mes_atual AS
+SELECT
+    s.mes_ref,
+    s.data_ref AS ultima_atualizacao,
+    s.total_resultado_pts,
+    s.total_gestao_pts,
+    s.total_engajamento_pts,
+    s.total_geral_pts,
+    s.risco_classificacao,
+    CASE
+        WHEN s.total_geral_pts >= 95 THEN 'Franquia Excelente'
+        WHEN s.total_geral_pts >= 76 THEN 'Franquia Certificada'
+        WHEN s.total_geral_pts >= 60 THEN 'Franquia Qualificada'
+        WHEN s.total_geral_pts >= 50 THEN 'Franquia Aderente'
+        WHEN s.total_geral_pts >= 36 THEN 'Franquia em Desenvolvimento'
+        ELSE 'Franquia Não Aderente'
+    END AS classificacao
+FROM pex_snapshot s
+WHERE s.mes_ref = TO_CHAR(CURRENT_DATE, 'YYYY-MM')
+ORDER BY s.data_ref DESC
+LIMIT 1;
 
 COMMIT;

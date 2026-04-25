@@ -16,10 +16,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(auth.router, prefix="/auth", tags=["auth"])
-app.include_router(po.router,   prefix="/po",   tags=["POs"])
-app.include_router(pex.router,  prefix="/pex",  tags=["PEX"])
+app.include_router(auth.router,        prefix="/auth",        tags=["auth"])
+app.include_router(po.router,          prefix="/po",          tags=["POs"])
+app.include_router(pex.router,         prefix="/pex",         tags=["PEX"])
 app.include_router(bd_ativados.router, prefix="/bd-ativados", tags=["BD Ativados"])
+
 
 @app.get("/health")
 async def health():
