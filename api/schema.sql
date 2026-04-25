@@ -498,8 +498,7 @@ CREATE TABLE pex_metas_big3 (
     UNIQUE (cabecalho_id, ordem)
 );
 
--- View de compatibilidade — mantém o nome antigo pex_metas_mensais funcionando
--- pra código legado que ainda lê dela (será removida no futuro).
+-- View de compatibilidade (mantém nome antigo pex_metas_mensais funcionando)
 CREATE VIEW pex_metas_mensais AS
 SELECT
     cab.id,
