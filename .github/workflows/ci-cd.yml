@@ -58,6 +58,7 @@ jobs:
           JWT_SECRET: test-secret-key-ci
           JWT_EXPIRE_HOURS: "1"
           UPLOAD_DIR: /tmp/hipo_uploads
+          PYTHONPATH: ${{ github.workspace }}/api
         run: |
           mkdir -p /tmp/hipo_uploads
           cd api
@@ -82,13 +83,12 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: npm
-          cache-dependency-path: web/package-lock.json
+          # sem cache — não temos package-lock.json ainda
 
       - name: Instalar dependências
         run: |
           cd web
-          npm ci
+          npm install
 
       - name: Executar testes com cobertura
         run: |
@@ -99,6 +99,12 @@ jobs:
         run: |
           cd web
           npm run build
+
+      - name: Gerar package-lock.json
+        run: |
+          cd web
+          git config --global user.email "ci@hipo.com"
+          git config --global user.name "HIPO CI"
 
       - name: Upload artefato de build
         uses: actions/upload-artifact@v4
@@ -137,7 +143,6 @@ jobs:
           EC2_HOST: ${{ secrets.EC2_HOST }}
           EC2_USER: ${{ secrets.EC2_USER }}
         run: |
-          # Sincroniza o código da API
           rsync -avz --delete \
             --exclude='.venv' \
             --exclude='__pycache__' \
@@ -145,11 +150,7 @@ jobs:
             --exclude='uploads/' \
             --exclude='.env' \
             api/ $EC2_USER@$EC2_HOST:/home/hipo/app/api/
-
-          # Reinicia o serviço
           ssh $EC2_USER@$EC2_HOST "sudo systemctl restart hipo-api"
-
-          # Aguarda o serviço subir e verifica health
           sleep 5
           ssh $EC2_USER@$EC2_HOST "curl -sf http://localhost:8001/health || exit 1"
 
@@ -158,10 +159,7 @@ jobs:
           EC2_HOST: ${{ secrets.EC2_HOST }}
           EC2_USER: ${{ secrets.EC2_USER }}
         run: |
-          # Sincroniza o build
           rsync -avz --delete web/dist/ $EC2_USER@$EC2_HOST:/var/www/hipo/
-
-          # Ajusta permissões
           ssh $EC2_USER@$EC2_HOST "sudo chmod -R 755 /var/www/hipo"
 
       - name: Verificar deploy
@@ -176,4 +174,3 @@ jobs:
         if: failure()
         run: |
           echo "::error::Deploy falhou! Verificar logs no EC2."
-          echo "Comando para debug: ssh ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} 'sudo journalctl -u hipo-api -n 50'"
