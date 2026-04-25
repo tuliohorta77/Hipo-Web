@@ -1,7 +1,21 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
-import axios from 'axios'
+
+// Mock do cliente api ANTES de importar o componente
+vi.mock('../api', () => ({
+  default: {
+    get: vi.fn(),
+    post: vi.fn(),
+  },
+  isAuthenticated: () => true,
+  getUser: () => ({ nome: 'Tester', email: 'tester@hipo.com', cargo: 'ADM' }),
+  logout: vi.fn(),
+  TOKEN_KEY: 'hipo_token',
+  USER_KEY: 'hipo_user',
+}))
+
+import api from '../api'
 import POsDashboard from '../pages/POs'
 
 const mockReconciliacao = [
@@ -29,7 +43,7 @@ function renderPOs() {
 describe('POsDashboard', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    axios.get.mockImplementation((url) => {
+    api.get.mockImplementation((url) => {
       if (url.includes('reconciliacao/ultima'))     return Promise.resolve({ data: mockReconciliacao })
       if (url.includes('reconciliacao/ausentes'))   return Promise.resolve({ data: mockAusentes })
       if (url.includes('reconciliacao/divergentes'))return Promise.resolve({ data: mockDivergentes })
@@ -82,7 +96,7 @@ describe('POsDashboard', () => {
   })
 
   it('exibe mensagem de sucesso após upload', async () => {
-    axios.post.mockResolvedValue({
+    api.post.mockResolvedValue({
       data: { tipo: 'COMISSAO', tem_enabler: false, total_linhas: 25, semana_ref: '2026-04-20' }
     })
     renderPOs()
@@ -98,7 +112,7 @@ describe('POsDashboard', () => {
   })
 
   it('exibe erro quando upload falha', async () => {
-    axios.post.mockRejectedValue({
+    api.post.mockRejectedValue({
       response: { data: { detail: 'Tipo de PO não reconhecido' } }
     })
     renderPOs()
@@ -113,7 +127,7 @@ describe('POsDashboard', () => {
 
   it('botão de upload fica desabilitado durante o processamento', async () => {
     let resolve
-    axios.post.mockImplementation(() => new Promise(r => { resolve = r }))
+    api.post.mockImplementation(() => new Promise(r => { resolve = r }))
     renderPOs()
     await waitFor(() => screen.getByText(/Upload PO/i))
     const input = document.querySelector('input[type="file"]')

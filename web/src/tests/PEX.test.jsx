@@ -1,7 +1,21 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
-import axios from 'axios'
+
+// Mock do cliente api ANTES de importar o componente
+vi.mock('../api', () => ({
+  default: {
+    get: vi.fn(),
+    post: vi.fn(),
+  },
+  isAuthenticated: () => true,
+  getUser: () => ({ nome: 'Tester', email: 'tester@hipo.com', cargo: 'ADM' }),
+  logout: vi.fn(),
+  TOKEN_KEY: 'hipo_token',
+  USER_KEY: 'hipo_user',
+}))
+
+import api from '../api'
 import PEXDashboard from '../pages/PEX'
 
 const mockPainel = {
@@ -31,7 +45,7 @@ describe('PEXDashboard', () => {
   })
 
   it('exibe estado vazio quando não há dados', async () => {
-    axios.get.mockRejectedValue({ response: { status: 404 } })
+    api.get.mockRejectedValue({ response: { status: 404 } })
     renderPEX()
     await waitFor(() => {
       expect(screen.getByText(/Nenhum dado carregado/i)).toBeInTheDocument()
@@ -39,7 +53,7 @@ describe('PEXDashboard', () => {
   })
 
   it('exibe a pontuação do PEX quando há dados', async () => {
-    axios.get.mockImplementation((url) => {
+    api.get.mockImplementation((url) => {
       if (url.includes('painel'))     return Promise.resolve({ data: mockPainel })
       if (url.includes('compliance')) return Promise.resolve({ data: [] })
       if (url.includes('historico'))  return Promise.resolve({ data: [] })
@@ -54,7 +68,7 @@ describe('PEXDashboard', () => {
   })
 
   it('exibe classificação correta para 36.5 pts', async () => {
-    axios.get.mockImplementation((url) => {
+    api.get.mockImplementation((url) => {
       if (url.includes('painel')) return Promise.resolve({ data: mockPainel })
       return Promise.resolve({ data: [] })
     })
@@ -65,7 +79,7 @@ describe('PEXDashboard', () => {
   })
 
   it('exibe alerta de risco de descredenciamento abaixo de 36', async () => {
-    axios.get.mockImplementation((url) => {
+    api.get.mockImplementation((url) => {
       if (url.includes('painel')) return Promise.resolve({ data: {
         ...mockPainel, total_geral_pts: 35.9, risco_classificacao: 'VERMELHO'
       }})
@@ -78,7 +92,7 @@ describe('PEXDashboard', () => {
   })
 
   it('botão de upload está presente e habilitado', async () => {
-    axios.get.mockRejectedValue({})
+    api.get.mockRejectedValue({})
     renderPEX()
     await waitFor(() => {
       expect(screen.getByText(/Upload CROmie/i)).toBeInTheDocument()
@@ -86,7 +100,7 @@ describe('PEXDashboard', () => {
   })
 
   it('navega para aba de compliance ao clicar', async () => {
-    axios.get.mockImplementation((url) => {
+    api.get.mockImplementation((url) => {
       if (url.includes('painel'))     return Promise.resolve({ data: mockPainel })
       if (url.includes('compliance')) return Promise.resolve({ data: [
         { usuario_responsavel: 'vendedor@omie.com.vc', leads_sem_tarefa_futura: 5,
@@ -104,8 +118,8 @@ describe('PEXDashboard', () => {
   })
 
   it('exibe mensagem de sucesso após upload', async () => {
-    axios.get.mockRejectedValue({})
-    axios.post.mockResolvedValue({
+    api.get.mockRejectedValue({})
+    api.post.mockResolvedValue({
       data: {
         schema_alterado: false,
         totais: { total_cliente_final: 150, total_contador: 120 },
@@ -126,8 +140,8 @@ describe('PEXDashboard', () => {
   })
 
   it('exibe aviso quando schema foi alterado', async () => {
-    axios.get.mockRejectedValue({})
-    axios.post.mockResolvedValue({
+    api.get.mockRejectedValue({})
+    api.post.mockResolvedValue({
       data: {
         schema_alterado: true,
         colunas_novas: ['cliente_final:Nova Coluna 2027'],
