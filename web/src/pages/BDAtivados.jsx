@@ -1,8 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { Upload, RefreshCw, Database, Users, TrendingUp, Calendar } from "lucide-react";
-import axios from "axios";
+import api from "../api";
 
-const API = "/api";
 
 function KpiCard({ label, value, sub, color = "text-cyan-400", Icon }) {
   return (
@@ -26,8 +25,8 @@ export default function BDAtivadosDashboard() {
   const carregar = useCallback(async () => {
     try {
       const [r, h] = await Promise.all([
-        axios.get(`${API}/bd-ativados/resumo`).catch(() => ({ data: null })),
-        axios.get(`${API}/bd-ativados/historico`).catch(() => ({ data: [] })),
+        api.get(`/bd-ativados/resumo`).catch(() => ({ data: null })),
+        api.get(`/bd-ativados/historico`).catch(() => ({ data: [] })),
       ]);
       setResumo(r.data);
       setHistorico(h.data);
@@ -46,7 +45,7 @@ export default function BDAtivadosDashboard() {
     const form = new FormData();
     form.append("arquivo", file);
     try {
-      const { data } = await axios.post(`${API}/bd-ativados/upload`, form, {
+      const { data } = await api.post(`/bd-ativados/upload`, form, {
         headers: { "Content-Type": "multipart/form-data" },
       });
       setMsg({

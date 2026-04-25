@@ -1,8 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { Upload, RefreshCw, AlertCircle, CheckCircle, XCircle, HelpCircle } from "lucide-react";
-import axios from "axios";
+import api from "../api";
 
-const API = "/api";
 
 const STATUS_CFG = {
   CONFORME:   { label: "Conforme",   bg: "bg-emerald-500/10", text: "text-emerald-400", border: "border-emerald-500/30", Icon: CheckCircle },
@@ -45,11 +44,11 @@ export default function POsDashboard() {
   const carregar = useCallback(async () => {
     try {
       const [r, a, d, h, f] = await Promise.all([
-        axios.get(`${API}/po/reconciliacao/ultima`).catch(() => ({ data: [] })),
-        axios.get(`${API}/po/reconciliacao/ausentes`).catch(() => ({ data: [] })),
-        axios.get(`${API}/po/reconciliacao/divergentes`).catch(() => ({ data: [] })),
-        axios.get(`${API}/po/historico`).catch(() => ({ data: [] })),
-        axios.get(`${API}/po/resumo/financeiro`).catch(() => ({ data: [] })),
+        api.get(`/po/reconciliacao/ultima`).catch(() => ({ data: [] })),
+        api.get(`/po/reconciliacao/ausentes`).catch(() => ({ data: [] })),
+        api.get(`/po/reconciliacao/divergentes`).catch(() => ({ data: [] })),
+        api.get(`/po/historico`).catch(() => ({ data: [] })),
+        api.get(`/po/resumo/financeiro`).catch(() => ({ data: [] })),
       ]);
       setReconciliacao(r.data);
       setAusentes(a.data);
@@ -71,7 +70,7 @@ export default function POsDashboard() {
     const form = new FormData();
     form.append("arquivo", file);
     try {
-      const { data } = await axios.post(`${API}/po/upload`, form, {
+      const { data } = await api.post(`/po/upload`, form, {
         headers: { "Content-Type": "multipart/form-data" },
       });
       setMsg({

@@ -1,8 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { Upload, RefreshCw, AlertTriangle, CheckCircle, TrendingUp, Users, BarChart3 } from "lucide-react";
-import axios from "axios";
+import api from "../api";
 
-const API = "/api";
 
 const RISCO = {
   VERDE:    { bg: "bg-emerald-500/10", border: "border-emerald-500/40", text: "text-emerald-400", dot: "bg-emerald-500" },
@@ -54,9 +53,9 @@ export default function PEXDashboard() {
   const carregar = useCallback(async () => {
     try {
       const [p, c, h] = await Promise.all([
-        axios.get(`${API}/pex/painel`).catch(() => ({ data: null })),
-        axios.get(`${API}/pex/compliance`).catch(() => ({ data: [] })),
-        axios.get(`${API}/pex/historico?meses=6`).catch(() => ({ data: [] })),
+        api.get(`/pex/painel`).catch(() => ({ data: null })),
+        api.get(`/pex/compliance`).catch(() => ({ data: [] })),
+        api.get(`/pex/historico?meses=6`).catch(() => ({ data: [] })),
       ]);
       setPainel(p.data);
       setCompliance(c.data);
@@ -76,7 +75,7 @@ export default function PEXDashboard() {
     const form = new FormData();
     form.append("arquivo", file);
     try {
-      const { data } = await axios.post(`${API}/pex/cromie/upload`, form, {
+      const { data } = await api.post(`/pex/cromie/upload`, form, {
         headers: { "Content-Type": "multipart/form-data" },
       });
       setMsg({
