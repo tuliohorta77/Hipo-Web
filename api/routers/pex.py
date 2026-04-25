@@ -100,19 +100,10 @@ async def upload_cromie(
         resultado["abas"].get("tarefa_contador", {}).get("linhas", []))
 
     # Calcula indicadores PEX
+    # mes_ref = mês corrente. O calcular_pex_snapshot lê metas/cabeçalho do banco
+    # diretamente do modelo novo (pex_metas_cabecalho + pex_metas_indicadores + pex_metas_big3).
     mes_ref = date.today().strftime("%Y-%m")
-    metas = await conn.fetchrow(
-        "SELECT * FROM pex_metas_mensais WHERE mes_ref = $1", mes_ref
-    )
-    dias_uteis   = int(metas["dias_uteis"])   if metas else 22
-    ecs_ativos   = int(metas["ecs_ativos_m3"]) if metas else 2
-    evs_ativos   = int(metas["evs_ativos"])   if metas else 1
-    carteira     = int(metas["carteira_total_contadores"]) if metas else 1
-
-    snapshot = await calcular_pex_snapshot(
-        conn, upload_id_str, mes_ref,
-        dias_uteis, ecs_ativos, evs_ativos, carteira
-    )
+    snapshot = await calcular_pex_snapshot(conn, upload_id_str, mes_ref)
     snapshot["mes_ref"] = mes_ref
     snapshot["data_ref"] = date.today()
     snapshot["upload_cromie_id"] = upload_id_str
