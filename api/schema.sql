@@ -69,11 +69,19 @@ CREATE TABLE bd_ativados (
     -- Status
     situacao                    VARCHAR(50),    -- ACTIVE, ARCHIVED, etc.
     saude_paciente              VARCHAR(50),
+    -- Tipo do plano (Omie completo / Fit / BPO / Omie completo - Start)
+    tipo                        VARCHAR(80),
     -- Faturamento
     dia_faturamento             SMALLINT,
     vencimento                  SMALLINT,
     tipo_faturamento            VARCHAR(50),
-    valor_mensalidade           NUMERIC(10,2),
+    valor_mensalidade           NUMERIC(10,2),         -- "Valor Mensal - atual no contrato"
+    valor_mensal_informado      NUMERIC(10,2),         -- "Valor Mensal - informado na ativação"
+    mrr_bruto                   NUMERIC(14,2) DEFAULT 0,
+        -- Regra (validada contra planilha oficial — match 100%):
+        --   ACTIVE + tipo='BPO'  → valor_mensalidade / N(linhas BPO ACTIVE do mesmo CNPJ)
+        --   ACTIVE + tipo!='BPO' → valor_mensalidade
+        --   != ACTIVE             → 0
     -- Uso do produto
     integracao_contabil         BOOLEAN DEFAULT FALSE,
     ultimo_acesso               DATE,
@@ -103,6 +111,7 @@ CREATE TABLE bd_ativados (
 CREATE INDEX idx_bd_ativados_ref ON bd_ativados(referencia_aplicativo);
 CREATE INDEX idx_bd_ativados_situacao ON bd_ativados(situacao);
 CREATE INDEX idx_bd_ativados_faturamento ON bd_ativados(dia_faturamento, vencimento);
+CREATE INDEX idx_bd_ativados_tipo ON bd_ativados(tipo);
 
 -- ============================================================
 -- MÓDULO: POs

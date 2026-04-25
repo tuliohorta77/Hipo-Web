@@ -342,33 +342,56 @@ async def historico_pex(
 @router.post("/metas")
 async def configurar_metas(dados: dict, conn=Depends(get_conn)):
     """
-    Configura as metas mensais para cálculo do PEX.
-    Campos: mes_ref, nmrr_meta, demos_outbound_meta, dias_uteis,
-            ecs_ativos_m3, evs_ativos, carteira_total_contadores
+    Configura as metas mensais para cálculo do PEX (endpoint legado).
+
+    Mantém o contrato antigo (mes_ref + 6 campos) mas grava no modelo novo
+    (pex_metas_cabecalho + pex_metas_indicadores). Para a UI completa de
+    metas (incluindo Big3, cluster, integração contábil, eventos), usar
+    a página /metas que aponta para o router metas.py.
     """
-    await conn.execute("""
-        INSERT INTO pex_metas_mensais (
-            mes_ref, nmrr_meta, demos_outbound_meta,
-            dias_uteis, ecs_ativos_m3, evs_ativos,
-            carteira_total_contadores
-        ) VALUES ($1,$2,$3,$4,$5,$6,$7)
+    mes_ref = dados.get("mes_ref")
+    if not mes_ref:
+        raise HTTPException(400, "mes_ref obrigatório (formato YYYY-MM)")
+
+    # Cabeçalho (campos globais do mês)
+    cab_id = await conn.fetchval("""
+        INSERT INTO pex_metas_cabecalho
+            (mes_ref, dias_uteis, ecs_ativos_m3, evs_ativos,
+             carteira_total_contadores, atualizado_em)
+        VALUES ($1, $2, $3, $4, $5, NOW())
         ON CONFLICT (mes_ref) DO UPDATE SET
-            nmrr_meta = EXCLUDED.nmrr_meta,
-            demos_outbound_meta = EXCLUDED.demos_outbound_meta,
-            dias_uteis = EXCLUDED.dias_uteis,
-            ecs_ativos_m3 = EXCLUDED.ecs_ativos_m3,
-            evs_ativos = EXCLUDED.evs_ativos,
-            carteira_total_contadores = EXCLUDED.carteira_total_contadores
+            dias_uteis                = EXCLUDED.dias_uteis,
+            ecs_ativos_m3             = EXCLUDED.ecs_ativos_m3,
+            evs_ativos                = EXCLUDED.evs_ativos,
+            carteira_total_contadores = EXCLUDED.carteira_total_contadores,
+            atualizado_em             = NOW()
+        RETURNING id
     """,
-    dados.get("mes_ref"),
-    dados.get("nmrr_meta"),
-    dados.get("demos_outbound_meta"),
-    dados.get("dias_uteis", 22),
-    dados.get("ecs_ativos_m3", 2),
-    dados.get("evs_ativos", 1),
-    dados.get("carteira_total_contadores", 1),
+    mes_ref,
+    int(dados.get("dias_uteis") or 22),
+    int(dados.get("ecs_ativos_m3") or 0),
+    int(dados.get("evs_ativos") or 0),
+    int(dados.get("carteira_total_contadores") or 0),
     )
-    return {"message": "Metas configuradas com sucesso."}
+
+    # Metas numéricas dos 2 indicadores que esse endpoint legado conhece
+    if dados.get("nmrr_meta") is not None:
+        await conn.execute("""
+            INSERT INTO pex_metas_indicadores (cabecalho_id, codigo, meta_valor)
+            VALUES ($1, 'nmrr', $2)
+            ON CONFLICT (cabecalho_id, codigo) DO UPDATE
+            SET meta_valor = EXCLUDED.meta_valor
+        """, cab_id, dados.get("nmrr_meta"))
+
+    if dados.get("demos_outbound_meta") is not None:
+        await conn.execute("""
+            INSERT INTO pex_metas_indicadores (cabecalho_id, codigo, meta_valor)
+            VALUES ($1, 'demos_outbound', $2)
+            ON CONFLICT (cabecalho_id, codigo) DO UPDATE
+            SET meta_valor = EXCLUDED.meta_valor
+        """, cab_id, dados.get("demos_outbound_meta"))
+
+    return {"message": "Metas configuradas com sucesso.", "cabecalho_id": cab_id}
 
 
 @router.get("/cromie/auditoria")
