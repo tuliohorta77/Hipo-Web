@@ -4,6 +4,7 @@ Fixtures compartilhadas para todos os testes do HIPO.
 import os
 import pytest
 import asyncpg
+import bcrypt
 from httpx import AsyncClient, ASGITransport
 
 os.environ.setdefault("DATABASE_URL", "postgresql://hipo_test:hipo_test@localhost:5432/hipo_test")
@@ -13,7 +14,6 @@ os.environ.setdefault("UPLOAD_DIR", "/tmp/hipo_test_uploads")
 
 from main import app
 
-# Senha curta e fixa — bcrypt tem limite de 72 bytes
 _SENHA_TESTE = "test123"
 
 
@@ -45,12 +45,12 @@ async def client():
 
 @pytest.fixture
 async def usuario_adm(db_conn, client):
-    from passlib.context import CryptContext
-    pwd = CryptContext(schemes=["bcrypt"]).hash(_SENHA_TESTE)
+    # bcrypt direto — sem passlib, sem limite de 72 bytes no detect_wrap_bug
+    pwd_hash = bcrypt.hashpw(_SENHA_TESTE.encode(), bcrypt.gensalt()).decode()
     await db_conn.execute("""
         INSERT INTO usuarios (nome, email, senha_hash, cargo)
         VALUES ('ADM Teste', 'adm@teste.com', $1, 'ADM')
-    """, pwd)
+    """, pwd_hash)
     resp = await client.post(
         "/auth/login",
         data={"username": "adm@teste.com", "password": _SENHA_TESTE}

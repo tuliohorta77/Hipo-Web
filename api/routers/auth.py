@@ -2,17 +2,26 @@ from datetime import datetime, timedelta
 from fastapi import APIRouter, HTTPException, Depends
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from jose import jwt, JWTError
-from passlib.context import CryptContext
+import bcrypt
 from database import get_conn
 from config import settings
 
 router = APIRouter()
-pwd_ctx = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2 = OAuth2PasswordBearer(tokenUrl="/auth/login")
+
+
+def _hash_senha(senha: str) -> str:
+    return bcrypt.hashpw(senha.encode(), bcrypt.gensalt()).decode()
+
+
+def _verificar_senha(senha: str, hash_: str) -> bool:
+    return bcrypt.checkpw(senha.encode(), hash_.encode())
+
 
 def criar_token(sub: str) -> str:
     exp = datetime.utcnow() + timedelta(hours=settings.JWT_EXPIRE_HOURS)
     return jwt.encode({"sub": sub, "exp": exp}, settings.JWT_SECRET, algorithm="HS256")
+
 
 async def usuario_atual(token: str = Depends(oauth2), conn=Depends(get_conn)):
     try:
@@ -20,19 +29,23 @@ async def usuario_atual(token: str = Depends(oauth2), conn=Depends(get_conn)):
         email = payload.get("sub")
     except JWTError:
         raise HTTPException(401, "Token inválido")
-    user = await conn.fetchrow("SELECT * FROM usuarios WHERE email = $1 AND ativo = TRUE", email)
+    user = await conn.fetchrow(
+        "SELECT * FROM usuarios WHERE email = $1 AND ativo = TRUE", email
+    )
     if not user:
         raise HTTPException(401, "Usuário não encontrado")
     return dict(user)
+
 
 @router.post("/login")
 async def login(form: OAuth2PasswordRequestForm = Depends(), conn=Depends(get_conn)):
     user = await conn.fetchrow(
         "SELECT * FROM usuarios WHERE email = $1 AND ativo = TRUE", form.username
     )
-    if not user or not pwd_ctx.verify(form.password, user["senha_hash"]):
+    if not user or not _verificar_senha(form.password, user["senha_hash"]):
         raise HTTPException(401, "Credenciais inválidas")
     return {"access_token": criar_token(user["email"]), "token_type": "bearer"}
+
 
 @router.get("/me")
 async def me(user=Depends(usuario_atual)):

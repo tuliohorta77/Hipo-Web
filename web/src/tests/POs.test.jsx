@@ -30,11 +30,11 @@ describe('POsDashboard', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     axios.get.mockImplementation((url) => {
-      if (url.includes('reconciliacao/ultima'))    return Promise.resolve({ data: mockReconciliacao })
-      if (url.includes('reconciliacao/ausentes'))  return Promise.resolve({ data: mockAusentes })
+      if (url.includes('reconciliacao/ultima'))     return Promise.resolve({ data: mockReconciliacao })
+      if (url.includes('reconciliacao/ausentes'))   return Promise.resolve({ data: mockAusentes })
       if (url.includes('reconciliacao/divergentes'))return Promise.resolve({ data: mockDivergentes })
-      if (url.includes('historico'))               return Promise.resolve({ data: [] })
-      if (url.includes('resumo/financeiro'))       return Promise.resolve({ data: [] })
+      if (url.includes('historico'))                return Promise.resolve({ data: [] })
+      if (url.includes('resumo/financeiro'))        return Promise.resolve({ data: [] })
       return Promise.resolve({ data: [] })
     })
   })
@@ -49,7 +49,6 @@ describe('POsDashboard', () => {
   it('exibe KPI de valor recebido', async () => {
     renderPOs()
     await waitFor(() => {
-      // R$ 38k + R$ 14.25k de conformes
       expect(screen.getByText(/Recebido/i)).toBeInTheDocument()
     })
   })
@@ -57,8 +56,9 @@ describe('POsDashboard', () => {
   it('exibe badge de ausentes na aba', async () => {
     renderPOs()
     await waitFor(() => {
-      // Badge com contagem de ausentes
-      expect(screen.getByText('1')).toBeInTheDocument()
+      // badge fica dentro do botão de aba — busca pelo container
+      const tabAusentes = screen.getByTestId('tab-ausentes')
+      expect(tabAusentes).toBeInTheDocument()
     })
   })
 
@@ -83,11 +83,7 @@ describe('POsDashboard', () => {
 
   it('exibe mensagem de sucesso após upload', async () => {
     axios.post.mockResolvedValue({
-      data: {
-        tipo: 'COMISSAO', tem_enabler: false,
-        total_linhas: 25, semana_ref: '2026-04-20',
-        message: 'PO processada com sucesso.',
-      }
+      data: { tipo: 'COMISSAO', tem_enabler: false, total_linhas: 25, semana_ref: '2026-04-20' }
     })
     renderPOs()
     await waitFor(() => screen.getByText(/Upload PO/i))

@@ -10,33 +10,19 @@ const mockPainel = {
   total_gestao_pts: 11.5,
   total_engajamento_pts: 14.0,
   risco_classificacao: 'AMARELO',
-  nmrr_pct: 38.6,
-  nmrr_pts: 0,
-  nmrr_realizado: 15861,
-  nmrr_meta: 41044,
-  reunioes_ec_du_realizado: 3.91,
-  reunioes_ec_du_pts: 1.5,
-  contadores_trabalhados_pct: 66.47,
-  contadores_trabalhados_pts: 0,
-  contadores_indicando_pct: 16.57,
-  contadores_indicando_pts: 0,
-  conversao_total_pct: 39.51,
-  conversao_total_pts: 4.0,
-  demo_du_realizado: 1.2,
-  demo_du_pts: 0,
-  early_churn_pct: 11.2,
-  early_churn_pts: 0,
-  crescimento_40_pct: 28.39,
-  crescimento_40_pts: 0,
+  nmrr_pct: 38.6, nmrr_pts: 0, nmrr_realizado: 15861, nmrr_meta: 41044,
+  reunioes_ec_du_realizado: 3.91, reunioes_ec_du_pts: 1.5,
+  contadores_trabalhados_pct: 66.47, contadores_trabalhados_pts: 0,
+  contadores_indicando_pct: 16.57, contadores_indicando_pts: 0,
+  conversao_total_pct: 39.51, conversao_total_pts: 4.0,
+  demo_du_realizado: 1.2, demo_du_pts: 0,
+  early_churn_pct: 11.2, early_churn_pts: 0,
+  crescimento_40_pct: 28.39, crescimento_40_pts: 0,
   created_at: '2026-04-23T10:00:00Z',
 }
 
 function renderPEX() {
-  return render(
-    <MemoryRouter>
-      <PEXDashboard />
-    </MemoryRouter>
-  )
+  return render(<MemoryRouter><PEXDashboard /></MemoryRouter>)
 }
 
 describe('PEXDashboard', () => {
@@ -54,14 +40,16 @@ describe('PEXDashboard', () => {
 
   it('exibe a pontuação do PEX quando há dados', async () => {
     axios.get.mockImplementation((url) => {
-      if (url.includes('painel'))    return Promise.resolve({ data: mockPainel })
-      if (url.includes('compliance'))return Promise.resolve({ data: [] })
-      if (url.includes('historico')) return Promise.resolve({ data: [] })
+      if (url.includes('painel'))     return Promise.resolve({ data: mockPainel })
+      if (url.includes('compliance')) return Promise.resolve({ data: [] })
+      if (url.includes('historico'))  return Promise.resolve({ data: [] })
       return Promise.resolve({ data: null })
     })
     renderPEX()
     await waitFor(() => {
-      expect(screen.getByText(/36\.5/)).toBeInTheDocument()
+      // usa getAllByText pois o score aparece no SVG e no parágrafo
+      const matches = screen.getAllByText(/36\.5/)
+      expect(matches.length).toBeGreaterThan(0)
     })
   })
 
@@ -78,7 +66,9 @@ describe('PEXDashboard', () => {
 
   it('exibe alerta de risco de descredenciamento abaixo de 36', async () => {
     axios.get.mockImplementation((url) => {
-      if (url.includes('painel')) return Promise.resolve({ data: { ...mockPainel, total_geral_pts: 35.9, risco_classificacao: 'VERMELHO' } })
+      if (url.includes('painel')) return Promise.resolve({ data: {
+        ...mockPainel, total_geral_pts: 35.9, risco_classificacao: 'VERMELHO'
+      }})
       return Promise.resolve({ data: [] })
     })
     renderPEX()
@@ -126,7 +116,9 @@ describe('PEXDashboard', () => {
     renderPEX()
     await waitFor(() => screen.getByText(/Upload CROmie/i))
     const input = document.querySelector('input[type="file"]')
-    const file = new File(['conteudo'], 'BD_CROMIE.xlsx', { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
+    const file = new File(['x'], 'BD_CROMIE.xlsx', {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    })
     fireEvent.change(input, { target: { files: [file] } })
     await waitFor(() => {
       expect(screen.getByText(/CROmie processado/i)).toBeInTheDocument()
@@ -148,7 +140,9 @@ describe('PEXDashboard', () => {
     renderPEX()
     await waitFor(() => screen.getByText(/Upload CROmie/i))
     const input = document.querySelector('input[type="file"]')
-    const file = new File(['x'], 'BD_CROMIE.xlsx', { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
+    const file = new File(['x'], 'BD_CROMIE.xlsx', {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    })
     fireEvent.change(input, { target: { files: [file] } })
     await waitFor(() => {
       expect(screen.getByText(/Schema alterado/i)).toBeInTheDocument()
