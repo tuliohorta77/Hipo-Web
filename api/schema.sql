@@ -15,6 +15,10 @@ CREATE TYPE po_status_reconciliacao AS ENUM (
     'CONFORME', 'DIVERGENTE', 'AUSENTE', 'INESPERADO'
 );
 
+CREATE TYPE po_tipo_linha_especial AS ENUM (
+    'FUNDO_MARKETING', 'SUBTOTAL'
+);
+
 CREATE TYPE cromie_status_upload AS ENUM (
     'PROCESSADO', 'ERRO_SCHEMA', 'ERRO_PARSE'
 );
@@ -115,8 +119,18 @@ CREATE TABLE po_uploads (
     semana_ref      DATE,                   -- domingo da semana de referência
     total_linhas    INT DEFAULT 0,
     processado      BOOLEAN DEFAULT FALSE,
-    erro            TEXT
+    erro            TEXT,
+    -- Agregados financeiros (Migration 002)
+    numero_po              VARCHAR(20),       -- número da PO extraído da planilha
+    soma_operacoes         NUMERIC(14,2),     -- Σ valor das operações (clientes/transações)
+    fundo_marketing_total  NUMERIC(14,2),     -- valor (negativo) do fundo de marketing 2,5%
+    valor_a_receber        NUMERIC(14,2),     -- soma_operacoes + fundo_marketing_total
+    subtotal_planilha      NUMERIC(14,2),     -- valor lido da linha de subtotal (validação)
+    tem_diferenca_calculo  BOOLEAN DEFAULT FALSE,
+    observacao_calculo     TEXT
 );
+
+CREATE INDEX idx_po_uploads_numero_po ON po_uploads(numero_po);
 
 -- Linhas das POs
 CREATE TABLE po_linhas (
@@ -124,8 +138,8 @@ CREATE TABLE po_linhas (
     upload_id               UUID REFERENCES po_uploads(id) NOT NULL,
     tipo                    po_tipo_enum NOT NULL,
     tem_enabler             BOOLEAN DEFAULT FALSE,
-    -- Identificação (comum a todos os tipos)
-    referencia_aplicativo   VARCHAR(80) NOT NULL,
+    -- Identificação (comum a todos os tipos; nullable em linhas especiais)
+    referencia_aplicativo   VARCHAR(80),
     razao_social            VARCHAR(200),
     cnpj                    VARCHAR(18),
     -- Financeiro
@@ -156,6 +170,10 @@ CREATE TABLE po_linhas (
     nfse_emitida            BOOLEAN DEFAULT FALSE,
     nfse_numero             VARCHAR(40),
     nfse_data               TIMESTAMPTZ,
+    -- Linhas especiais (Migration 002): Fundo de Marketing e Subtotal da PO
+    eh_linha_especial       BOOLEAN DEFAULT FALSE,
+    tipo_linha_especial     po_tipo_linha_especial,
+    numero_po               VARCHAR(20),     -- desnormalizado pra agregações sem JOIN
     -- Controle
     created_at              TIMESTAMPTZ DEFAULT NOW()
 );
@@ -164,6 +182,8 @@ CREATE INDEX idx_po_linhas_ref ON po_linhas(referencia_aplicativo);
 CREATE INDEX idx_po_linhas_upload ON po_linhas(upload_id);
 CREATE INDEX idx_po_linhas_status ON po_linhas(status_reconciliacao);
 CREATE INDEX idx_po_linhas_tipo ON po_linhas(tipo, tem_enabler);
+CREATE INDEX idx_po_linhas_especial ON po_linhas(eh_linha_especial)
+    WHERE eh_linha_especial = TRUE;
 
 -- Parcelas de repasse (calendário completo por cliente)
 CREATE TABLE repasse_calendario (
@@ -482,7 +502,7 @@ WHERE s.mes_ref = TO_CHAR(CURRENT_DATE, 'YYYY-MM')
 ORDER BY s.data_ref DESC
 LIMIT 1;
 
--- View: Reconciliação semanal mais recente
+-- View: Reconciliação semanal mais recente (ignora linhas especiais Fundo+Subtotal)
 CREATE OR REPLACE VIEW vw_reconciliacao_atual AS
 SELECT
     pl.tipo,
@@ -496,6 +516,7 @@ JOIN po_uploads pu ON pu.id = pl.upload_id
 WHERE pu.semana_ref = (
     SELECT MAX(semana_ref) FROM po_uploads WHERE processado = TRUE
 )
+  AND pl.eh_linha_especial = FALSE
 GROUP BY pl.tipo, pl.tem_enabler, pl.status_reconciliacao;
 
 -- View: Clientes ausentes na última semana
