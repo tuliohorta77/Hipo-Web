@@ -1,5 +1,5 @@
 import { Outlet, NavLink } from "react-router-dom";
-import { BarChart3, FileText, Menu } from "lucide-react";
+import { BarChart3, FileText, Database, Menu } from "lucide-react";
 import { useState } from "react";
 
 export default function Layout() {
@@ -8,6 +8,7 @@ export default function Layout() {
   const nav = [
     { to: "/pex", label: "PEX",  Icon: BarChart3 },
     { to: "/pos", label: "POs",  Icon: FileText  },
+    { to: "/bd-ativados", label: "BD Ativados", Icon: Database },
   ];
 
   return (
