@@ -30,12 +30,15 @@ def anyio_backend():
 async def db_conn():
     """Conexão direta por teste com event loop próprio."""
     conn = await asyncpg.connect(_DB_URL)
+    # NOTA: pex_metas_mensais agora é VIEW (não TRUNCATE).
+    # Limpamos pex_metas_cabecalho com CASCADE — isso puxa pex_metas_indicadores e pex_metas_big3.
     await conn.execute("""
         TRUNCATE TABLE
             po_linhas, po_uploads, po_projecao_semanal, repasse_calendario,
             cromie_cliente_final, cromie_tarefa_cliente, cromie_contador,
             cromie_tarefa_contador, cromie_uploads, pex_snapshot,
-            pex_compliance_gaps, pex_metas_mensais,
+            pex_compliance_gaps,
+            pex_metas_big3, pex_metas_indicadores, pex_metas_cabecalho,
             bd_ativados, bd_ativados_upload, usuarios
         CASCADE
     """)
@@ -78,10 +81,34 @@ async def usuario_adm(db_conn, client):
 
 @pytest.fixture
 async def meta_abril(db_conn):
-    await db_conn.execute("""
-        INSERT INTO pex_metas_mensais
-            (mes_ref, nmrr_meta, demos_outbound_meta,
-             dias_uteis, ecs_ativos_m3, evs_ativos,
-             carteira_total_contadores)
-        VALUES ('2026-04', 41044, 100, 22, 2, 1, 120)
+    """
+    Cadastra meta de abril/2026 no novo modelo (cabecalho + indicadores).
+    Equivalente ao INSERT antigo em pex_metas_mensais.
+    """
+    cab_id = await db_conn.fetchval("""
+        INSERT INTO pex_metas_cabecalho
+            (mes_ref, cluster_unidade, dias_uteis, ecs_ativos_m3, evs_ativos,
+             carteira_total_contadores, apps_ativos)
+        VALUES ('2026-04', 'BASE', 22, 2, 1, 120, 100)
+        RETURNING id
     """)
+    # Metas numéricas dos 5 indicadores editáveis
+    await db_conn.executemany("""
+        INSERT INTO pex_metas_indicadores (cabecalho_id, codigo, meta_valor)
+        VALUES ($1, $2, $3)
+    """, [
+        (cab_id, 'nmrr', 41044),
+        (cab_id, 'demos_outbound', 100),
+        (cab_id, 'integracao_contabil', 5),  # Cluster BASE = 5
+        (cab_id, 'eventos', 3),              # Cluster BASE = 3
+    ])
+    # Big3 placeholder (3 ações vazias, não atingidas)
+    await db_conn.executemany("""
+        INSERT INTO pex_metas_big3 (cabecalho_id, ordem, descricao, atingiu)
+        VALUES ($1, $2, $3, $4)
+    """, [
+        (cab_id, 1, "Ação teste 1", False),
+        (cab_id, 2, "Ação teste 2", False),
+        (cab_id, 3, "Ação teste 3", False),
+    ])
+    return cab_id

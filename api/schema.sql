@@ -461,19 +461,61 @@ CREATE TABLE pex_compliance_gaps (
 CREATE INDEX idx_gaps_usuario ON pex_compliance_gaps(usuario_responsavel, data_ref);
 
 -- Configuração de metas mensais (ADM preenche no início de cada mês)
-CREATE TABLE pex_metas_mensais (
+-- Modelo refatorado v005: cabeçalho + indicadores + big3
+CREATE TABLE pex_metas_cabecalho (
     id              SERIAL PRIMARY KEY,
-    mes_ref         CHAR(7) NOT NULL,  -- YYYY-MM
-    nmrr_meta       NUMERIC(12,2),
-    demos_outbound_meta INT,
-    big3_descricao  TEXT,
-    dias_uteis      SMALLINT,
-    ecs_ativos_m3   SMALLINT,          -- ECs com 3+ meses de rampagem
-    evs_ativos      SMALLINT,
-    carteira_total_contadores INT,
-    created_at      TIMESTAMPTZ DEFAULT NOW(),
-    UNIQUE(mes_ref)
+    mes_ref         CHAR(7) NOT NULL UNIQUE,
+    cluster_unidade VARCHAR(30) NOT NULL DEFAULT 'BASE',
+    dias_uteis      SMALLINT NOT NULL DEFAULT 22,
+    ecs_ativos_m3   SMALLINT NOT NULL DEFAULT 0,
+    evs_ativos      SMALLINT NOT NULL DEFAULT 0,
+    carteira_total_contadores INT NOT NULL DEFAULT 0,
+    apps_ativos     INT NOT NULL DEFAULT 0,
+    headcount_recomendado SMALLINT,
+    criado_por      UUID REFERENCES usuarios(id),
+    criado_em       TIMESTAMPTZ DEFAULT NOW(),
+    atualizado_em   TIMESTAMPTZ DEFAULT NOW()
 );
+
+CREATE INDEX ix_pex_metas_cab_mes ON pex_metas_cabecalho(mes_ref DESC);
+
+CREATE TABLE pex_metas_indicadores (
+    id              SERIAL PRIMARY KEY,
+    cabecalho_id    INT NOT NULL REFERENCES pex_metas_cabecalho(id) ON DELETE CASCADE,
+    codigo          VARCHAR(40) NOT NULL,
+    meta_valor      NUMERIC(14,2),
+    UNIQUE (cabecalho_id, codigo)
+);
+
+CREATE INDEX ix_pex_metas_ind_codigo ON pex_metas_indicadores(codigo);
+
+CREATE TABLE pex_metas_big3 (
+    id              SERIAL PRIMARY KEY,
+    cabecalho_id    INT NOT NULL REFERENCES pex_metas_cabecalho(id) ON DELETE CASCADE,
+    ordem           SMALLINT NOT NULL CHECK (ordem BETWEEN 1 AND 3),
+    descricao       TEXT,
+    atingiu         BOOLEAN DEFAULT FALSE,
+    UNIQUE (cabecalho_id, ordem)
+);
+
+-- View de compatibilidade — mantém o nome antigo pex_metas_mensais funcionando
+-- pra código legado que ainda lê dela (será removida no futuro).
+CREATE VIEW pex_metas_mensais AS
+SELECT
+    cab.id,
+    cab.mes_ref,
+    (SELECT meta_valor FROM pex_metas_indicadores
+        WHERE cabecalho_id = cab.id AND codigo = 'nmrr') AS nmrr_meta,
+    (SELECT meta_valor::INT FROM pex_metas_indicadores
+        WHERE cabecalho_id = cab.id AND codigo = 'demos_outbound') AS demos_outbound_meta,
+    (SELECT descricao FROM pex_metas_big3
+        WHERE cabecalho_id = cab.id AND ordem = 1) AS big3_descricao,
+    cab.dias_uteis,
+    cab.ecs_ativos_m3,
+    cab.evs_ativos,
+    cab.carteira_total_contadores,
+    cab.criado_em AS created_at
+FROM pex_metas_cabecalho cab;
 
 -- ============================================================
 -- VIEWS ESTRATÉGICAS
