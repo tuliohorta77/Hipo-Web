@@ -1,6 +1,6 @@
 // web/src/components/Layout.jsx
 import { Outlet, NavLink } from "react-router-dom";
-import { BarChart3, FileText, Database, Menu, LogOut } from "lucide-react";
+import { BarChart3, FileText, Database, Target, Menu, LogOut } from "lucide-react";
 import { useState } from "react";
 import { getUser, logout } from "../api";
 
@@ -12,6 +12,7 @@ export default function Layout() {
     { to: "/pex", label: "PEX", Icon: BarChart3 },
     { to: "/pos", label: "POs", Icon: FileText },
     { to: "/bd-ativados", label: "BD Ativados", Icon: Database },
+    { to: "/metas", label: "Metas", Icon: Target },
   ];
 
   return (
