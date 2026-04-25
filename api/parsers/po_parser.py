@@ -131,6 +131,10 @@ def _parcela(v) -> tuple[Optional[int], Optional[int]]:
     return None, None
 
 
+# Alias retrocompatível — código/testes antigos usam o nome com prefixo "_extrair_"
+_extrair_parcela = _parcela
+
+
 def _col(df: pd.DataFrame, padroes: list) -> Optional[str]:
     """
     Encontra coluna por padrões normalizados, na ordem fornecida.
@@ -521,6 +525,8 @@ def parse_po_arquivo(caminho: str) -> dict:
         "semana_ref": semana_ref,
         "numero_po": r["numero_po"],
         "linhas_operacao": r["linhas_operacao"],
+        # Alias retrocompatível — testes/código antigos esperam "linhas"
+        "linhas": r["linhas_operacao"],
         "linha_fundo": r["linha_fundo"],
         "linha_subtotal": r["linha_subtotal"],
         "soma_operacoes": r["soma_operacoes"],
@@ -538,7 +544,8 @@ def _retorno_erro(nome: str, msg: str, tipo=None, tem_enabler=False, semana_ref=
     return {
         "tipo": tipo, "tem_enabler": tem_enabler, "semana_ref": semana_ref,
         "numero_po": None,
-        "linhas_operacao": [], "linha_fundo": None, "linha_subtotal": None,
+        "linhas_operacao": [], "linhas": [],   # alias retrocompatível
+        "linha_fundo": None, "linha_subtotal": None,
         "soma_operacoes": 0.0, "fundo_marketing_total": 0.0,
         "subtotal_planilha": None, "valor_a_receber": 0.0,
         "tem_diferenca_calculo": False, "observacao_calculo": None,
