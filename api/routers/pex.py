@@ -4,6 +4,7 @@ Endpoints: upload CROmie, cálculo de indicadores, compliance, painel.
 """
 import os
 import uuid
+import json
 import shutil
 from datetime import date
 from fastapi import APIRouter, UploadFile, File, HTTPException, Depends, Query
@@ -108,67 +109,68 @@ async def upload_cromie(
     snapshot["data_ref"] = date.today()
     snapshot["upload_cromie_id"] = upload_id_str
 
-    # Upsert snapshot
-    await conn.execute(
+    # ─── Persiste no novo modelo (pex_snapshot + pex_snapshot_indicadores) ───
+    # snapshot["_v3"] tem o objeto estruturado com lista de indicadores
+    v3 = snapshot.get("_v3") or {"totais": {}, "indicadores": []}
+    totais = v3.get("totais", {})
+
+    # 1) Cabeçalho (UPSERT por (mes_ref, data_ref))
+    snapshot_id = await conn.fetchval(
         """
         INSERT INTO pex_snapshot (
             data_ref, mes_ref, upload_cromie_id,
-            nmrr_realizado, nmrr_meta, nmrr_pct, nmrr_pts,
-            reunioes_ec_du_realizado, reunioes_ec_du_pts,
-            contadores_trabalhados_pct, contadores_trabalhados_pts,
-            contadores_indicando_pct, contadores_indicando_pts,
-            contadores_ativando_pct, contadores_ativando_pts,
-            conversao_total_pct, conversao_total_pts,
-            conversao_m0_pct, conversao_m0_pts,
-            conversao_inbound_pct, conversao_inbound_pts,
-            demo_du_realizado, demo_du_pts,
-            demos_outbound_pct, demos_outbound_pts,
-            sow_pct, sow_pts,
-            mapeamento_carteira_pct, mapeamento_carteira_pts,
-            reuniao_contador_inbound_pct, reuniao_contador_inbound_pts,
-            integracao_contabil_pct, integracao_contabil_pts,
-            early_churn_pct, early_churn_pts,
-            crescimento_40_pct, crescimento_40_pts,
-            utilizacao_desconto_pct, utilizacao_desconto_pts,
-            total_resultado_pts, total_gestao_pts,
-            total_engajamento_pts, total_geral_pts,
-            risco_classificacao
-        ) VALUES (
-            $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,
-            $20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,
-            $37,$38,$39,$40,$41,$42,$43,$44
-        )
-        ON CONFLICT (data_ref) DO UPDATE SET
-            upload_cromie_id = EXCLUDED.upload_cromie_id,
-            nmrr_realizado = EXCLUDED.nmrr_realizado,
-            nmrr_pts = EXCLUDED.nmrr_pts,
-            total_geral_pts = EXCLUDED.total_geral_pts,
-            risco_classificacao = EXCLUDED.risco_classificacao
+            total_resultado_pts, total_gestao_pts, total_engajamento_pts,
+            total_geral_pts, risco_classificacao, classificacao_oficial
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+        ON CONFLICT (mes_ref, data_ref) DO UPDATE SET
+            upload_cromie_id        = EXCLUDED.upload_cromie_id,
+            total_resultado_pts     = EXCLUDED.total_resultado_pts,
+            total_gestao_pts        = EXCLUDED.total_gestao_pts,
+            total_engajamento_pts   = EXCLUDED.total_engajamento_pts,
+            total_geral_pts         = EXCLUDED.total_geral_pts,
+            risco_classificacao     = EXCLUDED.risco_classificacao,
+            classificacao_oficial   = EXCLUDED.classificacao_oficial
         RETURNING id
         """,
         snapshot["data_ref"], snapshot["mes_ref"], snapshot["upload_cromie_id"],
-        snapshot.get("nmrr_realizado"), snapshot.get("nmrr_meta"),
-        snapshot.get("nmrr_pct"), snapshot.get("nmrr_pts"),
-        snapshot.get("reunioes_ec_du_realizado"), snapshot.get("reunioes_ec_du_pts"),
-        snapshot.get("contadores_trabalhados_pct"), snapshot.get("contadores_trabalhados_pts"),
-        snapshot.get("contadores_indicando_pct"), snapshot.get("contadores_indicando_pts"),
-        snapshot.get("contadores_ativando_pct"), snapshot.get("contadores_ativando_pts"),
-        snapshot.get("conversao_total_pct"), snapshot.get("conversao_total_pts"),
-        snapshot.get("conversao_m0_pct"), snapshot.get("conversao_m0_pts"),
-        snapshot.get("conversao_inbound_pct"), snapshot.get("conversao_inbound_pts"),
-        snapshot.get("demo_du_realizado"), snapshot.get("demo_du_pts"),
-        snapshot.get("demos_outbound_pct"), snapshot.get("demos_outbound_pts"),
-        snapshot.get("sow_pct"), snapshot.get("sow_pts"),
-        snapshot.get("mapeamento_carteira_pct"), snapshot.get("mapeamento_carteira_pts"),
-        snapshot.get("reuniao_contador_inbound_pct"), snapshot.get("reuniao_contador_inbound_pts"),
-        snapshot.get("integracao_contabil_pct"), snapshot.get("integracao_contabil_pts"),
-        snapshot.get("early_churn_pct", 0), snapshot.get("early_churn_pts", 0),
-        snapshot.get("crescimento_40_pct", 0), snapshot.get("crescimento_40_pts", 0),
-        snapshot.get("utilizacao_desconto_pct", 0), snapshot.get("utilizacao_desconto_pts", 0),
-        snapshot.get("total_resultado_pts"), snapshot.get("total_gestao_pts"),
-        snapshot.get("total_engajamento_pts"), snapshot.get("total_geral_pts"),
-        snapshot.get("risco_classificacao"),
+        totais.get("resultado_pts", 0),
+        totais.get("gestao_pts", 0),
+        totais.get("engajamento_pts", 0),
+        totais.get("geral_pts", 0),
+        totais.get("risco_classificacao", "VERMELHO"),
+        totais.get("classificacao_oficial", "NAO_ADERENTE"),
     )
+
+    # 2) Substitui filhas em bloco (idempotente)
+    await conn.execute(
+        "DELETE FROM pex_snapshot_indicadores WHERE snapshot_id = $1",
+        snapshot_id,
+    )
+
+    if v3.get("indicadores"):
+        rows = [
+            (
+                snapshot_id,
+                ind["codigo"], ind["pilar"], ind["nome"],
+                ind["pts_max"],
+                ind.get("realizado") or 0,
+                ind.get("meta") or 0,
+                ind.get("unidade"),
+                ind.get("pct") or 0,
+                ind.get("pts") or 0,
+                json.dumps(ind.get("detalhes") or {}, ensure_ascii=False, default=str),
+            )
+            for ind in v3["indicadores"]
+        ]
+        await conn.executemany(
+            """
+            INSERT INTO pex_snapshot_indicadores (
+                snapshot_id, codigo, pilar, nome, pts_max,
+                realizado, meta, unidade, pct, pts, detalhes_json
+            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb)
+            """,
+            rows,
+        )
 
     # Gaps de compliance por usuário
     gaps = await calcular_gaps_compliance(conn, upload_id_str)
@@ -287,15 +289,59 @@ async def _inserir_tarefa_contador(conn, upload_id, linhas):
 
 @router.get("/painel")
 async def painel_pex(conn=Depends(get_conn)):
-    """Painel completo do PEX do mês atual."""
-    row = await conn.fetchrow("""
+    """Painel completo do PEX do mês atual (cabeçalho + 30 indicadores detalhados)."""
+    snap = await conn.fetchrow("""
         SELECT * FROM pex_snapshot
         WHERE mes_ref = TO_CHAR(CURRENT_DATE, 'YYYY-MM')
         ORDER BY data_ref DESC LIMIT 1
     """)
-    if not row:
+    if not snap:
         raise HTTPException(404, "Nenhum snapshot encontrado para o mês atual.")
-    return dict(row)
+
+    # 30 indicadores detalhados (com realizado/meta/pct/pts/detalhes)
+    indicadores = await conn.fetch("""
+        SELECT codigo, pilar, nome, pts_max,
+               realizado, meta, unidade, pct, pts, detalhes_json
+        FROM pex_snapshot_indicadores
+        WHERE snapshot_id = $1
+        ORDER BY
+          CASE pilar
+            WHEN 'RESULTADO'    THEN 1
+            WHEN 'GESTAO'       THEN 2
+            WHEN 'ENGAJAMENTO'  THEN 3
+          END,
+          pts_max DESC,
+          codigo
+    """, snap["id"])
+
+    return {
+        "snapshot": {
+            "id":                       str(snap["id"]),
+            "mes_ref":                  snap["mes_ref"],
+            "data_ref":                 snap["data_ref"].isoformat() if snap["data_ref"] else None,
+            "total_resultado_pts":      float(snap["total_resultado_pts"] or 0),
+            "total_gestao_pts":         float(snap["total_gestao_pts"] or 0),
+            "total_engajamento_pts":    float(snap["total_engajamento_pts"] or 0),
+            "total_geral_pts":          float(snap["total_geral_pts"] or 0),
+            "risco_classificacao":      snap["risco_classificacao"],
+            "classificacao_oficial":    snap["classificacao_oficial"],
+        },
+        "indicadores": [
+            {
+                "codigo":     i["codigo"],
+                "pilar":      i["pilar"],
+                "nome":       i["nome"],
+                "pts_max":    float(i["pts_max"]),
+                "realizado":  float(i["realizado"]) if i["realizado"] is not None else 0,
+                "meta":       float(i["meta"]) if i["meta"] is not None else 0,
+                "unidade":    i["unidade"],
+                "pct":        float(i["pct"] or 0),
+                "pts":        float(i["pts"] or 0),
+                "detalhes":   i["detalhes_json"] or {},
+            }
+            for i in indicadores
+        ],
+    }
 
 
 @router.get("/compliance")
@@ -342,56 +388,33 @@ async def historico_pex(
 @router.post("/metas")
 async def configurar_metas(dados: dict, conn=Depends(get_conn)):
     """
-    Configura as metas mensais para cálculo do PEX (endpoint legado).
-
-    Mantém o contrato antigo (mes_ref + 6 campos) mas grava no modelo novo
-    (pex_metas_cabecalho + pex_metas_indicadores). Para a UI completa de
-    metas (incluindo Big3, cluster, integração contábil, eventos), usar
-    a página /metas que aponta para o router metas.py.
+    Configura as metas mensais para cálculo do PEX.
+    Campos: mes_ref, nmrr_meta, demos_outbound_meta, dias_uteis,
+            ecs_ativos_m3, evs_ativos, carteira_total_contadores
     """
-    mes_ref = dados.get("mes_ref")
-    if not mes_ref:
-        raise HTTPException(400, "mes_ref obrigatório (formato YYYY-MM)")
-
-    # Cabeçalho (campos globais do mês)
-    cab_id = await conn.fetchval("""
-        INSERT INTO pex_metas_cabecalho
-            (mes_ref, dias_uteis, ecs_ativos_m3, evs_ativos,
-             carteira_total_contadores, atualizado_em)
-        VALUES ($1, $2, $3, $4, $5, NOW())
+    await conn.execute("""
+        INSERT INTO pex_metas_mensais (
+            mes_ref, nmrr_meta, demos_outbound_meta,
+            dias_uteis, ecs_ativos_m3, evs_ativos,
+            carteira_total_contadores
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7)
         ON CONFLICT (mes_ref) DO UPDATE SET
-            dias_uteis                = EXCLUDED.dias_uteis,
-            ecs_ativos_m3             = EXCLUDED.ecs_ativos_m3,
-            evs_ativos                = EXCLUDED.evs_ativos,
-            carteira_total_contadores = EXCLUDED.carteira_total_contadores,
-            atualizado_em             = NOW()
-        RETURNING id
+            nmrr_meta = EXCLUDED.nmrr_meta,
+            demos_outbound_meta = EXCLUDED.demos_outbound_meta,
+            dias_uteis = EXCLUDED.dias_uteis,
+            ecs_ativos_m3 = EXCLUDED.ecs_ativos_m3,
+            evs_ativos = EXCLUDED.evs_ativos,
+            carteira_total_contadores = EXCLUDED.carteira_total_contadores
     """,
-    mes_ref,
-    int(dados.get("dias_uteis") or 22),
-    int(dados.get("ecs_ativos_m3") or 0),
-    int(dados.get("evs_ativos") or 0),
-    int(dados.get("carteira_total_contadores") or 0),
+    dados.get("mes_ref"),
+    dados.get("nmrr_meta"),
+    dados.get("demos_outbound_meta"),
+    dados.get("dias_uteis", 22),
+    dados.get("ecs_ativos_m3", 2),
+    dados.get("evs_ativos", 1),
+    dados.get("carteira_total_contadores", 1),
     )
-
-    # Metas numéricas dos 2 indicadores que esse endpoint legado conhece
-    if dados.get("nmrr_meta") is not None:
-        await conn.execute("""
-            INSERT INTO pex_metas_indicadores (cabecalho_id, codigo, meta_valor)
-            VALUES ($1, 'nmrr', $2)
-            ON CONFLICT (cabecalho_id, codigo) DO UPDATE
-            SET meta_valor = EXCLUDED.meta_valor
-        """, cab_id, dados.get("nmrr_meta"))
-
-    if dados.get("demos_outbound_meta") is not None:
-        await conn.execute("""
-            INSERT INTO pex_metas_indicadores (cabecalho_id, codigo, meta_valor)
-            VALUES ($1, 'demos_outbound', $2)
-            ON CONFLICT (cabecalho_id, codigo) DO UPDATE
-            SET meta_valor = EXCLUDED.meta_valor
-        """, cab_id, dados.get("demos_outbound_meta"))
-
-    return {"message": "Metas configuradas com sucesso.", "cabecalho_id": cab_id}
+    return {"message": "Metas configuradas com sucesso."}
 
 
 @router.get("/cromie/auditoria")

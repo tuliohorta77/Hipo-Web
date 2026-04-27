@@ -90,8 +90,21 @@ class TestUploadCROmie:
         resp = await client.get("/pex/painel", headers=usuario_adm["headers"])
         assert resp.status_code == 200
         data = resp.json()
-        assert "total_geral_pts" in data
-        assert "risco_classificacao" in data
+        # Novo formato: {snapshot: {...}, indicadores: [...]}
+        assert "snapshot" in data
+        assert "indicadores" in data
+        assert "total_geral_pts" in data["snapshot"]
+        assert "risco_classificacao" in data["snapshot"]
+        # Lista de 30 indicadores estruturados
+        assert len(data["indicadores"]) == 30
+        # Cada indicador tem os campos pra auditoria
+        for ind in data["indicadores"]:
+            assert "codigo" in ind
+            assert "pilar" in ind
+            assert "realizado" in ind
+            assert "meta" in ind
+            assert "pct" in ind
+            assert "pts" in ind
 
     async def test_compliance_apos_upload(self, client, usuario_adm, meta_abril):
         conteudo = _gerar_cromie_bytes({

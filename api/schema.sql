@@ -69,19 +69,11 @@ CREATE TABLE bd_ativados (
     -- Status
     situacao                    VARCHAR(50),    -- ACTIVE, ARCHIVED, etc.
     saude_paciente              VARCHAR(50),
-    -- Tipo do plano (Omie completo / Fit / BPO / Omie completo - Start)
-    tipo                        VARCHAR(80),
     -- Faturamento
     dia_faturamento             SMALLINT,
     vencimento                  SMALLINT,
     tipo_faturamento            VARCHAR(50),
-    valor_mensalidade           NUMERIC(10,2),         -- "Valor Mensal - atual no contrato"
-    valor_mensal_informado      NUMERIC(10,2),         -- "Valor Mensal - informado na ativação"
-    mrr_bruto                   NUMERIC(14,2) DEFAULT 0,
-        -- Regra (validada contra planilha oficial — match 100%):
-        --   ACTIVE + tipo='BPO'  → valor_mensalidade / N(linhas BPO ACTIVE do mesmo CNPJ)
-        --   ACTIVE + tipo!='BPO' → valor_mensalidade
-        --   != ACTIVE             → 0
+    valor_mensalidade           NUMERIC(10,2),
     -- Uso do produto
     integracao_contabil         BOOLEAN DEFAULT FALSE,
     ultimo_acesso               DATE,
@@ -111,7 +103,6 @@ CREATE TABLE bd_ativados (
 CREATE INDEX idx_bd_ativados_ref ON bd_ativados(referencia_aplicativo);
 CREATE INDEX idx_bd_ativados_situacao ON bd_ativados(situacao);
 CREATE INDEX idx_bd_ativados_faturamento ON bd_ativados(dia_faturamento, vencimento);
-CREATE INDEX idx_bd_ativados_tipo ON bd_ativados(tipo);
 
 -- ============================================================
 -- MÓDULO: POs
@@ -392,62 +383,45 @@ CREATE TABLE pex_indicadores_config (
     ativo           BOOLEAN DEFAULT TRUE
 );
 
--- Snapshot diário dos indicadores calculados
+-- Snapshot dirio dos indicadores calculados (modelo novo: cabealho + filhas)
+-- Migration 006 refatora para 1 linha por indicador (auditoria fcil)
 CREATE TABLE pex_snapshot (
-    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    data_ref        DATE NOT NULL,
-    mes_ref         CHAR(7) NOT NULL,  -- formato YYYY-MM
-    upload_cromie_id UUID REFERENCES cromie_uploads(id),
-    -- Pilar Resultado (calculados pelo CROmie)
-    nmrr_realizado              NUMERIC(12,2),
-    nmrr_meta                   NUMERIC(12,2),
-    nmrr_pct                    NUMERIC(5,2),
-    nmrr_pts                    NUMERIC(4,2),
-    reunioes_ec_du_realizado    NUMERIC(5,2),
-    reunioes_ec_du_pts          NUMERIC(4,2),
-    contadores_trabalhados_pct  NUMERIC(5,2),
-    contadores_trabalhados_pts  NUMERIC(4,2),
-    contadores_indicando_pct    NUMERIC(5,2),
-    contadores_indicando_pts    NUMERIC(4,2),
-    contadores_ativando_pct     NUMERIC(5,2),
-    contadores_ativando_pts     NUMERIC(4,2),
-    conversao_total_pct         NUMERIC(5,2),
-    conversao_total_pts         NUMERIC(4,2),
-    conversao_m0_pct            NUMERIC(5,2),
-    conversao_m0_pts            NUMERIC(4,2),
-    conversao_inbound_pct       NUMERIC(5,2),
-    conversao_inbound_pts       NUMERIC(4,2),
-    demo_du_realizado           NUMERIC(5,2),
-    demo_du_pts                 NUMERIC(4,2),
-    demos_outbound_pct          NUMERIC(5,2),
-    demos_outbound_pts          NUMERIC(4,2),
-    sow_pct                     NUMERIC(5,2),
-    sow_pts                     NUMERIC(4,2),
-    mapeamento_carteira_pct     NUMERIC(5,2),
-    mapeamento_carteira_pts     NUMERIC(4,2),
-    reuniao_contador_inbound_pct NUMERIC(5,2),
-    reuniao_contador_inbound_pts NUMERIC(4,2),
-    integracao_contabil_pct     NUMERIC(5,2),
-    integracao_contabil_pts     NUMERIC(4,2),
-    -- Calculados pelo BD Ativados + POs
-    early_churn_pct             NUMERIC(5,2),
-    early_churn_pts             NUMERIC(4,2),
-    crescimento_40_pct          NUMERIC(5,2),
-    crescimento_40_pts          NUMERIC(4,2),
-    -- Lançamento manual EV
-    utilizacao_desconto_pct     NUMERIC(5,2),
-    utilizacao_desconto_pts     NUMERIC(4,2),
-    -- Totais
-    total_resultado_pts         NUMERIC(5,2),
-    total_gestao_pts            NUMERIC(5,2),
-    total_engajamento_pts       NUMERIC(5,2),
-    total_geral_pts             NUMERIC(5,2),
+    id                          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    data_ref                    DATE NOT NULL DEFAULT CURRENT_DATE,
+    mes_ref                     CHAR(7) NOT NULL,
+    upload_cromie_id            UUID,
+    total_resultado_pts         NUMERIC(8,2) DEFAULT 0,
+    total_gestao_pts            NUMERIC(8,2) DEFAULT 0,
+    total_engajamento_pts       NUMERIC(8,2) DEFAULT 0,
+    total_geral_pts             NUMERIC(8,2) DEFAULT 0,
     risco_classificacao         risco_enum,
+    classificacao_oficial       VARCHAR(40),
     created_at                  TIMESTAMPTZ DEFAULT NOW(),
-    UNIQUE(data_ref)
+    UNIQUE (mes_ref, data_ref)
 );
 
-CREATE INDEX idx_pex_mes ON pex_snapshot(mes_ref);
+CREATE INDEX ix_pex_snapshot_mes ON pex_snapshot(mes_ref DESC);
+CREATE INDEX ix_pex_snapshot_data ON pex_snapshot(data_ref DESC);
+
+-- Tabela filha: 1 linha por indicador (30 indicadores oficiais do PEX)
+CREATE TABLE pex_snapshot_indicadores (
+    id              BIGSERIAL PRIMARY KEY,
+    snapshot_id     UUID NOT NULL REFERENCES pex_snapshot(id) ON DELETE CASCADE,
+    codigo          VARCHAR(40) NOT NULL,
+    pilar           VARCHAR(20) NOT NULL,
+    nome            VARCHAR(80) NOT NULL,
+    pts_max         NUMERIC(5,2) NOT NULL,
+    realizado       NUMERIC(14,2),
+    meta            NUMERIC(14,2),
+    unidade         VARCHAR(20),
+    pct             NUMERIC(8,2) DEFAULT 0,
+    pts             NUMERIC(5,2) DEFAULT 0,
+    detalhes_json   JSONB,
+    UNIQUE (snapshot_id, codigo)
+);
+
+CREATE INDEX ix_pex_snap_ind_snapshot ON pex_snapshot_indicadores(snapshot_id);
+CREATE INDEX ix_pex_snap_ind_codigo ON pex_snapshot_indicadores(codigo);
 
 -- Gaps de compliance por usuário (double-check CROmie)
 CREATE TABLE pex_compliance_gaps (

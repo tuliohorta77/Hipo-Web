@@ -1,22 +1,16 @@
 """
-HIPO — Serviço de Cálculo dos Indicadores PEX (v2)
+HIPO — Serviço de Cálculo dos Indicadores PEX (v3)
 
-Calcula os 30 indicadores oficiais do Manual PEX v8.01/2026.
-
-Mudanças vs v1:
-  - 30 indicadores (antes só 17)
-  - Lê metas do modelo novo (pex_metas_cabecalho + pex_metas_indicadores + pex_metas_big3)
-  - NMRR realizado vem do BD Ativados (não do CROmie)
-  - Filtro temporal pelo mes_ref do snapshot, não CURRENT_DATE
-  - Mapeamento de Carteira separado do SoW
-  - Conversão Total filtrando pelas fases corretas (a partir de "03. Qualificação")
-  - 6 faixas de classificação oficiais (Excelente/Certificada/Qualificada/Aderente/Em Desenvolvimento/Não Aderente)
-  - Defensivo contra denominador <= 0 (não gera mais 54.500%)
-  - 13 indicadores manuais (RH/Yungas/Big3/etc) registram 0 pts até existir página de realizados
+Mudanças vs v2:
+  - Retorno estruturado: lista de dicts, 1 por indicador (em vez de campos planos)
+  - Cada dict: {codigo, pilar, nome, pts_max, realizado, meta, unidade, pct, pts, detalhes}
+  - `detalhes` é JSON com numerador/denominador/filtros pra auditoria
+  - Sem mudança nas faixas/fórmulas (mantém o que validamos na fase 2)
+  - Compatível com o novo modelo pex_snapshot + pex_snapshot_indicadores
 """
 from datetime import date
 from decimal import Decimal
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Any
 import asyncpg
 
 
@@ -27,159 +21,102 @@ import asyncpg
 # ─── Pilar Resultado (17 indicadores, 60 pts) ───
 
 def _pts_nmrr(pct: float) -> float:
-    """NMRR (10 pts). 85-100% é proporcional, capado em 10 pts."""
     if pct < 80: return 0.0
     if pct < 85: return 5.0
-    # Proporcional: pct=85 → 8,5 pts; pct=100 → 10 pts
-    pts = (pct / 100.0) * 10.0
-    return round(min(pts, 10.0), 2)
-
+    return round(min((pct / 100.0) * 10.0, 10.0), 2)
 
 def _pts_sow(pct: float) -> float:
-    """Share of Wallet (3 pts). pct = sow / 100."""
     if pct < 4: return 0.0
     if pct < 5: return 1.5
     return 3.0
 
-
 def _pts_mapeamento_carteira(pct: float) -> float:
-    """Mapeamento de carteira (2 pts). Cont mapeados / Carteira atual."""
     if pct < 48: return 0.0
     if pct < 60: return 1.0
     return 2.0
 
-
 def _pts_early_churn(pct: float) -> float:
-    """Early Churn (3 pts) — menor é melhor. Meta ≤5,7%."""
     if pct <= 5.7: return 3.0
     if pct <= 7.1: return 1.5
     return 0.0
 
-
 def _pts_utilizacao_desconto(pct: float) -> float:
-    """Utilização cupom desconto (2 pts) — menor é melhor. Meta ≤15%."""
     if pct <= 15: return 2.0
     if pct <= 19: return 1.0
     return 0.0
 
-
 def _pts_crescimento_40(pct: float) -> float:
-    """Crescimento 40% (5 pts)."""
     if pct < 32: return 0.0
     if pct < 40: return 2.5
     return 5.0
 
-
 def _pts_reunioes_ec_du(realizado: float) -> float:
-    """Reuniões por EC/dia útil (3 pts). Meta = 4."""
     if realizado < 3.2: return 0.0
     if realizado < 4.0: return 1.5
     return 3.0
 
-
 def _pts_contadores_trabalhados(pct: float) -> float:
-    """Contadores trabalhados (2 pts). Meta=90%."""
     if pct < 72: return 0.0
     if pct < 90: return 1.0
     return 2.0
 
-
 def _pts_contadores_indicando(pct: float) -> float:
-    """Contadores indicando (3 pts). Meta=25%."""
     if pct < 20: return 0.0
     if pct < 25: return 1.5
     return 3.0
 
-
 def _pts_contadores_ativando(pct: float) -> float:
-    """Contadores ativando (4 pts). Meta=8%."""
     if pct < 6.4: return 0.0
     if pct < 8: return 2.0
     return 4.0
 
-
 def _pts_demos_outbound(pct: float) -> float:
-    """Demos Outbound (3 pts). Atingimento da meta."""
     if pct < 80: return 0.0
     if pct < 100: return 1.5
     return 3.0
 
-
 def _pts_reuniao_contador_inbound(pct: float) -> float:
-    """Reunião com contador do lead Inbound (4 pts). Meta=80%."""
     if pct < 64: return 0.0
     if pct < 80: return 2.0
     return 4.0
 
-
 def _pts_conversao_inbound(pct: float) -> float:
-    """Conversão total leads Inbound (2 pts). Meta=45%."""
     if pct < 36: return 0.0
     if pct < 45: return 1.0
     return 2.0
 
-
 def _pts_conversao_total(pct: float) -> float:
-    """Conversão Total de leads (4 pts). Meta=35%."""
     if pct < 28: return 0.0
     if pct < 35: return 2.0
     return 4.0
 
-
 def _pts_conversao_m0(pct: float) -> float:
-    """Conversão de leads no M0 (3 pts). Meta=20%."""
     if pct < 16: return 0.0
     if pct < 20: return 1.5
     return 3.0
 
-
 def _pts_demo_du(realizado: float) -> float:
-    """Apresentação (demo) por dia útil (4 pts). Meta=4."""
     if realizado < 3.2: return 0.0
     if realizado < 4.0: return 2.0
     return 4.0
 
-
-def _pts_integracao_contabil(pct: float) -> float:
-    """Integração Contábil (3 pts). pct = realizado / meta_cluster."""
-    if pct < 80: return 0.0
-    if pct < 100: return 1.5
-    return 3.0
-
-
-# ─── Pilar Gestão (7 indicadores, 20 pts) — só uso_correto_cromie é calculável ───
-
 def _pts_uso_correto_cromie(pct: float) -> float:
-    """Utilização correta do CROmie (2 pts). Meta=100%."""
     if pct < 80: return 0.0
     if pct < 100: return 1.0
     return 2.0
 
-
-# ─── Big3 (Engajamento, 6 pts) ───
-
-def _pts_big3(acoes_atingidas: int) -> float:
-    """Big3 (6 pts): 2 pts por ação atingida."""
-    if acoes_atingidas <= 0: return 0.0
-    if acoes_atingidas == 1: return 2.0
-    if acoes_atingidas == 2: return 4.0
-    return 6.0  # 3+
+def _pts_big3(acoes: int) -> float:
+    if acoes <= 0: return 0.0
+    if acoes == 1: return 2.0
+    if acoes == 2: return 4.0
+    return 6.0
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# Classificação (faixas oficiais do manual + mapeamento de cores)
+# Classificação
 # ═══════════════════════════════════════════════════════════════════════
 
 def _classificar_oficial(total: float) -> str:
-    """
-    6 classificações oficiais do manual v8.01:
-        EXCELENTE        → 95-100
-        CERTIFICADA      → 76-94,99
-        QUALIFICADA      → 60-75,99
-        ADERENTE         → 50-59,99
-        EM_DESENVOLVIMENTO → 36-49,99
-        NAO_ADERENTE     → 0-35,99
-    """
     if total >= 95: return "EXCELENTE"
     if total >= 76: return "CERTIFICADA"
     if total >= 60: return "QUALIFICADA"
@@ -187,21 +124,7 @@ def _classificar_oficial(total: float) -> str:
     if total >= 36: return "EM_DESENVOLVIMENTO"
     return "NAO_ADERENTE"
 
-
 def _classificar(total: float) -> str:
-    """
-    Cor da UI compatível com o ENUM risco_enum no schema (4 valores):
-        EXCELENTE/CERTIFICADA → VERDE
-        QUALIFICADA/ADERENTE  → LARANJA
-        EM_DESENVOLVIMENTO    → AMARELO
-        NAO_ADERENTE          → VERMELHO
-
-    Mapeamento de severidade pro acompanhamento operacional:
-    - VERDE: tudo bem (>= 76 pts)
-    - LARANJA: zona de atenção (50-75 pts) — não está em risco mas precisa subir
-    - AMARELO: risco preventivo (36-49 pts) — alerta
-    - VERMELHO: descredenciamento (< 36 pts)
-    """
     if total >= 76: return "VERDE"
     if total >= 50: return "LARANJA"
     if total >= 36: return "AMARELO"
@@ -209,186 +132,231 @@ def _classificar(total: float) -> str:
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# Helpers internos
+# Helpers
 # ═══════════════════════════════════════════════════════════════════════
 
-def _safe_pct(numerador: float, denominador: float) -> float:
-    """Retorna 0.0 se denominador for inválido (<=0). Evita divisões absurdas."""
-    if denominador is None or denominador <= 0:
-        return 0.0
-    if numerador is None:
-        return 0.0
+def _safe_pct(numerador: Any, denominador: Any) -> float:
+    if denominador is None or denominador <= 0: return 0.0
+    if numerador is None: return 0.0
     return float(numerador) / float(denominador) * 100.0
 
-
 def _mes_bounds(mes_ref: str) -> Tuple[date, date]:
-    """Devolve (primeiro_dia, ultimo_dia) do mês YYYY-MM."""
     ano, mes = mes_ref.split("-")
     primeiro = date(int(ano), int(mes), 1)
     if int(mes) == 12:
         ultimo = date(int(ano) + 1, 1, 1)
     else:
         ultimo = date(int(ano), int(mes) + 1, 1)
-    # Devolve [primeiro_dia_mes, primeiro_dia_proximo_mes) — semi-aberto
     return primeiro, ultimo
 
 
+def _ind(codigo: str, pilar: str, nome: str, pts_max: float, realizado, meta, unidade: str,
+         pts_func, detalhes: dict, manual_zero: bool = False) -> dict:
+    """
+    Helper que monta o dict padronizado de cada indicador.
+    - manual_zero=True → indicador manual (RH/Yungas), realizado/meta/pct ficam zerados,
+                         pts=pts_func(0) (que pode dar pts máx em casos como early_churn=0%)
+    """
+    if manual_zero:
+        realizado = 0.0
+        pct_val = 0.0
+        pts_val = pts_func(0.0) if pts_func else 0.0
+    else:
+        realizado_n = float(realizado) if realizado is not None else 0.0
+        if unidade in ("R$", "%", "qtd"):
+            # Indicadores de atingimento: pct = realizado/meta * 100
+            pct_val = _safe_pct(realizado_n, meta)
+        elif unidade == "/du":
+            # Indicadores valor absoluto (Reuniões EC/du, Demo/du)
+            # pct = realizado/meta * 100 (fim de auditoria)
+            pct_val = _safe_pct(realizado_n, meta) if meta else 0.0
+        else:
+            pct_val = 0.0
+        # pts: depende da unidade
+        if unidade == "/du":
+            pts_val = pts_func(realizado_n)
+        elif unidade == "%_inverso":
+            pts_val = pts_func(realizado_n)  # Early Churn / Util Desconto recebem o pct realizado direto
+        else:
+            pts_val = pts_func(pct_val)
+
+    return {
+        "codigo": codigo,
+        "pilar": pilar,
+        "nome": nome,
+        "pts_max": pts_max,
+        "realizado": realizado if realizado is not None else 0.0,
+        "meta": meta if meta is not None else 0.0,
+        "unidade": unidade,
+        "pct": round(pct_val, 2),
+        "pts": round(pts_val, 2),
+        "detalhes": detalhes,
+    }
+
+
 async def _ler_metas(conn: asyncpg.Connection, mes_ref: str) -> dict:
-    """
-    Lê o cabeçalho do mês + indicadores numéricos cadastrados.
-    Retorna um dict pronto pra uso. Se mês não cadastrado, retorna defaults zerados.
-    """
     cab = await conn.fetchrow(
         "SELECT * FROM pex_metas_cabecalho WHERE mes_ref = $1", mes_ref
     )
     if cab is None:
         return {
-            "cabecalho": None,
-            "cluster": "BASE",
-            "dias_uteis": 22,
-            "ecs_ativos_m3": 0,
-            "evs_ativos": 0,
-            "carteira_total_contadores": 0,
-            "apps_ativos": 0,
+            "cabecalho": None, "cluster": "BASE", "dias_uteis": 22,
+            "ecs_ativos_m3": 0, "evs_ativos": 0,
+            "carteira_total_contadores": 0, "apps_ativos": 0,
             "headcount_recomendado": None,
-            "metas_indicadores": {},
-            "big3_atingidas": 0,
+            "metas_indicadores": {}, "big3_atingidas": 0,
         }
-
     inds = await conn.fetch(
         "SELECT codigo, meta_valor FROM pex_metas_indicadores WHERE cabecalho_id = $1",
         cab["id"],
     )
     metas_ind = {r["codigo"]: float(r["meta_valor"]) if r["meta_valor"] is not None else None
                  for r in inds}
-
     big3 = await conn.fetch(
         "SELECT atingiu FROM pex_metas_big3 WHERE cabecalho_id = $1",
         cab["id"],
     )
-    big3_atingidas = sum(1 for r in big3 if r["atingiu"])
-
     return {
         "cabecalho": cab,
         "cluster": cab["cluster_unidade"] or "BASE",
-        "dias_uteis": int(cab["dias_uteis"]) if cab["dias_uteis"] else 22,
-        "ecs_ativos_m3": int(cab["ecs_ativos_m3"]) if cab["ecs_ativos_m3"] else 0,
-        "evs_ativos": int(cab["evs_ativos"]) if cab["evs_ativos"] else 0,
-        "carteira_total_contadores": int(cab["carteira_total_contadores"]) if cab["carteira_total_contadores"] else 0,
-        "apps_ativos": int(cab["apps_ativos"]) if cab["apps_ativos"] else 0,
+        "dias_uteis": int(cab["dias_uteis"] or 22),
+        "ecs_ativos_m3": int(cab["ecs_ativos_m3"] or 0),
+        "evs_ativos": int(cab["evs_ativos"] or 0),
+        "carteira_total_contadores": int(cab["carteira_total_contadores"] or 0),
+        "apps_ativos": int(cab["apps_ativos"] or 0),
         "headcount_recomendado": int(cab["headcount_recomendado"]) if cab["headcount_recomendado"] else None,
         "metas_indicadores": metas_ind,
-        "big3_atingidas": big3_atingidas,
+        "big3_atingidas": sum(1 for r in big3 if r["atingiu"]),
     }
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# Função principal
+# Função principal — retorna lista de indicadores estruturados
 # ═══════════════════════════════════════════════════════════════════════
 
-async def calcular_pex_snapshot(
+async def calcular_pex_indicadores(
     conn: asyncpg.Connection,
     upload_id: str,
     mes_ref: str,
-    # Os 4 args abaixo são MANTIDOS por compatibilidade com chamadores antigos.
-    # Se vierem zerados, lemos do pex_metas_cabecalho. Se vierem preenchidos,
-    # usamos os valores informados (override).
-    dias_uteis: Optional[int] = None,
-    ecs_ativos_m3: Optional[int] = None,
-    evs_ativos: Optional[int] = None,
-    carteira_total: Optional[int] = None,
 ) -> dict:
     """
-    Calcula todos os 30 indicadores PEX e devolve o dict pronto pra inserir
-    em pex_snapshot.
+    Calcula os 30 indicadores PEX e devolve estrutura pronta pra persistir
+    em pex_snapshot + pex_snapshot_indicadores.
+
+    Retorno:
+        {
+            "totais": {
+                "resultado_pts", "gestao_pts", "engajamento_pts", "geral_pts",
+                "risco_classificacao", "classificacao_oficial"
+            },
+            "indicadores": [ {dict}, {dict}, ... 30 dicts ]
+        }
     """
     metas = await _ler_metas(conn, mes_ref)
-
-    # Override com args (compatibilidade)
-    if dias_uteis: metas["dias_uteis"] = dias_uteis
-    if ecs_ativos_m3: metas["ecs_ativos_m3"] = ecs_ativos_m3
-    if evs_ativos: metas["evs_ativos"] = evs_ativos
-    if carteira_total: metas["carteira_total_contadores"] = carteira_total
-
     DU = metas["dias_uteis"]
     ECS = metas["ecs_ativos_m3"]
     EVS = metas["evs_ativos"]
     CARTEIRA = metas["carteira_total_contadores"]
     APPS = metas["apps_ativos"]
-
+    CLUSTER = metas["cluster"]
     primeiro_dia, primeiro_dia_prox_mes = _mes_bounds(mes_ref)
 
-    r = {}
+    indicadores: list[dict] = []
 
     # ════════════════════════════════════════════════════════════════════
-    # PILAR RESULTADO (60 pts)
+    # PILAR RESULTADO (60 pts, 17 indicadores)
     # ════════════════════════════════════════════════════════════════════
 
-    # ── 1. NMRR (10 pts) — vem do BD Ativados, não do CROmie ─────────────
-    # NMRR realizado = SUM(mrr_bruto) das linhas ACTIVE com data_ativacao no mês.
-    # mrr_bruto já foi calculado pelo parser BD Ativados aplicando a regra BPO.
+    # ── 1. NMRR (10 pts) ────────────────────────────────────────────────
     nmrr_meta = metas["metas_indicadores"].get("nmrr") or 0.0
-    nmrr_realizado_row = await conn.fetchrow("""
-        SELECT COALESCE(SUM(mrr_bruto), 0) AS total
+    nmrr_row = await conn.fetchrow("""
+        SELECT COALESCE(SUM(mrr_bruto), 0) AS total, COUNT(*) AS qtd_ativacoes
         FROM bd_ativados
         WHERE LOWER(situacao) = 'active'
-          AND data_ativacao >= $1
-          AND data_ativacao <  $2
+          AND data_ativacao >= $1 AND data_ativacao < $2
     """, primeiro_dia, primeiro_dia_prox_mes)
-    nmrr_realizado = float(nmrr_realizado_row["total"] or 0)
-    nmrr_pct = _safe_pct(nmrr_realizado, nmrr_meta)
-    r["nmrr_realizado"] = round(nmrr_realizado, 2)
-    r["nmrr_meta"] = round(nmrr_meta, 2)
-    r["nmrr_pct"] = round(nmrr_pct, 2)
-    r["nmrr_pts"] = _pts_nmrr(nmrr_pct)
+    nmrr_realizado = float(nmrr_row["total"] or 0)
+    indicadores.append(_ind(
+        "nmrr", "RESULTADO", "NMRR", 10, nmrr_realizado, nmrr_meta, "R$",
+        _pts_nmrr,
+        {
+            "fonte": "bd_ativados.mrr_bruto",
+            "filtro": f"situacao=ACTIVE + data_ativacao em {mes_ref}",
+            "qtd_ativacoes_no_mes": int(nmrr_row["qtd_ativacoes"] or 0),
+        },
+    ))
 
-    # ── 2. SoW (3 pts) — Apps ativos vs Apps mapeados (clientes mapeados) ──
-    # Manual: "% aplicativos ativos da base de clientes dos contadores mapeados"
-    # Numerador: apps_ativos (cabeçalho do mês, informado pelo ADM)
-    # Denominador: clientes mapeados → soma de clientes únicos sob contadores com sow_preenchido
-    # Aproximação: COUNT(DISTINCT cnpj) de bd_ativados sob contadores que estão em
-    # cromie_contador com sow_preenchido=TRUE
+    # ── 2. SoW (3 pts) ──────────────────────────────────────────────────
+    # Numerador: APPS ativos (cabecalho)
+    # Denominador: clientes ativos da carteira mapeada
     sow_row = await conn.fetchrow("""
         SELECT COUNT(DISTINCT ba.cnpj) AS clientes_mapeados
         FROM bd_ativados ba
-        JOIN cromie_contador cnt
-          ON cnt.cnpj = ba.contador_cnpj
-         AND cnt.upload_id = $1
-        WHERE LOWER(ba.situacao) = 'active'
+        JOIN cromie_contador cnt ON cnt.cnpj = ba.contador_cnpj
+        WHERE cnt.upload_id = $1
           AND cnt.sow_preenchido = TRUE
+          AND LOWER(ba.situacao) = 'active'
     """, upload_id)
     clientes_mapeados = int(sow_row["clientes_mapeados"] or 0)
-    sow_pct = _safe_pct(APPS, clientes_mapeados) if APPS > 0 else 0.0
-    r["sow_pct"] = round(sow_pct, 2)
-    r["sow_pts"] = _pts_sow(sow_pct)
+    indicadores.append(_ind(
+        "sow", "RESULTADO", "Share of Wallet (SoW)", 3,
+        APPS, clientes_mapeados, "%",
+        _pts_sow,
+        {
+            "numerador": APPS,
+            "denominador": clientes_mapeados,
+            "filtro": "apps_ativos / clientes_ativos_mapeados",
+            "fonte": "bd_ativados ⨝ cromie_contador WHERE sow_preenchido",
+        },
+    ))
 
-    # ── 3. Mapeamento de Carteira (2 pts) — Cont mapeados / Carteira atual ─
+    # ── 3. Mapeamento de Carteira (2 pts) ──────────────────────────────
     map_row = await conn.fetchrow("""
         SELECT COUNT(*) AS mapeados
         FROM cromie_contador
-        WHERE upload_id = $1
-          AND sow_preenchido = TRUE
+        WHERE upload_id = $1 AND sow_preenchido = TRUE
     """, upload_id)
     cont_mapeados = int(map_row["mapeados"] or 0)
-    mapeamento_pct = _safe_pct(cont_mapeados, CARTEIRA)
-    r["mapeamento_carteira_pct"] = round(mapeamento_pct, 2)
-    r["mapeamento_carteira_pts"] = _pts_mapeamento_carteira(mapeamento_pct)
+    indicadores.append(_ind(
+        "mapeamento_carteira", "RESULTADO", "Mapeamento de carteira", 2,
+        cont_mapeados, CARTEIRA, "%",
+        _pts_mapeamento_carteira,
+        {
+            "numerador": cont_mapeados,
+            "denominador": CARTEIRA,
+            "filtro": "contadores com sow_preenchido / carteira_total",
+            "fonte": "cromie_contador WHERE sow_preenchido=TRUE",
+        },
+    ))
 
-    # ── 4. Early Churn (3 pts) — manual / fonte externa, registra 0 por enquanto ──
-    r["early_churn_pct"] = 0.0
-    r["early_churn_pts"] = _pts_early_churn(0.0)  # 3 pts (=0% é melhor que ≤5,7%)
+    # ── 4. Early Churn (3 pts) — manual ─────────────────────────────────
+    indicadores.append(_ind(
+        "early_churn", "RESULTADO", "Early Churn", 3,
+        0.0, 5.7, "%_inverso",
+        _pts_early_churn,
+        {"manual": True, "fonte": "Apuração mensal Omie", "obs": "0 pts até página de realizados"},
+        manual_zero=True,
+    ))
 
-    # ── 5. Utilização Desconto (2 pts) — manual / fonte externa, 0 por enquanto ──
-    r["utilizacao_desconto_pct"] = 0.0
-    r["utilizacao_desconto_pts"] = _pts_utilizacao_desconto(0.0)  # 2 pts
+    # ── 5. Utilização Desconto (2 pts) — manual ─────────────────────────
+    indicadores.append(_ind(
+        "utilizacao_desconto", "RESULTADO", "Utilização cupom de desconto", 2,
+        0.0, 15.0, "%_inverso",
+        _pts_utilizacao_desconto,
+        {"manual": True, "fonte": "Apuração Omie", "obs": "0 pts até página de realizados"},
+        manual_zero=True,
+    ))
 
-    # ── 6. Crescimento 40% (5 pts) — apurado pelo Financeiro Omie, 0 por enquanto ──
-    r["crescimento_40_pct"] = 0.0
-    r["crescimento_40_pts"] = 0.0
+    # ── 6. Crescimento 40% (5 pts) — manual ─────────────────────────────
+    indicadores.append(_ind(
+        "crescimento_40", "RESULTADO", "Crescimento de 40%", 5,
+        0.0, 40.0, "%",
+        _pts_crescimento_40,
+        {"manual": True, "fonte": "Apuração Financeiro Omie", "obs": "0 pts até página de realizados"},
+        manual_zero=True,
+    ))
 
-    # ── 7. Reuniões EC/du (3 pts) ────────────────────────────────────────
-    # Manual: nº reuniões ÷ nº ECs M3 ÷ DU
-    # Tarefa = Reunião; Finalidade ∈ {Online, Presencial, Omie na Rua}; Resultado ∈ {Sucesso, Realizado, Efetuado}
+    # ── 7. Reuniões EC/du (3 pts) ───────────────────────────────────────
     reunioes_row = await conn.fetchrow("""
         SELECT COUNT(*) AS total
         FROM cromie_tarefa_contador
@@ -399,12 +367,21 @@ async def calcular_pex_snapshot(
           AND data_tarefa >= $2 AND data_tarefa < $3
     """, upload_id, primeiro_dia, primeiro_dia_prox_mes)
     total_reunioes = int(reunioes_row["total"] or 0)
-    divisor_reunioes = max(ECS * DU, 1) if (ECS > 0 and DU > 0) else 0
-    reunioes_du = round(total_reunioes / divisor_reunioes, 2) if divisor_reunioes > 0 else 0.0
-    r["reunioes_ec_du_realizado"] = reunioes_du
-    r["reunioes_ec_du_pts"] = _pts_reunioes_ec_du(reunioes_du)
+    divisor = max(ECS * DU, 1) if (ECS > 0 and DU > 0) else 0
+    reunioes_du = round(total_reunioes / divisor, 2) if divisor > 0 else 0.0
+    indicadores.append(_ind(
+        "reunioes_ec_du", "RESULTADO", "Reuniões por EC/dia útil", 3,
+        reunioes_du, 4.0, "/du",
+        _pts_reunioes_ec_du,
+        {
+            "numerador": total_reunioes,
+            "denominador": f"ECs={ECS} × DU={DU} = {ECS*DU}",
+            "filtro": "tipo=Reunião + finalidade in (Online/Presencial/Omie na Rua) + resultado in (Sucesso/Realizado/Efetuado)",
+            "fonte": "cromie_tarefa_contador",
+        },
+    ))
 
-    # ── 8. Contadores trabalhados (2 pts) — Cont/Trab ÷ Carteira atual ──
+    # ── 8. Contadores trabalhados (2 pts) ──────────────────────────────
     cont_trab_row = await conn.fetchrow("""
         SELECT COUNT(DISTINCT contador_cnpj) AS total
         FROM cromie_tarefa_contador
@@ -412,11 +389,19 @@ async def calcular_pex_snapshot(
           AND data_tarefa >= $2 AND data_tarefa < $3
     """, upload_id, primeiro_dia, primeiro_dia_prox_mes)
     cont_trab = int(cont_trab_row["total"] or 0)
-    pct_trab = _safe_pct(cont_trab, CARTEIRA)
-    r["contadores_trabalhados_pct"] = round(pct_trab, 2)
-    r["contadores_trabalhados_pts"] = _pts_contadores_trabalhados(pct_trab)
+    indicadores.append(_ind(
+        "contadores_trabalhados", "RESULTADO", "Contadores trabalhados", 2,
+        cont_trab, CARTEIRA, "%",
+        _pts_contadores_trabalhados,
+        {
+            "numerador": cont_trab,
+            "denominador": CARTEIRA,
+            "filtro": "contadores DISTINCT que tiveram qualquer tarefa no mês / carteira_total",
+            "fonte": "cromie_tarefa_contador WHERE data_tarefa em mes",
+        },
+    ))
 
-    # ── 9. Contadores indicando (3 pts) — Cont/Ind ÷ Carteira atual ──
+    # ── 9. Contadores indicando (3 pts) ────────────────────────────────
     cont_ind_row = await conn.fetchrow("""
         SELECT COUNT(DISTINCT contador_cnpj) AS total
         FROM cromie_cliente_final
@@ -425,11 +410,19 @@ async def calcular_pex_snapshot(
           AND data_criacao >= $2 AND data_criacao < $3
     """, upload_id, primeiro_dia, primeiro_dia_prox_mes)
     cont_ind = int(cont_ind_row["total"] or 0)
-    pct_ind = _safe_pct(cont_ind, CARTEIRA)
-    r["contadores_indicando_pct"] = round(pct_ind, 2)
-    r["contadores_indicando_pts"] = _pts_contadores_indicando(pct_ind)
+    indicadores.append(_ind(
+        "contadores_indicando", "RESULTADO", "Contadores indicando", 3,
+        cont_ind, CARTEIRA, "%",
+        _pts_contadores_indicando,
+        {
+            "numerador": cont_ind,
+            "denominador": CARTEIRA,
+            "filtro": "contadores com lead criado no mês / carteira_total",
+            "fonte": "cromie_cliente_final WHERE data_criacao em mes",
+        },
+    ))
 
-    # ── 10. Contadores ativando (4 pts) — Cont/Ativ ÷ Carteira atual ──
+    # ── 10. Contadores ativando (4 pts) ────────────────────────────────
     cont_ativ_row = await conn.fetchrow("""
         SELECT COUNT(DISTINCT contador_cnpj) AS total
         FROM bd_ativados
@@ -438,11 +431,19 @@ async def calcular_pex_snapshot(
           AND data_ativacao >= $1 AND data_ativacao < $2
     """, primeiro_dia, primeiro_dia_prox_mes)
     cont_ativ = int(cont_ativ_row["total"] or 0)
-    pct_ativ = _safe_pct(cont_ativ, CARTEIRA)
-    r["contadores_ativando_pct"] = round(pct_ativ, 2)
-    r["contadores_ativando_pts"] = _pts_contadores_ativando(pct_ativ)
+    indicadores.append(_ind(
+        "contadores_ativando", "RESULTADO", "Contadores ativando", 4,
+        cont_ativ, CARTEIRA, "%",
+        _pts_contadores_ativando,
+        {
+            "numerador": cont_ativ,
+            "denominador": CARTEIRA,
+            "filtro": "contadores DISTINCT com ≥1 ativação no mês / carteira_total",
+            "fonte": "bd_ativados WHERE situacao=ACTIVE + data_ativacao em mes",
+        },
+    ))
 
-    # ── 11. Demos Outbound (3 pts) — atingimento de meta numérica ──
+    # ── 11. Demos Outbound (3 pts) ─────────────────────────────────────
     meta_outbound = metas["metas_indicadores"].get("demos_outbound") or 0
     outbound_row = await conn.fetchrow("""
         SELECT COUNT(*) AS total
@@ -453,12 +454,19 @@ async def calcular_pex_snapshot(
           AND data_tarefa >= $2 AND data_tarefa < $3
     """, upload_id, primeiro_dia, primeiro_dia_prox_mes)
     total_outbound = int(outbound_row["total"] or 0)
-    pct_outbound = _safe_pct(total_outbound, meta_outbound)
-    r["demos_outbound_pct"] = round(pct_outbound, 2)
-    r["demos_outbound_pts"] = _pts_demos_outbound(pct_outbound)
+    indicadores.append(_ind(
+        "demos_outbound", "RESULTADO", "Número de demos Outbound", 3,
+        total_outbound, meta_outbound, "qtd",
+        _pts_demos_outbound,
+        {
+            "numerador": total_outbound,
+            "denominador": meta_outbound,
+            "filtro": "tarefa_cliente: finalidade ~ 'apresenta' + resultado = Realizado + data em mes",
+            "fonte": "cromie_tarefa_cliente",
+        },
+    ))
 
-    # ── 12. Reunião com contador do lead Inbound (4 pts) ─────────────────
-    # % contadores de leads inbound com reunião realizada
+    # ── 12. Reunião com contador do lead Inbound (4 pts) ────────────────
     inb_row = await conn.fetchrow("""
         SELECT
             COUNT(DISTINCT cf.contador_cnpj) FILTER (WHERE cf.origem ILIKE '%inbound%') AS total_inbound,
@@ -479,30 +487,42 @@ async def calcular_pex_snapshot(
     """, upload_id, primeiro_dia, primeiro_dia_prox_mes)
     total_inb = int(inb_row["total_inbound"] or 0)
     com_reuniao = int(inb_row["com_reuniao"] or 0)
-    pct_reuniao_inb = _safe_pct(com_reuniao, total_inb)
-    r["reuniao_contador_inbound_pct"] = round(pct_reuniao_inb, 2)
-    r["reuniao_contador_inbound_pts"] = _pts_reuniao_contador_inbound(pct_reuniao_inb)
+    indicadores.append(_ind(
+        "reuniao_contador_inbound", "RESULTADO", "Reunião com contador do lead Inbound", 4,
+        com_reuniao, total_inb, "%",
+        _pts_reuniao_contador_inbound,
+        {
+            "numerador": com_reuniao,
+            "denominador": total_inb,
+            "filtro": "contadores de leads inbound do mês com reunião realizada",
+            "fonte": "cromie_cliente_final ⨝ cromie_tarefa_contador",
+        },
+    ))
 
-    # ── 13. Conversão Inbound (2 pts) ────────────────────────────────────
+    # ── 13. Conversão Inbound (2 pts) ──────────────────────────────────
     inb_conv_row = await conn.fetchrow("""
         SELECT
-            COUNT(*) FILTER (WHERE LOWER(origem) LIKE '%inbound%') AS total_inbound,
-            COUNT(*) FILTER (WHERE LOWER(origem) LIKE '%inbound%' AND fase = '06. Conquistado') AS ganhos_inbound
+            COUNT(*) FILTER (WHERE LOWER(origem) LIKE '%inbound%') AS total,
+            COUNT(*) FILTER (WHERE LOWER(origem) LIKE '%inbound%' AND fase = '06. Conquistado') AS ganhos
         FROM cromie_cliente_final
         WHERE upload_id = $1
           AND data_ganho >= $2 AND data_ganho < $3
     """, upload_id, primeiro_dia, primeiro_dia_prox_mes)
-    total_inb_conv = int(inb_conv_row["total_inbound"] or 0)
-    ganhos_inb = int(inb_conv_row["ganhos_inbound"] or 0)
-    pct_inb = _safe_pct(ganhos_inb, total_inb_conv)
-    r["conversao_inbound_pct"] = round(pct_inb, 2)
-    r["conversao_inbound_pts"] = _pts_conversao_inbound(pct_inb)
+    total_inb_conv = int(inb_conv_row["total"] or 0)
+    ganhos_inb = int(inb_conv_row["ganhos"] or 0)
+    indicadores.append(_ind(
+        "conversao_inbound", "RESULTADO", "Conversão total leads Inbound", 2,
+        ganhos_inb, total_inb_conv, "%",
+        _pts_conversao_inbound,
+        {
+            "numerador": ganhos_inb,
+            "denominador": total_inb_conv,
+            "filtro": "leads inbound conquistados no mês / total leads inbound do mês",
+            "fonte": "cromie_cliente_final WHERE origem~inbound AND data_ganho em mes",
+        },
+    ))
 
-    # ── 14. Conversão Total (4 pts) ──────────────────────────────────────
-    # Manual: "Conversão de oportunidades a partir da fase Qualificado"
-    # Denominador: oportunidades em fase >= "03. Qualificação"
-    # Numerador: dessas, as que chegaram em "06. Conquistado"
-    # Filtro temporal: oportunidades com data_ganho ou data_perda no mês
+    # ── 14. Conversão Total (4 pts) ────────────────────────────────────
     conv_row = await conn.fetchrow("""
         SELECT
             COUNT(*) FILTER (
@@ -514,12 +534,19 @@ async def calcular_pex_snapshot(
     """, upload_id)
     qualificadas = int(conv_row["qualificadas"] or 0)
     ganhas = int(conv_row["ganhas"] or 0)
-    pct_conv = _safe_pct(ganhas, qualificadas)
-    r["conversao_total_pct"] = round(pct_conv, 2)
-    r["conversao_total_pts"] = _pts_conversao_total(pct_conv)
+    indicadores.append(_ind(
+        "conversao_total", "RESULTADO", "Conversão total de leads", 4,
+        ganhas, qualificadas, "%",
+        _pts_conversao_total,
+        {
+            "numerador": ganhas,
+            "denominador": qualificadas,
+            "filtro": "fase=Conquistado / fase IN (Qualificação..Perdido)",
+            "fonte": "cromie_cliente_final (snapshot atual, sem filtro temporal)",
+        },
+    ))
 
-    # ── 15. Conversão M0 (3 pts) ─────────────────────────────────────────
-    # Conversão de leads ganhos no mesmo mês de criação
+    # ── 15. Conversão M0 (3 pts) ───────────────────────────────────────
     m0_row = await conn.fetchrow("""
         SELECT
             COUNT(*) FILTER (WHERE fase = '06. Conquistado') AS ganhas_no_mes,
@@ -533,12 +560,19 @@ async def calcular_pex_snapshot(
     """, upload_id, primeiro_dia, primeiro_dia_prox_mes)
     ganhas_no_mes = int(m0_row["ganhas_no_mes"] or 0)
     m0 = int(m0_row["m0"] or 0)
-    pct_m0 = _safe_pct(m0, ganhas_no_mes)
-    r["conversao_m0_pct"] = round(pct_m0, 2)
-    r["conversao_m0_pts"] = _pts_conversao_m0(pct_m0)
+    indicadores.append(_ind(
+        "conversao_m0", "RESULTADO", "Conversão de leads no M0", 3,
+        m0, ganhas_no_mes, "%",
+        _pts_conversao_m0,
+        {
+            "numerador": m0,
+            "denominador": ganhas_no_mes,
+            "filtro": "ganhos com data_criacao no mesmo mês / total ganhos no mês",
+            "fonte": "cromie_cliente_final WHERE data_ganho em mes",
+        },
+    ))
 
-    # ── 16. Demo / dia útil (4 pts) ──────────────────────────────────────
-    # Tipo=Registro; Finalidade=Apresentação; Resultado=Realizado
+    # ── 16. Demo / dia útil (4 pts) ────────────────────────────────────
     demo_row = await conn.fetchrow("""
         SELECT COUNT(*) AS total
         FROM cromie_tarefa_cliente
@@ -551,19 +585,34 @@ async def calcular_pex_snapshot(
     total_demos = int(demo_row["total"] or 0)
     divisor_demo = max(EVS * DU, 1) if (EVS > 0 and DU > 0) else 0
     demo_du = round(total_demos / divisor_demo, 2) if divisor_demo > 0 else 0.0
-    r["demo_du_realizado"] = demo_du
-    r["demo_du_pts"] = _pts_demo_du(demo_du)
+    indicadores.append(_ind(
+        "demo_du", "RESULTADO", "Apresentação (demo) por dia útil", 4,
+        demo_du, 4.0, "/du",
+        _pts_demo_du,
+        {
+            "numerador": total_demos,
+            "denominador": f"EVs={EVS} × DU={DU} = {EVS*DU}",
+            "filtro": "tipo=Registro + finalidade~apresenta + resultado=Realizado + data em mes",
+            "fonte": "cromie_tarefa_cliente",
+        },
+    ))
 
-    # ── 17. Integração Contábil (3 pts) — apurado por Yungas, 0 por enquanto ──
-    # (Precisa página de realizados pra ADM informar nº de chamados Yungas)
-    r["integracao_contabil_pct"] = 0.0
-    r["integracao_contabil_pts"] = 0.0
+    # ── 17. Integração Contábil (3 pts) — manual ────────────────────────
+    meta_integ = metas["metas_indicadores"].get("integracao_contabil") or 0
+    indicadores.append(_ind(
+        "integracao_contabil", "RESULTADO", "Integração Contábil", 3,
+        0.0, meta_integ, "qtd",
+        _pts_demos_outbound,  # mesma faixa
+        {"manual": True, "fonte": "Apuração via chamados Yungas", "cluster": CLUSTER,
+         "obs": "0 pts até página de realizados"},
+        manual_zero=True,
+    ))
 
     # ════════════════════════════════════════════════════════════════════
-    # PILAR GESTÃO (20 pts) — só uso_correto_cromie é calculável
+    # PILAR GESTÃO (20 pts, 7 indicadores)
     # ════════════════════════════════════════════════════════════════════
 
-    # Uso correto CROmie (2 pts) — % oportunidades ativas em compliance
+    # ── Uso Correto CROmie (2 pts) ──────────────────────────────────────
     uso_row = await conn.fetchrow("""
         SELECT
             COUNT(*) AS total_ativos,
@@ -579,99 +628,154 @@ async def calcular_pex_snapshot(
     """, upload_id)
     total_ativos = int(uso_row["total_ativos"] or 0)
     em_compliance = int(uso_row["em_compliance"] or 0)
-    pct_uso_cromie = _safe_pct(em_compliance, total_ativos)
-    r["uso_cromie_pct"] = round(pct_uso_cromie, 2)
-    r["uso_cromie_pts"] = _pts_uso_correto_cromie(pct_uso_cromie)
+    indicadores.append(_ind(
+        "uso_correto_cromie", "GESTAO", "Utilização correta do CROmie", 2,
+        em_compliance, total_ativos, "%",
+        _pts_uso_correto_cromie,
+        {
+            "numerador": em_compliance,
+            "denominador": total_ativos,
+            "filtro": "oportunidades ativas em compliance / total oportunidades ativas",
+            "fonte": "cromie_cliente_final WHERE fase != Conquistado/Perdido",
+        },
+    ))
 
-    # Os outros 6 indicadores de Gestão são manuais (RH/Yungas) — registram 0
-    r["remuneracao_variavel_pts"] = 0.0
-    r["gestao_quartis_pts"] = 0.0
-    r["headcount_recomendado_pts"] = 0.0
-    r["politica_contratacao_pts"] = 0.0
-    r["trilhas_uc_pts"] = 0.0
-    r["turnover_voluntario_pts"] = 0.0
+    # ── 6 indicadores manuais de Gestão ─────────────────────────────────
+    for codigo, nome, pts_max, fn in [
+        ("remuneracao_variavel", "Aderência ao Modelo Remuneração Variável", 2, lambda x: 0.0),
+        ("gestao_quartis", "Adesão à gestão dos quartis", 4, lambda x: 0.0),
+        ("headcount_recomendado", "Adesão ao headcount recomendado", 5, lambda x: 0.0),
+        ("politica_contratacao", "Adesão à política de contratação", 3, lambda x: 0.0),
+        ("trilhas_uc", "Conclusão das trilhas obrigatórias UC", 2, lambda x: 0.0),
+        ("turnover_voluntario", "Turnover Voluntário", 2, lambda x: 0.0),
+    ]:
+        indicadores.append(_ind(
+            codigo, "GESTAO", nome, pts_max, 0.0, 100.0, "%",
+            fn,
+            {"manual": True, "fonte": "Apuração RH/UC", "obs": "0 pts até página de realizados"},
+            manual_zero=True,
+        ))
 
     # ════════════════════════════════════════════════════════════════════
-    # PILAR ENGAJAMENTO (20 pts) — só Big3 é calculável aqui
+    # PILAR ENGAJAMENTO (20 pts, 6 indicadores)
     # ════════════════════════════════════════════════════════════════════
 
-    # Big3 (6 pts) — vem das checkboxes da página /metas
-    r["big3_acoes_atingidas"] = metas["big3_atingidas"]
-    r["big3_pts"] = _pts_big3(metas["big3_atingidas"])
+    # ── Big3 (6 pts) ─────────────────────────────────────────────────────
+    big3_atingidas = metas["big3_atingidas"]
+    indicadores.append(_ind(
+        "big3", "ENGAJAMENTO", "BIG 3 — Ações mensais", 6,
+        big3_atingidas, 3, "qtd",
+        _pts_big3,
+        {
+            "numerador": big3_atingidas,
+            "denominador": 3,
+            "fonte": "pex_metas_big3 WHERE atingiu=TRUE",
+            "obs": "ADM marca atingimento na página /metas",
+        },
+    ))
+    # Pra Big3 a fórmula é diferente (escala discreta), e _pts_big3 recebe contagem direta.
+    # Mas _ind acima passa pelo path "qtd → pct = realizado/meta * 100" e depois pts_func(pct).
+    # Pra esse caso específico, sobrescrevo o pts:
+    indicadores[-1]["pts"] = round(_pts_big3(big3_atingidas), 2)
+    indicadores[-1]["pct"] = round((big3_atingidas / 3.0) * 100, 2) if big3_atingidas else 0.0
 
-    # Demais 5 indicadores manuais — 0 pts até página de realizados
-    r["treinamentos_franqueadora_pts"] = 0.0
-    r["leitura_yungas_pts"] = 0.0
-    r["verba_cooperada_pts"] = 0.0
-    r["instagram_pts"] = 0.0
-    r["eventos_pts"] = 0.0
+    # ── Eventos (3 pts) — manual ────────────────────────────────────────
+    meta_eventos = metas["metas_indicadores"].get("eventos") or 0
+    indicadores.append(_ind(
+        "eventos", "ENGAJAMENTO", "Realização de eventos", 3,
+        0.0, meta_eventos, "qtd",
+        _pts_demos_outbound,
+        {"manual": True, "fonte": "Apuração Trade Marketing", "cluster": CLUSTER,
+         "obs": "0 pts até página de realizados"},
+        manual_zero=True,
+    ))
+
+    # ── 4 indicadores manuais de Engajamento ────────────────────────────
+    for codigo, nome, pts_max in [
+        ("treinamentos_franqueadora", "Participação em treinamentos da franqueadora", 4),
+        ("leitura_yungas", "Leitura dos informes na Yungas", 3),
+        ("verba_cooperada", "Utilização de verba cooperada", 2),
+        ("instagram", "Mídias sociais — Instagram", 2),
+    ]:
+        indicadores.append(_ind(
+            codigo, "ENGAJAMENTO", nome, pts_max, 0.0, 100.0, "%",
+            lambda x: 0.0,
+            {"manual": True, "fonte": "Apuração franqueadora", "obs": "0 pts até página de realizados"},
+            manual_zero=True,
+        ))
 
     # ════════════════════════════════════════════════════════════════════
-    # TOTAIS POR PILAR + GERAL
+    # TOTAIS
     # ════════════════════════════════════════════════════════════════════
 
-    pts_resultado = sum([
-        r.get("nmrr_pts", 0),
-        r.get("sow_pts", 0),
-        r.get("mapeamento_carteira_pts", 0),
-        r.get("early_churn_pts", 0),
-        r.get("utilizacao_desconto_pts", 0),
-        r.get("crescimento_40_pts", 0),
-        r.get("reunioes_ec_du_pts", 0),
-        r.get("contadores_trabalhados_pts", 0),
-        r.get("contadores_indicando_pts", 0),
-        r.get("contadores_ativando_pts", 0),
-        r.get("demos_outbound_pts", 0),
-        r.get("reuniao_contador_inbound_pts", 0),
-        r.get("conversao_inbound_pts", 0),
-        r.get("conversao_total_pts", 0),
-        r.get("conversao_m0_pts", 0),
-        r.get("demo_du_pts", 0),
-        r.get("integracao_contabil_pts", 0),
-    ])
+    pts_resultado = sum(i["pts"] for i in indicadores if i["pilar"] == "RESULTADO")
+    pts_gestao = sum(i["pts"] for i in indicadores if i["pilar"] == "GESTAO")
+    pts_engajamento = sum(i["pts"] for i in indicadores if i["pilar"] == "ENGAJAMENTO")
+    total_geral = pts_resultado + pts_gestao + pts_engajamento
 
-    pts_gestao = sum([
-        r.get("remuneracao_variavel_pts", 0),
-        r.get("uso_cromie_pts", 0),
-        r.get("gestao_quartis_pts", 0),
-        r.get("headcount_recomendado_pts", 0),
-        r.get("politica_contratacao_pts", 0),
-        r.get("trilhas_uc_pts", 0),
-        r.get("turnover_voluntario_pts", 0),
-    ])
-
-    pts_engajamento = sum([
-        r.get("treinamentos_franqueadora_pts", 0),
-        r.get("leitura_yungas_pts", 0),
-        r.get("verba_cooperada_pts", 0),
-        r.get("instagram_pts", 0),
-        r.get("big3_pts", 0),
-        r.get("eventos_pts", 0),
-    ])
-
-    r["total_resultado_pts"] = round(pts_resultado, 2)
-    r["total_gestao_pts"] = round(pts_gestao, 2)
-    r["total_engajamento_pts"] = round(pts_engajamento, 2)
-    r["total_geral_pts"] = round(pts_resultado + pts_gestao + pts_engajamento, 2)
-    r["risco_classificacao"] = _classificar(r["total_geral_pts"])
-    r["classificacao_oficial"] = _classificar_oficial(r["total_geral_pts"])
-
-    return r
+    return {
+        "totais": {
+            "resultado_pts": round(pts_resultado, 2),
+            "gestao_pts": round(pts_gestao, 2),
+            "engajamento_pts": round(pts_engajamento, 2),
+            "geral_pts": round(total_geral, 2),
+            "risco_classificacao": _classificar(total_geral),
+            "classificacao_oficial": _classificar_oficial(total_geral),
+        },
+        "indicadores": indicadores,
+    }
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# Função auxiliar mantida pra compatibilidade (gaps de compliance)
+# Compatibilidade: função antiga calcular_pex_snapshot (chamada pelo router)
 # ═══════════════════════════════════════════════════════════════════════
+
+async def calcular_pex_snapshot(
+    conn: asyncpg.Connection,
+    upload_id: str,
+    mes_ref: str,
+    dias_uteis: Optional[int] = None,
+    ecs_ativos_m3: Optional[int] = None,
+    evs_ativos: Optional[int] = None,
+    carteira_total: Optional[int] = None,
+) -> dict:
+    """
+    Wrapper de compatibilidade: invoca calcular_pex_indicadores e devolve
+    no formato antigo (campos planos pct/pts) pra não quebrar caller existente.
+    Mas devolve TAMBÉM o objeto novo dentro da chave `_v3` pra quem migrou.
+    """
+    resultado = await calcular_pex_indicadores(conn, upload_id, mes_ref)
+    flat = {}
+    for ind in resultado["indicadores"]:
+        c = ind["codigo"]
+        flat[f"{c}_pct"] = ind["pct"]
+        flat[f"{c}_pts"] = ind["pts"]
+        # alguns campos especiais que o schema legacy esperava:
+        if c == "nmrr":
+            flat["nmrr_realizado"] = ind["realizado"]
+            flat["nmrr_meta"] = ind["meta"]
+        if c == "reunioes_ec_du":
+            flat["reunioes_ec_du_realizado"] = ind["realizado"]
+        if c == "demo_du":
+            flat["demo_du_realizado"] = ind["realizado"]
+
+    flat.update({
+        "total_resultado_pts": resultado["totais"]["resultado_pts"],
+        "total_gestao_pts": resultado["totais"]["gestao_pts"],
+        "total_engajamento_pts": resultado["totais"]["engajamento_pts"],
+        "total_geral_pts": resultado["totais"]["geral_pts"],
+        "risco_classificacao": resultado["totais"]["risco_classificacao"],
+        "classificacao_oficial": resultado["totais"]["classificacao_oficial"],
+        "_v3": resultado,
+    })
+    return flat
+
 
 async def calcular_gaps_compliance(
     conn: asyncpg.Connection,
     upload_id: str,
 ) -> list[dict]:
-    """
-    Agrega gaps de compliance do CROmie por usuário.
-    Cada linha do retorno = 1 usuário responsável com seus contadores de gaps.
-    Formato pronto pra inserir em pex_compliance_gaps.
-    """
+    """Mantida igual da fase 2 — agrega gaps de compliance por usuário."""
     rows = await conn.fetch("""
         SELECT
             COALESCE(usuario_responsavel, 'Sem responsável') AS usuario_responsavel,
@@ -711,7 +815,6 @@ async def calcular_gaps_compliance(
             int(r["leads_sem_previsao"] or 0),
             int(r["leads_sem_ticket"] or 0),
         ])
-        # Estima pontos em risco: 0,1 pt por gap (heurística — cada gap ameaça 0.1 pts do uso_correto_cromie)
         pontos_em_risco = round(min(gaps * 0.1, 2.0), 2)
         out.append({
             "usuario_responsavel": r["usuario_responsavel"],
@@ -719,8 +822,8 @@ async def calcular_gaps_compliance(
             "leads_sem_temperatura": int(r["leads_sem_temperatura"] or 0),
             "leads_sem_previsao": int(r["leads_sem_previsao"] or 0),
             "leads_sem_ticket": int(r["leads_sem_ticket"] or 0),
-            "contadores_sem_tarefa_mes": 0,  # placeholder até implementar
-            "inbound_sem_reuniao_5du": 0,    # placeholder até implementar
+            "contadores_sem_tarefa_mes": 0,
+            "inbound_sem_reuniao_5du": 0,
             "pontos_em_risco": pontos_em_risco,
         })
     return out
