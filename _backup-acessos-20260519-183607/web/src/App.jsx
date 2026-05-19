@@ -8,15 +8,6 @@ import PEXDashboard from './pages/PEX';
 import BDAtivadosDashboard from './pages/BDAtivados';
 import Metas from './pages/Metas';
 import Carteira from './pages/Carteira';
-import Perfil from './pages/Perfil';
-import { primeiraRotaAcessivel } from './api';
-
-// Componente pequeno pro <Route index>: usa a primeira rota acessível
-// pelo cargo do usuário logado. ADM/Franqueado vai pra /pex, Hunter/Farmer
-// vai pra /carteira.
-function RedirectPrimeiraRota() {
-  return <Navigate to={primeiraRotaAcessivel()} replace />;
-}
 
 export default function App() {
   return (
@@ -34,13 +25,12 @@ export default function App() {
             </ProtectedRoute>
           }
         >
-          <Route index element={<RedirectPrimeiraRota />} />
+          <Route index element={<Navigate to="/pex" replace />} />
           <Route path="pex"          element={<PEXDashboard />} />
           <Route path="pos"          element={<POsDashboard />} />
           <Route path="bd-ativados"  element={<BDAtivadosDashboard />} />
           <Route path="carteira"     element={<Carteira />} />
           <Route path="metas"        element={<Metas />} />
-          <Route path="perfil"       element={<Perfil />} />
         </Route>
 
         {/* Fallback */}

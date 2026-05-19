@@ -2,12 +2,7 @@
 import { useState } from 'react';
 import { useNavigate, Navigate } from 'react-router-dom';
 import { LogIn, AlertCircle } from 'lucide-react';
-import api, {
-  TOKEN_KEY,
-  USER_KEY,
-  isAuthenticated,
-  primeiraRotaAcessivel,
-} from '../api';
+import api, { TOKEN_KEY, USER_KEY, isAuthenticated } from '../api';
 import Logo from '../components/Logo';
 import Input from '../components/ui/Input';
 import Button from '../components/ui/Button';
@@ -19,9 +14,9 @@ export default function Login() {
   const [loading, setLoading] = useState(false);
   const [erro, setErro] = useState(null);
 
-  // Se já autenticado, manda pra primeira rota que o cargo pode acessar
+  // Se já autenticado, manda pra raiz
   if (isAuthenticated()) {
-    return <Navigate to={primeiraRotaAcessivel()} replace />;
+    return <Navigate to="/pex" replace />;
   }
 
   async function onSubmit(e) {
@@ -30,6 +25,8 @@ export default function Login() {
     setErro(null);
 
     try {
+      // OAuth2PasswordRequestForm exige application/x-www-form-urlencoded
+      // com campos `username` e `password`.
       const form = new URLSearchParams();
       form.append('username', email);
       form.append('password', senha);
@@ -40,18 +37,14 @@ export default function Login() {
 
       localStorage.setItem(TOKEN_KEY, data.access_token);
 
-      // /me agora retorna { id, nome, email, cargo, modulos }. Precisamos
-      // dele pra saber as rotas que o cargo pode acessar.
-      let destino = '/perfil';
       try {
         const me = await api.get('/auth/me');
         localStorage.setItem(USER_KEY, JSON.stringify(me.data));
-        destino = primeiraRotaAcessivel();
       } catch {
-        // /me falhou — manda pro perfil que sempre é acessível
+        // se /me falhar, segue sem dados do user — não bloqueia o login
       }
 
-      navigate(destino, { replace: true });
+      navigate('/pex', { replace: true });
     } catch (err) {
       const msg =
         err.response?.data?.detail ||

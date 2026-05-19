@@ -4,10 +4,6 @@
 // item ativo em #EFF6FF com texto/ícone azul (Manual §6).
 //
 // Sidebar é fixa no desktop e abre como drawer no mobile (toggle no header).
-//
-// v1.1: filtra os itens da nav pelos módulos do cargo do usuário logado.
-//       Hunter/Farmer/EP/Gerente veem apenas Carteira + Perfil.
-//       ADM/Franqueado veem tudo.
 
 import { useState } from 'react';
 import { Outlet, NavLink } from 'react-router-dom';
@@ -20,20 +16,16 @@ import {
   Menu,
   LogOut,
   X,
-  User,
 } from 'lucide-react';
-import { getUser, getModulos, logout } from '../api';
+import { getUser, logout } from '../api';
 import Logo, { LogoWordmark } from './Logo';
 
-// Cada item declara o módulo que precisa pra aparecer.
-// 'perfil' é um item especial: sempre visível pra qualquer usuário logado.
 const NAV_ITEMS = [
-  { to: '/pex',          label: 'PEX',         Icon: BarChart3, modulo: 'pex' },
-  { to: '/pos',          label: 'POs',         Icon: FileText,  modulo: 'po' },
-  { to: '/bd-ativados',  label: 'BD Ativados', Icon: Database,  modulo: 'bd' },
-  { to: '/carteira',     label: 'Carteira',    Icon: Briefcase, modulo: 'carteira' },
-  { to: '/metas',        label: 'Metas',       Icon: Target,    modulo: 'metas' },
-  { to: '/perfil',       label: 'Perfil',      Icon: User,      modulo: '__sempre' },
+  { to: '/pex',          label: 'PEX',         Icon: BarChart3 },
+  { to: '/pos',          label: 'POs',         Icon: FileText },
+  { to: '/bd-ativados',  label: 'BD Ativados', Icon: Database },
+  { to: '/carteira',     label: 'Carteira',    Icon: Briefcase },
+  { to: '/metas',        label: 'Metas',       Icon: Target },
 ];
 
 function NavItem({ to, label, Icon, onClick }) {
@@ -54,11 +46,7 @@ function NavItem({ to, label, Icon, onClick }) {
   );
 }
 
-function Sidebar({ user, modulos, onClose, isMobile = false }) {
-  const itensVisiveis = NAV_ITEMS.filter(
-    (item) => item.modulo === '__sempre' || modulos.includes(item.modulo),
-  );
-
+function Sidebar({ user, onClose, isMobile = false }) {
   return (
     <aside
       className={
@@ -85,7 +73,7 @@ function Sidebar({ user, modulos, onClose, isMobile = false }) {
 
       {/* Nav */}
       <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
-        {itensVisiveis.map((item) => (
+        {NAV_ITEMS.map((item) => (
           <NavItem key={item.to} {...item} onClick={isMobile ? onClose : undefined} />
         ))}
       </nav>
@@ -157,13 +145,12 @@ function Topbar({ user, onOpenMenu }) {
 
 export default function Layout() {
   const user = getUser();
-  const modulos = getModulos();
   const [mobileOpen, setMobileOpen] = useState(false);
 
   return (
     <div className="h-screen flex bg-hipo-bg overflow-hidden">
       {/* Sidebar desktop */}
-      <Sidebar user={user} modulos={modulos} />
+      <Sidebar user={user} />
 
       {/* Sidebar mobile (drawer com overlay) */}
       {mobileOpen && (
@@ -175,7 +162,6 @@ export default function Layout() {
           <div className="lg:hidden fixed inset-y-0 left-0 z-50">
             <Sidebar
               user={user}
-              modulos={modulos}
               isMobile
               onClose={() => setMobileOpen(false)}
             />

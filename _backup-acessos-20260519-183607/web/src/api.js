@@ -49,32 +49,6 @@ export function getUser() {
   }
 }
 
-// Retorna os módulos visíveis pro cargo do usuário logado.
-// Cargo Hunter/Farmer/EP/Gerente retornam ['carteira'], ADM/Franqueado tudo.
-export function getModulos() {
-  const u = getUser();
-  return Array.isArray(u?.modulos) ? u.modulos : [];
-}
-
-// Verifica se o usuário tem acesso ao módulo.
-export function podeAcessar(modulo) {
-  return getModulos().includes(modulo);
-}
-
-// Devolve o path da primeira rota que o usuário pode acessar.
-// Usado no Login e no redirect do "/" → primeira aba disponível.
-// Ordem de preferência: pex → carteira → po → bd → metas.
-// Cargo Hunter/Farmer cai direto em /carteira; ADM cai em /pex.
-export function primeiraRotaAcessivel() {
-  const mods = getModulos();
-  if (mods.includes("pex")) return "/pex";
-  if (mods.includes("carteira")) return "/carteira";
-  if (mods.includes("po")) return "/pos";
-  if (mods.includes("bd")) return "/bd-ativados";
-  if (mods.includes("metas")) return "/metas";
-  return "/perfil"; // sem módulos: pelo menos perfil
-}
-
 export function logout() {
   localStorage.removeItem(TOKEN_KEY);
   localStorage.removeItem(USER_KEY);

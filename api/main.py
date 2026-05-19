@@ -1,6 +1,8 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
+
 from routers import po, pex, auth, bd_ativados, metas, carteira
+from routers.permissions import requer_modulo
 
 app = FastAPI(
     title="HIPO API",
@@ -16,12 +18,41 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(auth.router,        prefix="/auth",        tags=["auth"])
-app.include_router(po.router,          prefix="/po",          tags=["POs"])
-app.include_router(pex.router,         prefix="/pex",         tags=["PEX"])
-app.include_router(bd_ativados.router, prefix="/bd-ativados", tags=["BD Ativados"])
-app.include_router(metas.router,       prefix="/metas",       tags=["Metas PEX"])
-app.include_router(carteira.router,    prefix="/carteira",    tags=["Carteira"])
+# Auth: sem restrição de módulo — todos os cargos precisam acessar
+# login, /me e troca de senha do próprio usuário.
+app.include_router(auth.router, prefix="/auth", tags=["auth"])
+
+# Demais routers: protegidos por módulo no nível de inclusão.
+# Cargo que não tem o módulo recebe 403 em QUALQUER rota do router.
+app.include_router(
+    po.router,
+    prefix="/po", tags=["POs"],
+    dependencies=[Depends(requer_modulo("po"))],
+)
+app.include_router(
+    pex.router,
+    prefix="/pex", tags=["PEX"],
+    dependencies=[Depends(requer_modulo("pex"))],
+)
+app.include_router(
+    bd_ativados.router,
+    prefix="/bd-ativados", tags=["BD Ativados"],
+    dependencies=[Depends(requer_modulo("bd"))],
+)
+app.include_router(
+    metas.router,
+    prefix="/metas", tags=["Metas PEX"],
+    dependencies=[Depends(requer_modulo("metas"))],
+)
+
+# Carteira: todos os cargos válidos têm 'carteira' nos módulos
+# (Hunter, Farmer, EP, Gerente, ADM, Franqueado). Mesmo assim
+# aplicamos o dependency pra rejeitar cargos desconhecidos/nulos.
+app.include_router(
+    carteira.router,
+    prefix="/carteira", tags=["Carteira"],
+    dependencies=[Depends(requer_modulo("carteira"))],
+)
 
 
 @app.get("/health")

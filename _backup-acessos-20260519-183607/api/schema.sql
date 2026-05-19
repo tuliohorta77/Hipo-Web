@@ -36,14 +36,13 @@ CREATE TYPE risco_enum AS ENUM (
 -- ============================================================
 
 CREATE TABLE usuarios (
-    id                     UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    nome                   VARCHAR(150) NOT NULL,
-    email                  VARCHAR(150) UNIQUE NOT NULL,
-    senha_hash             TEXT NOT NULL,
-    cargo                  VARCHAR(80),   -- ADM, Franqueado, Gerente, Hunter, Farmer, EP, SDR, EV
-    ativo                  BOOLEAN DEFAULT TRUE,
-    precisa_trocar_senha   BOOLEAN DEFAULT FALSE,
-    created_at             TIMESTAMPTZ DEFAULT NOW()
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    nome            VARCHAR(150) NOT NULL,
+    email           VARCHAR(150) UNIQUE NOT NULL,
+    senha_hash      TEXT NOT NULL,
+    cargo           VARCHAR(80),   -- SDR, EC, EV, EP, ADM, GESTOR, FRANQUEADO
+    ativo           BOOLEAN DEFAULT TRUE,
+    created_at      TIMESTAMPTZ DEFAULT NOW()
 );
 
 -- ============================================================
@@ -620,3 +619,172 @@ VALUES
     ('MIDIAS_SOCIAIS',          'Mídias Sociais — Instagram',           'ENGAJAMENTO',2,  NULL,  'Sim/Não',                         'Lançamento ADM'),
     ('BIG3',                    'BIG 3 — Ações Mensais',                'ENGAJAMENTO',6,  3.00,  '3 ações atingidas',               'Módulo Marketing'),
     ('REALIZACAO_EVENTOS',      'Realização de Eventos',                'ENGAJAMENTO',3,  1.00,  'Meta por cluster (Platina: 5/mês)','Módulo Marketing');
+
+-- ============================================================
+-- Migration 007 — Modulo Carteira (Hunter / Farmer / Outros)
+-- Bloco idempotente para o schema do CI/CD
+-- ============================================================
+
+DO $$ BEGIN
+    CREATE TYPE carteira_funcao_enum AS ENUM ('EC_HUNTER', 'EC_FARMER', 'OUTROS');
+EXCEPTION WHEN duplicate_object THEN null;
+END $$;
+
+DO $$ BEGIN
+    CREATE TYPE tarefa_situacao_enum AS ENUM ('EM_DIA', 'FUTURA', 'ATRASADA', 'DESCONHECIDA');
+EXCEPTION WHEN duplicate_object THEN null;
+END $$;
+
+CREATE TABLE IF NOT EXISTS carteira_colaborador (
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    nome            VARCHAR(150) UNIQUE NOT NULL,
+    funcao          carteira_funcao_enum NOT NULL DEFAULT 'OUTROS',
+    funcao_origem   VARCHAR(120),
+    ativo           BOOLEAN DEFAULT TRUE,
+    updated_at      TIMESTAMPTZ DEFAULT NOW(),
+    created_at      TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_colaborador_funcao ON carteira_colaborador(funcao);
+
+CREATE TABLE IF NOT EXISTS carteira_upload (
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tipo            VARCHAR(20) NOT NULL,
+    data_upload     TIMESTAMPTZ DEFAULT NOW(),
+    usuario_id      UUID REFERENCES usuarios(id),
+    nome_arquivo    VARCHAR(200),
+    total_linhas    INT,
+    total_validos   INT,
+    processado      BOOLEAN DEFAULT FALSE
+);
+CREATE INDEX IF NOT EXISTS idx_carteira_upload_tipo_data ON carteira_upload(tipo, data_upload DESC);
+
+CREATE TABLE IF NOT EXISTS carteira_cnpj (
+    id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    upload_id           UUID REFERENCES carteira_upload(id) ON DELETE CASCADE,
+    id_grupo            VARCHAR(50) NOT NULL,
+    nome_grupo          VARCHAR(255),
+    cnpj_contador       VARCHAR(20),
+    contabilidade       VARCHAR(255),
+    bairro              VARCHAR(120),
+    cidade_uf           VARCHAR(120),
+    parceria            VARCHAR(40),
+    data_parceria       DATE,
+    tipo_cnae           VARCHAR(40),
+    colaborador_nome    VARCHAR(150),
+    funcao_origem       VARCHAR(120),
+    porte_faturamento   VARCHAR(60),
+    score_rfm           VARCHAR(60),
+    apps_ativos         INT,
+    mrr_ativo           NUMERIC(12,2),
+    leads_no_mes        INT,
+    status_rf           VARCHAR(60)
+);
+CREATE INDEX IF NOT EXISTS idx_carteira_cnpj_grupo ON carteira_cnpj(id_grupo);
+CREATE INDEX IF NOT EXISTS idx_carteira_cnpj_colaborador ON carteira_cnpj(colaborador_nome);
+
+CREATE TABLE IF NOT EXISTS carteira_tarefa (
+    id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    upload_id           UUID REFERENCES carteira_upload(id) ON DELETE CASCADE,
+    tarefa_id_origem    VARCHAR(60),
+    cnpj_contador       VARCHAR(20),
+    contabilidade       VARCHAR(255),
+    executivo_nome      VARCHAR(150),
+    situacao            tarefa_situacao_enum NOT NULL DEFAULT 'DESCONHECIDA',
+    status              VARCHAR(40),
+    tarefa_canal        VARCHAR(60),
+    tipo_tarefa         VARCHAR(80),
+    resultado           VARCHAR(80),
+    data_criacao        TIMESTAMPTZ,
+    data_agendamento    TIMESTAMPTZ,
+    data_efetiva        TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS idx_carteira_tarefa_cnpj      ON carteira_tarefa(cnpj_contador);
+CREATE INDEX IF NOT EXISTS idx_carteira_tarefa_executivo ON carteira_tarefa(executivo_nome);
+CREATE INDEX IF NOT EXISTS idx_carteira_tarefa_data_ef   ON carteira_tarefa(data_efetiva);
+CREATE INDEX IF NOT EXISTS idx_carteira_tarefa_canal     ON carteira_tarefa(tarefa_canal);
+
+-- ============================================================
+-- Migration 004 — BD Ativados: campos de MRR
+-- (bloco idempotente para o schema do CI/CD)
+-- ============================================================
+
+ALTER TABLE bd_ativados_upload
+    ADD COLUMN IF NOT EXISTS data_emissao        VARCHAR(40),
+    ADD COLUMN IF NOT EXISTS linhas_ativas       INT DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS mrr_bruto           NUMERIC(14,2) DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS repasse_franqueado  NUMERIC(14,2) DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS liquido_pos_mkt     NUMERIC(14,2) DEFAULT 0;
+
+ALTER TABLE bd_ativados
+    ADD COLUMN IF NOT EXISTS tipo                   VARCHAR(80),
+    ADD COLUMN IF NOT EXISTS valor_mensal_informado NUMERIC(10,2),
+    ADD COLUMN IF NOT EXISTS mrr_bruto              NUMERIC(14,2) DEFAULT 0;
+
+CREATE INDEX IF NOT EXISTS idx_bd_ativados_tipo ON bd_ativados(tipo);
+
+CREATE OR REPLACE VIEW vw_bd_ativados_atual AS
+SELECT
+    bu.id, bu.data_upload, bu.data_emissao, bu.nome_arquivo,
+    bu.total_registros, bu.linhas_ativas,
+    bu.mrr_bruto, bu.repasse_franqueado, bu.liquido_pos_mkt
+FROM bd_ativados_upload bu
+WHERE bu.processado = TRUE
+ORDER BY bu.data_upload DESC
+LIMIT 1;
+
+-- ============================================================
+-- Migration 005 — pex_metas_cabecalho + indicadores + big3 + view
+-- (bloco idempotente para o schema do CI/CD)
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS pex_metas_cabecalho (
+    id              SERIAL PRIMARY KEY,
+    mes_ref         CHAR(7) NOT NULL UNIQUE,
+    cluster_unidade VARCHAR(30) NOT NULL DEFAULT 'BASE',
+    dias_uteis      SMALLINT NOT NULL DEFAULT 22,
+    ecs_ativos_m3   SMALLINT NOT NULL DEFAULT 0,
+    evs_ativos      SMALLINT NOT NULL DEFAULT 0,
+    carteira_total_contadores INT NOT NULL DEFAULT 0,
+    apps_ativos     INT NOT NULL DEFAULT 0,
+    headcount_recomendado SMALLINT,
+    criado_por      UUID REFERENCES usuarios(id),
+    criado_em       TIMESTAMPTZ DEFAULT NOW(),
+    atualizado_em   TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS ix_pex_metas_cab_mes ON pex_metas_cabecalho(mes_ref DESC);
+
+CREATE TABLE IF NOT EXISTS pex_metas_indicadores (
+    id              SERIAL PRIMARY KEY,
+    cabecalho_id    INT NOT NULL REFERENCES pex_metas_cabecalho(id) ON DELETE CASCADE,
+    codigo          VARCHAR(40) NOT NULL,
+    meta_valor      NUMERIC(14,2),
+    UNIQUE (cabecalho_id, codigo)
+);
+CREATE INDEX IF NOT EXISTS ix_pex_metas_ind_codigo ON pex_metas_indicadores(codigo);
+
+CREATE TABLE IF NOT EXISTS pex_metas_big3 (
+    id              SERIAL PRIMARY KEY,
+    cabecalho_id    INT NOT NULL REFERENCES pex_metas_cabecalho(id) ON DELETE CASCADE,
+    ordem           SMALLINT NOT NULL CHECK (ordem BETWEEN 1 AND 3),
+    descricao       TEXT,
+    atingiu         BOOLEAN DEFAULT FALSE,
+    UNIQUE (cabecalho_id, ordem)
+);
+
+-- View de compatibilidade que pex_calc.py ainda usa
+CREATE OR REPLACE VIEW pex_metas_mensais AS
+SELECT
+    cab.id,
+    cab.mes_ref,
+    (SELECT meta_valor FROM pex_metas_indicadores
+        WHERE cabecalho_id = cab.id AND codigo = 'nmrr') AS nmrr_meta,
+    (SELECT meta_valor::INT FROM pex_metas_indicadores
+        WHERE cabecalho_id = cab.id AND codigo = 'demos_outbound') AS demos_outbound_meta,
+    (SELECT descricao FROM pex_metas_big3
+        WHERE cabecalho_id = cab.id AND ordem = 1) AS big3_descricao,
+    cab.dias_uteis,
+    cab.ecs_ativos_m3,
+    cab.evs_ativos,
+    cab.carteira_total_contadores,
+    cab.criado_em AS created_at
+FROM pex_metas_cabecalho cab;
