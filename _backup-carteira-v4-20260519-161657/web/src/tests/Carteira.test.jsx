@@ -282,13 +282,26 @@ describe('Página Carteira (v3 — drilldown com tabela completa)', () => {
 
     await waitFor(() => {
       expect(screen.getByText('Aline')).toBeInTheDocument()
-      // v4: subtítulo agora começa pela quantidade de grupos ("1 grupos · 10 contadores")
-      expect(screen.getByText(/1 grupos · 10 contadores/)).toBeInTheDocument()
+      // Subtítulo "10 contadores · 1 grupos" (singular/plural simples)
+      expect(screen.getByText(/10 contadores/)).toBeInTheDocument()
     })
 
     fireEvent.click(screen.getByText('Aline'))
     await waitFor(() => {
       expect(screen.getByText('GAMMA')).toBeInTheDocument()
+    })
+  })
+
+  it('busca de colaborador filtra na aba', async () => {
+    renderCarteira()
+    await waitFor(() => screen.getByText('Patrick'))
+
+    const busca = screen.getByPlaceholderText(/Buscar colaborador/i)
+    fireEvent.change(busca, { target: { value: 'caio' } })
+
+    await waitFor(() => {
+      expect(screen.queryByText('Patrick')).not.toBeInTheDocument()
+      expect(screen.getByText('Caio')).toBeInTheDocument()
     })
   })
 

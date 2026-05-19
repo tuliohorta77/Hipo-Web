@@ -413,17 +413,16 @@ def dashboard_farmer(
 
     Regras fundamentais (travadas com o franqueado):
 
-      1. As BOLINHAS das semanas contam GRUPOS, não contadores/CNPJs.
-         Um grupo entra no VERDE se PELO MENOS UM CNPJ dele teve ≥1
-         reunião na semana (em qualquer canal 'Reunião'). Um grupo
-         com matriz + 2 filiais onde só a filial 2 reuniu conta UMA
-         VEZ no verde. A unidade de trabalho do colaborador é o grupo.
-
-         Soma das bolinhas (com_reuniao + sem_reuniao + pendente) é
-         sempre igual ao total_grupos.
+      1. As BOLINHAS das semanas contam CONTADORES (CNPJs únicos do
+         colaborador), não reuniões. Um contador com 3 reuniões na
+         mesma semana entra UMA VEZ no verde — porque a meta é "esse
+         contador foi atendido?" e a resposta é binária. Soma das 3
+         bolinhas (com_reuniao + sem_reuniao + pendente) sempre é
+         igual ao total_contadores.
 
       2. As colunas 'tarefas_atrasadas' e 'tarefas_futuras' contam
          GRUPOS afetados, não tarefas. Um grupo com 5 atrasadas conta 1.
+         Mesma lógica do Hunter — a unidade de gerenciamento é o grupo.
 
     Args:
       cnpjs: linhas de carteira_cnpj.
@@ -434,10 +433,9 @@ def dashboard_farmer(
     Returns:
       Lista de dicts:
         - colaborador_id, nome
-        - total_grupos: int (grupos Farmer atribuídos ao colab) — NOVO PRIMÁRIO
-        - total_contadores: int (CNPJs únicos — preservado pro subtítulo)
+        - total_contadores: int (CNPJs únicos do colaborador)
+        - total_grupos: int (grupos Farmer atribuídos a ele)
         - semanas: list de {key, label, com_reuniao, sem_reuniao, pendente}
-          ↑ agora cada bolinha conta GRUPOS, não CNPJs
         - tarefas_atrasadas: int (qtd de grupos com ≥1 atrasada)
         - tarefas_futuras:   int (qtd de grupos com ≥1 futura)
         - leads_no_mes: int
@@ -451,7 +449,7 @@ def dashboard_farmer(
     iso_hoje = ref_date.isocalendar()
 
     # Roda o agregador completo (grupos com timeline semanal) e
-    # pegamos os grupos Farmer já formatados.
+    # vamos pegar os grupos Farmer já formatados.
     grupos_agg = agregar_grupos(cnpjs, tarefas, colaboradores, ref_date=ref_date)
     grupos_por_colab: dict[str, list[dict]] = {}
     for g in grupos_agg:
@@ -466,42 +464,35 @@ def dashboard_farmer(
     fn_por_nome = {c["nome"]: c["funcao"] for c in colaboradores}
     id_por_nome = {c["nome"]: str(c["id"]) for c in colaboradores}
 
-    # Pra calcular as bolinhas POR GRUPO: precisamos saber, em cada semana,
-    # se algum dos CNPJs do grupo teve reunião. Construímos um mapa
-    # grupo_id → set de semanas que teve ≥1 reunião.
-
-    # Primeiro: cnpj → grupo (a partir da carteira)
-    cnpj_to_grupo: dict[str, str] = {}
-    # E o conjunto de CNPJs por colaborador Farmer (pra contabilizar contadores)
-    cnpjs_por_colab: dict[str, set[str]] = {}
+    # CNPJs por colaborador Farmer (mantemos a lista de CNPJs por colab).
+    # IMPORTANTE: usamos APENAS os CNPJs que estão atribuídos a grupos
+    # cuja função majoritária é EC_FARMER. Isso evita o problema de
+    # "contadores fantasma" que estão no snapshot mas foram realocados
+    # pra outra função na configuração.
+    cnpjs_por_colab: dict[str, list[str]] = {}
     leads_por_colab: dict[str, int] = {}
-
     for c in cnpjs:
         nome = c.get("colaborador_nome")
-        if not nome or fn_por_nome.get(nome) != "EC_FARMER":
+        if not nome:
+            continue
+        if fn_por_nome.get(nome) != "EC_FARMER":
             continue
         cnpj_key = (c.get("cnpj_contador") or "").strip()
-        gid = c.get("id_grupo")
-        if not cnpj_key or not gid:
+        if not cnpj_key:
             continue
-        cnpj_to_grupo[cnpj_key] = gid
-        cnpjs_por_colab.setdefault(nome, set()).add(cnpj_key)
+        cnpjs_por_colab.setdefault(nome, []).append(cnpj_key)
         leads_por_colab[nome] = leads_por_colab.get(nome, 0) + int(c.get("leads_no_mes") or 0)
 
-    # Segundo: grupo_id → set de (ano, semana) com ≥1 reunião em qualquer CNPJ.
-    # Múltiplas reuniões na mesma semana (mesmo CNPJ ou CNPJs diferentes do
-    # grupo) sempre contam UMA vez — set deduplica naturalmente.
-    grupo_sem_reuniao: dict[str, set[tuple[int, int]]] = {}
+    # Tarefas no mês por CNPJ, separadas em reuniões por semana ISO.
+    # Importante: usamos SET para deduplicar — mesmo que tenha 50 reuniões
+    # no mesmo CNPJ na mesma semana, o conjunto registra UMA VEZ.
+    reunioes_cnpj_sem: dict[str, set[tuple[int, int]]] = {}
 
     for t in tarefas:
         if not _is_reuniao(t.get("tarefa_canal")):
             continue
         cnpj_key = (t.get("cnpj_contador") or "").strip()
         if not cnpj_key:
-            continue
-        gid = cnpj_to_grupo.get(cnpj_key)
-        if not gid:
-            # CNPJ não está em nenhum grupo Farmer — ignora
             continue
         ef = t.get("data_efetiva")
         if not ef:
@@ -510,33 +501,41 @@ def dashboard_farmer(
         if not (inicio_mes <= d < fim_mes):
             continue
         chave_sem = _semana_iso_de(d)
-        grupo_sem_reuniao.setdefault(gid, set()).add(chave_sem)
+        reunioes_cnpj_sem.setdefault(cnpj_key, set()).add(chave_sem)
 
     saida: list[dict] = []
-    for nome, gs in grupos_por_colab.items():
-        total_grupos = len(gs)
-        total_contadores = len(cnpjs_por_colab.get(nome, set()))
+    for nome, cnpj_lista in cnpjs_por_colab.items():
+        # Deduplicar mantendo ordem (um colaborador pode aparecer várias
+        # vezes no mesmo CNPJ se cobre grupos diferentes com mesmo CNPJ)
+        seen: set[str] = set()
+        cnpjs_unicos: list[str] = []
+        for c in cnpj_lista:
+            if c not in seen:
+                seen.add(c)
+                cnpjs_unicos.append(c)
 
-        # IDs dos grupos do colaborador (pra varrer só esses)
-        gids_do_colab = [g["id_grupo"] for g in gs]
+        total_contadores = len(cnpjs_unicos)
 
         semanas_saida = []
         for idx, (ano, sem) in enumerate(semanas_mes, start=1):
-            # com_reuniao = qtd de GRUPOS do colaborador que tiveram ≥1
-            # reunião na semana (em qualquer CNPJ do grupo).
+            # com_reuniao = qtd de CONTADORES que reuniram nessa semana.
+            # Cada contador entra UMA VEZ no verde, mesmo que tenha 50
+            # reuniões na semana (regra travada com o franqueado).
             com_reuniao = sum(
-                1 for gid in gids_do_colab
-                if (ano, sem) in grupo_sem_reuniao.get(gid, set())
+                1 for cnpj in cnpjs_unicos
+                if (ano, sem) in reunioes_cnpj_sem.get(cnpj, set())
             )
-            falta = total_grupos - com_reuniao
+            falta = total_contadores - com_reuniao
 
             eh_corrente = (iso_hoje.year, iso_hoje.week) == (ano, sem)
             eh_futura = (ano, sem) > (iso_hoje.year, iso_hoje.week)
 
             if eh_corrente or eh_futura:
+                # Semana corrente ou futura — não conta como falha
                 pendente = falta
                 sem_reuniao = 0
             else:
+                # Semana já passou
                 pendente = 0
                 sem_reuniao = falta
 
@@ -548,21 +547,26 @@ def dashboard_farmer(
                 "pendente": pendente,
             })
 
-        # Grupos detalhados pro drilldown (com timeline própria, etc.).
+        # Grupos detalhados pro drilldown (já vêm com timeline semanal,
+        # tarefas_atrasadas/futuras por grupo, etc. do agregar_grupos).
+        # Ordena: meta_atingida=False primeiro, leads desc.
+        gs = grupos_por_colab.get(nome, [])
         gs_ordenados = sorted(
             gs,
             key=lambda g: (g["meta_atingida"], -g["leads_no_mes"]),
         )
+        total_grupos = len(gs)
 
-        # Atrasadas/Futuras contam GRUPOS afetados (mesma semântica do Hunter)
+        # Atrasadas/Futuras agora contam GRUPOS afetados, não tarefas.
+        # (mantém a mesma semântica do Hunter)
         grupos_com_atrasada = sum(1 for g in gs if g["tarefas_atrasadas"] > 0)
         grupos_com_futura = sum(1 for g in gs if g["tarefas_futuras"] > 0)
 
         saida.append({
             "colaborador_id": id_por_nome.get(nome),
             "nome": nome,
-            "total_grupos": total_grupos,
             "total_contadores": total_contadores,
+            "total_grupos": total_grupos,
             "semanas": semanas_saida,
             "tarefas_atrasadas": grupos_com_atrasada,
             "tarefas_futuras": grupos_com_futura,
@@ -571,13 +575,13 @@ def dashboard_farmer(
         })
 
     # Ordena por compliance semanal das semanas passadas (quem reuniu
-    # mais semanas com 100% vem primeiro); empate por total_grupos desc.
+    # mais semanas com 100% vem primeiro); empate por total_contadores desc.
     def _score_compliance(item: dict) -> tuple:
         passadas = [s for s in item["semanas"] if s["sem_reuniao"] > 0 or (s["com_reuniao"] > 0 and s["pendente"] == 0)]
         if not passadas:
-            return (0.0, -item["total_grupos"])
+            return (0.0, -item["total_contadores"])
         total_ok = sum(1 for s in passadas if s["sem_reuniao"] == 0)
-        return (-total_ok / len(passadas), -item["total_grupos"])
+        return (-total_ok / len(passadas), -item["total_contadores"])
 
     saida.sort(key=_score_compliance)
     return saida

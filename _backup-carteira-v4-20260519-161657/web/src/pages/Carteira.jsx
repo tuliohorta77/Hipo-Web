@@ -64,6 +64,7 @@ export default function Carteira() {
   const [hunter, setHunter] = useState({ total: 0, linhas: [] });
   const [farmer, setFarmer] = useState({ total: 0, linhas: [] });
   const [outros, setOutros] = useState([]);
+  const [busca, setBusca] = useState('');
 
   // Filtros do drilldown (operam só nos grupos do colaborador expandido)
   const [filtrosDrill, setFiltrosDrill] = useState({
@@ -213,11 +214,14 @@ export default function Carteira() {
     carregarOutros();
   }
 
-  // ── Lista da aba ativa (sem mais filtro de busca por colaborador) ──
+  // ── Filtro de busca por colaborador (na aba) ────────────────
 
-  const linhasAba = useMemo(() => {
-    return aba === 'EC_HUNTER' ? hunter.linhas : farmer.linhas;
-  }, [aba, hunter.linhas, farmer.linhas]);
+  const linhasFiltradas = useMemo(() => {
+    const fonte = aba === 'EC_HUNTER' ? hunter.linhas : farmer.linhas;
+    if (!busca.trim()) return fonte;
+    const q = busca.trim().toLowerCase();
+    return fonte.filter((l) => (l.nome || '').toLowerCase().includes(q));
+  }, [aba, hunter.linhas, farmer.linhas, busca]);
 
   const abaInfo = ABAS.find((a) => a.v === aba);
 
@@ -409,17 +413,35 @@ export default function Carteira() {
         </div>
       )}
 
+      {/* Busca por colaborador */}
+      {aba !== 'OUTROS' && (
+        <Card padding="sm" className="mb-4">
+          <div className="relative">
+            <Search
+              size={16}
+              className="absolute left-3 top-1/2 -translate-y-1/2 text-hipo-muted"
+            />
+            <input
+              value={busca}
+              onChange={(e) => setBusca(e.target.value)}
+              placeholder="Buscar colaborador..."
+              className="w-full h-10 bg-hipo-card border border-hipo-border rounded-lg pl-10 pr-3 text-sm text-hipo-ink placeholder:text-hipo-muted outline-none focus:border-hipo-blue focus:ring-2 focus:ring-blue-100"
+            />
+          </div>
+        </Card>
+      )}
+
       {/* ── ABA HUNTER ──────────────────────────────────────── */}
       {aba === 'EC_HUNTER' && (
         <Card padding="none">
           <div className="px-5 py-3 border-b border-hipo-border flex items-center justify-between">
             <h3 className="text-sm font-semibold text-hipo-ink">
-              {abaInfo.label} — {linhasAba.length} colaborador(es)
+              {abaInfo.label} — {linhasFiltradas.length} colaborador(es)
             </h3>
             <span className="text-xs text-hipo-slate">{abaInfo.hint}</span>
           </div>
 
-          {linhasAba.length === 0 ? (
+          {linhasFiltradas.length === 0 ? (
             <Empty
               title="Nenhum colaborador Hunter"
               description="Faça o upload da carteira ou classifique colaboradores no botão Configurar."
@@ -439,7 +461,7 @@ export default function Carteira() {
                 </tr>
               </thead>
               <tbody>
-                {linhasAba.map((l) => {
+                {linhasFiltradas.map((l) => {
                   const aberto = expandido === l.colaborador_id;
                   return [
                     <Tr
@@ -514,12 +536,12 @@ export default function Carteira() {
         <Card padding="none">
           <div className="px-5 py-3 border-b border-hipo-border flex items-center justify-between">
             <h3 className="text-sm font-semibold text-hipo-ink">
-              {abaInfo.label} — {linhasAba.length} colaborador(es)
+              {abaInfo.label} — {linhasFiltradas.length} colaborador(es)
             </h3>
             <span className="text-xs text-hipo-slate">{abaInfo.hint}</span>
           </div>
 
-          {linhasAba.length === 0 ? (
+          {linhasFiltradas.length === 0 ? (
             <Empty
               title="Nenhum colaborador Farmer"
               description="Faça o upload da carteira ou classifique colaboradores no botão Configurar."
@@ -539,7 +561,7 @@ export default function Carteira() {
                   </tr>
                 </thead>
                 <tbody>
-                  {linhasAba.map((l) => {
+                  {linhasFiltradas.map((l) => {
                     const aberto = expandido === l.colaborador_id;
                     return [
                       <Tr
@@ -554,7 +576,7 @@ export default function Carteira() {
                           <div className="flex flex-col">
                             <span className="font-semibold text-hipo-ink">{l.nome}</span>
                             <span className="text-xs text-hipo-slate">
-                              {l.total_grupos} grupos · {l.total_contadores} contadores
+                              {l.total_contadores} contadores · {l.total_grupos} grupos
                             </span>
                           </div>
                         </Td>
@@ -615,15 +637,15 @@ export default function Carteira() {
                 <div className="flex flex-wrap gap-5 justify-center text-xs text-hipo-slate">
                   <span className="flex items-center gap-1.5">
                     <span className="w-3 h-3 rounded-full bg-emerald-600" />
-                    Grupos com reunião na semana
+                    Contadores com reunião na semana
                   </span>
                   <span className="flex items-center gap-1.5">
                     <span className="w-3 h-3 rounded-full bg-amber-500" />
-                    Grupos sem reunião (semana já passou)
+                    Sem reunião (semana já passou)
                   </span>
                   <span className="flex items-center gap-1.5">
                     <span className="w-3 h-3 rounded-full bg-slate-400" />
-                    Grupos sem reunião ainda (semana corrente)
+                    Sem reunião ainda (semana corrente)
                   </span>
                 </div>
               </div>

@@ -53,9 +53,9 @@ export default function CarteiraBolinhasSemana({ semanas = [] }) {
       {semanas.map((s) => {
         const titulo =
           `${s.label} (${s.key})\n` +
-          `Grupos com reunião: ${s.com_reuniao}\n` +
-          `Grupos sem reunião: ${s.sem_reuniao}\n` +
-          (s.pendente ? `Grupos pendentes: ${s.pendente}` : '');
+          `Com reunião: ${s.com_reuniao}\n` +
+          `Sem reunião: ${s.sem_reuniao}\n` +
+          (s.pendente ? `Pendente: ${s.pendente}` : '');
 
         return (
           <div

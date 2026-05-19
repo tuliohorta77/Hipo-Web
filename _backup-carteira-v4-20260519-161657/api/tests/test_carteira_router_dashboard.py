@@ -203,16 +203,17 @@ class TestDashboardFarmer:
 
         aline = data["linhas"][0]
         assert aline["total_contadores"] == 3
-        assert aline["total_grupos"] == 3
         assert aline["leads_no_mes"] == 10
         assert len(aline["semanas"]) >= 4
 
-        # Invariante v4: soma == total_grupos em cada semana
+        # Invariante: soma == total_contadores em cada semana
         for s in aline["semanas"]:
             assert s["com_reuniao"] + s["sem_reuniao"] + s["pendente"] == 3
 
-        # v3+: linha já traz os grupos pro drilldown imediato
+        # v3: linha já traz os grupos pro drilldown imediato
         assert "grupos" in aline
+        assert "total_grupos" in aline
+        assert aline["total_grupos"] == 3
 
 
 # ── DRILLDOWN: grupos do colaborador ────────────────────────────

@@ -240,11 +240,8 @@ class TestDashboardFarmer:
         nomes = {f["nome"] for f in farmer}
         assert nomes == {"Aline"}
 
-    def test_total_grupos_e_contadores_e_quatro_semanas(self):
-        """
-        v4: 'total_grupos' é o primário (bolinhas contam grupos).
-        'total_contadores' é preservado pro subtítulo.
-        """
+    def test_total_contadores_e_quatro_semanas(self):
+        """Cada CNPJ é um contador. Resultado tem 4 semanas (maio/2026)."""
         cnpjs = [
             _cnpj("G1", "11.111.111/0001-11", "Aline"),
             _cnpj("G2", "22.222.222/0002-22", "Aline"),
@@ -254,23 +251,18 @@ class TestDashboardFarmer:
         farmer = dashboard_farmer(cnpjs, [], colab, ref_date=REF)
         assert len(farmer) == 1
         a = farmer[0]
-        # 3 grupos com 1 CNPJ cada — total_grupos == total_contadores nesse caso
-        assert a["total_grupos"] == 3
         assert a["total_contadores"] == 3
         # Maio/2026 toca 5 semanas ISO (W18 a W22), pode variar
         assert len(a["semanas"]) >= 4
         assert all("S" in s["label"] for s in a["semanas"])
 
-    def test_com_reuniao_conta_grupos_distintos_nao_reunioes(self):
-        """
-        v4: bolinha verde mostra GRUPOS que reuniram, não nº de reuniões.
-        Múltiplas reuniões no mesmo grupo (mesmo CNPJ) na semana = 1 grupo.
-        """
+    def test_com_reuniao_conta_contadores_distintos_nao_reunioes(self):
+        """Bolinha verde mostra CONTADORES que reuniram, não nº de reuniões."""
         cnpjs = [
             _cnpj("G1", "11.111.111/0001-11", "Aline"),
             _cnpj("G2", "22.222.222/0002-22", "Aline"),
         ]
-        # Mesmo CNPJ tem 3 reuniões na mesma semana — conta 1 grupo
+        # Mesmo CNPJ tem 3 reuniões na mesma semana — ainda conta como 1 contador
         tarefas = [
             _tarefa("11.111.111/0001-11", "Aline", datetime(2026, 5, 4), canal="Reunião"),
             _tarefa("11.111.111/0001-11", "Aline", datetime(2026, 5, 5), canal="Reunião"),
@@ -279,15 +271,15 @@ class TestDashboardFarmer:
         colab = [_colab("Aline", "EC_FARMER")]
         farmer = dashboard_farmer(cnpjs, tarefas, colab, ref_date=REF)
         a = farmer[0]
-        # Semana W19 (04 a 10 de maio): só G1 reuniu — 1 grupo no verde
+        # Semana W19 (04 a 10 de maio) deve ter 1 com_reuniao (CNPJ 11.111…)
         s_W19 = next(s for s in a["semanas"] if s["key"] == "2026-W19")
         assert s_W19["com_reuniao"] == 1
-        # G2 não teve reunião e a semana já passou → sem_reuniao
+        # CNPJ 22.222… não teve reunião nessa semana e ela já passou → sem_reuniao
         assert s_W19["sem_reuniao"] == 1
 
     def test_semana_corrente_usa_pendente_nao_sem_reuniao(self):
         """
-        Semana corrente (W21 em 19/maio/2026) não pode marcar grupo
+        Semana corrente (W21 em 19/maio/2026) não pode marcar contador
         como 'sem_reuniao' porque a semana ainda está rolando — vai pra
         'pendente'.
         """
@@ -295,7 +287,7 @@ class TestDashboardFarmer:
             _cnpj("G1", "11.111.111/0001-11", "Aline"),
             _cnpj("G2", "22.222.222/0002-22", "Aline"),
         ]
-        # Só um grupo reuniu na semana corrente
+        # Só um contador reuniu na semana corrente
         tarefas = [
             _tarefa("11.111.111/0001-11", "Aline", datetime(2026, 5, 18), canal="Reunião"),
         ]
@@ -365,18 +357,17 @@ class TestDashboardFarmer:
             # Farmer tem ≥4 células (semanas ISO do mês)
             assert len(g["timeline"]) >= 4
 
-    def test_multiplas_reunioes_mesmo_grupo_semana_contam_1_vez(self):
+    def test_multiplas_reunioes_mesmo_contador_semana_contam_1_vez(self):
         """
-        Regra travada: grupo com 50 reuniões em 1 semana (mesmo CNPJ ou
-        CNPJs diferentes do mesmo grupo) entra UMA vez no verde. Esse é
-        o bug que o franqueado pegou em produção (Patrick com 95 'bolinhas'
-        pra 51 grupos).
+        Regra travada: contador com 50 reuniões em 1 semana entra UMA vez
+        no verde. Bug que o franqueado pegou em produção (Patrick com 95
+        reuniões pra 51 grupos).
         """
         cnpjs = [
             _cnpj("G1", "11.111.111/0001-11", "Aline"),
             _cnpj("G2", "22.222.222/0002-22", "Aline"),
         ]
-        # 10 reuniões na MESMA semana, MESMO CNPJ — deve contar 1 grupo no verde
+        # 10 reuniões na MESMA semana, MESMO CNPJ — deve contar 1 contador no verde
         tarefas = [
             _tarefa("11.111.111/0001-11", "Aline", datetime(2026, 5, 4), canal="Reunião"),
             _tarefa("11.111.111/0001-11", "Aline", datetime(2026, 5, 5), canal="Reunião"),
@@ -393,51 +384,18 @@ class TestDashboardFarmer:
         farmer = dashboard_farmer(cnpjs, tarefas, colab, ref_date=REF)
         a = farmer[0]
         s_W19 = next(s for s in a["semanas"] if s["key"] == "2026-W19")
-        # Apesar das 10 reuniões, conta 1 grupo no verde
+        # Apesar das 10 reuniões, conta 1 contador no verde
         assert s_W19["com_reuniao"] == 1
-        # G2 não reuniu nessa semana E ela já passou → sem_reuniao
+        # O outro CNPJ não reuniu nessa semana E ela já passou → sem_reuniao
         assert s_W19["sem_reuniao"] == 1
-        # Invariante mantida: soma == total_grupos
+        # Invariante mantida
         assert s_W19["com_reuniao"] + s_W19["sem_reuniao"] + s_W19["pendente"] == 2
 
-    def test_qualquer_cnpj_do_grupo_reuniao_conta_o_grupo_no_verde(self):
+    def test_soma_bolinhas_nunca_excede_total_contadores(self):
         """
-        Regra v4 (chave): se um grupo tem 3 CNPJs (matriz + 2 filiais) e só
-        UM CNPJ reuniu na semana, o GRUPO inteiro entra UMA vez no verde.
-        Cenário exato da Aline com o grupo ABC.
-        """
-        cnpjs = [
-            # Grupo ABC: matriz + 2 filiais (3 CNPJs)
-            _cnpj("ABC", "11.111.111/0001-11", "Aline", nome_grupo="ABC"),
-            _cnpj("ABC", "11.111.111/0002-22", "Aline", nome_grupo="ABC"),
-            _cnpj("ABC", "11.111.111/0003-33", "Aline", nome_grupo="ABC"),
-            # Grupo XYZ: 1 CNPJ
-            _cnpj("XYZ", "22.222.222/0001-11", "Aline", nome_grupo="XYZ"),
-        ]
-        # Na W19, só a "filial 2" do grupo ABC reuniu
-        tarefas = [
-            _tarefa("11.111.111/0002-22", "Aline", datetime(2026, 5, 5), canal="Reunião"),
-        ]
-        colab = [_colab("Aline", "EC_FARMER")]
-        farmer = dashboard_farmer(cnpjs, tarefas, colab, ref_date=REF)
-        a = farmer[0]
-        # 2 grupos no total (ABC + XYZ), apesar de 4 CNPJs
-        assert a["total_grupos"] == 2
-        assert a["total_contadores"] == 4
-
-        s_W19 = next(s for s in a["semanas"] if s["key"] == "2026-W19")
-        # ABC reuniu via filial 2 → conta 1 grupo no verde
-        assert s_W19["com_reuniao"] == 1
-        # XYZ não reuniu → sem_reuniao (W19 já passou no REF=19/maio)
-        assert s_W19["sem_reuniao"] == 1
-        # Invariante: soma == total_grupos
-        assert s_W19["com_reuniao"] + s_W19["sem_reuniao"] + s_W19["pendente"] == 2
-
-    def test_soma_bolinhas_nunca_excede_total_grupos(self):
-        """
-        Invariante crítica v4: a soma das bolinhas de uma semana é sempre
-        igual a total_grupos. Esse era o sintoma do bug (Patrick: 95 bolinhas
-        pra 51 grupos — agora bate exatamente).
+        Garante a invariante crítica: a soma das bolinhas de uma semana
+        é sempre <= total_contadores. Esse era o sintoma que o franqueado
+        viu (Patrick: 95 bolinhas pra 51 grupos).
         """
         cnpjs = [
             _cnpj(f"G{i}", f"{i:02d}.000.000/0001-00", "Aline")
@@ -453,16 +411,16 @@ class TestDashboardFarmer:
         colab = [_colab("Aline", "EC_FARMER")]
         farmer = dashboard_farmer(cnpjs, tarefas, colab, ref_date=REF)
         a = farmer[0]
-        assert a["total_grupos"] == 5
+        assert a["total_contadores"] == 5
         for s in a["semanas"]:
             soma = s["com_reuniao"] + s["sem_reuniao"] + s["pendente"]
             assert soma == 5, (
-                f"Semana {s['label']}: soma {soma} != total_grupos 5. "
+                f"Semana {s['label']}: soma {soma} != total_contadores 5. "
                 f"({s})"
             )
 
-    def test_soma_de_bolinhas_iguala_total_grupos(self):
-        """Invariante crítica v4: com_reuniao + sem_reuniao + pendente == total_grupos"""
+    def test_soma_de_bolinhas_iguala_total_contadores(self):
+        """Invariante crítica: com_reuniao + sem_reuniao + pendente == total_contadores"""
         cnpjs = [
             _cnpj("G1", "11.111.111/0001-11", "Aline"),
             _cnpj("G2", "22.222.222/0002-22", "Aline"),
@@ -471,10 +429,10 @@ class TestDashboardFarmer:
             _cnpj("G5", "55.555.555/0005-55", "Aline"),
         ]
         tarefas = [
-            # W18 (28/abr a 03/mai): 2 grupos reuniram
+            # W18 (28/abr a 03/mai): 2 contadores reuniram
             _tarefa("11.111.111/0001-11", "Aline", datetime(2026, 4, 30), canal="Reunião"),
             _tarefa("22.222.222/0002-22", "Aline", datetime(2026, 5, 1), canal="Reunião"),
-            # W19 (04 a 10): todos os 5 grupos
+            # W19 (04 a 10): todos os 5 contadores
             _tarefa("11.111.111/0001-11", "Aline", datetime(2026, 5, 4), canal="Reunião"),
             _tarefa("22.222.222/0002-22", "Aline", datetime(2026, 5, 5), canal="Reunião"),
             _tarefa("33.333.333/0003-33", "Aline", datetime(2026, 5, 6), canal="Reunião"),
@@ -488,10 +446,10 @@ class TestDashboardFarmer:
         a = farmer[0]
         for s in a["semanas"]:
             total = s["com_reuniao"] + s["sem_reuniao"] + s["pendente"]
-            assert total == a["total_grupos"], (
+            assert total == a["total_contadores"], (
                 f"Semana {s['label']} ({s['key']}): "
                 f"com={s['com_reuniao']} sem={s['sem_reuniao']} pend={s['pendente']} "
-                f"!= total_grupos {a['total_grupos']}"
+                f"!= total {a['total_contadores']}"
             )
 
     def test_tarefa_que_nao_eh_reuniao_nao_conta(self):
@@ -509,12 +467,8 @@ class TestDashboardFarmer:
         assert s_W21["com_reuniao"] == 0
         assert s_W21["pendente"] == 1
 
-    def test_grupos_distintos_apesar_de_mesmo_cnpj(self):
-        """
-        Cenário marginal: mesmo CNPJ aparecendo em 2 grupos diferentes
-        da Aline. Conta como 2 grupos (são unidades de trabalho separadas)
-        e 1 contador único.
-        """
+    def test_cnpj_repetido_em_grupos_diferentes_conta_uma_vez(self):
+        """Mesmo CNPJ aparecendo em 2 grupos do mesmo colaborador = 1 contador."""
         cnpjs = [
             _cnpj("G1", "11.111.111/0001-11", "Aline"),
             _cnpj("G2", "11.111.111/0001-11", "Aline"),  # mesmo CNPJ, outro grupo
@@ -523,8 +477,6 @@ class TestDashboardFarmer:
         colab = [_colab("Aline", "EC_FARMER")]
         farmer = dashboard_farmer(cnpjs, [], colab, ref_date=REF)
         a = farmer[0]
-        # 3 grupos (G1, G2, G3) mas só 2 CNPJs distintos
-        assert a["total_grupos"] == 3
         assert a["total_contadores"] == 2
 
 
