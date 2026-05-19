@@ -50,7 +50,7 @@ describe('Página Perfil', () => {
   it('valida nova senha e confirmação batem', async () => {
     renderPerfil()
     fireEvent.change(screen.getByLabelText(/Senha atual/i), { target: { value: '123456' } })
-    fireEvent.change(screen.getByLabelText(/Nova senha/i),  { target: { value: 'novanova' } })
+    fireEvent.change(screen.getByLabelText(/^Nova senha/i),  { target: { value: 'novanova' } })
     fireEvent.change(screen.getByLabelText(/Confirmar/i),    { target: { value: 'diferente' } })
     fireEvent.click(screen.getByRole('button', { name: /Alterar senha/i }))
 
@@ -64,7 +64,7 @@ describe('Página Perfil', () => {
   it('valida que nova senha tem pelo menos 6 caracteres', async () => {
     renderPerfil()
     fireEvent.change(screen.getByLabelText(/Senha atual/i), { target: { value: '123456' } })
-    fireEvent.change(screen.getByLabelText(/Nova senha/i),  { target: { value: 'abc' } })
+    fireEvent.change(screen.getByLabelText(/^Nova senha/i),  { target: { value: 'abc' } })
     fireEvent.change(screen.getByLabelText(/Confirmar/i),    { target: { value: 'abc' } })
     fireEvent.click(screen.getByRole('button', { name: /Alterar senha/i }))
 
@@ -78,7 +78,7 @@ describe('Página Perfil', () => {
 
     renderPerfil()
     fireEvent.change(screen.getByLabelText(/Senha atual/i), { target: { value: '123456' } })
-    fireEvent.change(screen.getByLabelText(/Nova senha/i),  { target: { value: 'novanova' } })
+    fireEvent.change(screen.getByLabelText(/^Nova senha/i),  { target: { value: 'novanova' } })
     fireEvent.change(screen.getByLabelText(/Confirmar/i),    { target: { value: 'novanova' } })
     fireEvent.click(screen.getByRole('button', { name: /Alterar senha/i }))
 
@@ -99,7 +99,7 @@ describe('Página Perfil', () => {
 
     renderPerfil()
     fireEvent.change(screen.getByLabelText(/Senha atual/i), { target: { value: 'errada' } })
-    fireEvent.change(screen.getByLabelText(/Nova senha/i),  { target: { value: 'novanova' } })
+    fireEvent.change(screen.getByLabelText(/^Nova senha/i),  { target: { value: 'novanova' } })
     fireEvent.change(screen.getByLabelText(/Confirmar/i),    { target: { value: 'novanova' } })
     fireEvent.click(screen.getByRole('button', { name: /Alterar senha/i }))
 
