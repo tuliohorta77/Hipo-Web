@@ -2,8 +2,12 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 
+// Mock do cliente api ANTES de importar o componente
 vi.mock('../api', () => ({
-  default: { get: vi.fn(), post: vi.fn() },
+  default: {
+    get: vi.fn(),
+    post: vi.fn(),
+  },
   isAuthenticated: () => true,
   getUser: () => ({ nome: 'Tester', email: 'tester@hipo.com', cargo: 'ADM' }),
   logout: vi.fn(),
@@ -44,6 +48,7 @@ describe('POsDashboard', () => {
       if (url.includes('reconciliacao/ausentes'))   return Promise.resolve({ data: mockAusentes })
       if (url.includes('reconciliacao/divergentes'))return Promise.resolve({ data: mockDivergentes })
       if (url.includes('historico'))                return Promise.resolve({ data: [] })
+      if (url.includes('resumo/financeiro'))        return Promise.resolve({ data: [] })
       return Promise.resolve({ data: [] })
     })
   })
@@ -51,8 +56,7 @@ describe('POsDashboard', () => {
   it('renderiza o painel de POs', async () => {
     renderPOs()
     await waitFor(() => {
-      // Tema novo: título passou de "Módulo POs" para "POs"
-      expect(screen.getByRole('heading', { name: 'POs' })).toBeInTheDocument()
+      expect(screen.getByText(/Módulo POs/i)).toBeInTheDocument()
     })
   })
 
@@ -63,10 +67,12 @@ describe('POsDashboard', () => {
     })
   })
 
-  it('exibe aba de ausentes', async () => {
+  it('exibe badge de ausentes na aba', async () => {
     renderPOs()
     await waitFor(() => {
-      expect(screen.getByTestId('tab-ausentes')).toBeInTheDocument()
+      // badge fica dentro do botão de aba — busca pelo container
+      const tabAusentes = screen.getByTestId('tab-ausentes')
+      expect(tabAusentes).toBeInTheDocument()
     })
   })
 
@@ -101,6 +107,7 @@ describe('POsDashboard', () => {
     })
     fireEvent.change(input, { target: { files: [file] } })
     await waitFor(() => {
+      // mensagem nova: "✅ COMISSAO processada — ..." (em vez de "PO processada")
       expect(screen.getByText(/COMISSAO.*processada/i)).toBeInTheDocument()
     })
   })
@@ -119,7 +126,7 @@ describe('POsDashboard', () => {
     })
   })
 
-  it('botão de upload mostra estado de processamento', async () => {
+  it('botão de upload fica desabilitado durante o processamento', async () => {
     let resolve
     api.post.mockImplementation(() => new Promise(r => { resolve = r }))
     renderPOs()

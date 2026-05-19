@@ -92,8 +92,8 @@ describe('Página Carteira', () => {
 
   it('mostra contador de grupos em cada aba', async () => {
     renderCarteira()
-    // Tema novo: contadores ficam em <span class="... rounded-full ..."> dentro
-    // dos botões de aba (linha de Tabs no Carteira.jsx).
+    // Espera o resumo carregar — os contadores nas abas aparecem
+    // como elementos com classe rounded-full (chips numéricos).
     await waitFor(() => {
       const counters = Array.from(document.querySelectorAll('button .rounded-full'))
         .map((n) => n.textContent.trim())
@@ -104,23 +104,20 @@ describe('Página Carteira', () => {
   it('lista um grupo Hunter na aba padrão', async () => {
     renderCarteira()
     await waitFor(() => {
-      expect(screen.getByText('CONTAB ABC · SP/SP', { exact: false }))
-        .toBeInTheDocument()
+      expect(screen.getByText('CONTAB ABC · SP/SP')).toBeInTheDocument()
       expect(screen.getByText('Patrick')).toBeInTheDocument()
     })
   })
 
-  it('troca para aba Farmer e mostra coluna Leads/mês', async () => {
+  it('troca para aba Farmer e mostra coluna Leads/Mês', async () => {
     renderCarteira()
-    await waitFor(() =>
-      expect(screen.getByText('CONTAB ABC · SP/SP', { exact: false })).toBeInTheDocument()
-    )
+    await waitFor(() => expect(screen.getByText('CONTAB ABC · SP/SP')).toBeInTheDocument())
 
     fireEvent.click(screen.getByRole('button', { name: /Farmer/i }))
     await waitFor(() => {
-      expect(screen.getByText('CONTAB DEF · SP/SP', { exact: false })).toBeInTheDocument()
-      // Coluna "Leads/mês" no header da tabela quando aba Farmer
-      expect(screen.getByText(/Leads\/mês/i)).toBeInTheDocument()
+      expect(screen.getByText('CONTAB DEF · SP/SP')).toBeInTheDocument()
+      // Coluna Leads/Mês visível
+      expect(screen.getByText(/LEADS\/MÊS/)).toBeInTheDocument()
     })
   })
 
@@ -167,9 +164,7 @@ describe('Página Carteira', () => {
 
   it('mostra mensagem amigável quando aba Outros está vazia', async () => {
     renderCarteira()
-    await waitFor(() =>
-      expect(screen.getByText('CONTAB ABC · SP/SP', { exact: false })).toBeInTheDocument()
-    )
+    await waitFor(() => expect(screen.getByText('CONTAB ABC · SP/SP')).toBeInTheDocument())
 
     fireEvent.click(screen.getByRole('button', { name: /Outros/i }))
     await waitFor(() => {

@@ -1,31 +1,40 @@
 // web/src/components/CarteiraGrupoDrawer.jsx
 //
 // Drawer lateral com drill-down de um grupo: lista de CNPJs + últimas tarefas.
-import { useEffect, useState } from "react";
-import { X, Building2, ListChecks, MapPin, Users } from "lucide-react";
-import api from "../api";
 
-function badgeParceria(p) {
-  if (p === "Parceiro") return "bg-emerald-500/10 text-emerald-300 border-emerald-500/30";
-  if (p === "Não Parceiro") return "bg-slate-700/40 text-slate-400 border-slate-600";
-  return "bg-slate-700/40 text-slate-500 border-slate-700";
+import { useEffect, useState } from 'react';
+import { X, Building2, ListChecks, MapPin, Users } from 'lucide-react';
+import api from '../api';
+import Badge from './ui/Badge';
+import Empty from './ui/Empty';
+import Table, { Th, Tr, Td } from './ui/Table';
+
+function toneParceria(p) {
+  if (p === 'Parceiro')      return 'success';
+  if (p === 'Não Parceiro')  return 'neutral';
+  return 'neutral';
 }
 
-function badgeSituacao(s) {
-  if (s === "ATRASADA") return "bg-red-500/10 text-red-300 border-red-500/30";
-  if (s === "FUTURA")   return "bg-cyan-500/10 text-cyan-300 border-cyan-500/30";
-  if (s === "EM_DIA")   return "bg-emerald-500/10 text-emerald-300 border-emerald-500/30";
-  return "bg-slate-700/40 text-slate-500 border-slate-700";
+function toneSituacao(s) {
+  if (s === 'ATRASADA') return 'danger';
+  if (s === 'FUTURA')   return 'info';
+  if (s === 'EM_DIA')   return 'success';
+  return 'neutral';
 }
 
 function fmtDate(d) {
-  if (!d) return "—";
+  if (!d) return '—';
   try {
-    return new Date(d).toLocaleString("pt-BR", {
-      day: "2-digit", month: "2-digit", year: "numeric",
-      hour: "2-digit", minute: "2-digit",
+    return new Date(d).toLocaleString('pt-BR', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
     });
-  } catch { return "—"; }
+  } catch {
+    return '—';
+  }
 }
 
 export default function CarteiraGrupoDrawer({ idGrupo, onFechar, nomeGrupo }) {
@@ -38,7 +47,8 @@ export default function CarteiraGrupoDrawer({ idGrupo, onFechar, nomeGrupo }) {
     setLoading(true);
     setErro(null);
     setDetalhe(null);
-    api.get(`/carteira/grupos/${encodeURIComponent(idGrupo)}`)
+    api
+      .get(`/carteira/grupos/${encodeURIComponent(idGrupo)}`)
       .then((r) => setDetalhe(r.data))
       .catch((e) => setErro(e.response?.data?.detail || e.message))
       .finally(() => setLoading(false));
@@ -47,21 +57,30 @@ export default function CarteiraGrupoDrawer({ idGrupo, onFechar, nomeGrupo }) {
   if (!idGrupo) return null;
 
   return (
-    <div className="fixed inset-0 z-40 flex" onClick={onFechar}>
-      <div className="flex-1 bg-black/60" />
+    <div
+      className="fixed inset-0 z-40 flex"
+      onClick={onFechar}
+      role="dialog"
+      aria-modal="true"
+    >
+      <div className="flex-1 bg-hipo-ink/40" />
       <aside
-        className="w-full max-w-2xl bg-slate-950 border-l border-slate-800 overflow-y-auto"
+        className="w-full max-w-2xl bg-hipo-bg border-l border-hipo-border overflow-y-auto"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="sticky top-0 z-10 bg-slate-950 border-b border-slate-800 px-6 py-4 flex items-center justify-between">
-          <div>
-            <h2 className="text-lg font-bold text-slate-100">{nomeGrupo || "Grupo"}</h2>
-            <p className="text-xs text-slate-500 mt-0.5 font-mono">{idGrupo}</p>
+        <div className="sticky top-0 z-10 bg-hipo-card border-b border-hipo-border px-6 py-4 flex items-center justify-between">
+          <div className="min-w-0">
+            <h2 className="text-h2 text-hipo-ink truncate">
+              {nomeGrupo || 'Grupo'}
+            </h2>
+            <p className="text-xs text-hipo-muted mt-0.5 font-mono">
+              {idGrupo}
+            </p>
           </div>
           <button
             onClick={onFechar}
-            className="text-slate-500 hover:text-slate-300 p-1 rounded"
+            className="text-hipo-slate hover:text-hipo-ink p-1.5 rounded-lg hover:bg-hipo-bg transition-colors"
             aria-label="Fechar"
           >
             <X size={20} />
@@ -70,11 +89,13 @@ export default function CarteiraGrupoDrawer({ idGrupo, onFechar, nomeGrupo }) {
 
         {/* Conteúdo */}
         <div className="p-6 space-y-6">
-          {loading && <p className="text-sm text-slate-500">Carregando...</p>}
+          {loading && (
+            <p className="text-sm text-hipo-slate">Carregando...</p>
+          )}
           {erro && (
-            <p className="text-sm text-red-400 bg-red-500/10 border border-red-500/30 rounded p-3">
+            <div className="text-sm text-hipo-danger bg-red-50 border border-red-100 rounded-lg p-3">
               {erro}
-            </p>
+            </div>
           )}
 
           {detalhe && (
@@ -82,42 +103,46 @@ export default function CarteiraGrupoDrawer({ idGrupo, onFechar, nomeGrupo }) {
               {/* CNPJs do grupo */}
               <section>
                 <div className="flex items-center gap-2 mb-3">
-                  <Building2 size={14} className="text-cyan-400" />
-                  <h3 className="text-xs font-bold text-slate-400 tracking-widest">
-                    CNPJS ({detalhe.qtd_cnpj})
+                  <Building2 size={16} className="text-hipo-blue" />
+                  <h3 className="text-sm font-semibold text-hipo-ink">
+                    CNPJs ({detalhe.qtd_cnpj})
                   </h3>
                 </div>
                 <div className="space-y-2">
                   {detalhe.cnpjs.map((c, i) => (
                     <div
                       key={c.cnpj_contador || i}
-                      className="bg-slate-900 border border-slate-800 rounded-lg p-3"
+                      className="bg-hipo-card border border-hipo-border rounded-lg p-3 shadow-soft"
                     >
-                      <div className="flex items-start justify-between mb-1">
-                        <span className="text-sm font-bold text-slate-200">
-                          {c.contabilidade || "—"}
+                      <div className="flex items-start justify-between gap-3 mb-1">
+                        <span className="text-sm font-semibold text-hipo-ink">
+                          {c.contabilidade || '—'}
                         </span>
-                        <span className={`text-[9px] tracking-widest px-2 py-0.5 rounded border ${badgeParceria(c.parceria)}`}>
-                          {(c.parceria || "—").toUpperCase()}
-                        </span>
+                        <Badge tone={toneParceria(c.parceria)}>
+                          {c.parceria || '—'}
+                        </Badge>
                       </div>
-                      <p className="text-xs text-slate-500 font-mono">{c.cnpj_contador}</p>
-                      <div className="flex items-center gap-3 mt-2 text-xs text-slate-500">
+                      <p className="text-xs text-hipo-muted font-mono">
+                        {c.cnpj_contador}
+                      </p>
+                      <div className="flex items-center gap-4 mt-2 text-xs text-hipo-slate flex-wrap">
                         {c.cidade_uf && (
                           <span className="flex items-center gap-1">
-                            <MapPin size={10} /> {c.cidade_uf}
+                            <MapPin size={12} /> {c.cidade_uf}
                           </span>
                         )}
                         {c.colaborador_nome && (
                           <span className="flex items-center gap-1">
-                            <Users size={10} /> {c.colaborador_nome}
+                            <Users size={12} /> {c.colaborador_nome}
                           </span>
                         )}
                         {c.apps_ativos != null && (
                           <span>{c.apps_ativos} apps ativos</span>
                         )}
                         {c.leads_no_mes != null && c.leads_no_mes > 0 && (
-                          <span className="text-cyan-300">{c.leads_no_mes} leads/mês</span>
+                          <span className="text-hipo-blue font-medium">
+                            {c.leads_no_mes} leads/mês
+                          </span>
                         )}
                       </div>
                     </div>
@@ -128,43 +153,50 @@ export default function CarteiraGrupoDrawer({ idGrupo, onFechar, nomeGrupo }) {
               {/* Tarefas */}
               <section>
                 <div className="flex items-center gap-2 mb-3">
-                  <ListChecks size={14} className="text-cyan-400" />
-                  <h3 className="text-xs font-bold text-slate-400 tracking-widest">
-                    TAREFAS ({detalhe.tarefas.length})
+                  <ListChecks size={16} className="text-hipo-blue" />
+                  <h3 className="text-sm font-semibold text-hipo-ink">
+                    Tarefas ({detalhe.tarefas.length})
                   </h3>
                 </div>
                 {detalhe.tarefas.length === 0 ? (
-                  <p className="text-sm text-slate-500 italic">Nenhuma tarefa registrada.</p>
+                  <Empty
+                    title="Sem tarefas"
+                    description="Nenhuma tarefa registrada para esse grupo."
+                  />
                 ) : (
-                  <div className="bg-slate-900 border border-slate-800 rounded-lg overflow-hidden">
-                    <table className="w-full text-xs">
+                  <div className="bg-hipo-card border border-hipo-border rounded-lg shadow-soft overflow-hidden">
+                    <Table>
                       <thead>
-                        <tr className="text-slate-500 border-b border-slate-800 text-left">
-                          <th className="px-3 py-2">Data</th>
-                          <th className="px-3 py-2">Canal</th>
-                          <th className="px-3 py-2">Tipo</th>
-                          <th className="px-3 py-2">Situação</th>
-                          <th className="px-3 py-2">Executivo</th>
+                        <tr>
+                          <Th>Data</Th>
+                          <Th>Canal</Th>
+                          <Th>Tipo</Th>
+                          <Th>Situação</Th>
+                          <Th>Executivo</Th>
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-slate-800">
+                      <tbody>
                         {detalhe.tarefas.map((t, i) => (
-                          <tr key={i} className="hover:bg-slate-800/40">
-                            <td className="px-3 py-2 text-slate-300 whitespace-nowrap">
+                          <Tr key={i}>
+                            <Td className="whitespace-nowrap text-hipo-slate">
                               {fmtDate(t.data_efetiva)}
-                            </td>
-                            <td className="px-3 py-2 text-slate-300">{t.tarefa_canal || "—"}</td>
-                            <td className="px-3 py-2 text-slate-400">{t.tipo_tarefa || "—"}</td>
-                            <td className="px-3 py-2">
-                              <span className={`text-[9px] tracking-widest px-2 py-0.5 rounded border ${badgeSituacao(t.situacao)}`}>
+                            </Td>
+                            <Td>{t.tarefa_canal || '—'}</Td>
+                            <Td className="text-hipo-slate">
+                              {t.tipo_tarefa || '—'}
+                            </Td>
+                            <Td>
+                              <Badge tone={toneSituacao(t.situacao)}>
                                 {t.situacao}
-                              </span>
-                            </td>
-                            <td className="px-3 py-2 text-slate-400">{t.executivo_nome || "—"}</td>
-                          </tr>
+                              </Badge>
+                            </Td>
+                            <Td className="text-hipo-slate">
+                              {t.executivo_nome || '—'}
+                            </Td>
+                          </Tr>
                         ))}
                       </tbody>
-                    </table>
+                    </Table>
                   </div>
                 )}
               </section>

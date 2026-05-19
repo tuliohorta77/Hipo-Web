@@ -1,13 +1,13 @@
 // web/src/App.jsx
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
-import Layout from "./components/Layout";
-import ProtectedRoute from "./components/ProtectedRoute";
-import Login from "./pages/Login";
-import POsDashboard from "./pages/POs";
-import PEXDashboard from "./pages/PEX";
-import BDAtivadosDashboard from "./pages/BDAtivados";
-import Metas from "./pages/Metas";
-import Carteira from "./pages/Carteira";
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import Layout from './components/Layout';
+import ProtectedRoute from './components/ProtectedRoute';
+import Login from './pages/Login';
+import POsDashboard from './pages/POs';
+import PEXDashboard from './pages/PEX';
+import BDAtivadosDashboard from './pages/BDAtivados';
+import Metas from './pages/Metas';
+import Carteira from './pages/Carteira';
 
 export default function App() {
   return (
@@ -26,11 +26,11 @@ export default function App() {
           }
         >
           <Route index element={<Navigate to="/pex" replace />} />
-          <Route path="pex" element={<PEXDashboard />} />
-          <Route path="pos" element={<POsDashboard />} />
-          <Route path="bd-ativados" element={<BDAtivadosDashboard />} />
-          <Route path="metas" element={<Metas />} />
-          <Route path="carteira" element={<Carteira />} />
+          <Route path="pex"          element={<PEXDashboard />} />
+          <Route path="pos"          element={<POsDashboard />} />
+          <Route path="bd-ativados"  element={<BDAtivadosDashboard />} />
+          <Route path="carteira"     element={<Carteira />} />
+          <Route path="metas"        element={<Metas />} />
         </Route>
 
         {/* Fallback */}

@@ -1,12 +1,28 @@
-import { useState, useEffect, useCallback } from "react";
-import { Upload, RefreshCw, Database, Users, TrendingUp, Calendar, Wallet, PiggyBank } from "lucide-react";
-import api from "../api";
-
+// web/src/pages/BDAtivados.jsx
+import { useState, useEffect, useCallback } from 'react';
+import {
+  RefreshCw,
+  Database,
+  Users,
+  TrendingUp,
+  Calendar,
+  Wallet,
+  PiggyBank,
+} from 'lucide-react';
+import api from '../api';
+import Card, { CardHeader } from '../components/ui/Card';
+import KpiCard from '../components/ui/KpiCard';
+import PageHeader from '../components/ui/PageHeader';
+import Button from '../components/ui/Button';
+import UploadButton from '../components/ui/UploadButton';
+import AlertMessage from '../components/ui/AlertMessage';
+import Empty from '../components/ui/Empty';
+import Table, { Th, Tr, Td } from '../components/ui/Table';
 
 const fmtBRL = (v) =>
-  (Number(v) || 0).toLocaleString("pt-BR", {
-    style: "currency",
-    currency: "BRL",
+  (Number(v) || 0).toLocaleString('pt-BR', {
+    style: 'currency',
+    currency: 'BRL',
     minimumFractionDigits: 2,
   });
 
@@ -15,21 +31,6 @@ const fmtBRLcompacto = (v) => {
   if (n >= 1000) return `R$ ${(n / 1000).toFixed(1)}k`;
   return fmtBRL(n);
 };
-
-
-function KpiCard({ label, value, sub, color = "text-cyan-400", Icon }) {
-  return (
-    <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
-      <div className="flex items-center justify-between mb-2">
-        <p className="text-xs text-slate-500 tracking-wider">{label}</p>
-        {Icon && <Icon size={14} className="text-slate-600" />}
-      </div>
-      <p className={`text-2xl font-bold ${color}`}>{value ?? "—"}</p>
-      {sub && <p className="text-xs text-slate-500 mt-1">{sub}</p>}
-    </div>
-  );
-}
-
 
 export default function BDAtivadosDashboard() {
   const [resumo, setResumo] = useState(null);
@@ -40,8 +41,8 @@ export default function BDAtivadosDashboard() {
   const carregar = useCallback(async () => {
     try {
       const [r, h] = await Promise.all([
-        api.get(`/bd-ativados/resumo`).catch(() => ({ data: null })),
-        api.get(`/bd-ativados/historico`).catch(() => ({ data: [] })),
+        api.get('/bd-ativados/resumo').catch(() => ({ data: null })),
+        api.get('/bd-ativados/historico').catch(() => ({ data: [] })),
       ]);
       setResumo(r.data);
       setHistorico(h.data);
@@ -50,7 +51,9 @@ export default function BDAtivadosDashboard() {
     }
   }, []);
 
-  useEffect(() => { carregar(); }, [carregar]);
+  useEffect(() => {
+    carregar();
+  }, [carregar]);
 
   async function uploadBD(e) {
     const file = e.target.files[0];
@@ -58,179 +61,166 @@ export default function BDAtivadosDashboard() {
     setUploading(true);
     setMsg(null);
     const form = new FormData();
-    form.append("arquivo", file);
+    form.append('arquivo', file);
     try {
-      const { data } = await api.post(`/bd-ativados/upload`, form, {
-        headers: { "Content-Type": "multipart/form-data" },
+      const { data } = await api.post('/bd-ativados/upload', form, {
+        headers: { 'Content-Type': 'multipart/form-data' },
       });
       const ativos = data?.estatisticas?.ativos ?? 0;
       const liquido = data?.estatisticas?.liquido_pos_mkt ?? 0;
       setMsg({
-        tipo: "ok",
-        texto: `✅ ${data.total_registros} registros — ${ativos} ativos. MRR Líquido: ${fmtBRL(liquido)}`,
+        tipo: 'ok',
+        texto: `${data.total_registros} registros processados — ${ativos} ativos. MRR Líquido: ${fmtBRL(liquido)}.`,
       });
       carregar();
     } catch (err) {
-      setMsg({ tipo: "erro", texto: `Erro: ${err.response?.data?.detail || err.message}` });
+      setMsg({
+        tipo: 'erro',
+        texto: `Erro: ${err.response?.data?.detail || err.message}`,
+      });
     } finally {
       setUploading(false);
-      e.target.value = "";
+      e.target.value = '';
     }
   }
 
   return (
-    <div className="p-6 max-w-6xl mx-auto">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-xl font-bold text-slate-100 tracking-wide">BD Ativados</h1>
-          <p className="text-xs text-slate-500 mt-0.5">
-            Snapshot da base de clientes ativos — upload diário pelo ADM
-          </p>
-        </div>
-        <div className="flex items-center gap-3">
-          <button onClick={carregar} className="p-2 rounded-lg text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition-colors">
-            <RefreshCw size={16} />
-          </button>
-          <label className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold cursor-pointer transition-all ${
-            uploading ? "bg-slate-700 text-slate-400" : "bg-cyan-600 hover:bg-cyan-500 text-white"
-          }`}>
-            <Upload size={15} />
-            {uploading ? "Processando..." : "Upload BD Ativados"}
-            <input type="file" accept=".xlsx" className="hidden" onChange={uploadBD} disabled={uploading} />
-          </label>
-        </div>
-      </div>
+    <>
+      <PageHeader
+        title="BD Ativados"
+        subtitle="Snapshot da base de clientes ativos — upload diário pelo ADM."
+        actions={
+          <>
+            <Button
+              variant="ghost"
+              size="md"
+              icon={RefreshCw}
+              onClick={carregar}
+              aria-label="Recarregar"
+            />
+            <UploadButton
+              onChange={uploadBD}
+              loading={uploading}
+              label="Upload BD Ativados"
+            />
+          </>
+        }
+      />
 
-      {/* Mensagem */}
       {msg && (
-        <div className={`mb-4 px-4 py-3 rounded-lg text-sm ${
-          msg.tipo === "ok"
-            ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/30"
-            : "bg-red-500/10 text-red-400 border border-red-500/30"
-        }`}>
+        <AlertMessage tipo={msg.tipo} className="mb-6">
           {msg.texto}
-        </div>
+        </AlertMessage>
       )}
 
-      {/* KPIs gerais (linha 1) */}
+      {/* KPIs gerais */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
         <KpiCard
-          label="Total de Clientes"
+          label="Total de clientes"
           value={resumo?.total ?? 0}
-          color="text-cyan-400"
-          Icon={Database}
+          icon={Database}
+          tone="blue"
         />
         <KpiCard
           label="Ativos"
           value={resumo?.ativos ?? 0}
-          sub={`${resumo?.arquivados ?? 0} arquivados`}
-          color="text-emerald-400"
-          Icon={Users}
+          hint={`${resumo?.arquivados ?? 0} arquivados`}
+          icon={Users}
+          tone="emerald"
         />
         <KpiCard
           label="Contadores"
           value={resumo?.contadores_distintos ?? 0}
-          sub={`${resumo?.com_integracao ?? 0} com integração`}
-          color="text-orange-400"
-          Icon={Users}
+          hint={`${resumo?.com_integracao ?? 0} com integração`}
+          icon={Users}
+          tone="amber"
         />
         <KpiCard
           label="Data emissão"
-          value={resumo?.data_emissao ? resumo.data_emissao.split(" ")[0] : "—"}
-          sub={resumo?.data_emissao ? resumo.data_emissao.split(" ")[1] : null}
-          color="text-slate-300"
-          Icon={Calendar}
+          value={resumo?.data_emissao ? resumo.data_emissao.split(' ')[0] : '—'}
+          hint={resumo?.data_emissao ? resumo.data_emissao.split(' ')[1] : null}
+          icon={Calendar}
+          tone="slate"
         />
       </div>
 
-      {/* KPIs de MRR (linha 2) — destaque */}
+      {/* KPIs de MRR */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
         <KpiCard
-          label="MRR Bruto"
+          label="MRR bruto"
           value={fmtBRLcompacto(resumo?.mrr_bruto)}
-          sub="Soma das mensalidades ACTIVE"
-          color="text-cyan-400"
-          Icon={TrendingUp}
+          hint="Soma das mensalidades ACTIVE"
+          icon={TrendingUp}
+          tone="blue"
         />
         <KpiCard
-          label="Repasse Franqueado"
+          label="Repasse franqueado"
           value={fmtBRLcompacto(resumo?.repasse_franqueado)}
-          sub="30,51% do MRR Bruto"
-          color="text-yellow-400"
-          Icon={Wallet}
+          hint="30,51% do MRR bruto"
+          icon={Wallet}
+          tone="amber"
         />
         <KpiCard
-          label="MRR Líquido (pós-mkt)"
+          label="MRR líquido (pós-mkt)"
           value={fmtBRLcompacto(resumo?.liquido_pos_mkt)}
-          sub="Repasse − 2,5% fundo de marketing"
-          color="text-emerald-400"
-          Icon={PiggyBank}
+          hint="Repasse − 2,5% fundo de marketing"
+          icon={PiggyBank}
+          tone="emerald"
         />
       </div>
-
-      {/* Última atualização */}
-      {resumo?.data_upload && (
-        <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 mb-6">
-          <div className="flex items-center gap-2 text-xs text-slate-500 mb-1">
-            <Calendar size={12} />
-            <span>Última atualização</span>
-          </div>
-          <p className="text-sm text-slate-300">
-            {new Date(resumo.data_upload).toLocaleString("pt-BR")}
-            {resumo.data_emissao && (
-              <span className="text-slate-500"> — planilha emitida em {resumo.data_emissao}</span>
-            )}
-          </p>
-        </div>
-      )}
 
       {/* Histórico */}
-      <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
-        <div className="px-5 py-3 border-b border-slate-800">
-          <h3 className="text-xs font-bold text-slate-400 tracking-widest">HISTÓRICO DE UPLOADS</h3>
+      <Card padding="none">
+        <div className="p-5 pb-3">
+          <CardHeader
+            title="Histórico de uploads"
+            hint={
+              resumo?.data_upload
+                ? `Última atualização: ${new Date(resumo.data_upload).toLocaleString('pt-BR')}`
+                : undefined
+            }
+          />
         </div>
+
         {historico.length === 0 ? (
-          <div className="p-8 text-center text-slate-500 text-sm">
-            Nenhum upload realizado. Faça o primeiro upload do BD Ativados.
-          </div>
+          <Empty
+            title="Nenhum upload realizado"
+            description="Faça o primeiro upload do BD Ativados para começar."
+            icon={Database}
+          />
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs">
-              <thead>
-                <tr className="text-slate-500 border-b border-slate-800 text-left">
-                  <th className="px-4 py-3">Data</th>
-                  <th className="px-4 py-3">Arquivo</th>
-                  <th className="px-4 py-3">Usuário</th>
-                  <th className="px-4 py-3 text-right">Ativos</th>
-                  <th className="px-4 py-3 text-right">MRR Bruto</th>
-                  <th className="px-4 py-3 text-right">Líquido pós-mkt</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-800">
-                {historico.map((h, i) => (
-                  <tr key={h.id ?? i} className="hover:bg-slate-800/40">
-                    <td className="px-4 py-3 text-slate-300">
-                      {new Date(h.data_upload).toLocaleString("pt-BR")}
-                    </td>
-                    <td className="px-4 py-3 text-slate-400">{h.nome_arquivo}</td>
-                    <td className="px-4 py-3 text-slate-400">{h.usuario_nome || "—"}</td>
-                    <td className="px-4 py-3 text-right text-slate-300 font-mono">
-                      {h.linhas_ativas ?? "—"}
-                    </td>
-                    <td className="px-4 py-3 text-right text-slate-300 font-mono">
-                      {h.mrr_bruto != null ? fmtBRL(h.mrr_bruto) : "—"}
-                    </td>
-                    <td className="px-4 py-3 text-right text-emerald-400 font-mono font-bold">
-                      {h.liquido_pos_mkt != null ? fmtBRL(h.liquido_pos_mkt) : "—"}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <Table>
+            <thead>
+              <tr>
+                <Th>Data</Th>
+                <Th>Arquivo</Th>
+                <Th>Usuário</Th>
+                <Th align="right">Ativos</Th>
+                <Th align="right">MRR bruto</Th>
+                <Th align="right">Líquido pós-mkt</Th>
+              </tr>
+            </thead>
+            <tbody>
+              {historico.map((h, i) => (
+                <Tr key={h.id ?? i}>
+                  <Td className="text-hipo-slate">
+                    {new Date(h.data_upload).toLocaleString('pt-BR')}
+                  </Td>
+                  <Td className="font-medium">{h.nome_arquivo}</Td>
+                  <Td className="text-hipo-slate">{h.usuario_nome || '—'}</Td>
+                  <Td align="right">{h.linhas_ativas ?? '—'}</Td>
+                  <Td align="right">
+                    {h.mrr_bruto != null ? fmtBRL(h.mrr_bruto) : '—'}
+                  </Td>
+                  <Td align="right" className="font-semibold text-emerald-700">
+                    {h.liquido_pos_mkt != null ? fmtBRL(h.liquido_pos_mkt) : '—'}
+                  </Td>
+                </Tr>
+              ))}
+            </tbody>
+          </Table>
         )}
-      </div>
-    </div>
+      </Card>
+    </>
   );
 }

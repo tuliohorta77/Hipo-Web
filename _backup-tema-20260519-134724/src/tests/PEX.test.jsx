@@ -2,8 +2,12 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 
+// Mock do cliente api ANTES de importar o componente
 vi.mock('../api', () => ({
-  default: { get: vi.fn(), post: vi.fn() },
+  default: {
+    get: vi.fn(),
+    post: vi.fn(),
+  },
   isAuthenticated: () => true,
   getUser: () => ({ nome: 'Tester', email: 'tester@hipo.com', cargo: 'ADM' }),
   logout: vi.fn(),
@@ -20,7 +24,7 @@ const mockPainel = {
   total_gestao_pts: 11.5,
   total_engajamento_pts: 14.0,
   risco_classificacao: 'AMARELO',
-  nmrr_pct: 38.6, nmrr_pts: 0,
+  nmrr_pct: 38.6, nmrr_pts: 0, nmrr_realizado: 15861, nmrr_meta: 41044,
   reunioes_ec_du_realizado: 3.91, reunioes_ec_du_pts: 1.5,
   contadores_trabalhados_pct: 66.47, contadores_trabalhados_pts: 0,
   contadores_indicando_pct: 16.57, contadores_indicando_pts: 0,
@@ -36,7 +40,9 @@ function renderPEX() {
 }
 
 describe('PEXDashboard', () => {
-  beforeEach(() => { vi.clearAllMocks() })
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
 
   it('exibe estado vazio quando não há dados', async () => {
     api.get.mockRejectedValue({ response: { status: 404 } })
@@ -55,6 +61,7 @@ describe('PEXDashboard', () => {
     })
     renderPEX()
     await waitFor(() => {
+      // usa getAllByText pois o score aparece no SVG e no parágrafo
       const matches = screen.getAllByText(/36\.5/)
       expect(matches.length).toBeGreaterThan(0)
     })
@@ -84,7 +91,7 @@ describe('PEXDashboard', () => {
     })
   })
 
-  it('botão de upload está presente', async () => {
+  it('botão de upload está presente e habilitado', async () => {
     api.get.mockRejectedValue({})
     renderPEX()
     await waitFor(() => {
@@ -103,8 +110,8 @@ describe('PEXDashboard', () => {
       return Promise.resolve({ data: [] })
     })
     renderPEX()
-    await waitFor(() => screen.getByTestId('tab-compliance'))
-    fireEvent.click(screen.getByTestId('tab-compliance'))
+    await waitFor(() => screen.getByText(/COMPLIANCE/i))
+    fireEvent.click(screen.getByText(/COMPLIANCE/i))
     await waitFor(() => {
       expect(screen.getByText('vendedor@omie.com.vc')).toBeInTheDocument()
     })

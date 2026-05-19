@@ -1,3 +1,43 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* HIPO — Estilos globais (Manual de Marca v1.0) */
+@layer base {
+  html {
+    font-family: 'Inter', 'Manrope', system-ui, -apple-system, BlinkMacSystemFont,
+      'Segoe UI', sans-serif;
+    /* "cv11" = stylistic alternatives ("a" e "g" mais legíveis na Inter) */
+    font-feature-settings: 'cv11', 'ss01', 'ss03';
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+  body {
+    @apply bg-hipo-bg text-hipo-ink;
+    line-height: 1.5;
+  }
+
+  /* Foco visível e consistente em todos os elementos interativos */
+  :focus-visible {
+    outline: 2px solid #2563EB;
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  /* Scrollbar mais discreta (Chrome/Edge/Safari) */
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #E2E8F0;
+    border-radius: 999px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: #CBD5E1;
+  }
+}

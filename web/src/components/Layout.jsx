@@ -1,97 +1,183 @@
 // web/src/components/Layout.jsx
-import { Outlet, NavLink } from "react-router-dom";
-import { BarChart3, FileText, Database, Target, Briefcase, Menu, LogOut } from "lucide-react";
-import { useState } from "react";
-import { getUser, logout } from "../api";
+//
+// Layout do Hipo — sidebar branca 264px (Manual §5), topbar branca,
+// item ativo em #EFF6FF com texto/ícone azul (Manual §6).
+//
+// Sidebar é fixa no desktop e abre como drawer no mobile (toggle no header).
 
-export default function Layout() {
-  const [open, setOpen] = useState(true);
-  const user = getUser();
+import { useState } from 'react';
+import { Outlet, NavLink } from 'react-router-dom';
+import {
+  BarChart3,
+  FileText,
+  Database,
+  Target,
+  Briefcase,
+  Menu,
+  LogOut,
+  X,
+} from 'lucide-react';
+import { getUser, logout } from '../api';
+import Logo, { LogoWordmark } from './Logo';
 
-  const nav = [
-    { to: "/pex", label: "PEX", Icon: BarChart3 },
-    { to: "/pos", label: "POs", Icon: FileText },
-    { to: "/bd-ativados", label: "BD Ativados", Icon: Database },
-    { to: "/carteira", label: "Carteira", Icon: Briefcase },
-    { to: "/metas", label: "Metas", Icon: Target },
-  ];
+const NAV_ITEMS = [
+  { to: '/pex',          label: 'PEX',         Icon: BarChart3 },
+  { to: '/pos',          label: 'POs',         Icon: FileText },
+  { to: '/bd-ativados',  label: 'BD Ativados', Icon: Database },
+  { to: '/carteira',     label: 'Carteira',    Icon: Briefcase },
+  { to: '/metas',        label: 'Metas',       Icon: Target },
+];
+
+function NavItem({ to, label, Icon, onClick }) {
+  return (
+    <NavLink
+      to={to}
+      onClick={onClick}
+      className={({ isActive }) =>
+        `flex items-center gap-3 px-3 h-10 rounded-lg text-sm font-medium transition-colors ` +
+        (isActive
+          ? 'bg-hipo-blueSoft text-hipo-blue'
+          : 'text-hipo-slate hover:bg-hipo-bg hover:text-hipo-ink')
+      }
+    >
+      <Icon size={18} />
+      <span>{label}</span>
+    </NavLink>
+  );
+}
+
+function Sidebar({ user, onClose, isMobile = false }) {
+  return (
+    <aside
+      className={
+        'w-64 shrink-0 bg-hipo-card border-r border-hipo-border flex flex-col h-full ' +
+        (isMobile ? '' : 'hidden lg:flex')
+      }
+    >
+      {/* Brand */}
+      <div className="h-16 flex items-center justify-between px-5 border-b border-hipo-border">
+        <div className="flex items-center gap-2.5">
+          <Logo size={28} />
+          <LogoWordmark />
+        </div>
+        {isMobile && (
+          <button
+            onClick={onClose}
+            className="text-hipo-slate hover:text-hipo-ink"
+            aria-label="Fechar menu"
+          >
+            <X size={18} />
+          </button>
+        )}
+      </div>
+
+      {/* Nav */}
+      <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
+        {NAV_ITEMS.map((item) => (
+          <NavItem key={item.to} {...item} onClick={isMobile ? onClose : undefined} />
+        ))}
+      </nav>
+
+      {/* Footer com usuário + logout */}
+      <div className="border-t border-hipo-border p-3 space-y-1">
+        {user && (
+          <div className="px-3 py-2">
+            <p className="text-sm font-semibold text-hipo-ink truncate">
+              {user.nome}
+            </p>
+            <p className="text-xs text-hipo-slate truncate">
+              {user.cargo || user.email}
+            </p>
+          </div>
+        )}
+        <button
+          onClick={logout}
+          className="w-full flex items-center gap-3 px-3 h-10 rounded-lg text-sm font-medium text-hipo-slate hover:bg-red-50 hover:text-hipo-danger transition-colors"
+          title="Sair"
+        >
+          <LogOut size={18} />
+          <span>Sair</span>
+        </button>
+      </div>
+    </aside>
+  );
+}
+
+function Topbar({ user, onOpenMenu }) {
+  const initials = (user?.nome || user?.email || 'U')
+    .split(' ')
+    .slice(0, 2)
+    .map((p) => p.charAt(0).toUpperCase())
+    .join('');
 
   return (
-    <div className="flex h-screen bg-slate-950 text-slate-100 font-mono overflow-hidden">
-      {/* Sidebar */}
-      <aside
-        className={`${
-          open ? "w-52" : "w-16"
-        } transition-all bg-slate-900 border-r border-slate-800 flex flex-col`}
+    <header className="h-16 bg-hipo-card border-b border-hipo-border flex items-center justify-between px-4 lg:px-6 shrink-0">
+      {/* Esquerda: hamburger no mobile */}
+      <button
+        onClick={onOpenMenu}
+        className="lg:hidden p-2 -ml-2 rounded-lg text-hipo-slate hover:bg-hipo-bg"
+        aria-label="Abrir menu"
       >
-        <div className="flex items-center justify-between px-4 py-4 border-b border-slate-800">
-          {open && (
-            <div className="flex items-center gap-2">
-              <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center text-xs font-bold">
-                H
-              </div>
-              <span className="text-cyan-400 font-bold tracking-widest text-sm">
-                HIPO
-              </span>
-            </div>
-          )}
-          <button
-            onClick={() => setOpen((o) => !o)}
-            className="text-slate-500 hover:text-slate-300"
-          >
-            <Menu size={18} />
-          </button>
-        </div>
+        <Menu size={20} />
+      </button>
 
-        <nav className="flex-1 p-2 space-y-1 mt-2">
-          {nav.map(({ to, label, Icon }) => (
-            <NavLink
-              key={to}
-              to={to}
-              className={({ isActive }) =>
-                `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors ${
-                  isActive
-                    ? "bg-cyan-500/10 text-cyan-400 font-bold"
-                    : "text-slate-400 hover:text-slate-200 hover:bg-slate-800"
-                }`
-              }
-            >
-              <Icon size={18} />
-              {open && <span>{label}</span>}
-            </NavLink>
-          ))}
-        </nav>
+      <div className="hidden lg:block" />
 
-        {/* Footer com usuário + logout */}
-        <div className="border-t border-slate-800 p-2">
-          {open && user && (
-            <div className="px-3 py-2 mb-1">
-              <p className="text-xs font-bold text-slate-200 truncate">
-                {user.nome}
-              </p>
-              <p className="text-xs text-slate-500 truncate">
-                {user.cargo || user.email}
-              </p>
-            </div>
-          )}
-          <button
-            onClick={logout}
-            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-slate-400 hover:text-red-400 hover:bg-slate-800 transition-colors"
-            title="Sair"
-          >
-            <LogOut size={18} />
-            {open && <span>Sair</span>}
-          </button>
-          {open && (
-            <p className="text-xs text-slate-600 px-3 pt-2">v1.0 — Fase 1</p>
-          )}
+      {/* Direita: avatar + nome */}
+      {user && (
+        <div className="flex items-center gap-3">
+          <div className="hidden sm:block text-right">
+            <p className="text-sm font-semibold text-hipo-ink leading-tight">
+              {user.nome}
+            </p>
+            <p className="text-xs text-hipo-slate leading-tight">
+              {user.cargo || user.email}
+            </p>
+          </div>
+          <div className="w-9 h-9 rounded-full bg-hipo-blueSoft text-hipo-blue flex items-center justify-center text-sm font-semibold">
+            {initials}
+          </div>
         </div>
-      </aside>
+      )}
+    </header>
+  );
+}
+
+export default function Layout() {
+  const user = getUser();
+  const [mobileOpen, setMobileOpen] = useState(false);
+
+  return (
+    <div className="h-screen flex bg-hipo-bg overflow-hidden">
+      {/* Sidebar desktop */}
+      <Sidebar user={user} />
+
+      {/* Sidebar mobile (drawer com overlay) */}
+      {mobileOpen && (
+        <>
+          <div
+            className="lg:hidden fixed inset-0 bg-hipo-ink/40 z-40"
+            onClick={() => setMobileOpen(false)}
+          />
+          <div className="lg:hidden fixed inset-y-0 left-0 z-50">
+            <Sidebar
+              user={user}
+              isMobile
+              onClose={() => setMobileOpen(false)}
+            />
+          </div>
+        </>
+      )}
 
       {/* Main */}
-      <main className="flex-1 overflow-auto">
-        <Outlet />
-      </main>
+      <div className="flex-1 flex flex-col min-w-0">
+        <Topbar user={user} onOpenMenu={() => setMobileOpen(true)} />
+        <main className="flex-1 overflow-auto">
+          <div className="p-6 lg:p-8 max-w-7xl mx-auto">
+            <Outlet />
+          </div>
+        </main>
+      </div>
     </div>
   );
 }
