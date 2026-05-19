@@ -111,30 +111,30 @@ class TestBloqueioPorModulo:
 
     async def test_farmer_no_po_recebe_403(self, db_conn, client):
         u = await _seed_user(db_conn, client, "Farmer", "ff@teste.com")
-        resp = await client.get("/po/reconciliacao", headers=u["headers"])
+        resp = await client.get("/po/reconciliacao/ultima", headers=u["headers"])
         assert resp.status_code == 403
 
     async def test_ep_no_bd_recebe_403(self, db_conn, client):
         u = await _seed_user(db_conn, client, "EP", "ep@teste.com")
-        resp = await client.get("/bd-ativados/atual", headers=u["headers"])
+        resp = await client.get("/bd-ativados/resumo", headers=u["headers"])
         assert resp.status_code == 403
 
     async def test_gerente_no_metas_recebe_403(self, db_conn, client):
         u = await _seed_user(db_conn, client, "Gerente", "g@teste.com")
         # Qualquer rota do /metas
-        resp = await client.get("/metas/", headers=u["headers"])
+        resp = await client.get("/metas/catalogo", headers=u["headers"])
         # 403 ou 405 (Method Not Allowed pra rota não existente) — ambos provam
         # que o cargo foi rejeitado pelo dependency. Aceitamos só 403:
         assert resp.status_code == 403
 
     async def test_adm_passa_em_todos_modulos(self, client, usuario_adm):
-        for rota in ["/pex/painel", "/po/reconciliacao", "/bd-ativados/atual"]:
+        for rota in ["/pex/painel", "/po/reconciliacao/ultima", "/bd-ativados/resumo"]:
             resp = await client.get(rota, headers=usuario_adm["headers"])
             assert resp.status_code != 403, f"{rota} retornou 403 pro ADM!"
 
     async def test_franqueado_passa_em_todos_modulos(self, db_conn, client):
         u = await _seed_user(db_conn, client, "Franqueado", "fq@teste.com")
-        for rota in ["/pex/painel", "/po/reconciliacao", "/bd-ativados/atual"]:
+        for rota in ["/pex/painel", "/po/reconciliacao/ultima", "/bd-ativados/resumo"]:
             resp = await client.get(rota, headers=u["headers"])
             assert resp.status_code != 403, f"{rota} retornou 403 pro Franqueado!"
 

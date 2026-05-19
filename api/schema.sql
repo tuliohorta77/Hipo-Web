@@ -746,3 +746,41 @@ CREATE INDEX IF NOT EXISTS idx_carteira_tarefa_data_ef
 CREATE INDEX IF NOT EXISTS idx_carteira_tarefa_canal
     ON carteira_tarefa(tarefa_canal);
 
+
+-- ============================================================
+-- HIPO -- Schema do BD Ativados / MRR bruto (idempotente)
+--
+-- Anexado ao schema.sql quando ele nao tem as colunas mrr_bruto.
+-- Faz parte do hotfix do PR #41/#42.
+--
+-- Idempotente: ADD COLUMN IF NOT EXISTS, CREATE INDEX IF NOT EXISTS,
+-- CREATE OR REPLACE VIEW.
+--
+-- Fonte: api/migrations/004_bd_ativados_mrr.sql (introduzida bem antes
+-- do PR atual, mas que nunca foi propagada ao schema.sql do repo).
+-- ============================================================
+
+ALTER TABLE bd_ativados_upload
+    ADD COLUMN IF NOT EXISTS data_emissao        VARCHAR(40),
+    ADD COLUMN IF NOT EXISTS linhas_ativas       INT DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS mrr_bruto           NUMERIC(14,2) DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS repasse_franqueado  NUMERIC(14,2) DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS liquido_pos_mkt     NUMERIC(14,2) DEFAULT 0;
+
+ALTER TABLE bd_ativados
+    ADD COLUMN IF NOT EXISTS tipo                   VARCHAR(80),
+    ADD COLUMN IF NOT EXISTS valor_mensal_informado NUMERIC(10,2),
+    ADD COLUMN IF NOT EXISTS mrr_bruto              NUMERIC(14,2) DEFAULT 0;
+
+CREATE INDEX IF NOT EXISTS idx_bd_ativados_tipo ON bd_ativados(tipo);
+
+CREATE OR REPLACE VIEW vw_bd_ativados_atual AS
+SELECT
+    bu.id, bu.data_upload, bu.data_emissao, bu.nome_arquivo,
+    bu.total_registros, bu.linhas_ativas,
+    bu.mrr_bruto, bu.repasse_franqueado, bu.liquido_pos_mkt
+FROM bd_ativados_upload bu
+WHERE bu.processado = TRUE
+ORDER BY bu.data_upload DESC
+LIMIT 1;
+
