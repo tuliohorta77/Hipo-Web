@@ -619,3 +619,86 @@ VALUES
     ('MIDIAS_SOCIAIS',          'Mídias Sociais — Instagram',           'ENGAJAMENTO',2,  NULL,  'Sim/Não',                         'Lançamento ADM'),
     ('BIG3',                    'BIG 3 — Ações Mensais',                'ENGAJAMENTO',6,  3.00,  '3 ações atingidas',               'Módulo Marketing'),
     ('REALIZACAO_EVENTOS',      'Realização de Eventos',                'ENGAJAMENTO',3,  1.00,  'Meta por cluster (Platina: 5/mês)','Módulo Marketing');
+
+-- ============================================================
+-- Migration 007 — Modulo Carteira (Hunter / Farmer / Outros)
+-- Bloco idempotente para o schema do CI/CD
+-- ============================================================
+
+DO $$ BEGIN
+    CREATE TYPE carteira_funcao_enum AS ENUM ('EC_HUNTER', 'EC_FARMER', 'OUTROS');
+EXCEPTION WHEN duplicate_object THEN null;
+END $$;
+
+DO $$ BEGIN
+    CREATE TYPE tarefa_situacao_enum AS ENUM ('EM_DIA', 'FUTURA', 'ATRASADA', 'DESCONHECIDA');
+EXCEPTION WHEN duplicate_object THEN null;
+END $$;
+
+CREATE TABLE IF NOT EXISTS carteira_colaborador (
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    nome            VARCHAR(150) UNIQUE NOT NULL,
+    funcao          carteira_funcao_enum NOT NULL DEFAULT 'OUTROS',
+    funcao_origem   VARCHAR(120),
+    ativo           BOOLEAN DEFAULT TRUE,
+    updated_at      TIMESTAMPTZ DEFAULT NOW(),
+    created_at      TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_colaborador_funcao ON carteira_colaborador(funcao);
+
+CREATE TABLE IF NOT EXISTS carteira_upload (
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tipo            VARCHAR(20) NOT NULL,
+    data_upload     TIMESTAMPTZ DEFAULT NOW(),
+    usuario_id      UUID REFERENCES usuarios(id),
+    nome_arquivo    VARCHAR(200),
+    total_linhas    INT,
+    total_validos   INT,
+    processado      BOOLEAN DEFAULT FALSE
+);
+CREATE INDEX IF NOT EXISTS idx_carteira_upload_tipo_data ON carteira_upload(tipo, data_upload DESC);
+
+CREATE TABLE IF NOT EXISTS carteira_cnpj (
+    id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    upload_id           UUID REFERENCES carteira_upload(id) ON DELETE CASCADE,
+    id_grupo            VARCHAR(50) NOT NULL,
+    nome_grupo          VARCHAR(255),
+    cnpj_contador       VARCHAR(20),
+    contabilidade       VARCHAR(255),
+    bairro              VARCHAR(120),
+    cidade_uf           VARCHAR(120),
+    parceria            VARCHAR(40),
+    data_parceria       DATE,
+    tipo_cnae           VARCHAR(40),
+    colaborador_nome    VARCHAR(150),
+    funcao_origem       VARCHAR(120),
+    porte_faturamento   VARCHAR(60),
+    score_rfm           VARCHAR(60),
+    apps_ativos         INT,
+    mrr_ativo           NUMERIC(12,2),
+    leads_no_mes        INT,
+    status_rf           VARCHAR(60)
+);
+CREATE INDEX IF NOT EXISTS idx_carteira_cnpj_grupo ON carteira_cnpj(id_grupo);
+CREATE INDEX IF NOT EXISTS idx_carteira_cnpj_colaborador ON carteira_cnpj(colaborador_nome);
+
+CREATE TABLE IF NOT EXISTS carteira_tarefa (
+    id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    upload_id           UUID REFERENCES carteira_upload(id) ON DELETE CASCADE,
+    tarefa_id_origem    VARCHAR(60),
+    cnpj_contador       VARCHAR(20),
+    contabilidade       VARCHAR(255),
+    executivo_nome      VARCHAR(150),
+    situacao            tarefa_situacao_enum NOT NULL DEFAULT 'DESCONHECIDA',
+    status              VARCHAR(40),
+    tarefa_canal        VARCHAR(60),
+    tipo_tarefa         VARCHAR(80),
+    resultado           VARCHAR(80),
+    data_criacao        TIMESTAMPTZ,
+    data_agendamento    TIMESTAMPTZ,
+    data_efetiva        TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS idx_carteira_tarefa_cnpj      ON carteira_tarefa(cnpj_contador);
+CREATE INDEX IF NOT EXISTS idx_carteira_tarefa_executivo ON carteira_tarefa(executivo_nome);
+CREATE INDEX IF NOT EXISTS idx_carteira_tarefa_data_ef   ON carteira_tarefa(data_efetiva);
+CREATE INDEX IF NOT EXISTS idx_carteira_tarefa_canal     ON carteira_tarefa(tarefa_canal);
