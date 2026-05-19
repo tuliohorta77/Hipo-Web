@@ -18,7 +18,7 @@ router = APIRouter()
 UPLOAD_DIR = os.getenv("UPLOAD_DIR", "/home/hipo/app/uploads")
 
 
-# ── UPLOAD CROmie ─────────────────────────────────────────────────────────────
+# ── UPLOAD CROmie ──────────────────────────────────────────────────────────────
 
 @router.post("/cromie/upload")
 async def upload_cromie(
@@ -212,7 +212,7 @@ async def upload_cromie(
     }
 
 
-# ── HELPERS DE INSERÇÃO ───────────────────────────────────────────────────────
+# ── HELPERS DE INSERÇÃO ─────────────────────────────────────────────────────────
 
 async def _inserir_cliente_final(conn, upload_id, linhas):
     for l in linhas:
@@ -285,7 +285,7 @@ async def _inserir_tarefa_contador(conn, upload_id, linhas):
         )
 
 
-# ── ENDPOINTS DE CONSULTA ─────────────────────────────────────────────────────
+# ── ENDPOINTS DE CONSULTA ──────────────────────────────────────────────────────
 
 @router.get("/painel")
 async def painel_pex(conn=Depends(get_conn)):
@@ -389,32 +389,69 @@ async def historico_pex(
 async def configurar_metas(dados: dict, conn=Depends(get_conn)):
     """
     Configura as metas mensais para cálculo do PEX.
-    Campos: mes_ref, nmrr_meta, demos_outbound_meta, dias_uteis,
-            ecs_ativos_m3, evs_ativos, carteira_total_contadores
+
+    Os dados são gravados em 2 tabelas (modelo novo da migration 005):
+      - pex_metas_cabecalho:    dados globais do mês (dias úteis, ECs, EVs, etc.)
+      - pex_metas_indicadores:  metas numéricas por indicador (nmrr, demos_outbound, ...)
+
+    A view pex_metas_mensais é só leitura (compatibilidade com pex_calc.py),
+    então NÃO escrevemos nela.
+
+    Campos aceitos: mes_ref, nmrr_meta, demos_outbound_meta, dias_uteis,
+                    ecs_ativos_m3, evs_ativos, carteira_total_contadores
     """
-    await conn.execute("""
-        INSERT INTO pex_metas_mensais (
-            mes_ref, nmrr_meta, demos_outbound_meta,
-            dias_uteis, ecs_ativos_m3, evs_ativos,
-            carteira_total_contadores
-        ) VALUES ($1,$2,$3,$4,$5,$6,$7)
-        ON CONFLICT (mes_ref) DO UPDATE SET
-            nmrr_meta = EXCLUDED.nmrr_meta,
-            demos_outbound_meta = EXCLUDED.demos_outbound_meta,
-            dias_uteis = EXCLUDED.dias_uteis,
-            ecs_ativos_m3 = EXCLUDED.ecs_ativos_m3,
-            evs_ativos = EXCLUDED.evs_ativos,
-            carteira_total_contadores = EXCLUDED.carteira_total_contadores
-    """,
-    dados.get("mes_ref"),
-    dados.get("nmrr_meta"),
-    dados.get("demos_outbound_meta"),
-    dados.get("dias_uteis", 22),
-    dados.get("ecs_ativos_m3", 2),
-    dados.get("evs_ativos", 1),
-    dados.get("carteira_total_contadores", 1),
-    )
-    return {"message": "Metas configuradas com sucesso."}
+    mes_ref = dados.get("mes_ref")
+    if not mes_ref:
+        raise HTTPException(400, "Campo 'mes_ref' é obrigatório (formato YYYY-MM).")
+
+    async with conn.transaction():
+        # 1) Cabeçalho — upsert pelo mes_ref
+        cabecalho_id = await conn.fetchval("""
+            INSERT INTO pex_metas_cabecalho (
+                mes_ref, dias_uteis, ecs_ativos_m3, evs_ativos,
+                carteira_total_contadores
+            ) VALUES ($1, $2, $3, $4, $5)
+            ON CONFLICT (mes_ref) DO UPDATE SET
+                dias_uteis                = EXCLUDED.dias_uteis,
+                ecs_ativos_m3             = EXCLUDED.ecs_ativos_m3,
+                evs_ativos                = EXCLUDED.evs_ativos,
+                carteira_total_contadores = EXCLUDED.carteira_total_contadores,
+                atualizado_em             = NOW()
+            RETURNING id
+        """,
+        mes_ref,
+        dados.get("dias_uteis", 22),
+        dados.get("ecs_ativos_m3", 2),
+        dados.get("evs_ativos", 1),
+        dados.get("carteira_total_contadores", 1),
+        )
+
+        # 2) Metas numéricas — upsert pelo (cabecalho_id, codigo)
+        # Se o cliente mandou None ou omitiu, removemos a meta existente (clear).
+        metas_numericas = [
+            ("nmrr",           dados.get("nmrr_meta")),
+            ("demos_outbound", dados.get("demos_outbound_meta")),
+        ]
+        for codigo, valor in metas_numericas:
+            if valor is None:
+                await conn.execute(
+                    "DELETE FROM pex_metas_indicadores "
+                    "WHERE cabecalho_id = $1 AND codigo = $2",
+                    cabecalho_id, codigo,
+                )
+            else:
+                await conn.execute("""
+                    INSERT INTO pex_metas_indicadores (cabecalho_id, codigo, meta_valor)
+                    VALUES ($1, $2, $3)
+                    ON CONFLICT (cabecalho_id, codigo) DO UPDATE SET
+                        meta_valor = EXCLUDED.meta_valor
+                """, cabecalho_id, codigo, valor)
+
+    return {
+        "message": "Metas configuradas com sucesso.",
+        "mes_ref": mes_ref,
+        "cabecalho_id": cabecalho_id,
+    }
 
 
 @router.get("/cromie/auditoria")
