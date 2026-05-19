@@ -18,162 +18,235 @@ vi.mock('../api', () => ({
 import api from '../api'
 import Carteira from '../pages/Carteira'
 
+// ── Mocks de dados ───────────────────────────────────────────────
+
 const mockResumo = {
-  hunter:  { total_grupos: 84, meta_atingida: 68, compliance_pct: 81.0,
-             com_tarefa_atrasada: 23, sem_tarefa_futura: 71, leads_no_mes: 23 },
-  farmer:  { total_grupos: 441, meta_atingida: 200, compliance_pct: 45.3,
-             com_tarefa_atrasada: 62, sem_tarefa_futura: 232, leads_no_mes: 100 },
-  outros:  { total_grupos: 8, meta_atingida: 0, compliance_pct: 0.0,
-             com_tarefa_atrasada: 0, sem_tarefa_futura: 7, leads_no_mes: 0 },
-  totais: { grupos_total: 533, cnpjs_total: 633, tarefas_total: 9330, colaboradores: 11 },
+  hunter:  { total_grupos: 18, meta_atingida: 15, compliance_pct: 83.3,
+             com_tarefa_atrasada: 5, sem_tarefa_futura: 3, leads_no_mes: 7 },
+  farmer:  { total_grupos: 21, meta_atingida: 16, compliance_pct: 76.2,
+             com_tarefa_atrasada: 8, sem_tarefa_futura: 4, leads_no_mes: 23 },
+  outros:  { total_grupos: 2, meta_atingida: 0, compliance_pct: 0,
+             com_tarefa_atrasada: 0, sem_tarefa_futura: 2, leads_no_mes: 0 },
+  totais: { grupos_total: 41, cnpjs_total: 50, tarefas_total: 200, colaboradores: 5 },
   ultima_carteira: '2026-05-18T10:00:00Z',
   ultima_tarefas:  '2026-05-18T11:00:00Z',
 }
 
-const grupoHunter = {
-  id_grupo: 'g1', nome_grupo: 'Não', qtd_cnpj: 2,
-  parceria: 'Parceiro',
-  contabilidade_principal: 'CONTAB ABC', cidade_uf: 'SP/SP',
-  colaborador_nome: 'Patrick', colaboradores_multiplos: false,
-  funcao: 'EC_HUNTER', leads_no_mes: 0,
-  tarefas_mes_total: 1, tarefas_atrasadas: 0, tarefas_futuras: 1,
-  reunioes_mes: 0,
-  timeline: [{ key: '2026-05', label: 'Mai/26', status: 'ok', count: 1 }],
-  meta_atingida: true, score: null,
+const mockHunter = {
+  total: 2,
+  linhas: [
+    {
+      colaborador_id: 'patrick-uuid',
+      nome: 'Patrick',
+      total_grupos: 10,
+      meta_atingida: 9,
+      tarefas_atrasadas: 1,
+      sem_tarefa_futura: 1,
+      leads_no_mes: 4,
+      compliance_pct: 90.0,
+    },
+    {
+      colaborador_id: 'caio-uuid',
+      nome: 'Caio',
+      total_grupos: 8,
+      meta_atingida: 6,
+      tarefas_atrasadas: 3,
+      sem_tarefa_futura: 2,
+      leads_no_mes: 3,
+      compliance_pct: 75.0,
+    },
+  ],
 }
 
-const grupoFarmer = {
-  id_grupo: 'g2', nome_grupo: 'Sim', qtd_cnpj: 1,
-  parceria: 'Parceiro',
-  contabilidade_principal: 'CONTAB DEF', cidade_uf: 'SP/SP',
-  colaborador_nome: 'Beatriz', colaboradores_multiplos: false,
-  funcao: 'EC_FARMER', leads_no_mes: 5,
-  tarefas_mes_total: 3, tarefas_atrasadas: 2, tarefas_futuras: 0,
-  reunioes_mes: 2,
-  timeline: [
-    { key: '2026-W18', label: 'S1', status: 'ok',   count: 1 },
-    { key: '2026-W19', label: 'S2', status: 'miss', count: 0 },
-    { key: '2026-W20', label: 'S3', status: 'ok',   count: 1 },
-    { key: '2026-W21', label: 'S4', status: 'now',  count: 0 },
+const mockFarmer = {
+  total: 1,
+  linhas: [
+    {
+      colaborador_id: 'aline-uuid',
+      nome: 'Aline',
+      total_contadores: 10,
+      semanas: [
+        { key: '2026-W18', label: 'S1', com_reuniao: 5, sem_reuniao: 5, pendente: 0 },
+        { key: '2026-W19', label: 'S2', com_reuniao: 10, sem_reuniao: 0, pendente: 0 },
+        { key: '2026-W20', label: 'S3', com_reuniao: 9, sem_reuniao: 1, pendente: 0 },
+        { key: '2026-W21', label: 'S4', com_reuniao: 3, sem_reuniao: 0, pendente: 7 },
+      ],
+      tarefas_atrasadas: 5,
+      tarefas_futuras: 2,
+      leads_no_mes: 12,
+    },
   ],
-  meta_atingida: false, score: null,
+}
+
+const mockGruposPatrick = {
+  colaborador: { id: 'patrick-uuid', nome: 'Patrick', funcao: 'EC_HUNTER' },
+  total: 2,
+  grupos: [
+    {
+      id_grupo: 'G1', nome_grupo: 'CONTAB ALFA',
+      contabilidade_principal: 'CONTAB ALFA', cidade_uf: 'SP/SP',
+      parceria: 'Parceiro', qtd_cnpj: 1,
+      meta_atingida: true, tarefas_atrasadas: 0, tarefas_futuras: 1,
+      leads_no_mes: 0,
+    },
+    {
+      id_grupo: 'G2', nome_grupo: 'BETA ASSESSORIA',
+      contabilidade_principal: 'BETA ASSESSORIA', cidade_uf: 'Guarulhos/SP',
+      parceria: 'Não Parceiro', qtd_cnpj: 2,
+      meta_atingida: false, tarefas_atrasadas: 2, tarefas_futuras: 0,
+      leads_no_mes: 0,
+    },
+  ],
 }
 
 function renderCarteira() {
   return render(<MemoryRouter><Carteira /></MemoryRouter>)
 }
 
+// ── Setup ────────────────────────────────────────────────────────
 
-describe('Página Carteira', () => {
-  beforeEach(() => {
-    vi.clearAllMocks()
-    api.get.mockImplementation((url) => {
-      if (url === '/carteira/resumo') return Promise.resolve({ data: mockResumo })
-      if (url.startsWith('/carteira/grupos?')) {
-        const u = new URL('http://test' + url)
-        const f = u.searchParams.get('funcao')
-        const grupos = f === 'EC_HUNTER' ? [grupoHunter]
-                     : f === 'EC_FARMER' ? [grupoFarmer]
-                     : []
-        return Promise.resolve({ data: { total: grupos.length, grupos } })
-      }
-      if (url === '/carteira/historico') return Promise.resolve({ data: [] })
-      return Promise.resolve({ data: null })
-    })
+beforeEach(() => {
+  vi.clearAllMocks()
+  api.get.mockImplementation((url) => {
+    if (url === '/carteira/resumo')             return Promise.resolve({ data: mockResumo })
+    if (url === '/carteira/dashboard/hunter')   return Promise.resolve({ data: mockHunter })
+    if (url === '/carteira/dashboard/farmer')   return Promise.resolve({ data: mockFarmer })
+    if (url.startsWith('/carteira/grupos?funcao=OUTROS')) {
+      return Promise.resolve({ data: { total: 0, grupos: [] } })
+    }
+    if (url === '/carteira/colaboradores/patrick-uuid/grupos') {
+      return Promise.resolve({ data: mockGruposPatrick })
+    }
+    if (url === '/carteira/historico')          return Promise.resolve({ data: [] })
+    return Promise.resolve({ data: null })
   })
+})
 
-  it('renderiza header e botões de upload', async () => {
+
+describe('Página Carteira (v2 — dashboard por colaborador)', () => {
+  it('renderiza o título e botões de upload', async () => {
     renderCarteira()
-    // Header h1
     expect(screen.getByRole('heading', { level: 1, name: 'Carteira' })).toBeInTheDocument()
-    // Aguarda primeiro fetch
-    await waitFor(() => expect(api.get).toHaveBeenCalled())
+    await waitFor(() => expect(api.get).toHaveBeenCalledWith('/carteira/dashboard/hunter'))
   })
 
-  it('mostra contador de grupos em cada aba', async () => {
+  it('exibe abas Hunter / Farmer / Outros com contadores', async () => {
     renderCarteira()
-    // Tema novo: contadores ficam em <span class="... rounded-full ..."> dentro
-    // dos botões de aba (linha de Tabs no Carteira.jsx).
     await waitFor(() => {
-      const counters = Array.from(document.querySelectorAll('button .rounded-full'))
+      // contadores nos chips das abas
+      const chips = Array.from(document.querySelectorAll('button .rounded-full'))
         .map((n) => n.textContent.trim())
-      expect(counters).toEqual(expect.arrayContaining(['84', '441', '8']))
+      expect(chips).toEqual(expect.arrayContaining(['2', '1', '0']))
     })
   })
 
-  it('lista um grupo Hunter na aba padrão', async () => {
+  it('lista colaboradores Hunter por padrão', async () => {
     renderCarteira()
     await waitFor(() => {
-      expect(screen.getByText('CONTAB ABC · SP/SP', { exact: false }))
-        .toBeInTheDocument()
       expect(screen.getByText('Patrick')).toBeInTheDocument()
+      expect(screen.getByText('Caio')).toBeInTheDocument()
     })
   })
 
-  it('troca para aba Farmer e mostra coluna Leads/mês', async () => {
+  it('mostra KPIs do topo da aba Hunter', async () => {
     renderCarteira()
-    await waitFor(() =>
-      expect(screen.getByText('CONTAB ABC · SP/SP', { exact: false })).toBeInTheDocument()
-    )
+    await waitFor(() => {
+      // 18 grupos totais, 15 com meta atingida
+      expect(screen.getByText('18')).toBeInTheDocument()
+      expect(screen.getByText(/83\.3% de compliance/i)).toBeInTheDocument()
+    })
+  })
+
+  it('clica no colaborador Patrick e mostra drilldown dos grupos', async () => {
+    renderCarteira()
+    await waitFor(() => screen.getByText('Patrick'))
+
+    fireEvent.click(screen.getByText('Patrick'))
+
+    await waitFor(() => {
+      expect(api.get).toHaveBeenCalledWith(
+        '/carteira/colaboradores/patrick-uuid/grupos'
+      )
+      expect(screen.getByText('CONTAB ALFA')).toBeInTheDocument()
+      expect(screen.getByText('BETA ASSESSORIA')).toBeInTheDocument()
+    })
+  })
+
+  it('clica novamente no Patrick e o drilldown fecha', async () => {
+    renderCarteira()
+    await waitFor(() => screen.getByText('Patrick'))
+
+    fireEvent.click(screen.getByText('Patrick'))
+    await waitFor(() => expect(screen.getByText('CONTAB ALFA')).toBeInTheDocument())
+
+    fireEvent.click(screen.getByText('Patrick'))
+    await waitFor(() => {
+      expect(screen.queryByText('CONTAB ALFA')).not.toBeInTheDocument()
+    })
+  })
+
+  it('troca para aba Farmer e mostra Aline com semanas', async () => {
+    renderCarteira()
+    await waitFor(() => screen.getByText('Patrick'))
 
     fireEvent.click(screen.getByRole('button', { name: /Farmer/i }))
+
     await waitFor(() => {
-      expect(screen.getByText('CONTAB DEF · SP/SP', { exact: false })).toBeInTheDocument()
-      // Coluna "Leads/mês" no header da tabela quando aba Farmer
-      expect(screen.getByText(/Leads\/mês/i)).toBeInTheDocument()
+      expect(screen.getByText('Aline')).toBeInTheDocument()
+      expect(screen.getByText(/10 contadores/i)).toBeInTheDocument()
+      // Labels das semanas (S1 a S4) aparecem em quaisquer das bolinhas
+      expect(screen.getAllByText('S1').length).toBeGreaterThan(0)
+      expect(screen.getAllByText('S4').length).toBeGreaterThan(0)
     })
   })
 
-  it('aplica filtro tarefa atrasada (dispara nova chamada)', async () => {
+  it('aplica filtro de busca por colaborador', async () => {
     renderCarteira()
-    await waitFor(() => expect(api.get).toHaveBeenCalledWith(expect.stringContaining('/carteira/grupos?')))
+    await waitFor(() => screen.getByText('Patrick'))
 
-    const checkbox = screen.getByLabelText(/Tarefa atrasada/i)
-    fireEvent.click(checkbox)
+    const busca = screen.getByPlaceholderText(/Buscar colaborador/i)
+    fireEvent.change(busca, { target: { value: 'caio' } })
 
     await waitFor(() => {
-      const chamadas = api.get.mock.calls.map((c) => c[0])
-      expect(chamadas.some((u) => u.includes('tarefa_atrasada=true'))).toBe(true)
+      expect(screen.queryByText('Patrick')).not.toBeInTheDocument()
+      expect(screen.getByText('Caio')).toBeInTheDocument()
     })
   })
 
-  it('faz upload de tarefas e mostra mensagem de sucesso', async () => {
+  it('faz upload de carteira e mostra mensagem de sucesso', async () => {
     api.post.mockResolvedValue({
-      data: { message: 'Tarefas atualizadas: 9330 registros.' }
+      data: { message: 'Carteira atualizada: 633 CNPJs CNAE Contábil.' }
     })
 
     renderCarteira()
     await waitFor(() => expect(api.get).toHaveBeenCalled())
 
-    // Pega o input file do botão "Tarefas" (o último input file da tela)
     const inputs = document.querySelectorAll('input[type="file"]')
     expect(inputs.length).toBeGreaterThanOrEqual(2)
-    const inputTarefas = inputs[inputs.length - 1]
-    const file = new File(['x'], 'tarefas.xlsx', {
+    // O botão "Carteira" é o penúltimo input file
+    const inputCarteira = inputs[inputs.length - 2]
+    const file = new File(['x'], 'carteira.xlsx', {
       type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     })
-
-    fireEvent.change(inputTarefas, { target: { files: [file] } })
+    fireEvent.change(inputCarteira, { target: { files: [file] } })
 
     await waitFor(() => {
       expect(api.post).toHaveBeenCalledWith(
-        '/carteira/upload-tarefas',
+        '/carteira/upload-carteira',
         expect.any(FormData),
         expect.any(Object)
       )
-      expect(screen.getByText(/9330 registros/)).toBeInTheDocument()
+      expect(screen.getByText(/633 CNPJs/)).toBeInTheDocument()
     })
   })
 
   it('mostra mensagem amigável quando aba Outros está vazia', async () => {
     renderCarteira()
-    await waitFor(() =>
-      expect(screen.getByText('CONTAB ABC · SP/SP', { exact: false })).toBeInTheDocument()
-    )
+    await waitFor(() => screen.getByText('Patrick'))
 
     fireEvent.click(screen.getByRole('button', { name: /Outros/i }))
     await waitFor(() => {
-      expect(screen.getByText(/Nenhum grupo nessa aba/)).toBeInTheDocument()
+      expect(screen.getByText(/Nenhum grupo nessa aba/i)).toBeInTheDocument()
     })
   })
 })

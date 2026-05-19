@@ -10,11 +10,6 @@ Endpoints:
   PUT  /carteira/colaboradores/{id}   — atualiza função
   GET  /carteira/historico            — últimos uploads
   GET  /carteira/resumo               — totais para os cards do topo
-
-Dashboard por colaborador (layout v2):
-  GET  /carteira/dashboard/hunter         — 1 linha por colab Hunter + KPIs
-  GET  /carteira/dashboard/farmer         — 1 linha por colab Farmer + bolinhas semanais
-  GET  /carteira/colaboradores/{id}/grupos — drilldown: grupos do colaborador
 """
 from __future__ import annotations
 
@@ -34,9 +29,6 @@ from services.carteira_agg import (
     agregar_grupos,
     aplicar_filtros,
     kpis_por_funcao,
-    dashboard_hunter,
-    dashboard_farmer,
-    grupos_do_colaborador,
 )
 
 router = APIRouter()
@@ -460,87 +452,4 @@ async def resumo(
         },
         "ultima_carteira": ultima_carteira["data_upload"].isoformat() if ultima_carteira else None,
         "ultima_tarefas":  ultima_tarefas["data_upload"].isoformat() if ultima_tarefas else None,
-    }
-
-
-# ─────────────────────────────────────────────────────────────────
-#  DASHBOARD por colaborador (v2 — layout linha-por-pessoa)
-# ─────────────────────────────────────────────────────────────────
-
-@router.get("/dashboard/hunter")
-async def dashboard_hunter_endpoint(
-    conn=Depends(get_conn),
-    user=Depends(usuario_atual),
-):
-    """
-    Lista 1 linha por colaborador EC_HUNTER com agregados do mês:
-      total_grupos, meta_atingida, tarefas_atrasadas, sem_tarefa_futura,
-      leads_no_mes, compliance_pct.
-    Ordenado por compliance descendente (melhor primeiro).
-    """
-    cnpjs, tarefas, colab = await _carregar_estado(conn)
-    grupos = agregar_grupos(cnpjs, tarefas, colab)
-    return {
-        "total": len([c for c in colab if c["funcao"] == "EC_HUNTER"]),
-        "linhas": dashboard_hunter(grupos, colab),
-    }
-
-
-@router.get("/dashboard/farmer")
-async def dashboard_farmer_endpoint(
-    conn=Depends(get_conn),
-    user=Depends(usuario_atual),
-):
-    """
-    Lista 1 linha por colaborador EC_FARMER. Cada linha tem:
-      - total_contadores: nº de CNPJs distintos atribuídos ao colab
-      - semanas: lista das semanas ISO do mês corrente; cada uma com
-        com_reuniao / sem_reuniao / pendente (contagem de CONTADORES).
-      - tarefas_atrasadas, tarefas_futuras, leads_no_mes.
-    """
-    cnpjs, tarefas, colab = await _carregar_estado(conn)
-    return {
-        "total": len([c for c in colab if c["funcao"] == "EC_FARMER"]),
-        "linhas": dashboard_farmer(cnpjs, tarefas, colab),
-    }
-
-
-@router.get("/colaboradores/{colab_id}/grupos")
-async def grupos_do_colaborador_endpoint(
-    colab_id: str,
-    conn=Depends(get_conn),
-    user=Depends(usuario_atual),
-):
-    """
-    Drilldown: devolve os grupos atribuídos a um colaborador específico.
-    Mesmo schema do GET /grupos, mas filtrado pelo ID.
-    """
-    try:
-        colab_uuid = uuid.UUID(colab_id)
-    except ValueError:
-        raise HTTPException(400, "ID inválido")
-
-    colaborador = await conn.fetchrow(
-        "SELECT id, nome, funcao::text AS funcao FROM carteira_colaborador WHERE id = $1",
-        colab_uuid,
-    )
-    if not colaborador:
-        raise HTTPException(404, "Colaborador não encontrado")
-
-    cnpjs, tarefas, colab = await _carregar_estado(conn)
-    grupos = agregar_grupos(cnpjs, tarefas, colab)
-    do_colab = grupos_do_colaborador(grupos, colaborador["nome"])
-
-    # Ordena pela meta_atingida (não atingida primeiro = ação imediata),
-    # depois por leads_no_mes desc (oportunidade vai pro topo).
-    do_colab.sort(key=lambda g: (g["meta_atingida"], -g["leads_no_mes"]))
-
-    return {
-        "colaborador": {
-            "id": str(colaborador["id"]),
-            "nome": colaborador["nome"],
-            "funcao": colaborador["funcao"],
-        },
-        "total": len(do_colab),
-        "grupos": do_colab,
     }

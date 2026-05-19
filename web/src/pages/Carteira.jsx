@@ -1,8 +1,9 @@
 // web/src/pages/Carteira.jsx
 //
-// Gestão da Carteira de Prospecção (Hunter) e Relacionamento (Farmer).
-// Carrega-se por upload de duas planilhas (carteira + tarefas), agrupa
-// por ID Grupo de Empresas, e mostra timeline de execução por grupo.
+// Dashboard da Carteira de Hunter e Farmer.
+// Layout: 1 linha por colaborador, drilldown inline (clique na linha)
+// abre a lista de grupos/contadores do colaborador. Layout aprovado
+// no mockup v2 (linhas + bolinhas semanais pro Farmer).
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import {
@@ -10,22 +11,21 @@ import {
   Settings,
   Users,
   AlertCircle,
-  Calendar,
   Target,
   Activity,
   Search,
   History,
   ChevronRight,
-  Wifi,
+  ChevronDown,
   X,
 } from 'lucide-react';
 import api from '../api';
 
-import CarteiraTimeline from '../components/CarteiraTimeline';
+import CarteiraBolinhasSemana from '../components/CarteiraBolinhasSemana';
 import ConfigColaboradoresModal from '../components/ConfigColaboradoresModal';
 import CarteiraGrupoDrawer from '../components/CarteiraGrupoDrawer';
 
-import Card, { CardHeader } from '../components/ui/Card';
+import Card from '../components/ui/Card';
 import KpiCard from '../components/ui/KpiCard';
 import PageHeader from '../components/ui/PageHeader';
 import Button from '../components/ui/Button';
@@ -38,24 +38,32 @@ import Table, { Th, Tr, Td } from '../components/ui/Table';
 const ABAS = [
   { v: 'EC_HUNTER', label: 'Hunter', Icon: Target,      hint: 'Meta: ≥1 tarefa por mês' },
   { v: 'EC_FARMER', label: 'Farmer', Icon: Activity,    hint: 'Meta: ≥1 reunião por semana' },
-  { v: 'OUTROS',    label: 'Outros', Icon: AlertCircle, hint: 'Classifique no botão "Configurar"' },
+  { v: 'OUTROS',    label: 'Outros', Icon: AlertCircle, hint: 'Reclassifique no botão Configurar' },
 ];
+
+// Cores semânticas pro compliance (consistentes com o manual de marca)
+function corCompliance(pct) {
+  if (pct >= 75) return 'text-emerald-700';
+  if (pct >= 50) return 'text-amber-700';
+  return 'text-red-700';
+}
 
 export default function Carteira() {
   const [resumo, setResumo] = useState(null);
   const [aba, setAba] = useState('EC_HUNTER');
-  const [grupos, setGrupos] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [filtros, setFiltros] = useState({
-    tarefa_atrasada: false,
-    sem_tarefa_futura: false,
-    busca: '',
-  });
+  const [hunter, setHunter] = useState({ total: 0, linhas: [] });
+  const [farmer, setFarmer] = useState({ total: 0, linhas: [] });
+  const [outros, setOutros] = useState([]);
+  const [busca, setBusca] = useState('');
 
+  // Drilldown inline: nome do colaborador atualmente expandido
+  const [drilldown, setDrilldown] = useState({ colab_id: null, grupos: [], loading: false });
+
+  // Estado de uploads e modais
   const [uploading, setUploading] = useState(null); // null | "CARTEIRA" | "TAREFAS"
   const [msg, setMsg] = useState(null);
   const [modalConfig, setModalConfig] = useState(false);
-  const [drawer, setDrawer] = useState(null);
+  const [drawerGrupo, setDrawerGrupo] = useState(null);
   const [historicoAberto, setHistoricoAberto] = useState(false);
   const [historico, setHistorico] = useState([]);
 
@@ -70,24 +78,62 @@ export default function Carteira() {
     }
   }, []);
 
-  const carregarGrupos = useCallback(async () => {
-    setLoading(true);
+  const carregarHunter = useCallback(async () => {
     try {
-      const params = new URLSearchParams({ funcao: aba });
-      if (filtros.tarefa_atrasada)   params.append('tarefa_atrasada', 'true');
-      if (filtros.sem_tarefa_futura) params.append('sem_tarefa_futura', 'true');
-      if (filtros.busca)             params.append('busca', filtros.busca);
-      const { data } = await api.get(`/carteira/grupos?${params}`);
-      setGrupos(data.grupos || []);
+      const { data } = await api.get('/carteira/dashboard/hunter');
+      setHunter(data);
     } catch {
-      setGrupos([]);
-    } finally {
-      setLoading(false);
+      setHunter({ total: 0, linhas: [] });
     }
-  }, [aba, filtros]);
+  }, []);
+
+  const carregarFarmer = useCallback(async () => {
+    try {
+      const { data } = await api.get('/carteira/dashboard/farmer');
+      setFarmer(data);
+    } catch {
+      setFarmer({ total: 0, linhas: [] });
+    }
+  }, []);
+
+  const carregarOutros = useCallback(async () => {
+    // 'Outros' continua usando o endpoint antigo de grupos — não tem
+    // colaborador majoritário definido, então a granularidade por
+    // grupo continua sendo a mais útil aqui (fila de correção).
+    try {
+      const { data } = await api.get('/carteira/grupos?funcao=OUTROS');
+      setOutros(data.grupos || []);
+    } catch {
+      setOutros([]);
+    }
+  }, []);
 
   useEffect(() => { carregarResumo(); }, [carregarResumo]);
-  useEffect(() => { carregarGrupos();  }, [carregarGrupos]);
+  useEffect(() => { carregarHunter(); }, [carregarHunter]);
+  useEffect(() => { carregarFarmer(); }, [carregarFarmer]);
+  useEffect(() => { carregarOutros(); }, [carregarOutros]);
+
+  // Limpar drilldown ao trocar de aba
+  useEffect(() => {
+    setDrilldown({ colab_id: null, grupos: [], loading: false });
+  }, [aba]);
+
+  // ── Drilldown de colaborador ────────────────────────────────
+
+  async function toggleDrilldown(colab_id) {
+    if (!colab_id) return;
+    if (drilldown.colab_id === colab_id) {
+      setDrilldown({ colab_id: null, grupos: [], loading: false });
+      return;
+    }
+    setDrilldown({ colab_id, grupos: [], loading: true });
+    try {
+      const { data } = await api.get(`/carteira/colaboradores/${colab_id}/grupos`);
+      setDrilldown({ colab_id, grupos: data.grupos || [], loading: false });
+    } catch {
+      setDrilldown({ colab_id, grupos: [], loading: false });
+    }
+  }
 
   // ── Upload ──────────────────────────────────────────────────
 
@@ -106,8 +152,7 @@ export default function Carteira() {
         headers: { 'Content-Type': 'multipart/form-data' },
       });
       setMsg({ tipo: 'ok', texto: data.message });
-      carregarResumo();
-      carregarGrupos();
+      reloadAll();
     } catch (err) {
       const detail = err.response?.data?.detail;
       const texto =
@@ -137,7 +182,25 @@ export default function Carteira() {
     }
   }
 
-  // ── KPIs da aba atual ────────────────────────────────────────
+  function reloadAll() {
+    carregarResumo();
+    carregarHunter();
+    carregarFarmer();
+    carregarOutros();
+  }
+
+  // ── Filtro de busca ─────────────────────────────────────────
+
+  const linhasFiltradas = useMemo(() => {
+    const fonte = aba === 'EC_HUNTER' ? hunter.linhas : farmer.linhas;
+    if (!busca.trim()) return fonte;
+    const q = busca.trim().toLowerCase();
+    return fonte.filter((l) => (l.nome || '').toLowerCase().includes(q));
+  }, [aba, hunter.linhas, farmer.linhas, busca]);
+
+  const abaInfo = ABAS.find((a) => a.v === aba);
+
+  // ── KPIs do topo (da aba ativa, igual ao layout anterior) ───
 
   const kpis = useMemo(() => {
     if (!resumo) return null;
@@ -146,25 +209,20 @@ export default function Carteira() {
     return resumo.outros;
   }, [resumo, aba]);
 
-  const abaInfo = ABAS.find((a) => a.v === aba);
-
-  function reload() {
-    carregarResumo();
-    carregarGrupos();
-  }
+  // ── Render ──────────────────────────────────────────────────
 
   return (
     <>
       <PageHeader
         title="Carteira"
-        subtitle="Gestão de prospecção (Hunter) e relacionamento com parceiros (Farmer)."
+        subtitle="Performance por colaborador — Hunter e Farmer."
         actions={
           <>
             <Button
               variant="ghost"
               size="md"
               icon={RefreshCw}
-              onClick={reload}
+              onClick={reloadAll}
               aria-label="Atualizar"
             />
             <Button
@@ -269,7 +327,10 @@ export default function Carteira() {
       <div className="flex items-center gap-1 mb-6 border-b border-hipo-border">
         {ABAS.map(({ v, label, Icon }) => {
           const ativo = aba === v;
-          const counter = resumo?.[v.toLowerCase().replace('ec_', '')]?.total_grupos;
+          const counter =
+            v === 'EC_HUNTER' ? hunter.total
+            : v === 'EC_FARMER' ? farmer.total
+            : outros.length;
           return (
             <button
               key={v}
@@ -303,9 +364,9 @@ export default function Carteira() {
         })}
       </div>
 
-      {/* KPIs da aba */}
-      {kpis && (
-        <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-4">
+      {/* KPIs do topo (resumo geral da aba) */}
+      {kpis && aba !== 'OUTROS' && (
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
           <KpiCard
             label="Total de grupos"
             value={kpis.total_grupos}
@@ -315,7 +376,7 @@ export default function Carteira() {
           <KpiCard
             label="Meta atingida"
             value={kpis.meta_atingida}
-            hint={`${kpis.compliance_pct}% compliance`}
+            hint={`${kpis.compliance_pct}% de compliance`}
             icon={Target}
             tone="emerald"
           />
@@ -326,212 +387,319 @@ export default function Carteira() {
             tone="rose"
           />
           <KpiCard
-            label="Sem tarefa futura"
-            value={kpis.sem_tarefa_futura}
-            icon={Calendar}
-            tone="amber"
-          />
-          <KpiCard
             label="Leads do mês"
             value={kpis.leads_no_mes}
-            icon={Wifi}
+            icon={Target}
             tone="blue"
           />
         </div>
       )}
 
-      {/* Filtros */}
-      <Card padding="sm" className="mb-4">
-        <div className="flex flex-wrap items-center gap-3">
-          <div className="relative flex-1 min-w-[220px]">
+      {/* Busca por colaborador */}
+      {aba !== 'OUTROS' && (
+        <Card padding="sm" className="mb-4">
+          <div className="relative">
             <Search
               size={16}
               className="absolute left-3 top-1/2 -translate-y-1/2 text-hipo-muted"
             />
             <input
-              value={filtros.busca}
-              onChange={(e) => setFiltros({ ...filtros, busca: e.target.value })}
-              placeholder="Buscar por grupo, contabilidade ou colaborador..."
+              value={busca}
+              onChange={(e) => setBusca(e.target.value)}
+              placeholder="Buscar colaborador..."
               className="w-full h-10 bg-hipo-card border border-hipo-border rounded-lg pl-10 pr-3 text-sm text-hipo-ink placeholder:text-hipo-muted outline-none focus:border-hipo-blue focus:ring-2 focus:ring-blue-100"
             />
           </div>
-          <label className="flex items-center gap-2 text-sm text-hipo-slate cursor-pointer hover:text-hipo-ink">
-            <input
-              type="checkbox"
-              checked={filtros.tarefa_atrasada}
-              onChange={(e) =>
-                setFiltros({ ...filtros, tarefa_atrasada: e.target.checked })
-              }
-              className="w-4 h-4 accent-hipo-blue cursor-pointer"
-            />
-            Tarefa atrasada
-          </label>
-          <label className="flex items-center gap-2 text-sm text-hipo-slate cursor-pointer hover:text-hipo-ink">
-            <input
-              type="checkbox"
-              checked={filtros.sem_tarefa_futura}
-              onChange={(e) =>
-                setFiltros({ ...filtros, sem_tarefa_futura: e.target.checked })
-              }
-              className="w-4 h-4 accent-hipo-blue cursor-pointer"
-            />
-            Sem tarefa futura
-          </label>
-          <span className="text-xs text-hipo-muted ml-auto">
-            Score (em breve){' '}
-            <Badge tone="neutral" className="ml-1">
-              V2
-            </Badge>
-          </span>
-        </div>
-      </Card>
+        </Card>
+      )}
 
-      {/* Tabela de grupos */}
-      <Card padding="none">
-        <div className="px-5 py-3 border-b border-hipo-border flex items-center justify-between flex-wrap gap-2">
-          <h3 className="text-sm font-semibold text-hipo-ink">
-            {abaInfo.label} — {grupos.length} grupo(s)
-          </h3>
-          <span
-            className={`text-xs ${
-              aba === 'OUTROS' ? 'text-hipo-warning' : 'text-hipo-slate'
-            }`}
-          >
-            {abaInfo.hint}
-          </span>
-        </div>
-
-        {loading ? (
-          <div className="p-8 text-center text-sm text-hipo-slate">
-            Carregando...
+      {/* ── ABA HUNTER ──────────────────────────────────────── */}
+      {aba === 'EC_HUNTER' && (
+        <Card padding="none">
+          <div className="px-5 py-3 border-b border-hipo-border flex items-center justify-between">
+            <h3 className="text-sm font-semibold text-hipo-ink">
+              {abaInfo.label} — {linhasFiltradas.length} colaborador(es)
+            </h3>
+            <span className="text-xs text-hipo-slate">{abaInfo.hint}</span>
           </div>
-        ) : grupos.length === 0 ? (
-          <Empty
-            title="Nenhum grupo nessa aba"
-            description="Faça o upload da carteira e das tarefas, ou ajuste os filtros."
-            icon={Users}
-          />
-        ) : (
-          <Table>
-            <thead>
-              <tr>
-                <Th className="w-6"></Th>
-                <Th>Grupo</Th>
-                <Th align="center">CNPJs</Th>
-                <Th>Colaborador</Th>
-                <Th>Execução</Th>
-                <Th align="center">Atrasadas</Th>
-                <Th align="center">Futuras</Th>
-                {aba === 'EC_FARMER' && <Th align="center">Leads/mês</Th>}
-              </tr>
-            </thead>
-            <tbody>
-              {grupos.map((g) => (
-                <Tr
-                  key={g.id_grupo}
-                  onClick={() =>
-                    setDrawer({
-                      id_grupo: g.id_grupo,
-                      nome_grupo: g.nome_grupo,
-                    })
-                  }
-                >
-                  <Td className="text-hipo-muted">
-                    <ChevronRight size={14} />
-                  </Td>
-                  <Td>
-                    <div className="flex flex-col">
-                      <span className="font-semibold text-hipo-ink">
-                        {g.nome_grupo || '—'}
-                        {g.colaboradores_multiplos && (
-                          <Badge tone="warning" className="ml-2">
-                            ⚠ Múlt
-                          </Badge>
-                        )}
-                      </span>
-                      <span className="text-xs text-hipo-slate mt-0.5">
-                        {g.contabilidade_principal} · {g.cidade_uf}
-                        {g.parceria && (
-                          <span
-                            className={`ml-2 ${
-                              g.parceria === 'Parceiro'
-                                ? 'text-emerald-700 font-medium'
-                                : 'text-hipo-slate'
-                            }`}
-                          >
-                            {g.parceria === 'Parceiro' ? '● parceiro' : '○ não parceiro'}
-                          </span>
-                        )}
-                      </span>
-                    </div>
-                  </Td>
-                  <Td align="center">{g.qtd_cnpj}</Td>
-                  <Td className="text-hipo-slate">
-                    {g.colaborador_nome || '—'}
-                  </Td>
-                  <Td>
-                    <CarteiraTimeline cells={g.timeline} compact />
-                  </Td>
-                  <Td
-                    align="center"
-                    className={
-                      g.tarefas_atrasadas > 0
-                        ? 'text-red-700 font-semibold'
-                        : 'text-hipo-muted'
-                    }
-                  >
-                    {g.tarefas_atrasadas}
-                  </Td>
-                  <Td
-                    align="center"
-                    className={
-                      g.tarefas_futuras > 0
-                        ? 'text-hipo-blue font-medium'
-                        : 'text-hipo-muted'
-                    }
-                  >
-                    {g.tarefas_futuras}
-                  </Td>
-                  {aba === 'EC_FARMER' && (
-                    <Td
-                      align="center"
-                      className="text-hipo-blue font-semibold"
-                    >
-                      {g.leads_no_mes || 0}
-                    </Td>
-                  )}
-                </Tr>
-              ))}
-            </tbody>
-          </Table>
-        )}
-      </Card>
 
-      {/* Legenda */}
-      <div className="mt-4 flex items-center gap-5 text-xs text-hipo-slate flex-wrap">
-        <span className="flex items-center gap-1.5">
-          <span className="w-2.5 h-2.5 rounded-full bg-hipo-success" /> Meta
-          atingida
-        </span>
-        <span className="flex items-center gap-1.5">
-          <span className="w-2.5 h-2.5 rounded-full bg-hipo-danger" /> Perdeu
-        </span>
-        <span className="flex items-center gap-1.5">
-          <span className="w-2.5 h-2.5 rounded-full bg-hipo-warning" />{' '}
-          Período atual
-        </span>
-        <span className="flex items-center gap-1.5">
-          <span className="w-2.5 h-2.5 rounded-full bg-hipo-border" /> Futuro
-        </span>
-      </div>
+          {linhasFiltradas.length === 0 ? (
+            <Empty
+              title="Nenhum colaborador Hunter"
+              description="Faça o upload da carteira ou classifique colaboradores no botão Configurar."
+              icon={Users}
+            />
+          ) : (
+            <Table>
+              <thead>
+                <tr>
+                  <Th className="w-8"></Th>
+                  <Th>Colaborador</Th>
+                  <Th align="center">Grupos</Th>
+                  <Th align="center">Meta atingida</Th>
+                  <Th align="center">Atrasadas</Th>
+                  <Th align="center">Sem futura</Th>
+                  <Th align="center">Leads / mês</Th>
+                </tr>
+              </thead>
+              <tbody>
+                {linhasFiltradas.map((l) => {
+                  const expandido = drilldown.colab_id === l.colaborador_id;
+                  return [
+                    <Tr
+                      key={l.colaborador_id}
+                      onClick={() => toggleDrilldown(l.colaborador_id)}
+                      className={expandido ? 'bg-hipo-blueSoft hover:bg-hipo-blueSoft' : ''}
+                    >
+                      <Td className="text-hipo-muted">
+                        {expandido ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                      </Td>
+                      <Td className="font-semibold">{l.nome}</Td>
+                      <Td align="center">{l.total_grupos}</Td>
+                      <Td align="center">
+                        <span className={`font-semibold ${corCompliance(l.compliance_pct)}`}>
+                          {l.meta_atingida}
+                        </span>
+                        <span className="text-xs text-hipo-muted"> / {l.total_grupos}</span>
+                      </Td>
+                      <Td
+                        align="center"
+                        className={
+                          l.tarefas_atrasadas > 0
+                            ? 'text-red-700 font-semibold'
+                            : 'text-hipo-muted'
+                        }
+                      >
+                        {l.tarefas_atrasadas}
+                      </Td>
+                      <Td
+                        align="center"
+                        className={
+                          l.sem_tarefa_futura > 0
+                            ? 'text-amber-700 font-semibold'
+                            : 'text-hipo-muted'
+                        }
+                      >
+                        {l.sem_tarefa_futura}
+                      </Td>
+                      <Td
+                        align="center"
+                        className="text-hipo-blue font-semibold"
+                      >
+                        {l.leads_no_mes}
+                      </Td>
+                    </Tr>,
+                    expandido && (
+                      <tr key={`${l.colaborador_id}-drill`} className="bg-hipo-bg">
+                        <td colSpan={7} className="px-5 py-4">
+                          <DrilldownGrupos
+                            loading={drilldown.loading}
+                            grupos={drilldown.grupos}
+                            onAbrirGrupo={(g) =>
+                              setDrawerGrupo({
+                                id_grupo: g.id_grupo,
+                                nome_grupo: g.nome_grupo,
+                              })
+                            }
+                          />
+                        </td>
+                      </tr>
+                    ),
+                  ];
+                })}
+              </tbody>
+            </Table>
+          )}
+        </Card>
+      )}
+
+      {/* ── ABA FARMER ──────────────────────────────────────── */}
+      {aba === 'EC_FARMER' && (
+        <Card padding="none">
+          <div className="px-5 py-3 border-b border-hipo-border flex items-center justify-between">
+            <h3 className="text-sm font-semibold text-hipo-ink">
+              {abaInfo.label} — {linhasFiltradas.length} colaborador(es)
+            </h3>
+            <span className="text-xs text-hipo-slate">{abaInfo.hint}</span>
+          </div>
+
+          {linhasFiltradas.length === 0 ? (
+            <Empty
+              title="Nenhum colaborador Farmer"
+              description="Faça o upload da carteira ou classifique colaboradores no botão Configurar."
+              icon={Users}
+            />
+          ) : (
+            <>
+              <Table>
+                <thead>
+                  <tr>
+                    <Th className="w-8"></Th>
+                    <Th>Colaborador</Th>
+                    <Th align="center">Semanas</Th>
+                    <Th align="center">Atrasadas</Th>
+                    <Th align="center">Futuras</Th>
+                    <Th align="center">Leads / mês</Th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {linhasFiltradas.map((l) => {
+                    const expandido = drilldown.colab_id === l.colaborador_id;
+                    return [
+                      <Tr
+                        key={l.colaborador_id}
+                        onClick={() => toggleDrilldown(l.colaborador_id)}
+                        className={expandido ? 'bg-hipo-blueSoft hover:bg-hipo-blueSoft' : ''}
+                      >
+                        <Td className="text-hipo-muted">
+                          {expandido ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                        </Td>
+                        <Td>
+                          <div className="flex flex-col">
+                            <span className="font-semibold text-hipo-ink">{l.nome}</span>
+                            <span className="text-xs text-hipo-slate">
+                              {l.total_contadores} contadores
+                            </span>
+                          </div>
+                        </Td>
+                        <Td>
+                          <CarteiraBolinhasSemana semanas={l.semanas} />
+                        </Td>
+                        <Td
+                          align="center"
+                          className={
+                            l.tarefas_atrasadas > 0
+                              ? 'text-red-700 font-semibold'
+                              : 'text-hipo-muted'
+                          }
+                        >
+                          {l.tarefas_atrasadas}
+                        </Td>
+                        <Td
+                          align="center"
+                          className={
+                            l.tarefas_futuras > 0
+                              ? 'text-hipo-blue font-medium'
+                              : 'text-hipo-muted'
+                          }
+                        >
+                          {l.tarefas_futuras}
+                        </Td>
+                        <Td
+                          align="center"
+                          className="text-hipo-blue font-semibold"
+                        >
+                          {l.leads_no_mes}
+                        </Td>
+                      </Tr>,
+                      expandido && (
+                        <tr key={`${l.colaborador_id}-drill`} className="bg-hipo-bg">
+                          <td colSpan={6} className="px-5 py-4">
+                            <DrilldownGrupos
+                              loading={drilldown.loading}
+                              grupos={drilldown.grupos}
+                              onAbrirGrupo={(g) =>
+                                setDrawerGrupo({
+                                  id_grupo: g.id_grupo,
+                                  nome_grupo: g.nome_grupo,
+                                })
+                              }
+                            />
+                          </td>
+                        </tr>
+                      ),
+                    ];
+                  })}
+                </tbody>
+              </Table>
+
+              {/* Legenda */}
+              <div className="px-5 py-3 border-t border-hipo-border bg-hipo-bg">
+                <div className="flex flex-wrap gap-5 justify-center text-xs text-hipo-slate">
+                  <span className="flex items-center gap-1.5">
+                    <span className="w-3 h-3 rounded-full bg-emerald-600" />
+                    Contadores com reunião na semana
+                  </span>
+                  <span className="flex items-center gap-1.5">
+                    <span className="w-3 h-3 rounded-full bg-amber-500" />
+                    Sem reunião (semana já passou)
+                  </span>
+                  <span className="flex items-center gap-1.5">
+                    <span className="w-3 h-3 rounded-full bg-slate-400" />
+                    Sem reunião ainda (semana corrente)
+                  </span>
+                </div>
+              </div>
+            </>
+          )}
+        </Card>
+      )}
+
+      {/* ── ABA OUTROS ──────────────────────────────────────── */}
+      {aba === 'OUTROS' && (
+        <Card padding="none">
+          <div className="px-5 py-3 border-b border-hipo-border flex items-center justify-between">
+            <h3 className="text-sm font-semibold text-hipo-ink">
+              Outros — {outros.length} grupo(s)
+            </h3>
+            <span className="text-xs text-hipo-warning">{abaInfo.hint}</span>
+          </div>
+
+          {outros.length === 0 ? (
+            <Empty
+              title="Nenhum grupo nessa aba"
+              description="Todos os grupos têm um colaborador Hunter ou Farmer atribuído."
+            />
+          ) : (
+            <Table>
+              <thead>
+                <tr>
+                  <Th>Grupo</Th>
+                  <Th align="center">CNPJs</Th>
+                  <Th>Colaborador (planilha)</Th>
+                  <Th align="center">Tarefas no mês</Th>
+                </tr>
+              </thead>
+              <tbody>
+                {outros.map((g) => (
+                  <Tr
+                    key={g.id_grupo}
+                    onClick={() =>
+                      setDrawerGrupo({
+                        id_grupo: g.id_grupo,
+                        nome_grupo: g.nome_grupo,
+                      })
+                    }
+                  >
+                    <Td>
+                      <div className="flex flex-col">
+                        <span className="font-semibold text-hipo-ink">
+                          {g.nome_grupo || '—'}
+                        </span>
+                        <span className="text-xs text-hipo-slate">
+                          {g.contabilidade_principal} · {g.cidade_uf}
+                        </span>
+                      </div>
+                    </Td>
+                    <Td align="center">{g.qtd_cnpj}</Td>
+                    <Td className="text-hipo-slate">
+                      {g.colaborador_nome || '—'}
+                    </Td>
+                    <Td align="center">{g.tarefas_mes_total}</Td>
+                  </Tr>
+                ))}
+              </tbody>
+            </Table>
+          )}
+        </Card>
+      )}
 
       {/* Datas dos últimos uploads */}
       {resumo && (resumo.ultima_carteira || resumo.ultima_tarefas) && (
         <div className="mt-3 text-xs text-hipo-muted flex items-center gap-4 flex-wrap">
           {resumo.ultima_carteira && (
             <span>
-              Carteira:{' '}
-              {new Date(resumo.ultima_carteira).toLocaleString('pt-BR')}
+              Carteira: {new Date(resumo.ultima_carteira).toLocaleString('pt-BR')}
             </span>
           )}
           {resumo.ultima_tarefas && (
@@ -545,14 +713,90 @@ export default function Carteira() {
       <ConfigColaboradoresModal
         aberto={modalConfig}
         onFechar={() => setModalConfig(false)}
-        onSalvo={reload}
+        onSalvo={reloadAll}
       />
 
       <CarteiraGrupoDrawer
-        idGrupo={drawer?.id_grupo}
-        nomeGrupo={drawer?.nome_grupo}
-        onFechar={() => setDrawer(null)}
+        idGrupo={drawerGrupo?.id_grupo}
+        nomeGrupo={drawerGrupo?.nome_grupo}
+        onFechar={() => setDrawerGrupo(null)}
       />
     </>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Componente interno: lista de grupos no drilldown inline
+// ─────────────────────────────────────────────────────────────────
+
+function DrilldownGrupos({ loading, grupos, onAbrirGrupo }) {
+  if (loading) {
+    return (
+      <p className="text-sm text-hipo-slate text-center py-4">Carregando...</p>
+    );
+  }
+  if (!grupos.length) {
+    return (
+      <p className="text-sm text-hipo-slate text-center py-4">
+        Nenhum grupo encontrado.
+      </p>
+    );
+  }
+
+  return (
+    <div className="bg-hipo-card border border-hipo-border rounded-lg overflow-hidden">
+      <div className="px-4 py-2 border-b border-hipo-border bg-hipo-bg">
+        <p className="text-xs text-hipo-slate font-medium">
+          {grupos.length} grupo(s) — clique para detalhar
+        </p>
+      </div>
+      <ul className="divide-y divide-hipo-border">
+        {grupos.map((g) => (
+          <li
+            key={g.id_grupo}
+            onClick={() => onAbrirGrupo(g)}
+            className="px-4 py-3 flex items-center justify-between gap-4 hover:bg-hipo-bg cursor-pointer transition-colors"
+          >
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-hipo-ink truncate">
+                {g.nome_grupo || '—'}
+              </p>
+              <p className="text-xs text-hipo-slate truncate">
+                {g.contabilidade_principal} · {g.cidade_uf}
+                {g.parceria && (
+                  <span
+                    className={`ml-2 ${
+                      g.parceria === 'Parceiro'
+                        ? 'text-emerald-700 font-medium'
+                        : 'text-hipo-muted'
+                    }`}
+                  >
+                    {g.parceria === 'Parceiro' ? '● parceiro' : '○ não parceiro'}
+                  </span>
+                )}
+              </p>
+            </div>
+            <div className="flex items-center gap-4 text-xs shrink-0">
+              {g.meta_atingida ? (
+                <Badge tone="success">✓ meta</Badge>
+              ) : (
+                <Badge tone="danger">✗ sem meta</Badge>
+              )}
+              {g.tarefas_atrasadas > 0 && (
+                <span className="text-red-700 font-medium">
+                  {g.tarefas_atrasadas} atrasadas
+                </span>
+              )}
+              {g.tarefas_futuras > 0 && (
+                <span className="text-hipo-blue font-medium">
+                  {g.tarefas_futuras} futuras
+                </span>
+              )}
+              <ChevronRight size={14} className="text-hipo-muted" />
+            </div>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
