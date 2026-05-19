@@ -327,13 +327,6 @@ def dashboard_hunter(
     """
     Sumariza por colaborador EC_HUNTER. Uma linha por colaborador.
 
-    Regra fundamental (travada com o franqueado):
-      Os contadores 'tarefas_atrasadas' e 'sem_tarefa_futura' contam
-      GRUPOS afetados, não tarefas. Um grupo com 5 tarefas atrasadas
-      conta 1, não 5 — porque a unidade de trabalho do colaborador é
-      o grupo, e o que importa é "quantos dos meus grupos estão
-      atrasados", não o volume total de tarefas em atraso.
-
     Retorna ordenado por compliance descendente (quem está em dia primeiro).
 
     Args:
@@ -346,11 +339,10 @@ def dashboard_hunter(
         - nome: str
         - total_grupos: int
         - meta_atingida: int (quantos grupos atingiram a meta do mês)
-        - tarefas_atrasadas: int (qtd de grupos COM ≥1 tarefa atrasada)
+        - tarefas_atrasadas: int (soma das atrasadas de todos os grupos)
         - sem_tarefa_futura: int (qtd de grupos sem tarefa futura)
         - leads_no_mes: int (soma)
         - compliance_pct: float (meta_atingida / total_grupos * 100)
-        - grupos: list[dict] (drilldown — mesmo schema de agregar_grupos)
     """
     # Mapa nome → id, só pra Hunter
     id_por_nome = {
@@ -373,28 +365,18 @@ def dashboard_hunter(
     for nome, gs in por_colab.items():
         total = len(gs)
         metas_ok = sum(1 for g in gs if g["meta_atingida"])
-        # Conta GRUPOS afetados (≥1 tarefa atrasada), não soma de tarefas
-        grupos_com_atrasada = sum(1 for g in gs if g["tarefas_atrasadas"] > 0)
+        atrasadas = sum(g["tarefas_atrasadas"] for g in gs)
         sem_futura = sum(1 for g in gs if g["tarefas_futuras"] == 0)
         leads = sum(g["leads_no_mes"] for g in gs)
-
-        # Ordena os grupos pro drilldown: meta_atingida=False primeiro,
-        # depois leads_no_mes desc (oportunidade no topo).
-        gs_ordenados = sorted(
-            gs,
-            key=lambda g: (g["meta_atingida"], -g["leads_no_mes"]),
-        )
-
         saida.append({
             "colaborador_id": id_por_nome.get(nome),
             "nome": nome,
             "total_grupos": total,
             "meta_atingida": metas_ok,
-            "tarefas_atrasadas": grupos_com_atrasada,
+            "tarefas_atrasadas": atrasadas,
             "sem_tarefa_futura": sem_futura,
             "leads_no_mes": leads,
             "compliance_pct": round((metas_ok / total) * 100, 1) if total else 0.0,
-            "grupos": gs_ordenados,
         })
 
     # Ordena por compliance desc; empate por total_grupos desc
@@ -409,20 +391,14 @@ def dashboard_farmer(
     ref_date: date | None = None,
 ) -> list[dict]:
     """
-    Sumariza por colaborador EC_FARMER. Uma linha por colaborador.
+    Sumariza por colaborador EC_FARMER. Uma linha por colaborador, com
+    coluna de bolinhas por semana (com_reuniao / sem_reuniao / pendente)
+    indicando quantos CNPJs caem em cada bucket por semana ISO do mês.
 
-    Regras fundamentais (travadas com o franqueado):
-
-      1. As BOLINHAS das semanas contam CONTADORES (CNPJs únicos do
-         colaborador), não reuniões. Um contador com 3 reuniões na
-         mesma semana entra UMA VEZ no verde — porque a meta é "esse
-         contador foi atendido?" e a resposta é binária. Soma das 3
-         bolinhas (com_reuniao + sem_reuniao + pendente) sempre é
-         igual ao total_contadores.
-
-      2. As colunas 'tarefas_atrasadas' e 'tarefas_futuras' contam
-         GRUPOS afetados, não tarefas. Um grupo com 5 atrasadas conta 1.
-         Mesma lógica do Hunter — a unidade de gerenciamento é o grupo.
+    Importante: a unidade contada por semana é o CNPJ_CONTADOR (o "contador"
+    individual), não o grupo. Cada CNPJ que tem pelo menos 1 reunião na
+    semana entra em 'com_reuniao'; os demais entram em 'sem_reuniao' (se
+    a semana já passou) ou 'pendente' (semana corrente).
 
     Args:
       cnpjs: linhas de carteira_cnpj.
@@ -433,13 +409,9 @@ def dashboard_farmer(
     Returns:
       Lista de dicts:
         - colaborador_id, nome
-        - total_contadores: int (CNPJs únicos do colaborador)
-        - total_grupos: int (grupos Farmer atribuídos a ele)
+        - total_contadores: int
         - semanas: list de {key, label, com_reuniao, sem_reuniao, pendente}
-        - tarefas_atrasadas: int (qtd de grupos com ≥1 atrasada)
-        - tarefas_futuras:   int (qtd de grupos com ≥1 futura)
-        - leads_no_mes: int
-        - grupos: list[dict] — drilldown com timeline semanal por grupo
+        - tarefas_atrasadas, tarefas_futuras, leads_no_mes
     """
     if ref_date is None:
         ref_date = date.today()
@@ -448,27 +420,11 @@ def dashboard_farmer(
     semanas_mes = _semanas_iso_do_mes(inicio_mes, fim_mes)
     iso_hoje = ref_date.isocalendar()
 
-    # Roda o agregador completo (grupos com timeline semanal) e
-    # vamos pegar os grupos Farmer já formatados.
-    grupos_agg = agregar_grupos(cnpjs, tarefas, colaboradores, ref_date=ref_date)
-    grupos_por_colab: dict[str, list[dict]] = {}
-    for g in grupos_agg:
-        if g["funcao"] != "EC_FARMER":
-            continue
-        nome = g.get("colaborador_nome")
-        if not nome:
-            continue
-        grupos_por_colab.setdefault(nome, []).append(g)
-
     # Mapa nome → função e id
     fn_por_nome = {c["nome"]: c["funcao"] for c in colaboradores}
     id_por_nome = {c["nome"]: str(c["id"]) for c in colaboradores}
 
-    # CNPJs por colaborador Farmer (mantemos a lista de CNPJs por colab).
-    # IMPORTANTE: usamos APENAS os CNPJs que estão atribuídos a grupos
-    # cuja função majoritária é EC_FARMER. Isso evita o problema de
-    # "contadores fantasma" que estão no snapshot mas foram realocados
-    # pra outra função na configuração.
+    # CNPJs por colaborador Farmer; mantemos a lista de CNPJs por colab
     cnpjs_por_colab: dict[str, list[str]] = {}
     leads_por_colab: dict[str, int] = {}
     for c in cnpjs:
@@ -483,30 +439,41 @@ def dashboard_farmer(
         cnpjs_por_colab.setdefault(nome, []).append(cnpj_key)
         leads_por_colab[nome] = leads_por_colab.get(nome, 0) + int(c.get("leads_no_mes") or 0)
 
-    # Tarefas no mês por CNPJ, separadas em reuniões por semana ISO.
-    # Importante: usamos SET para deduplicar — mesmo que tenha 50 reuniões
-    # no mesmo CNPJ na mesma semana, o conjunto registra UMA VEZ.
-    reunioes_cnpj_sem: dict[str, set[tuple[int, int]]] = {}
+    # Tarefas no mês por CNPJ, separadas em reuniões por semana ISO
+    # Estrutura: reunioes[cnpj][(ano, semana)] = count
+    reunioes_por_cnpj_sem: dict[str, dict[tuple[int, int], int]] = {}
+
+    # Atrasadas/futuras por CNPJ (snapshot todo)
+    atrasadas_por_cnpj: dict[str, int] = {}
+    futuras_por_cnpj: dict[str, int] = {}
 
     for t in tarefas:
-        if not _is_reuniao(t.get("tarefa_canal")):
-            continue
         cnpj_key = (t.get("cnpj_contador") or "").strip()
         if not cnpj_key:
             continue
+
+        if t.get("situacao") == "ATRASADA":
+            atrasadas_por_cnpj[cnpj_key] = atrasadas_por_cnpj.get(cnpj_key, 0) + 1
+        if t.get("situacao") == "FUTURA":
+            futuras_por_cnpj[cnpj_key] = futuras_por_cnpj.get(cnpj_key, 0) + 1
+
         ef = t.get("data_efetiva")
         if not ef:
             continue
         d = ef.date() if isinstance(ef, datetime) else ef
         if not (inicio_mes <= d < fim_mes):
             continue
+        if not _is_reuniao(t.get("tarefa_canal")):
+            continue
+
         chave_sem = _semana_iso_de(d)
-        reunioes_cnpj_sem.setdefault(cnpj_key, set()).add(chave_sem)
+        d_cnpj = reunioes_por_cnpj_sem.setdefault(cnpj_key, {})
+        d_cnpj[chave_sem] = d_cnpj.get(chave_sem, 0) + 1
 
     saida: list[dict] = []
     for nome, cnpj_lista in cnpjs_por_colab.items():
-        # Deduplicar mantendo ordem (um colaborador pode aparecer várias
-        # vezes no mesmo CNPJ se cobre grupos diferentes com mesmo CNPJ)
+        # Deduplicar mantendo ordem (um colaborador pode aparecer 2x num
+        # mesmo CNPJ se ele cobre vários grupos com o mesmo CNPJ)
         seen: set[str] = set()
         cnpjs_unicos: list[str] = []
         for c in cnpj_lista:
@@ -518,20 +485,21 @@ def dashboard_farmer(
 
         semanas_saida = []
         for idx, (ano, sem) in enumerate(semanas_mes, start=1):
-            # com_reuniao = qtd de CONTADORES que reuniram nessa semana.
-            # Cada contador entra UMA VEZ no verde, mesmo que tenha 50
-            # reuniões na semana (regra travada com o franqueado).
-            com_reuniao = sum(
-                1 for cnpj in cnpjs_unicos
-                if (ano, sem) in reunioes_cnpj_sem.get(cnpj, set())
-            )
+            com_reuniao = 0
+            for cnpj in cnpjs_unicos:
+                cnt = reunioes_por_cnpj_sem.get(cnpj, {}).get((ano, sem), 0)
+                if cnt >= 1:
+                    com_reuniao += 1
             falta = total_contadores - com_reuniao
 
             eh_corrente = (iso_hoje.year, iso_hoje.week) == (ano, sem)
             eh_futura = (ano, sem) > (iso_hoje.year, iso_hoje.week)
 
-            if eh_corrente or eh_futura:
-                # Semana corrente ou futura — não conta como falha
+            if eh_corrente:
+                pendente = falta
+                sem_reuniao = 0
+            elif eh_futura:
+                # Semana ainda nem começou — não conta como falha
                 pendente = falta
                 sem_reuniao = 0
             else:
@@ -547,31 +515,18 @@ def dashboard_farmer(
                 "pendente": pendente,
             })
 
-        # Grupos detalhados pro drilldown (já vêm com timeline semanal,
-        # tarefas_atrasadas/futuras por grupo, etc. do agregar_grupos).
-        # Ordena: meta_atingida=False primeiro, leads desc.
-        gs = grupos_por_colab.get(nome, [])
-        gs_ordenados = sorted(
-            gs,
-            key=lambda g: (g["meta_atingida"], -g["leads_no_mes"]),
-        )
-        total_grupos = len(gs)
-
-        # Atrasadas/Futuras agora contam GRUPOS afetados, não tarefas.
-        # (mantém a mesma semântica do Hunter)
-        grupos_com_atrasada = sum(1 for g in gs if g["tarefas_atrasadas"] > 0)
-        grupos_com_futura = sum(1 for g in gs if g["tarefas_futuras"] > 0)
+        atrasadas = sum(atrasadas_por_cnpj.get(c, 0) for c in cnpjs_unicos)
+        futuras = sum(futuras_por_cnpj.get(c, 0) for c in cnpjs_unicos)
+        leads = leads_por_colab.get(nome, 0)
 
         saida.append({
             "colaborador_id": id_por_nome.get(nome),
             "nome": nome,
             "total_contadores": total_contadores,
-            "total_grupos": total_grupos,
             "semanas": semanas_saida,
-            "tarefas_atrasadas": grupos_com_atrasada,
-            "tarefas_futuras": grupos_com_futura,
-            "leads_no_mes": leads_por_colab.get(nome, 0),
-            "grupos": gs_ordenados,
+            "tarefas_atrasadas": atrasadas,
+            "tarefas_futuras": futuras,
+            "leads_no_mes": leads,
         })
 
     # Ordena por compliance semanal das semanas passadas (quem reuniu

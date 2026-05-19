@@ -1,19 +1,9 @@
 // web/src/pages/Carteira.jsx
 //
-// Dashboard da Carteira de Hunter e Farmer (v3).
-//
-// Layout:
-//   - Aba Hunter:  1 linha por colaborador, KPIs agregados. Clica → expande
-//                  inline mostrando a TABELA COMPLETA antiga (timeline mensal,
-//                  atrasadas, futuras, leads). Cada linha de grupo é clicável
-//                  e abre o drawer lateral com detalhes (CNPJs + tarefas).
-//   - Aba Farmer:  igual, mas com bolinhas verticais por semana (slots fixos
-//                  para alinhar os labels) e drilldown com timeline semanal
-//                  por grupo.
-//   - Aba Outros:  grupo a grupo (fila de correção — sem colab definido).
-//
-// Performance: o dashboard já vem com os 'grupos' detalhados embutidos
-// (sem segundo request) — drilldown é instantâneo.
+// Dashboard da Carteira de Hunter e Farmer.
+// Layout: 1 linha por colaborador, drilldown inline (clique na linha)
+// abre a lista de grupos/contadores do colaborador. Layout aprovado
+// no mockup v2 (linhas + bolinhas semanais pro Farmer).
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import {
@@ -32,7 +22,6 @@ import {
 import api from '../api';
 
 import CarteiraBolinhasSemana from '../components/CarteiraBolinhasSemana';
-import CarteiraTimeline from '../components/CarteiraTimeline';
 import ConfigColaboradoresModal from '../components/ConfigColaboradoresModal';
 import CarteiraGrupoDrawer from '../components/CarteiraGrupoDrawer';
 
@@ -52,6 +41,7 @@ const ABAS = [
   { v: 'OUTROS',    label: 'Outros', Icon: AlertCircle, hint: 'Reclassifique no botão Configurar' },
 ];
 
+// Cores semânticas pro compliance (consistentes com o manual de marca)
 function corCompliance(pct) {
   if (pct >= 75) return 'text-emerald-700';
   if (pct >= 50) return 'text-amber-700';
@@ -66,17 +56,10 @@ export default function Carteira() {
   const [outros, setOutros] = useState([]);
   const [busca, setBusca] = useState('');
 
-  // Filtros do drilldown (operam só nos grupos do colaborador expandido)
-  const [filtrosDrill, setFiltrosDrill] = useState({
-    tarefa_atrasada: false,
-    sem_tarefa_futura: false,
-    busca_grupo: '',
-  });
+  // Drilldown inline: nome do colaborador atualmente expandido
+  const [drilldown, setDrilldown] = useState({ colab_id: null, grupos: [], loading: false });
 
-  // Drilldown inline: id do colaborador atualmente expandido
-  const [expandido, setExpandido] = useState(null);
-
-  // Uploads / modais
+  // Estado de uploads e modais
   const [uploading, setUploading] = useState(null); // null | "CARTEIRA" | "TAREFAS"
   const [msg, setMsg] = useState(null);
   const [modalConfig, setModalConfig] = useState(false);
@@ -114,6 +97,9 @@ export default function Carteira() {
   }, []);
 
   const carregarOutros = useCallback(async () => {
+    // 'Outros' continua usando o endpoint antigo de grupos — não tem
+    // colaborador majoritário definido, então a granularidade por
+    // grupo continua sendo a mais útil aqui (fila de correção).
     try {
       const { data } = await api.get('/carteira/grupos?funcao=OUTROS');
       setOutros(data.grupos || []);
@@ -127,37 +113,26 @@ export default function Carteira() {
   useEffect(() => { carregarFarmer(); }, [carregarFarmer]);
   useEffect(() => { carregarOutros(); }, [carregarOutros]);
 
-  // Limpar drilldown e filtros ao trocar de aba
+  // Limpar drilldown ao trocar de aba
   useEffect(() => {
-    setExpandido(null);
-    setFiltrosDrill({ tarefa_atrasada: false, sem_tarefa_futura: false, busca_grupo: '' });
+    setDrilldown({ colab_id: null, grupos: [], loading: false });
   }, [aba]);
 
-  // ── Drilldown (instantâneo: usa grupos embutidos no payload) ─
+  // ── Drilldown de colaborador ────────────────────────────────
 
-  function toggleExpandir(colab_id) {
+  async function toggleDrilldown(colab_id) {
     if (!colab_id) return;
-    setExpandido((atual) => (atual === colab_id ? null : colab_id));
-    setFiltrosDrill({ tarefa_atrasada: false, sem_tarefa_futura: false, busca_grupo: '' });
-  }
-
-  function aplicarFiltrosDrill(grupos) {
-    let out = grupos;
-    if (filtrosDrill.tarefa_atrasada) {
-      out = out.filter((g) => g.tarefas_atrasadas > 0);
+    if (drilldown.colab_id === colab_id) {
+      setDrilldown({ colab_id: null, grupos: [], loading: false });
+      return;
     }
-    if (filtrosDrill.sem_tarefa_futura) {
-      out = out.filter((g) => g.tarefas_futuras === 0);
+    setDrilldown({ colab_id, grupos: [], loading: true });
+    try {
+      const { data } = await api.get(`/carteira/colaboradores/${colab_id}/grupos`);
+      setDrilldown({ colab_id, grupos: data.grupos || [], loading: false });
+    } catch {
+      setDrilldown({ colab_id, grupos: [], loading: false });
     }
-    const q = filtrosDrill.busca_grupo.trim().toLowerCase();
-    if (q) {
-      out = out.filter(
-        (g) =>
-          (g.nome_grupo || '').toLowerCase().includes(q) ||
-          (g.contabilidade_principal || '').toLowerCase().includes(q),
-      );
-    }
-    return out;
   }
 
   // ── Upload ──────────────────────────────────────────────────
@@ -214,7 +189,7 @@ export default function Carteira() {
     carregarOutros();
   }
 
-  // ── Filtro de busca por colaborador (na aba) ────────────────
+  // ── Filtro de busca ─────────────────────────────────────────
 
   const linhasFiltradas = useMemo(() => {
     const fonte = aba === 'EC_HUNTER' ? hunter.linhas : farmer.linhas;
@@ -224,6 +199,8 @@ export default function Carteira() {
   }, [aba, hunter.linhas, farmer.linhas, busca]);
 
   const abaInfo = ABAS.find((a) => a.v === aba);
+
+  // ── KPIs do topo (da aba ativa, igual ao layout anterior) ───
 
   const kpis = useMemo(() => {
     if (!resumo) return null;
@@ -289,10 +266,13 @@ export default function Carteira() {
         </AlertMessage>
       )}
 
+      {/* Histórico expansível */}
       {historicoAberto && (
         <Card padding="none" className="mb-4">
           <div className="px-5 py-3 border-b border-hipo-border flex items-center justify-between">
-            <h3 className="text-sm font-semibold text-hipo-ink">Histórico de uploads</h3>
+            <h3 className="text-sm font-semibold text-hipo-ink">
+              Histórico de uploads
+            </h3>
             <button
               onClick={() => setHistoricoAberto(false)}
               className="text-hipo-slate hover:text-hipo-ink p-1 rounded hover:bg-hipo-bg"
@@ -357,7 +337,9 @@ export default function Carteira() {
               onClick={() => setAba(v)}
               className={
                 'relative flex items-center gap-2 px-4 h-11 text-sm font-medium transition-colors ' +
-                (ativo ? 'text-hipo-blue' : 'text-hipo-slate hover:text-hipo-ink')
+                (ativo
+                  ? 'text-hipo-blue'
+                  : 'text-hipo-slate hover:text-hipo-ink')
               }
             >
               <Icon size={16} />
@@ -382,7 +364,7 @@ export default function Carteira() {
         })}
       </div>
 
-      {/* KPIs do topo */}
+      {/* KPIs do topo (resumo geral da aba) */}
       {kpis && aba !== 'OUTROS' && (
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
           <KpiCard
@@ -399,7 +381,7 @@ export default function Carteira() {
             tone="emerald"
           />
           <KpiCard
-            label="Com tarefa atrasada"
+            label="Tarefa atrasada"
             value={kpis.com_tarefa_atrasada}
             icon={AlertCircle}
             tone="rose"
@@ -455,22 +437,22 @@ export default function Carteira() {
                   <Th>Colaborador</Th>
                   <Th align="center">Grupos</Th>
                   <Th align="center">Meta atingida</Th>
-                  <Th align="center">Com atrasada</Th>
+                  <Th align="center">Atrasadas</Th>
                   <Th align="center">Sem futura</Th>
                   <Th align="center">Leads / mês</Th>
                 </tr>
               </thead>
               <tbody>
                 {linhasFiltradas.map((l) => {
-                  const aberto = expandido === l.colaborador_id;
+                  const expandido = drilldown.colab_id === l.colaborador_id;
                   return [
                     <Tr
                       key={l.colaborador_id}
-                      onClick={() => toggleExpandir(l.colaborador_id)}
-                      className={aberto ? 'bg-hipo-blueSoft hover:bg-hipo-blueSoft' : ''}
+                      onClick={() => toggleDrilldown(l.colaborador_id)}
+                      className={expandido ? 'bg-hipo-blueSoft hover:bg-hipo-blueSoft' : ''}
                     >
                       <Td className="text-hipo-muted">
-                        {aberto ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                        {expandido ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
                       </Td>
                       <Td className="font-semibold">{l.nome}</Td>
                       <Td align="center">{l.total_grupos}</Td>
@@ -500,19 +482,19 @@ export default function Carteira() {
                       >
                         {l.sem_tarefa_futura}
                       </Td>
-                      <Td align="center" className="text-hipo-blue font-semibold">
+                      <Td
+                        align="center"
+                        className="text-hipo-blue font-semibold"
+                      >
                         {l.leads_no_mes}
                       </Td>
                     </Tr>,
-                    aberto && (
+                    expandido && (
                       <tr key={`${l.colaborador_id}-drill`} className="bg-hipo-bg">
                         <td colSpan={7} className="px-5 py-4">
-                          <DrilldownTabela
-                            aba="EC_HUNTER"
-                            grupos={aplicarFiltrosDrill(l.grupos)}
-                            totalSemFiltro={l.grupos.length}
-                            filtros={filtrosDrill}
-                            onFiltros={setFiltrosDrill}
+                          <DrilldownGrupos
+                            loading={drilldown.loading}
+                            grupos={drilldown.grupos}
                             onAbrirGrupo={(g) =>
                               setDrawerGrupo({
                                 id_grupo: g.id_grupo,
@@ -555,28 +537,28 @@ export default function Carteira() {
                     <Th className="w-8"></Th>
                     <Th>Colaborador</Th>
                     <Th align="center">Semanas</Th>
-                    <Th align="center">Com atrasada</Th>
-                    <Th align="center">Com futura</Th>
+                    <Th align="center">Atrasadas</Th>
+                    <Th align="center">Futuras</Th>
                     <Th align="center">Leads / mês</Th>
                   </tr>
                 </thead>
                 <tbody>
                   {linhasFiltradas.map((l) => {
-                    const aberto = expandido === l.colaborador_id;
+                    const expandido = drilldown.colab_id === l.colaborador_id;
                     return [
                       <Tr
                         key={l.colaborador_id}
-                        onClick={() => toggleExpandir(l.colaborador_id)}
-                        className={aberto ? 'bg-hipo-blueSoft hover:bg-hipo-blueSoft' : ''}
+                        onClick={() => toggleDrilldown(l.colaborador_id)}
+                        className={expandido ? 'bg-hipo-blueSoft hover:bg-hipo-blueSoft' : ''}
                       >
-                        <Td className="text-hipo-muted align-top pt-5">
-                          {aberto ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                        <Td className="text-hipo-muted">
+                          {expandido ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
                         </Td>
-                        <Td className="align-top pt-5">
+                        <Td>
                           <div className="flex flex-col">
                             <span className="font-semibold text-hipo-ink">{l.nome}</span>
                             <span className="text-xs text-hipo-slate">
-                              {l.total_contadores} contadores · {l.total_grupos} grupos
+                              {l.total_contadores} contadores
                             </span>
                           </div>
                         </Td>
@@ -586,10 +568,9 @@ export default function Carteira() {
                         <Td
                           align="center"
                           className={
-                            'align-top pt-5 ' +
-                            (l.tarefas_atrasadas > 0
+                            l.tarefas_atrasadas > 0
                               ? 'text-red-700 font-semibold'
-                              : 'text-hipo-muted')
+                              : 'text-hipo-muted'
                           }
                         >
                           {l.tarefas_atrasadas}
@@ -597,27 +578,26 @@ export default function Carteira() {
                         <Td
                           align="center"
                           className={
-                            'align-top pt-5 ' +
-                            (l.tarefas_futuras > 0
+                            l.tarefas_futuras > 0
                               ? 'text-hipo-blue font-medium'
-                              : 'text-hipo-muted')
+                              : 'text-hipo-muted'
                           }
                         >
                           {l.tarefas_futuras}
                         </Td>
-                        <Td align="center" className="align-top pt-5 text-hipo-blue font-semibold">
+                        <Td
+                          align="center"
+                          className="text-hipo-blue font-semibold"
+                        >
                           {l.leads_no_mes}
                         </Td>
                       </Tr>,
-                      aberto && (
+                      expandido && (
                         <tr key={`${l.colaborador_id}-drill`} className="bg-hipo-bg">
                           <td colSpan={6} className="px-5 py-4">
-                            <DrilldownTabela
-                              aba="EC_FARMER"
-                              grupos={aplicarFiltrosDrill(l.grupos)}
-                              totalSemFiltro={l.grupos.length}
-                              filtros={filtrosDrill}
-                              onFiltros={setFiltrosDrill}
+                            <DrilldownGrupos
+                              loading={drilldown.loading}
+                              grupos={drilldown.grupos}
                               onAbrirGrupo={(g) =>
                                 setDrawerGrupo({
                                   id_grupo: g.id_grupo,
@@ -633,6 +613,7 @@ export default function Carteira() {
                 </tbody>
               </Table>
 
+              {/* Legenda */}
               <div className="px-5 py-3 border-t border-hipo-border bg-hipo-bg">
                 <div className="flex flex-wrap gap-5 justify-center text-xs text-hipo-slate">
                   <span className="flex items-center gap-1.5">
@@ -701,7 +682,9 @@ export default function Carteira() {
                       </div>
                     </Td>
                     <Td align="center">{g.qtd_cnpj}</Td>
-                    <Td className="text-hipo-slate">{g.colaborador_nome || '—'}</Td>
+                    <Td className="text-hipo-slate">
+                      {g.colaborador_nome || '—'}
+                    </Td>
                     <Td align="center">{g.tarefas_mes_total}</Td>
                   </Tr>
                 ))}
@@ -711,6 +694,7 @@ export default function Carteira() {
         </Card>
       )}
 
+      {/* Datas dos últimos uploads */}
       {resumo && (resumo.ultima_carteira || resumo.ultima_tarefas) && (
         <div className="mt-3 text-xs text-hipo-muted flex items-center gap-4 flex-wrap">
           {resumo.ultima_carteira && (
@@ -742,159 +726,77 @@ export default function Carteira() {
 }
 
 // ─────────────────────────────────────────────────────────────────
-// DrilldownTabela — tabela completa de grupos de um colaborador
-// (formato da tela antiga: timeline + atrasadas + futuras + leads)
+// Componente interno: lista de grupos no drilldown inline
 // ─────────────────────────────────────────────────────────────────
 
-function DrilldownTabela({
-  aba,
-  grupos,
-  totalSemFiltro,
-  filtros,
-  onFiltros,
-  onAbrirGrupo,
-}) {
-  const ehFarmer = aba === 'EC_FARMER';
-  const titulo =
-    grupos.length === totalSemFiltro
-      ? `${totalSemFiltro} grupo(s)`
-      : `${grupos.length} de ${totalSemFiltro} grupo(s)`;
+function DrilldownGrupos({ loading, grupos, onAbrirGrupo }) {
+  if (loading) {
+    return (
+      <p className="text-sm text-hipo-slate text-center py-4">Carregando...</p>
+    );
+  }
+  if (!grupos.length) {
+    return (
+      <p className="text-sm text-hipo-slate text-center py-4">
+        Nenhum grupo encontrado.
+      </p>
+    );
+  }
 
   return (
     <div className="bg-hipo-card border border-hipo-border rounded-lg overflow-hidden">
-      {/* Filtros locais (mesma UX da tela antiga) */}
-      <div className="px-4 py-3 border-b border-hipo-border bg-hipo-bg flex flex-wrap items-center gap-3">
-        <span className="text-xs text-hipo-slate font-medium">{titulo}</span>
-
-        <div className="relative flex-1 min-w-[200px]">
-          <Search
-            size={14}
-            className="absolute left-3 top-1/2 -translate-y-1/2 text-hipo-muted"
-          />
-          <input
-            value={filtros.busca_grupo}
-            onChange={(e) =>
-              onFiltros({ ...filtros, busca_grupo: e.target.value })
-            }
-            placeholder="Buscar grupo ou contabilidade..."
-            onClick={(e) => e.stopPropagation()}
-            className="w-full h-9 bg-hipo-card border border-hipo-border rounded-md pl-9 pr-3 text-sm text-hipo-ink placeholder:text-hipo-muted outline-none focus:border-hipo-blue focus:ring-2 focus:ring-blue-100"
-          />
-        </div>
-
-        <label
-          className="flex items-center gap-2 text-xs text-hipo-slate cursor-pointer hover:text-hipo-ink"
-          onClick={(e) => e.stopPropagation()}
-        >
-          <input
-            type="checkbox"
-            checked={filtros.tarefa_atrasada}
-            onChange={(e) =>
-              onFiltros({ ...filtros, tarefa_atrasada: e.target.checked })
-            }
-            className="w-4 h-4 accent-hipo-blue cursor-pointer"
-          />
-          Tarefa atrasada
-        </label>
-        <label
-          className="flex items-center gap-2 text-xs text-hipo-slate cursor-pointer hover:text-hipo-ink"
-          onClick={(e) => e.stopPropagation()}
-        >
-          <input
-            type="checkbox"
-            checked={filtros.sem_tarefa_futura}
-            onChange={(e) =>
-              onFiltros({ ...filtros, sem_tarefa_futura: e.target.checked })
-            }
-            className="w-4 h-4 accent-hipo-blue cursor-pointer"
-          />
-          Sem tarefa futura
-        </label>
-      </div>
-
-      {grupos.length === 0 ? (
-        <p className="text-sm text-hipo-slate text-center py-6">
-          Nenhum grupo nesse filtro.
+      <div className="px-4 py-2 border-b border-hipo-border bg-hipo-bg">
+        <p className="text-xs text-hipo-slate font-medium">
+          {grupos.length} grupo(s) — clique para detalhar
         </p>
-      ) : (
-        <Table>
-          <thead>
-            <tr>
-              <Th className="w-6"></Th>
-              <Th>Grupo</Th>
-              <Th align="center">CNPJs</Th>
-              <Th>Execução</Th>
-              <Th align="center">Atrasadas</Th>
-              <Th align="center">Futuras</Th>
-              {ehFarmer && <Th align="center">Leads/mês</Th>}
-            </tr>
-          </thead>
-          <tbody>
-            {grupos.map((g) => (
-              <Tr key={g.id_grupo} onClick={() => onAbrirGrupo(g)}>
-                <Td className="text-hipo-muted">
-                  <ChevronRight size={14} />
-                </Td>
-                <Td>
-                  <div className="flex flex-col">
-                    <span className="font-semibold text-hipo-ink">
-                      {g.nome_grupo || '—'}
-                      {g.colaboradores_multiplos && (
-                        <Badge tone="warning" className="ml-2">
-                          ⚠ Múlt
-                        </Badge>
-                      )}
-                    </span>
-                    <span className="text-xs text-hipo-slate mt-0.5">
-                      {g.contabilidade_principal} · {g.cidade_uf}
-                      {g.parceria && (
-                        <span
-                          className={`ml-2 ${
-                            g.parceria === 'Parceiro'
-                              ? 'text-emerald-700 font-medium'
-                              : 'text-hipo-slate'
-                          }`}
-                        >
-                          {g.parceria === 'Parceiro' ? '● parceiro' : '○ não parceiro'}
-                        </span>
-                      )}
-                    </span>
-                  </div>
-                </Td>
-                <Td align="center">{g.qtd_cnpj}</Td>
-                <Td>
-                  <CarteiraTimeline cells={g.timeline} compact />
-                </Td>
-                <Td
-                  align="center"
-                  className={
-                    g.tarefas_atrasadas > 0
-                      ? 'text-red-700 font-semibold'
-                      : 'text-hipo-muted'
-                  }
-                >
-                  {g.tarefas_atrasadas}
-                </Td>
-                <Td
-                  align="center"
-                  className={
-                    g.tarefas_futuras > 0
-                      ? 'text-hipo-blue font-medium'
-                      : 'text-hipo-muted'
-                  }
-                >
-                  {g.tarefas_futuras}
-                </Td>
-                {ehFarmer && (
-                  <Td align="center" className="text-hipo-blue font-semibold">
-                    {g.leads_no_mes || 0}
-                  </Td>
+      </div>
+      <ul className="divide-y divide-hipo-border">
+        {grupos.map((g) => (
+          <li
+            key={g.id_grupo}
+            onClick={() => onAbrirGrupo(g)}
+            className="px-4 py-3 flex items-center justify-between gap-4 hover:bg-hipo-bg cursor-pointer transition-colors"
+          >
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-hipo-ink truncate">
+                {g.nome_grupo || '—'}
+              </p>
+              <p className="text-xs text-hipo-slate truncate">
+                {g.contabilidade_principal} · {g.cidade_uf}
+                {g.parceria && (
+                  <span
+                    className={`ml-2 ${
+                      g.parceria === 'Parceiro'
+                        ? 'text-emerald-700 font-medium'
+                        : 'text-hipo-muted'
+                    }`}
+                  >
+                    {g.parceria === 'Parceiro' ? '● parceiro' : '○ não parceiro'}
+                  </span>
                 )}
-              </Tr>
-            ))}
-          </tbody>
-        </Table>
-      )}
+              </p>
+            </div>
+            <div className="flex items-center gap-4 text-xs shrink-0">
+              {g.meta_atingida ? (
+                <Badge tone="success">✓ meta</Badge>
+              ) : (
+                <Badge tone="danger">✗ sem meta</Badge>
+              )}
+              {g.tarefas_atrasadas > 0 && (
+                <span className="text-red-700 font-medium">
+                  {g.tarefas_atrasadas} atrasadas
+                </span>
+              )}
+              {g.tarefas_futuras > 0 && (
+                <span className="text-hipo-blue font-medium">
+                  {g.tarefas_futuras} futuras
+                </span>
+              )}
+              <ChevronRight size={14} className="text-hipo-muted" />
+            </div>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }

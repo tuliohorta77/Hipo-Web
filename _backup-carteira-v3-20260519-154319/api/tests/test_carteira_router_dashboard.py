@@ -139,12 +139,6 @@ class TestDashboardHunter:
         assert por_nome["Caio"]["total_grupos"] == 1
         assert por_nome["Caio"]["meta_atingida"] == 0
 
-        # v3: cada linha vem com os grupos pra drilldown imediato (sem refetch)
-        assert "grupos" in por_nome["Patrick"]
-        assert len(por_nome["Patrick"]["grupos"]) == 2
-        nomes_grupos = {g["nome_grupo"] for g in por_nome["Patrick"]["grupos"]}
-        assert nomes_grupos == {"Grupo X"}  # default do _seed_cnpj
-
 
 # ── DASHBOARD FARMER ─────────────────────────────────────────────
 
@@ -209,11 +203,6 @@ class TestDashboardFarmer:
         # Invariante: soma == total_contadores em cada semana
         for s in aline["semanas"]:
             assert s["com_reuniao"] + s["sem_reuniao"] + s["pendente"] == 3
-
-        # v3: linha já traz os grupos pro drilldown imediato
-        assert "grupos" in aline
-        assert "total_grupos" in aline
-        assert aline["total_grupos"] == 3
 
 
 # ── DRILLDOWN: grupos do colaborador ────────────────────────────

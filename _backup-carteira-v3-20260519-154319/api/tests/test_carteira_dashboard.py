@@ -131,56 +131,24 @@ class TestDashboardHunter:
         assert h["compliance_pct"] == round(2 / 3 * 100, 1)
 
     def test_tarefas_atrasadas_e_sem_futura(self):
-        """
-        Regra v3: tarefas_atrasadas conta GRUPOS afetados, não soma de tarefas.
-        Um grupo com 5 atrasadas conta 1.
-        """
+        """Soma atrasadas e conta grupos sem tarefa futura."""
         cnpjs = [
             _cnpj("G1", "11.111.111/0001-11", "Patrick"),
             _cnpj("G2", "22.222.222/0002-22", "Patrick"),
-            _cnpj("G3", "33.333.333/0003-33", "Patrick"),  # sem atrasada
         ]
         tarefas = [
-            # G1 tem 2 atrasadas (mas conta 1 grupo)
             _tarefa("11.111.111/0001-11", "Patrick", datetime(2026, 5, 1), situacao="ATRASADA"),
             _tarefa("11.111.111/0001-11", "Patrick", datetime(2026, 5, 2), situacao="ATRASADA"),
-            # G2 tem 1 atrasada
-            _tarefa("22.222.222/0002-22", "Patrick", datetime(2026, 5, 3), situacao="ATRASADA"),
-            # G3 sem nada
-            # Futura só pra G1
             _tarefa("11.111.111/0001-11", "Patrick", datetime(2026, 6, 30), situacao="FUTURA"),
+            # G2 não tem nenhuma tarefa futura
         ]
         colab = [_colab("Patrick", "EC_HUNTER")]
         grupos = agregar_grupos(cnpjs, tarefas, colab, ref_date=REF)
         hunter = dashboard_hunter(grupos, colab)
 
         h = hunter[0]
-        # 2 grupos têm ≥1 atrasada (G1 e G2), não 3 tarefas
-        assert h["tarefas_atrasadas"] == 2
-        # 2 grupos não têm tarefa futura (G2 e G3)
-        assert h["sem_tarefa_futura"] == 2
-
-    def test_grupos_inclusos_no_dashboard(self):
-        """Hunter v3: cada linha tem o campo 'grupos' com drilldown completo."""
-        cnpjs = [
-            _cnpj("G1", "11.111.111/0001-11", "Patrick", nome_grupo="Alfa"),
-            _cnpj("G2", "22.222.222/0002-22", "Patrick", nome_grupo="Beta"),
-        ]
-        colab = [_colab("Patrick", "EC_HUNTER")]
-        grupos = agregar_grupos(cnpjs, [], colab, ref_date=REF)
-        hunter = dashboard_hunter(grupos, colab)
-
-        h = hunter[0]
-        assert "grupos" in h
-        assert len(h["grupos"]) == 2
-        nomes = {g["nome_grupo"] for g in h["grupos"]}
-        assert nomes == {"Alfa", "Beta"}
-        # Schema completo: cada grupo tem timeline, atrasadas, futuras, etc.
-        for g in h["grupos"]:
-            assert "timeline" in g
-            assert "tarefas_atrasadas" in g
-            assert "tarefas_futuras" in g
-            assert "leads_no_mes" in g
+        assert h["tarefas_atrasadas"] == 2  # soma das atrasadas dos 2 grupos
+        assert h["sem_tarefa_futura"] == 1  # só G2 não tem futura
 
     def test_leads_no_mes_somados(self):
         cnpjs = [
@@ -311,113 +279,21 @@ class TestDashboardFarmer:
         assert s_W18["sem_reuniao"] == 1
 
     def test_soma_atrasadas_futuras_leads(self):
-        """
-        Regra v3: tarefas_atrasadas/futuras contam GRUPOS afetados, não tarefas.
-        Leads continua sendo soma.
-        """
         cnpjs = [
             _cnpj("G1", "11.111.111/0001-11", "Aline", leads_no_mes=5),
             _cnpj("G2", "22.222.222/0002-22", "Aline", leads_no_mes=7),
         ]
         tarefas = [
-            # G1: 1 atrasada
             _tarefa("11.111.111/0001-11", "Aline", datetime(2026, 5, 1), situacao="ATRASADA"),
-            # G2: 1 atrasada
             _tarefa("22.222.222/0002-22", "Aline", datetime(2026, 5, 2), situacao="ATRASADA"),
-            # G1: 1 futura
             _tarefa("11.111.111/0001-11", "Aline", datetime(2026, 6, 30), situacao="FUTURA"),
         ]
         colab = [_colab("Aline", "EC_FARMER")]
         farmer = dashboard_farmer(cnpjs, tarefas, colab, ref_date=REF)
         a = farmer[0]
-        # 2 grupos têm ≥1 atrasada
         assert a["tarefas_atrasadas"] == 2
-        # 1 grupo tem ≥1 futura (G1)
         assert a["tarefas_futuras"] == 1
-        # leads continua soma
         assert a["leads_no_mes"] == 12
-
-    def test_grupos_inclusos_no_dashboard_farmer(self):
-        """Farmer v3: cada linha tem 'grupos' detalhados (drilldown)."""
-        cnpjs = [
-            _cnpj("G1", "11.111.111/0001-11", "Aline", nome_grupo="Alfa"),
-            _cnpj("G2", "22.222.222/0002-22", "Aline", nome_grupo="Beta"),
-        ]
-        colab = [_colab("Aline", "EC_FARMER")]
-        farmer = dashboard_farmer(cnpjs, [], colab, ref_date=REF)
-        a = farmer[0]
-
-        assert "grupos" in a
-        assert "total_grupos" in a
-        assert a["total_grupos"] == 2
-        assert len(a["grupos"]) == 2
-        # Timeline semanal vem em cada grupo
-        for g in a["grupos"]:
-            assert "timeline" in g
-            # Farmer tem ≥4 células (semanas ISO do mês)
-            assert len(g["timeline"]) >= 4
-
-    def test_multiplas_reunioes_mesmo_contador_semana_contam_1_vez(self):
-        """
-        Regra travada: contador com 50 reuniões em 1 semana entra UMA vez
-        no verde. Bug que o franqueado pegou em produção (Patrick com 95
-        reuniões pra 51 grupos).
-        """
-        cnpjs = [
-            _cnpj("G1", "11.111.111/0001-11", "Aline"),
-            _cnpj("G2", "22.222.222/0002-22", "Aline"),
-        ]
-        # 10 reuniões na MESMA semana, MESMO CNPJ — deve contar 1 contador no verde
-        tarefas = [
-            _tarefa("11.111.111/0001-11", "Aline", datetime(2026, 5, 4), canal="Reunião"),
-            _tarefa("11.111.111/0001-11", "Aline", datetime(2026, 5, 5), canal="Reunião"),
-            _tarefa("11.111.111/0001-11", "Aline", datetime(2026, 5, 6), canal="Reunião"),
-            _tarefa("11.111.111/0001-11", "Aline", datetime(2026, 5, 7), canal="Reunião"),
-            _tarefa("11.111.111/0001-11", "Aline", datetime(2026, 5, 8), canal="Reunião"),
-            _tarefa("11.111.111/0001-11", "Aline", datetime(2026, 5, 4), canal="Reunião"),
-            _tarefa("11.111.111/0001-11", "Aline", datetime(2026, 5, 5), canal="Reunião"),
-            _tarefa("11.111.111/0001-11", "Aline", datetime(2026, 5, 6), canal="Reunião"),
-            _tarefa("11.111.111/0001-11", "Aline", datetime(2026, 5, 7), canal="Reunião"),
-            _tarefa("11.111.111/0001-11", "Aline", datetime(2026, 5, 8), canal="Reunião"),
-        ]
-        colab = [_colab("Aline", "EC_FARMER")]
-        farmer = dashboard_farmer(cnpjs, tarefas, colab, ref_date=REF)
-        a = farmer[0]
-        s_W19 = next(s for s in a["semanas"] if s["key"] == "2026-W19")
-        # Apesar das 10 reuniões, conta 1 contador no verde
-        assert s_W19["com_reuniao"] == 1
-        # O outro CNPJ não reuniu nessa semana E ela já passou → sem_reuniao
-        assert s_W19["sem_reuniao"] == 1
-        # Invariante mantida
-        assert s_W19["com_reuniao"] + s_W19["sem_reuniao"] + s_W19["pendente"] == 2
-
-    def test_soma_bolinhas_nunca_excede_total_contadores(self):
-        """
-        Garante a invariante crítica: a soma das bolinhas de uma semana
-        é sempre <= total_contadores. Esse era o sintoma que o franqueado
-        viu (Patrick: 95 bolinhas pra 51 grupos).
-        """
-        cnpjs = [
-            _cnpj(f"G{i}", f"{i:02d}.000.000/0001-00", "Aline")
-            for i in range(1, 6)
-        ]
-        # Várias reuniões pra cada CNPJ na mesma semana
-        tarefas = []
-        for i in range(1, 6):
-            cnpj = f"{i:02d}.000.000/0001-00"
-            for _ in range(5):
-                tarefas.append(_tarefa(cnpj, "Aline", datetime(2026, 5, 4), canal="Reunião"))
-
-        colab = [_colab("Aline", "EC_FARMER")]
-        farmer = dashboard_farmer(cnpjs, tarefas, colab, ref_date=REF)
-        a = farmer[0]
-        assert a["total_contadores"] == 5
-        for s in a["semanas"]:
-            soma = s["com_reuniao"] + s["sem_reuniao"] + s["pendente"]
-            assert soma == 5, (
-                f"Semana {s['label']}: soma {soma} != total_contadores 5. "
-                f"({s})"
-            )
 
     def test_soma_de_bolinhas_iguala_total_contadores(self):
         """Invariante crítica: com_reuniao + sem_reuniao + pendente == total_contadores"""
