@@ -7,6 +7,7 @@ import POsDashboard from "./pages/POs";
 import PEXDashboard from "./pages/PEX";
 import BDAtivadosDashboard from "./pages/BDAtivados";
 import Metas from "./pages/Metas";
+import Carteira from "./pages/Carteira";
 
 export default function App() {
   return (
@@ -29,6 +30,7 @@ export default function App() {
           <Route path="pos" element={<POsDashboard />} />
           <Route path="bd-ativados" element={<BDAtivadosDashboard />} />
           <Route path="metas" element={<Metas />} />
+          <Route path="carteira" element={<Carteira />} />
         </Route>
 
         {/* Fallback */}

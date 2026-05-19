@@ -39,6 +39,7 @@ async def db_conn():
             cromie_tarefa_contador, cromie_uploads, pex_snapshot,
             pex_compliance_gaps,
             pex_metas_big3, pex_metas_indicadores, pex_metas_cabecalho,
+            carteira_tarefa, carteira_cnpj, carteira_upload, carteira_colaborador,
             bd_ativados, bd_ativados_upload, usuarios
         CASCADE
     """)

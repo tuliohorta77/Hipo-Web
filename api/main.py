@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from routers import po, pex, auth, bd_ativados, metas
+from routers import po, pex, auth, bd_ativados, metas, carteira
 
 app = FastAPI(
     title="HIPO API",
@@ -21,6 +21,7 @@ app.include_router(po.router,          prefix="/po",          tags=["POs"])
 app.include_router(pex.router,         prefix="/pex",         tags=["PEX"])
 app.include_router(bd_ativados.router, prefix="/bd-ativados", tags=["BD Ativados"])
 app.include_router(metas.router,       prefix="/metas",       tags=["Metas PEX"])
+app.include_router(carteira.router,    prefix="/carteira",    tags=["Carteira"])
 
 
 @app.get("/health")
