@@ -702,3 +702,89 @@ CREATE INDEX IF NOT EXISTS idx_carteira_tarefa_cnpj      ON carteira_tarefa(cnpj
 CREATE INDEX IF NOT EXISTS idx_carteira_tarefa_executivo ON carteira_tarefa(executivo_nome);
 CREATE INDEX IF NOT EXISTS idx_carteira_tarefa_data_ef   ON carteira_tarefa(data_efetiva);
 CREATE INDEX IF NOT EXISTS idx_carteira_tarefa_canal     ON carteira_tarefa(tarefa_canal);
+
+-- ============================================================
+-- Migration 004 — BD Ativados: campos de MRR
+-- (bloco idempotente para o schema do CI/CD)
+-- ============================================================
+
+ALTER TABLE bd_ativados_upload
+    ADD COLUMN IF NOT EXISTS data_emissao        VARCHAR(40),
+    ADD COLUMN IF NOT EXISTS linhas_ativas       INT DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS mrr_bruto           NUMERIC(14,2) DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS repasse_franqueado  NUMERIC(14,2) DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS liquido_pos_mkt     NUMERIC(14,2) DEFAULT 0;
+
+ALTER TABLE bd_ativados
+    ADD COLUMN IF NOT EXISTS tipo                   VARCHAR(80),
+    ADD COLUMN IF NOT EXISTS valor_mensal_informado NUMERIC(10,2),
+    ADD COLUMN IF NOT EXISTS mrr_bruto              NUMERIC(14,2) DEFAULT 0;
+
+CREATE INDEX IF NOT EXISTS idx_bd_ativados_tipo ON bd_ativados(tipo);
+
+CREATE OR REPLACE VIEW vw_bd_ativados_atual AS
+SELECT
+    bu.id, bu.data_upload, bu.data_emissao, bu.nome_arquivo,
+    bu.total_registros, bu.linhas_ativas,
+    bu.mrr_bruto, bu.repasse_franqueado, bu.liquido_pos_mkt
+FROM bd_ativados_upload bu
+WHERE bu.processado = TRUE
+ORDER BY bu.data_upload DESC
+LIMIT 1;
+
+-- ============================================================
+-- Migration 005 — pex_metas_cabecalho + indicadores + big3 + view
+-- (bloco idempotente para o schema do CI/CD)
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS pex_metas_cabecalho (
+    id              SERIAL PRIMARY KEY,
+    mes_ref         CHAR(7) NOT NULL UNIQUE,
+    cluster_unidade VARCHAR(30) NOT NULL DEFAULT 'BASE',
+    dias_uteis      SMALLINT NOT NULL DEFAULT 22,
+    ecs_ativos_m3   SMALLINT NOT NULL DEFAULT 0,
+    evs_ativos      SMALLINT NOT NULL DEFAULT 0,
+    carteira_total_contadores INT NOT NULL DEFAULT 0,
+    apps_ativos     INT NOT NULL DEFAULT 0,
+    headcount_recomendado SMALLINT,
+    criado_por      UUID REFERENCES usuarios(id),
+    criado_em       TIMESTAMPTZ DEFAULT NOW(),
+    atualizado_em   TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS ix_pex_metas_cab_mes ON pex_metas_cabecalho(mes_ref DESC);
+
+CREATE TABLE IF NOT EXISTS pex_metas_indicadores (
+    id              SERIAL PRIMARY KEY,
+    cabecalho_id    INT NOT NULL REFERENCES pex_metas_cabecalho(id) ON DELETE CASCADE,
+    codigo          VARCHAR(40) NOT NULL,
+    meta_valor      NUMERIC(14,2),
+    UNIQUE (cabecalho_id, codigo)
+);
+CREATE INDEX IF NOT EXISTS ix_pex_metas_ind_codigo ON pex_metas_indicadores(codigo);
+
+CREATE TABLE IF NOT EXISTS pex_metas_big3 (
+    id              SERIAL PRIMARY KEY,
+    cabecalho_id    INT NOT NULL REFERENCES pex_metas_cabecalho(id) ON DELETE CASCADE,
+    ordem           SMALLINT NOT NULL CHECK (ordem BETWEEN 1 AND 3),
+    descricao       TEXT,
+    atingiu         BOOLEAN DEFAULT FALSE,
+    UNIQUE (cabecalho_id, ordem)
+);
+
+-- View de compatibilidade que pex_calc.py ainda usa
+CREATE OR REPLACE VIEW pex_metas_mensais AS
+SELECT
+    cab.id,
+    cab.mes_ref,
+    (SELECT meta_valor FROM pex_metas_indicadores
+        WHERE cabecalho_id = cab.id AND codigo = 'nmrr') AS nmrr_meta,
+    (SELECT meta_valor::INT FROM pex_metas_indicadores
+        WHERE cabecalho_id = cab.id AND codigo = 'demos_outbound') AS demos_outbound_meta,
+    (SELECT descricao FROM pex_metas_big3
+        WHERE cabecalho_id = cab.id AND ordem = 1) AS big3_descricao,
+    cab.dias_uteis,
+    cab.ecs_ativos_m3,
+    cab.evs_ativos,
+    cab.carteira_total_contadores,
+    cab.criado_em AS created_at
+FROM pex_metas_cabecalho cab;
