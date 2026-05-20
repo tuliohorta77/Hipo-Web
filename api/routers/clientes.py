@@ -452,3 +452,89 @@ async def leads_do_contador(
         },
         "leads": [dict(r) for r in rows],
     }
+
+
+# ── Funil por colaborador/grupo (agregado para mini-funil na UI) ──
+
+from pydantic import BaseModel as _BM
+
+
+class FunilGruposRequest(_BM):
+    id_grupos: list[str]
+
+
+# Etapas 1-5 (descarta '06. Conquistado' e leads 'Perdido'/'Cancelado').
+_ETAPAS = [
+    ("suspect",       "01"),
+    ("cadencia",      "02"),
+    ("qualificacao",  "03"),
+    ("apresentacao",  "04"),
+    ("negociacao",    "05"),
+]
+
+
+@router.post("/funil-por-grupos")
+async def funil_por_grupos(
+    body: FunilGruposRequest,
+    conn=Depends(get_conn),
+    _user=Depends(usuario_atual),
+):
+    """
+    Agregado de funil (5 etapas ativas: Suspect, Cadência, Qualificação,
+    Apresentação, Negociação) por id_grupo.
+
+    Body: { "id_grupos": ["abc123", "def456", ...] }
+
+    Resposta:
+      {
+        "por_grupo": {
+          "abc123": {
+            "suspect":      {"qtd": 2, "ticket": 1500.00},
+            "cadencia":     {"qtd": 5, "ticket": 8200.00},
+            ...
+          },
+          ...
+        }
+      }
+
+    Faz JOIN com carteira_cnpj.cnpj_contador → cliente_oportunidade.cnpj_contador.
+    Filtra leads com status = 'Em andamento'. Ticket = previsao_valor.
+    """
+    if not body.id_grupos:
+        return {"por_grupo": {}}
+
+    rows = await conn.fetch(
+        """
+        SELECT
+            cc.id_grupo,
+            LEFT(co.fase, 2) AS num_fase,
+            COUNT(*)              AS qtd,
+            COALESCE(SUM(co.previsao_valor), 0) AS ticket
+        FROM carteira_cnpj cc
+        JOIN cliente_oportunidade co
+          ON co.cnpj_contador = cc.cnpj_contador
+        WHERE cc.id_grupo = ANY($1::text[])
+          AND LOWER(COALESCE(co.status, '')) = 'em andamento'
+          AND LEFT(co.fase, 2) IN ('01', '02', '03', '04', '05')
+        GROUP BY cc.id_grupo, LEFT(co.fase, 2)
+        """,
+        body.id_grupos,
+    )
+
+    # Inicializa zeros
+    saida: dict[str, dict] = {}
+    for gid in body.id_grupos:
+        saida[gid] = {k: {"qtd": 0, "ticket": 0.0} for k, _ in _ETAPAS}
+
+    fase_para_chave = {num: chave for chave, num in _ETAPAS}
+
+    for r in rows:
+        gid = r["id_grupo"]
+        chave = fase_para_chave.get(r["num_fase"])
+        if gid in saida and chave:
+            saida[gid][chave] = {
+                "qtd": int(r["qtd"]),
+                "ticket": float(r["ticket"] or 0),
+            }
+
+    return {"por_grupo": saida}

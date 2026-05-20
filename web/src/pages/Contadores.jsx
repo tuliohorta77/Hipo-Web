@@ -48,6 +48,7 @@ import AlertMessage from '../components/ui/AlertMessage';
 import Empty from '../components/ui/Empty';
 import Badge from '../components/ui/Badge';
 import Table, { Th, Tr, Td } from '../components/ui/Table';
+import MiniFunil, { agregarFunis } from '../components/ui/MiniFunil';
 
 const ABAS = [
   { v: 'EC_HUNTER', label: 'Hunter', Icon: Target,      hint: 'Meta: ≥1 tarefa por mês' },
@@ -77,6 +78,11 @@ export default function Contadores() {
 
   // Drilldown inline: id do colaborador atualmente expandido
   const [expandido, setExpandido] = useState(null);
+
+  // Mini-funil: map id_grupo → { suspect, cadencia, qualificacao, apresentacao, negociacao }
+  // Carregado sob demanda quando expande um colaborador.
+  const [funilPorGrupo, setFunilPorGrupo] = useState({});
+  const [funilLoading, setFunilLoading] = useState(false);
 
   // Uploads / modais
   const [uploading, setUploading] = useState(null); // null | "CARTEIRA" | "TAREFAS"
@@ -137,10 +143,38 @@ export default function Contadores() {
 
   // ── Drilldown (instantâneo: usa grupos embutidos no payload) ─
 
-  function toggleExpandir(colab_id) {
+  async function toggleExpandir(colab_id) {
     if (!colab_id) return;
-    setExpandido((atual) => (atual === colab_id ? null : colab_id));
+    const fechando = expandido === colab_id;
+    setExpandido(fechando ? null : colab_id);
     setFiltrosDrill({ tarefa_atrasada: false, sem_tarefa_futura: false, busca_grupo: '' });
+    if (fechando) return;
+
+    // Buscar funil agregado de todos os grupos desse colaborador
+    const linha = [...hunter.linhas, ...farmer.linhas].find(
+      (l) => l.colaborador_id === colab_id
+    );
+    if (!linha || !linha.grupos?.length) return;
+
+    const idGrupos = linha.grupos
+      .map((g) => g.id_grupo)
+      .filter(Boolean)
+      .filter((gid) => !funilPorGrupo[gid]); // só os ainda não carregados
+
+    if (idGrupos.length === 0) return;
+
+    setFunilLoading(true);
+    try {
+      const { data } = await api.post('/clientes/funil-por-grupos', {
+        id_grupos: idGrupos,
+      });
+      setFunilPorGrupo((atual) => ({ ...atual, ...(data.por_grupo || {}) }));
+    } catch (e) {
+      // Erro silencioso — mini-funil só não aparece se a chamada falhou
+      console.error('Funil:', e);
+    } finally {
+      setFunilLoading(false);
+    }
   }
 
   function aplicarFiltrosDrill(grupos) {
@@ -306,7 +340,7 @@ export default function Contadores() {
               description="Faça o primeiro upload da carteira ou de tarefas."
             />
           ) : (
-            <Table>
+            <Table className="[&_th]:!py-2 [&_th]:!text-[11px] [&_th]:!tracking-wide [&_td]:!py-1.5 [&_td]:!text-[13px]">
               <thead>
                 <tr>
                   <Th>Data</Th>
@@ -429,7 +463,7 @@ export default function Contadores() {
               icon={Users}
             />
           ) : (
-            <Table>
+            <Table className="[&_th]:!py-2 [&_th]:!text-[11px] [&_th]:!tracking-wide [&_td]:!py-1.5 [&_td]:!text-[13px]">
               <thead>
                 <tr>
                   <Th className="w-8"></Th>
@@ -439,6 +473,7 @@ export default function Contadores() {
                   <Th align="center">Com atrasada</Th>
                   <Th align="center">Sem futura</Th>
                   <Th align="center">Leads / mês</Th>
+                  <Th align="left">Funil (5 etapas ativas)</Th>
                 </tr>
               </thead>
               <tbody>
@@ -484,14 +519,26 @@ export default function Contadores() {
                       <Td align="center" className="text-hipo-blue font-semibold">
                         {l.leads_no_mes}
                       </Td>
+                      <Td>
+                        <MiniFunil
+                          loading={expandido === l.colaborador_id && funilLoading}
+                          dados={agregarFunis(
+                            (l.grupos || [])
+                              .map((g) => funilPorGrupo[g.id_grupo])
+                              .filter(Boolean)
+                          )}
+                          vazio="—"
+                        />
+                      </Td>
                     </Tr>,
                     aberto && (
                       <tr key={`${l.colaborador_id}-drill`} className="bg-hipo-bg">
-                        <td colSpan={7} className="px-5 py-4">
+                        <td colSpan={8} className="px-5 py-4">
                           <DrilldownTabela
                             aba="EC_HUNTER"
                             grupos={aplicarFiltrosDrill(l.grupos)}
                             totalSemFiltro={l.grupos.length}
+                            funilPorGrupo={funilPorGrupo}
                             filtros={filtrosDrill}
                             onFiltros={setFiltrosDrill}
                             onAbrirGrupo={(g) =>
@@ -530,7 +577,7 @@ export default function Contadores() {
             />
           ) : (
             <>
-              <Table>
+              <Table className="[&_th]:!py-2 [&_th]:!text-[11px] [&_th]:!tracking-wide [&_td]:!py-1.5 [&_td]:!text-[13px]">
                 <thead>
                   <tr>
                     <Th className="w-8"></Th>
@@ -539,6 +586,7 @@ export default function Contadores() {
                     <Th align="center">Com atrasada</Th>
                     <Th align="center">Com futura</Th>
                     <Th align="center">Leads / mês</Th>
+                    <Th align="left">Funil (5 etapas ativas)</Th>
                   </tr>
                 </thead>
                 <tbody>
@@ -589,14 +637,26 @@ export default function Contadores() {
                         <Td align="center" className="align-top pt-5 text-hipo-blue font-semibold">
                           {l.leads_no_mes}
                         </Td>
+                        <Td className="align-top pt-5">
+                          <MiniFunil
+                            loading={expandido === l.colaborador_id && funilLoading}
+                            dados={agregarFunis(
+                              (l.grupos || [])
+                                .map((g) => funilPorGrupo[g.id_grupo])
+                                .filter(Boolean)
+                            )}
+                            vazio="—"
+                          />
+                        </Td>
                       </Tr>,
                       aberto && (
                         <tr key={`${l.colaborador_id}-drill`} className="bg-hipo-bg">
-                          <td colSpan={6} className="px-5 py-4">
+                          <td colSpan={7} className="px-5 py-4">
                             <DrilldownTabela
                               aba="EC_FARMER"
                               grupos={aplicarFiltrosDrill(l.grupos)}
                               totalSemFiltro={l.grupos.length}
+                              funilPorGrupo={funilPorGrupo}
                               filtros={filtrosDrill}
                               onFiltros={setFiltrosDrill}
                               onAbrirGrupo={(g) =>
@@ -651,7 +711,7 @@ export default function Contadores() {
               description="Todos os grupos têm um colaborador Hunter ou Farmer atribuído."
             />
           ) : (
-            <Table>
+            <Table className="[&_th]:!py-2 [&_th]:!text-[11px] [&_th]:!tracking-wide [&_td]:!py-1.5 [&_td]:!text-[13px]">
               <thead>
                 <tr>
                   <Th>Grupo</Th>
@@ -734,6 +794,7 @@ function DrilldownTabela({
   filtros,
   onFiltros,
   onAbrirGrupo,
+  funilPorGrupo,
 }) {
   const ehFarmer = aba === 'EC_FARMER';
   const titulo =
@@ -798,7 +859,7 @@ function DrilldownTabela({
           Nenhum grupo nesse filtro.
         </p>
       ) : (
-        <Table>
+        <Table className="[&_th]:!py-2 [&_th]:!text-[11px] [&_th]:!tracking-wide [&_td]:!py-1.5 [&_td]:!text-[13px]">
           <thead>
             <tr>
               <Th className="w-6"></Th>
@@ -808,6 +869,7 @@ function DrilldownTabela({
               <Th align="center">Atrasadas</Th>
               <Th align="center">Futuras</Th>
               {ehFarmer && <Th align="center">Leads/mês</Th>}
+              <Th align="left">Funil</Th>
             </tr>
           </thead>
           <tbody>
@@ -871,6 +933,9 @@ function DrilldownTabela({
                     {g.leads_no_mes || 0}
                   </Td>
                 )}
+                <Td onClick={(e) => e.stopPropagation()}>
+                  <MiniFunil dados={funilPorGrupo[g.id_grupo]} vazio="—" />
+                </Td>
               </Tr>
             ))}
           </tbody>
