@@ -3,6 +3,14 @@
 // Timeline visual: cada célula é um período (mês para Hunter, semana ISO
 // para Farmer) com uma bolinha colorida indicando o status.
 //
+// Manual §6: "badges suaves, sem saturação excessiva".
+// Manual §9: "não depender apenas de cor para indicar status; usar texto,
+// ícone ou badge".
+//
+// Por isso usamos bg pastel (soft) + texto/borda semântico, em vez de
+// dots sólidos saturados. A leitura visual continua imediata (verde =
+// ok, vermelho = miss, âmbar = now, cinza = future) mas com tom calmo.
+//
 // Status (alinhado com services/carteira_agg.py):
 //   ok     → verde   (meta atingida no período)
 //   miss   → vermelho (período passou sem cumprir)
@@ -10,10 +18,26 @@
 //   future → cinza   (período no futuro — não conta para meta)
 
 const STATUS_STYLES = {
-  ok:     { dot: 'bg-hipo-success', ring: 'ring-emerald-200', text: 'text-emerald-700' },
-  miss:   { dot: 'bg-hipo-danger',  ring: 'ring-red-200',     text: 'text-red-700'     },
-  now:    { dot: 'bg-hipo-warning', ring: 'ring-amber-200',   text: 'text-amber-700'   },
-  future: { dot: 'bg-hipo-border',  ring: 'ring-slate-100',   text: 'text-hipo-muted'  },
+  ok: {
+    bg: 'bg-hipo-successSoft',
+    text: 'text-hipo-success',
+    border: 'border-hipo-successBorder',
+  },
+  miss: {
+    bg: 'bg-hipo-dangerSoft',
+    text: 'text-hipo-danger',
+    border: 'border-hipo-dangerBorder',
+  },
+  now: {
+    bg: 'bg-hipo-warningSoft',
+    text: 'text-hipo-warning',
+    border: 'border-hipo-warningBorder',
+  },
+  future: {
+    bg: 'bg-hipo-bg',
+    text: 'text-hipo-muted',
+    border: 'border-hipo-border',
+  },
 };
 
 export default function CarteiraTimeline({ cells = [], compact = false }) {
@@ -21,8 +45,8 @@ export default function CarteiraTimeline({ cells = [], compact = false }) {
     return <span className="text-hipo-muted text-xs">—</span>;
   }
 
-  const size = compact ? 'w-3 h-3' : 'w-4 h-4';
-  const gap  = compact ? 'gap-1.5' : 'gap-2.5';
+  const size = compact ? 'w-6 h-6 text-[9px]' : 'w-7 h-7 text-[10px]';
+  const gap  = compact ? 'gap-1' : 'gap-1.5';
 
   return (
     <div className={`flex items-center ${gap}`}>
@@ -36,9 +60,11 @@ export default function CarteiraTimeline({ cells = [], compact = false }) {
             title={title}
           >
             <div
-              className={`${size} rounded-full ${s.dot} ring-2 ${s.ring} transition-all`}
+              className={`${size} rounded-full border flex items-center justify-center font-semibold ${s.bg} ${s.text} ${s.border} transition-colors`}
               aria-label={title}
-            />
+            >
+              {c.count > 0 ? c.count : ''}
+            </div>
             {!compact && (
               <span className={`text-[10px] mt-1 font-medium ${s.text}`}>
                 {c.label}

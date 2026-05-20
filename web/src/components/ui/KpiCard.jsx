@@ -1,23 +1,32 @@
 // web/src/components/ui/KpiCard.jsx
 // Card de KPI: ícone em badge pastel, número grande, variação discreta.
-// Conforme Manual §6 ("Cards KPI").
+// Conforme Manual §6 ("Cards KPI") e tokens do Manual de Marca v1.0.
 
 import { ArrowUp, ArrowDown, Minus } from 'lucide-react';
 
+// Tones para o badge do ícone. Manual §6: "ícone em badge pastel".
+// Reduzido de 6 cores genéricas (emerald/amber/rose/violet) para a paleta
+// canônica do manual: azul (padrão), success/warning/danger e slate neutro.
 const ICON_TONES = {
-  blue:    'bg-hipo-blueSoft text-hipo-blue',
-  emerald: 'bg-emerald-50    text-emerald-600',
-  amber:   'bg-amber-50      text-amber-600',
-  rose:    'bg-rose-50       text-rose-600',
-  violet:  'bg-violet-50     text-violet-600',
-  slate:   'bg-hipo-bg       text-hipo-slate',
+  blue:    'bg-hipo-blueSoft    text-hipo-blue',
+  success: 'bg-hipo-successSoft text-hipo-success',
+  warning: 'bg-hipo-warningSoft text-hipo-warning',
+  danger:  'bg-hipo-dangerSoft  text-hipo-danger',
+  slate:   'bg-hipo-bg          text-hipo-slate',
+
+  // Aliases retrocompatíveis pra não quebrar usos existentes
+  // (emerald/amber/rose/violet caem nas variantes canônicas mais próximas)
+  emerald: 'bg-hipo-successSoft text-hipo-success',
+  amber:   'bg-hipo-warningSoft text-hipo-warning',
+  rose:    'bg-hipo-dangerSoft  text-hipo-danger',
+  violet:  'bg-hipo-blueSoft    text-hipo-blue',
 };
 
 export default function KpiCard({
   label,
   value,
-  hint,                 // texto auxiliar embaixo do número (ex: "vs. semana anterior")
-  delta,                // número: positivo = subiu, negativo = caiu, 0 = neutro
+  hint,                       // texto auxiliar embaixo do número (ex: "vs. semana anterior")
+  delta,                      // número: positivo = subiu, negativo = caiu, 0 = neutro
   deltaPositiveIsGood = true, // pra inverter cor (ex: pendências subindo é ruim)
   icon: Icon,
   tone = 'blue',
@@ -30,11 +39,11 @@ export default function KpiCard({
     const v = Number(delta);
     if (v > 0) {
       DeltaIcon = ArrowUp;
-      deltaColor = deltaPositiveIsGood ? 'text-emerald-600' : 'text-red-600';
+      deltaColor = deltaPositiveIsGood ? 'text-hipo-success' : 'text-hipo-danger';
       deltaText = `${v}%`;
     } else if (v < 0) {
       DeltaIcon = ArrowDown;
-      deltaColor = deltaPositiveIsGood ? 'text-red-600' : 'text-emerald-600';
+      deltaColor = deltaPositiveIsGood ? 'text-hipo-danger' : 'text-hipo-success';
       deltaText = `${v}%`;
     } else {
       deltaText = '0%';

@@ -15,26 +15,26 @@ import {
 } from "lucide-react";
 import api from "../api";
 
-// ── Badges/utilitários ─────────────────────────────────────────
+// ── Badges/utilitários (Manual de Marca §6: pastel, sem saturação excessiva)
 
 function badgeParceria(p) {
-  if (p === "Parceiro") return "bg-emerald-50 text-emerald-700 border-emerald-100";
+  if (p === "Parceiro") return "bg-hipo-successSoft text-hipo-success border-hipo-successBorder";
   if (p === "Não Parceiro") return "bg-hipo-bg text-hipo-slate border-hipo-border";
   return "bg-hipo-bg text-hipo-muted border-hipo-border";
 }
 
 function badgeSituacao(s) {
-  if (s === "ATRASADA") return "bg-red-50 text-hipo-danger border-red-100";
-  if (s === "FUTURA")   return "bg-blue-50 text-hipo-blue border-blue-100";
-  if (s === "EM_DIA")   return "bg-emerald-50 text-emerald-700 border-emerald-100";
+  if (s === "ATRASADA") return "bg-hipo-dangerSoft text-hipo-danger border-hipo-dangerBorder";
+  if (s === "FUTURA")   return "bg-hipo-blueSoft text-hipo-blue border-hipo-blueSoft";
+  if (s === "EM_DIA")   return "bg-hipo-successSoft text-hipo-success border-hipo-successBorder";
   return "bg-hipo-bg text-hipo-muted border-hipo-border";
 }
 
 function badgeStatusLead(s) {
   const v = (s || "").toLowerCase();
-  if (v === "em andamento")  return "bg-blue-50 text-hipo-blue border-blue-100";
-  if (v === "conquistado")   return "bg-emerald-50 text-emerald-700 border-emerald-100";
-  if (v === "perdido")       return "bg-red-50 text-hipo-danger border-red-100";
+  if (v === "em andamento")  return "bg-hipo-blueSoft text-hipo-blue border-hipo-blueSoft";
+  if (v === "conquistado")   return "bg-hipo-successSoft text-hipo-success border-hipo-successBorder";
+  if (v === "perdido")       return "bg-hipo-dangerSoft text-hipo-danger border-hipo-dangerBorder";
   if (v === "cancelado")     return "bg-hipo-bg text-hipo-slate border-hipo-border";
   return "bg-hipo-bg text-hipo-muted border-hipo-border";
 }
@@ -101,7 +101,7 @@ export default function CarteiraGrupoDrawer({ idGrupo, onFechar, nomeGrupo }) {
   // Bug histórico: usar `leadsPorCnpj` nas deps + guard "if (keys > 0) return"
   // causava loop infinito quando TODOS os requests falhavam (403, etc),
   // porque o map ficava {} e o guard nunca travava. Solução: ref booleana
-  // que marca "já tentei" independente do resultado.
+  // que marca 'já tentei' independente do resultado.
   useEffect(() => {
     if (aba !== "LEADS" || !detalhe?.cnpjs?.length) return;
     if (leadsCarregados.current) return;
@@ -199,9 +199,9 @@ export default function CarteiraGrupoDrawer({ idGrupo, onFechar, nomeGrupo }) {
 
   function badgeSituacaoTarefa(s) {
     const v = (s || "").toLowerCase();
-    if (v === "atrasada") return "bg-red-50 text-hipo-danger border-red-100";
-    if (v === "em dia")   return "bg-emerald-50 text-emerald-700 border-emerald-100";
-    if (v === "futura")   return "bg-blue-50 text-hipo-blue border-blue-100";
+    if (v === "atrasada") return "bg-hipo-dangerSoft text-hipo-danger border-hipo-dangerBorder";
+    if (v === "em dia")   return "bg-hipo-successSoft text-hipo-success border-hipo-successBorder";
+    if (v === "futura")   return "bg-hipo-blueSoft text-hipo-blue border-hipo-blueSoft";
     return "bg-hipo-bg text-hipo-muted border-hipo-border";
   }
 
@@ -232,7 +232,7 @@ export default function CarteiraGrupoDrawer({ idGrupo, onFechar, nomeGrupo }) {
         <div className="p-6 space-y-6">
           {loading && <p className="text-sm text-hipo-slate">Carregando...</p>}
           {erro && (
-            <p className="text-sm text-hipo-danger bg-red-50 border border-red-100 rounded-lg p-3">
+            <p className="text-sm text-hipo-danger bg-hipo-dangerSoft border border-hipo-dangerBorder rounded-lg p-3">
               {erro}
             </p>
           )}
@@ -387,15 +387,15 @@ export default function CarteiraGrupoDrawer({ idGrupo, onFechar, nomeGrupo }) {
                             <p className="text-xs text-hipo-slate">Total</p>
                             <p className="text-lg font-semibold text-hipo-ink">{kpisLeads.total}</p>
                           </div>
-                          <div className="bg-blue-50 border border-blue-100 rounded-lg p-2 text-center">
+                          <div className="bg-hipo-blueSoft border border-hipo-blueSoft rounded-lg p-2 text-center">
                             <p className="text-xs text-hipo-blue">Em andam.</p>
                             <p className="text-lg font-semibold text-hipo-blue">{kpisLeads.em_andamento}</p>
                           </div>
-                          <div className="bg-emerald-50 border border-emerald-100 rounded-lg p-2 text-center">
-                            <p className="text-xs text-emerald-700">Conquist.</p>
-                            <p className="text-lg font-semibold text-emerald-700">{kpisLeads.conquistado}</p>
+                          <div className="bg-hipo-successSoft border border-hipo-successBorder rounded-lg p-2 text-center">
+                            <p className="text-xs text-hipo-success">Conquist.</p>
+                            <p className="text-lg font-semibold text-hipo-success">{kpisLeads.conquistado}</p>
                           </div>
-                          <div className="bg-red-50 border border-red-100 rounded-lg p-2 text-center">
+                          <div className="bg-hipo-dangerSoft border border-hipo-dangerBorder rounded-lg p-2 text-center">
                             <p className="text-xs text-hipo-danger">Perdido</p>
                             <p className="text-lg font-semibold text-hipo-danger">{kpisLeads.perdido}</p>
                           </div>

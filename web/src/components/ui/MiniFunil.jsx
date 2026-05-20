@@ -3,19 +3,23 @@
 // Mini-funil horizontal: mostra QTD e R$ de cada uma das 5 etapas ativas
 // (Suspect, Cadência, Qualificação, Apresentação, Negociação).
 //
-// Compacto pra caber em UMA LINHA da tabela de Contadores.
+// Manual §2: "Azul como cor de acento, ÚNICA. Poucas cores auxiliares".
+// Manual §6: "badges suaves, sem saturação excessiva".
+//
+// Por isso TODAS as etapas usam a paleta azul do manual. A diferenciação
+// entre etapas vem da LETRA (S/C/Q/A/N) e do número, não da cor.
+// Etapas sem leads ficam em estado "muted" (neutro) pra não poluir a tabela.
 //
 // Props:
 //   - dados: { suspect: {qtd, ticket}, cadencia: {qtd, ticket}, ... }
 //   - vazio: string opcional pra exibir quando todas as etapas tem qtd=0
-//   - tone:  'default' | 'compact' (variação visual; compact = só números)
 
 const ETAPAS = [
-  { chave: 'suspect',      label: 'S', cor: 'text-hipo-slate'  },
-  { chave: 'cadencia',     label: 'C', cor: 'text-hipo-blue'   },
-  { chave: 'qualificacao', label: 'Q', cor: 'text-violet-600'  },
-  { chave: 'apresentacao', label: 'A', cor: 'text-amber-600'   },
-  { chave: 'negociacao',   label: 'N', cor: 'text-emerald-600' },
+  { chave: 'suspect',      label: 'S' },
+  { chave: 'cadencia',     label: 'C' },
+  { chave: 'qualificacao', label: 'Q' },
+  { chave: 'apresentacao', label: 'A' },
+  { chave: 'negociacao',   label: 'N' },
 ];
 
 const LABELS_COMPLETOS = {
@@ -58,16 +62,18 @@ export default function MiniFunil({ dados, vazio = '—', loading = false }) {
         const ticket = v.ticket || 0;
         const desativado = qtd === 0;
         const labelTitulo = LABELS_COMPLETOS[e.chave];
+
+        // Estado "com leads": fundo blueSoft + texto blue (acento azul do manual).
+        // Estado "sem leads": neutro discreto pra não poluir.
+        const classes = desativado
+          ? 'bg-hipo-bg text-hipo-muted'
+          : 'bg-hipo-blueSoft text-hipo-blue font-semibold';
+
         return (
           <div
             key={e.chave}
             title={`${labelTitulo}: ${qtd} leads · R$ ${ticket.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}`}
-            className={
-              'flex flex-col items-center px-1.5 py-0.5 rounded ' +
-              (desativado
-                ? 'bg-hipo-bg/40 text-hipo-muted'
-                : `bg-hipo-bg ${e.cor} font-semibold`)
-            }
+            className={`flex flex-col items-center px-1.5 py-0.5 rounded ${classes}`}
           >
             <span className="text-[10px] tracking-wide opacity-70">{e.label}</span>
             <span className="text-xs">{qtd}</span>

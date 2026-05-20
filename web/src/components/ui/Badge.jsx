@@ -1,5 +1,5 @@
 // web/src/components/ui/Badge.jsx
-// Badges pastel — sem saturação excessiva (regra do Manual de Marca).
+// Badges pastel — sem saturação excessiva (Manual de Marca §6).
 //
 // tones:
 //   neutral, info, success, warning, danger
@@ -10,10 +10,10 @@
 
 const TONES = {
   neutral: 'bg-hipo-bg text-hipo-slate border-hipo-border',
-  info:    'bg-hipo-blueSoft text-hipo-blueDark border-blue-100',
-  success: 'bg-emerald-50 text-emerald-700 border-emerald-100',
-  warning: 'bg-amber-50 text-amber-700 border-amber-100',
-  danger:  'bg-red-50 text-red-700 border-red-100',
+  info:    'bg-hipo-blueSoft text-hipo-blueDark border-hipo-blueSoft',
+  success: 'bg-hipo-successSoft text-hipo-success border-hipo-successBorder',
+  warning: 'bg-hipo-warningSoft text-hipo-warning border-hipo-warningBorder',
+  danger:  'bg-hipo-dangerSoft text-hipo-danger border-hipo-dangerBorder',
 };
 
 export default function Badge({ tone = 'neutral', children, className = '' }) {

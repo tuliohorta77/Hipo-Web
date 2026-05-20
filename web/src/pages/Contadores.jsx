@@ -57,9 +57,9 @@ const ABAS = [
 ];
 
 function corCompliance(pct) {
-  if (pct >= 75) return 'text-emerald-700';
-  if (pct >= 50) return 'text-amber-700';
-  return 'text-red-700';
+  if (pct >= 75) return 'text-hipo-success';
+  if (pct >= 50) return 'text-hipo-warning';
+  return 'text-hipo-danger';
 }
 
 export default function Contadores() {
@@ -401,7 +401,7 @@ export default function Contadores() {
                     <Td className="truncate max-w-xs">{h.nome_arquivo}</Td>
                     <Td className="text-hipo-slate">{h.usuario_nome || '—'}</Td>
                     <Td align="right">{h.total_linhas}</Td>
-                    <Td align="right" className="text-emerald-700 font-semibold">
+                    <Td align="right" className="text-hipo-success font-semibold">
                       {h.total_validos}
                     </Td>
                   </Tr>
@@ -536,7 +536,7 @@ export default function Contadores() {
                         align="center"
                         className={
                           l.tarefas_atrasadas > 0
-                            ? 'text-red-700 font-semibold'
+                            ? 'text-hipo-danger font-semibold'
                             : 'text-hipo-muted'
                         }
                       >
@@ -546,7 +546,7 @@ export default function Contadores() {
                         align="center"
                         className={
                           l.sem_tarefa_futura > 0
-                            ? 'text-amber-700 font-semibold'
+                            ? 'text-hipo-warning font-semibold'
                             : 'text-hipo-muted'
                         }
                       >
@@ -653,7 +653,7 @@ export default function Contadores() {
                           className={
                             'align-top pt-5 ' +
                             (l.tarefas_atrasadas > 0
-                              ? 'text-red-700 font-semibold'
+                              ? 'text-hipo-danger font-semibold'
                               : 'text-hipo-muted')
                           }
                         >
@@ -713,15 +713,15 @@ export default function Contadores() {
               <div className="px-5 py-3 border-t border-hipo-border bg-hipo-bg">
                 <div className="flex flex-wrap gap-5 justify-center text-xs text-hipo-slate">
                   <span className="flex items-center gap-1.5">
-                    <span className="w-3 h-3 rounded-full bg-emerald-600" />
+                    <span className="w-3 h-3 rounded-full bg-hipo-success" />
                     Grupos com reunião na semana
                   </span>
                   <span className="flex items-center gap-1.5">
-                    <span className="w-3 h-3 rounded-full bg-amber-500" />
+                    <span className="w-3 h-3 rounded-full bg-hipo-warning" />
                     Grupos sem reunião (semana já passou)
                   </span>
                   <span className="flex items-center gap-1.5">
-                    <span className="w-3 h-3 rounded-full bg-slate-400" />
+                    <span className="w-3 h-3 rounded-full bg-hipo-muted" />
                     Grupos sem reunião ainda (semana corrente)
                   </span>
                 </div>
@@ -856,7 +856,7 @@ function DrilldownTabela({
             }
             placeholder="Buscar grupo ou contabilidade..."
             onClick={(e) => e.stopPropagation()}
-            className="w-full h-9 bg-hipo-card border border-hipo-border rounded-md pl-9 pr-3 text-sm text-hipo-ink placeholder:text-hipo-muted outline-none focus:border-hipo-blue focus:ring-2 focus:ring-blue-100"
+            className="w-full h-9 bg-hipo-card border border-hipo-border rounded-md pl-9 pr-3 text-sm text-hipo-ink placeholder:text-hipo-muted outline-none focus:border-hipo-blue focus:ring-2 focus:ring-hipo-blueSoft"
           />
         </div>
 
@@ -930,7 +930,7 @@ function DrilldownTabela({
                         <span
                           className={`ml-2 ${
                             g.parceria === 'Parceiro'
-                              ? 'text-emerald-700 font-medium'
+                              ? 'text-hipo-success font-medium'
                               : 'text-hipo-slate'
                           }`}
                         >
@@ -948,7 +948,7 @@ function DrilldownTabela({
                   align="center"
                   className={
                     g.tarefas_atrasadas > 0
-                      ? 'text-red-700 font-semibold'
+                      ? 'text-hipo-danger font-semibold'
                       : 'text-hipo-muted'
                   }
                 >

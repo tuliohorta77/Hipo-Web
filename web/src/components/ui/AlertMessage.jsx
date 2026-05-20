@@ -1,27 +1,27 @@
 // web/src/components/ui/AlertMessage.jsx
 // Caixa de feedback consistente para resultados de operações
-// (upload, save, etc).
+// (upload, save, etc). Usa tokens do Manual de Marca §6.
 
 import { CheckCircle2, AlertTriangle, XCircle, Info } from 'lucide-react';
 
 const STYLES = {
   ok: {
-    container: 'bg-emerald-50 border-emerald-100 text-emerald-800',
+    container: 'bg-hipo-successSoft border-hipo-successBorder text-hipo-success',
     Icon: CheckCircle2,
     iconClass: 'text-hipo-success',
   },
   aviso: {
-    container: 'bg-amber-50 border-amber-100 text-amber-800',
+    container: 'bg-hipo-warningSoft border-hipo-warningBorder text-hipo-warning',
     Icon: AlertTriangle,
     iconClass: 'text-hipo-warning',
   },
   erro: {
-    container: 'bg-red-50 border-red-100 text-red-800',
+    container: 'bg-hipo-dangerSoft border-hipo-dangerBorder text-hipo-danger',
     Icon: XCircle,
     iconClass: 'text-hipo-danger',
   },
   info: {
-    container: 'bg-hipo-blueSoft border-blue-100 text-hipo-blueDark',
+    container: 'bg-hipo-blueSoft border-hipo-blueSoft text-hipo-blueDark',
     Icon: Info,
     iconClass: 'text-hipo-blue',
   },
