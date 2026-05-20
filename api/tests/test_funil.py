@@ -5,7 +5,7 @@ Testes do endpoint POST /clientes/funil-por-grupos:
   - Com dados, agrega por id_grupo e por etapa (5 etapas)
   - Filtra status != 'em andamento'
   - Filtra fase '06. Conquistado' (fora do funil)
-  - Soma ticket (previsao_valor) corretamente
+  - Soma ticket (proposta_nmrr) corretamente
   - 403 pra cargo sem acesso
 """
 import bcrypt
@@ -94,7 +94,7 @@ class TestFunilPorGrupos:
             VALUES ('22222222-2222-2222-2222-222222222222', 'OPORTUNIDADES', 10, 10, TRUE)
         """)
         await db_conn.executemany(
-            """INSERT INTO cliente_oportunidade (upload_id, op_id, cnpj_contador, status, fase, previsao_valor)
+            """INSERT INTO cliente_oportunidade (upload_id, op_id, cnpj_contador, status, fase, proposta_nmrr)
                VALUES ($1, $2, $3, $4, $5, $6)""",
             [
                 # Grupo A (CC-A1 + CC-A2): 3 leads ativos, etapas diversas

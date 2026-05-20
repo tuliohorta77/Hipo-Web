@@ -498,7 +498,7 @@ async def funil_por_grupos(
       }
 
     Faz JOIN com carteira_cnpj.cnpj_contador → cliente_oportunidade.cnpj_contador.
-    Filtra leads com status = 'Ativo'. Ticket = previsao_valor.
+    Filtra leads com status = 'Ativo'. Ticket = proposta_nmrr.
     """
     if not body.id_grupos:
         return {"por_grupo": {}}
@@ -509,7 +509,7 @@ async def funil_por_grupos(
             cc.id_grupo,
             LEFT(co.fase, 2) AS num_fase,
             COUNT(*)              AS qtd,
-            COALESCE(SUM(co.previsao_valor), 0) AS ticket
+            COALESCE(SUM(co.proposta_nmrr), 0) AS ticket
         FROM carteira_cnpj cc
         JOIN cliente_oportunidade co
           ON co.cnpj_contador = cc.cnpj_contador
