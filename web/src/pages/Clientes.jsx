@@ -175,15 +175,13 @@ export default function Clientes() {
               label="Oportunidades"
               accept=".xlsx"
               loading={uploading === 'OPORTUNIDADES'}
-              onFile={(f) => handleUpload('OPORTUNIDADES', f)}
-              icon={Upload}
+              onChange={(e) => handleUpload('OPORTUNIDADES', e.target.files[0])}
             />
             <UploadButton
               label="Tarefas"
               accept=".xlsx"
               loading={uploading === 'TAREFAS'}
-              onFile={(f) => handleUpload('TAREFAS', f)}
-              icon={Upload}
+              onChange={(e) => handleUpload('TAREFAS', e.target.files[0])}
             />
             <Button
               variant="ghost"
