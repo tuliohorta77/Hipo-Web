@@ -35,7 +35,8 @@ function fmtMoedaCompacta(v) {
 }
 
 export default function MiniFunil({ dados, vazio = '—', loading = false }) {
-  console.log('[HIPO] render MiniFunil dados:', dados, 'loading:', loading);
+  const _qtds = dados ? { s: dados.suspect?.qtd, c: dados.cadencia?.qtd, q: dados.qualificacao?.qtd, a: dados.apresentacao?.qtd, n: dados.negociacao?.qtd } : null;
+  console.log('[HIPO] render MiniFunil', { hasDados: !!dados, loading, qtds: _qtds });
   if (loading) {
     return <span className="text-xs text-hipo-muted italic">carregando…</span>;
   }
