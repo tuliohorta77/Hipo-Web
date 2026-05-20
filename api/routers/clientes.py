@@ -409,15 +409,18 @@ async def historico(
 
 # ── Leads por contador (usado no drilldown da Carteira) ──────────
 
-@router.get("/contador/{cnpj}/leads")
+@router.get("/contador-leads")
 async def leads_do_contador(
-    cnpj: str,
+    cnpj: str = Query(..., description="CNPJ do contador (com ou sem máscara)"),
     conn=Depends(get_conn),
     _user=Depends(usuario_atual),
 ):
     """
     Lista as oportunidades vinculadas a um CNPJ de contador.
     Usado pela aba "Leads" no drilldown do módulo Contadores.
+
+    Query param em vez de path param: CNPJs contêm '/' que quebraria
+    o roteamento (ex: 02.543.245/0001-90).
     """
     rows = await conn.fetch(
         """

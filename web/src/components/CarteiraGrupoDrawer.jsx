@@ -92,7 +92,7 @@ export default function CarteiraGrupoDrawer({ idGrupo, onFechar, nomeGrupo }) {
 
     Promise.all(
       cnpjs.map((cnpj) =>
-        api.get(`/clientes/contador/${encodeURIComponent(cnpj)}/leads`)
+        api.get('/clientes/contador-leads', { params: { cnpj } })
           .then((r) => [cnpj, r.data])
           .catch(() => [cnpj, null])
       )
