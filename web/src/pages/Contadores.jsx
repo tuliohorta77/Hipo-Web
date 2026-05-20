@@ -83,6 +83,7 @@ export default function Contadores() {
   // Carregado sob demanda quando expande um colaborador.
   const [funilPorGrupo, setFunilPorGrupo] = useState({});
   const [funilLoading, setFunilLoading] = useState(false);
+  const [funilVersao, setFunilVersao] = useState(0);
 
   // Uploads / modais
   const [uploading, setUploading] = useState(null); // null | "CARTEIRA" | "TAREFAS"
@@ -169,6 +170,7 @@ export default function Contadores() {
         id_grupos: idGrupos,
       });
       setFunilPorGrupo((atual) => ({ ...atual, ...(data.por_grupo || {}) }));
+      setFunilVersao((v) => v + 1);
     } catch (e) {
       // Erro silencioso — mini-funil só não aparece se a chamada falhou
       console.error('Funil:', e);
@@ -532,7 +534,7 @@ export default function Contadores() {
                       </Td>
                     </Tr>,
                     aberto && (
-                      <tr key={`${l.colaborador_id}-drill`} className="bg-hipo-bg">
+                      <tr key={`${l.colaborador_id}-drill-${funilVersao}`} className="bg-hipo-bg">
                         <td colSpan={8} className="px-5 py-4">
                           <DrilldownTabela
                             aba="EC_HUNTER"
@@ -650,7 +652,7 @@ export default function Contadores() {
                         </Td>
                       </Tr>,
                       aberto && (
-                        <tr key={`${l.colaborador_id}-drill`} className="bg-hipo-bg">
+                        <tr key={`${l.colaborador_id}-drill-${funilVersao}`} className="bg-hipo-bg">
                           <td colSpan={7} className="px-5 py-4">
                             <DrilldownTabela
                               aba="EC_FARMER"
