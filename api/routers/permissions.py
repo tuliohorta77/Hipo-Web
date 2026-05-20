@@ -10,9 +10,14 @@ Cargos e seus módulos:
 Notas:
   - O módulo é chamado 'carteira' no backend mas o frontend o chama
     de "Contadores" (renomeação visual, não estrutural).
-  - 'clientes' é o novo módulo de oportunidades/leads + tarefas.
+  - 'clientes' é o módulo de oportunidades/leads + tarefas.
+  - Rotas que servem ao drilldown da carteira (ex: /clientes/contador-leads)
+    devem usar requer_qualquer_modulo(["clientes", "carteira"]) para
+    permitir que Hunter/Farmer (que só têm 'carteira') também acessem.
 """
 from __future__ import annotations
+
+from typing import Iterable
 
 from fastapi import Depends, HTTPException
 
@@ -66,6 +71,39 @@ def requer_modulo(modulo: str):
             raise HTTPException(
                 403,
                 f"Cargo '{cargo or 'sem cargo'}' não tem acesso ao módulo '{modulo}'.",
+            )
+        return user
+    return _dep
+
+
+def requer_qualquer_modulo(modulos: Iterable[str]):
+    """
+    Dependency factory: libera se o usuário tem QUALQUER UM dos módulos da lista.
+
+    Uso típico: rotas que conceitualmente pertencem a um módulo (ex: /clientes/...)
+    mas que servem ao drilldown de outro (ex: aba Leads dentro de Contadores).
+    Aplicada como dependency da rota — sobrescreve o guard global do router.
+
+    Exemplo:
+        @router.get("/contador-leads",
+                    dependencies=[Depends(requer_qualquer_modulo(["clientes","carteira"]))])
+        async def leads_do_contador(...): ...
+
+    Raises:
+        HTTPException 403 se o cargo não tem nenhum dos módulos.
+    """
+    modulos_set = set(modulos)
+    if not modulos_set:
+        raise ValueError("requer_qualquer_modulo: lista de módulos não pode ser vazia.")
+
+    async def _dep(user=Depends(usuario_atual)):
+        cargo = user.get("cargo")
+        permitidos = modulos_do_cargo(cargo)
+        if not (permitidos & modulos_set):
+            raise HTTPException(
+                403,
+                f"Cargo '{cargo or 'sem cargo'}' não tem acesso a nenhum dos "
+                f"módulos exigidos: {sorted(modulos_set)}.",
             )
         return user
     return _dep

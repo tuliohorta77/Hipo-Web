@@ -8,14 +8,14 @@
 // Quando vê 1 CNPJ no grupo: aba Leads mostra os leads desse CNPJ.
 // Quando vê N CNPJs: agrega leads de TODOS os CNPJs do grupo.
 
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import {
   X, Building2, ListChecks, MapPin, Users, Target, ChevronRight, ChevronDown,
   TrendingUp, AlertTriangle, ExternalLink,
 } from "lucide-react";
 import api from "../api";
 
-// ── Badges/utilitários ───────────────────────────────────────────
+// ── Badges/utilitários ─────────────────────────────────────────
 
 function badgeParceria(p) {
   if (p === "Parceiro") return "bg-emerald-50 text-emerald-700 border-emerald-100";
@@ -56,7 +56,7 @@ function fmtMoeda(v) {
 }
 
 
-// ── Componente ───────────────────────────────────────────────────
+// ── Componente ─────────────────────────────────────────────────
 
 export default function CarteiraGrupoDrawer({ idGrupo, onFechar, nomeGrupo }) {
   const [detalhe, setDetalhe] = useState(null);
@@ -64,15 +64,22 @@ export default function CarteiraGrupoDrawer({ idGrupo, onFechar, nomeGrupo }) {
   const [erro, setErro] = useState(null);
   const [aba, setAba] = useState("TAREFAS");
 
-  // Leads agregados de todos os CNPJs do grupo (carregamento lazy)
-  const [leadsPorCnpj, setLeadsPorCnpj] = useState({}); // { cnpj: {kpis, leads} }
-    const [loadingLeads, setLoadingLeads] = useState(false);
+  // Leads agregados por CNPJ. Cada valor pode ser:
+  //   - { kpis, leads }       → sucesso
+  //   - { _erro: true, status }→ falha (ex: 403, 500)
+  const [leadsPorCnpj, setLeadsPorCnpj] = useState({});
+  const [loadingLeads, setLoadingLeads] = useState(false);
+
+  // Flag idempotente: "já tentei carregar leads deste detalhe?"
+  // Necessária pra evitar loop quando TODOS os requests falham (e o map
+  // fica vazio). Reseta toda vez que muda de grupo.
+  const leadsCarregados = useRef(false);
 
   // Drill-in nas linhas de lead: mostra tarefas do op_id ao expandir
-  const [leadExpandido, setLeadExpandido] = useState(null); // op_id atualmente aberto
-  const [tarefasPorOp, setTarefasPorOp] = useState({});    // { op_id: { loading, tarefas, erro } }
+  const [leadExpandido, setLeadExpandido] = useState(null);
+  const [tarefasPorOp, setTarefasPorOp] = useState({});
 
-  // Carrega o drilldown principal (CNPJs + tarefas) — igual à v1
+  // Carrega o drilldown principal (CNPJs + tarefas)
   useEffect(() => {
     if (!idGrupo) return;
     setLoading(true);
@@ -82,25 +89,32 @@ export default function CarteiraGrupoDrawer({ idGrupo, onFechar, nomeGrupo }) {
     setLeadExpandido(null);
     setTarefasPorOp({});
     setAba("TAREFAS");
+    leadsCarregados.current = false;
     api.get(`/carteira/grupos/${encodeURIComponent(idGrupo)}`)
       .then((r) => setDetalhe(r.data))
       .catch((e) => setErro(e.response?.data?.detail || e.message))
       .finally(() => setLoading(false));
   }, [idGrupo]);
 
-  // Lazy-load dos leads ao mudar pra aba Leads
+  // Lazy-load dos leads ao mudar pra aba Leads.
+  //
+  // Bug histórico: usar `leadsPorCnpj` nas deps + guard "if (keys > 0) return"
+  // causava loop infinito quando TODOS os requests falhavam (403, etc),
+  // porque o map ficava {} e o guard nunca travava. Solução: ref booleana
+  // que marca "já tentei" independente do resultado.
   useEffect(() => {
     if (aba !== "LEADS" || !detalhe?.cnpjs?.length) return;
-    if (Object.keys(leadsPorCnpj).length > 0) return; // já carregou
+    if (leadsCarregados.current) return;
+    leadsCarregados.current = true;
 
     setLoadingLeads(true);
     const cnpjs = detalhe.cnpjs.map((c) => c.cnpj_contador).filter(Boolean);
 
     Promise.all(
       cnpjs.map((cnpj) =>
-        api.get('/clientes/contador-leads', { params: { cnpj } })
+        api.get("/clientes/contador-leads", { params: { cnpj } })
           .then((r) => [cnpj, r.data])
-          .catch(() => [cnpj, null])
+          .catch((e) => [cnpj, { _erro: true, status: e?.response?.status }])
       )
     )
       .then((pares) => {
@@ -111,12 +125,13 @@ export default function CarteiraGrupoDrawer({ idGrupo, onFechar, nomeGrupo }) {
         setLeadsPorCnpj(map);
       })
       .finally(() => setLoadingLeads(false));
-  }, [aba, detalhe, leadsPorCnpj]);
+  }, [aba, detalhe]);
 
-  // Agrega todos os leads de todos os CNPJs num único array
+  // Agrega só os CNPJs que tiveram resposta OK
   const leadsAgregados = useMemo(() => {
     const out = [];
     for (const [cnpj, data] of Object.entries(leadsPorCnpj)) {
+      if (data?._erro) continue;
       for (const lead of data.leads || []) {
         out.push({ ...lead, _cnpj_contador: cnpj });
       }
@@ -132,6 +147,7 @@ export default function CarteiraGrupoDrawer({ idGrupo, onFechar, nomeGrupo }) {
   const kpisLeads = useMemo(() => {
     const k = { total: 0, em_andamento: 0, conquistado: 0, perdido: 0 };
     for (const data of Object.values(leadsPorCnpj)) {
+      if (data?._erro) continue;
       k.total += data.kpis?.total || 0;
       k.em_andamento += data.kpis?.em_andamento || 0;
       k.conquistado += data.kpis?.conquistado || 0;
@@ -140,19 +156,25 @@ export default function CarteiraGrupoDrawer({ idGrupo, onFechar, nomeGrupo }) {
     return k;
   }, [leadsPorCnpj]);
 
+  // Detecta o caso "todas as chamadas falharam por permissão" pra mostrar
+  // mensagem específica em vez do estado vazio genérico.
+  const todosForbidden = useMemo(() => {
+    const vals = Object.values(leadsPorCnpj);
+    if (!vals.length) return false;
+    return vals.every((d) => d?._erro && d?.status === 403);
+  }, [leadsPorCnpj]);
+
   if (!idGrupo) return null;
+
   // Acordeao: abre/fecha tarefas de um lead. Lazy fetch via /clientes/oportunidades/{op_id}.
   async function toggleLead(opId) {
     if (!opId) return;
-    // Se ja esta expandido, fecha
     if (leadExpandido === opId) {
       setLeadExpandido(null);
       return;
     }
     setLeadExpandido(opId);
-    // Se ja temos cache, nao refaz fetch
     if (tarefasPorOp[opId]?.tarefas) return;
-    // Marca como carregando
     setTarefasPorOp((atual) => ({
       ...atual,
       [opId]: { loading: true, tarefas: null, erro: null },
@@ -175,7 +197,6 @@ export default function CarteiraGrupoDrawer({ idGrupo, onFechar, nomeGrupo }) {
     }
   }
 
-  // Cor do badge de situacao da tarefa (Em dia / Atrasada / Futura)
   function badgeSituacaoTarefa(s) {
     const v = (s || "").toLowerCase();
     if (v === "atrasada") return "bg-red-50 text-hipo-danger border-red-100";
@@ -338,6 +359,16 @@ export default function CarteiraGrupoDrawer({ idGrupo, onFechar, nomeGrupo }) {
                   <>
                     {loadingLeads ? (
                       <p className="text-sm text-hipo-slate italic">Carregando leads...</p>
+                    ) : todosForbidden ? (
+                      <div className="text-center py-8" data-testid="leads-forbidden">
+                        <AlertTriangle size={32} className="mx-auto text-hipo-danger mb-2" />
+                        <p className="text-sm text-hipo-danger font-medium">
+                          Sem permissão para ver os leads.
+                        </p>
+                        <p className="text-xs text-hipo-muted mt-1">
+                          Peça acesso ao módulo Clientes para o ADM.
+                        </p>
+                      </div>
                     ) : kpisLeads.total === 0 ? (
                       <div className="text-center py-8">
                         <Target size={32} className="mx-auto text-hipo-muted mb-2" />

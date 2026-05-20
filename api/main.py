@@ -1,7 +1,9 @@
 from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 
-from routers import po, pex, auth, bd_ativados, metas, carteira, clientes
+from routers import (
+    po, pex, auth, bd_ativados, metas, carteira, clientes, clientes_drilldown,
+)
 from routers.permissions import requer_modulo
 
 app = FastAPI(
@@ -51,6 +53,14 @@ app.include_router(
     clientes.router,
     prefix="/clientes", tags=["Clientes"],
     dependencies=[Depends(requer_modulo("clientes"))],
+)
+# Drilldown da Carteira que vive em /clientes/* mas precisa ser acessível
+# por quem tem APENAS o módulo 'carteira' (Hunter/Farmer). Guard próprio
+# vive dentro das rotas deste router (não no include) — assim este include
+# não restringe nada e cada rota declara seus módulos permitidos.
+app.include_router(
+    clientes_drilldown.router,
+    prefix="/clientes", tags=["Clientes - Drilldown"],
 )
 
 

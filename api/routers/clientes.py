@@ -407,51 +407,6 @@ async def historico(
     return {"items": [dict(r) for r in rows]}
 
 
-# ── Leads por contador (usado no drilldown da Carteira) ──────────
-
-@router.get("/contador-leads")
-async def leads_do_contador(
-    cnpj: str = Query(..., description="CNPJ do contador (com ou sem máscara)"),
-    conn=Depends(get_conn),
-    _user=Depends(usuario_atual),
-):
-    """
-    Lista as oportunidades vinculadas a um CNPJ de contador.
-    Usado pela aba "Leads" no drilldown do módulo Contadores.
-
-    Query param em vez de path param: CNPJs contêm '/' que quebraria
-    o roteamento (ex: 02.543.245/0001-90).
-    """
-    rows = await conn.fetch(
-        """
-        SELECT op_id, cnpj, razao_social, status, fase, origem_macro,
-               temperatura, previsao_valor, proposta_nmrr, previsao_data,
-               executivo_contas, executivo_vendas,
-               ultima_tarefa_dias, dias_parado,
-               data_criacao, data_atualizacao
-        FROM cliente_oportunidade
-        WHERE cnpj_contador = $1
-        ORDER BY data_atualizacao DESC NULLS LAST, op_id DESC
-        """,
-        cnpj,
-    )
-
-    # KPIs do bloco
-    total = len(rows)
-    em_andamento = sum(1 for r in rows if (r["status"] or "").lower() == "ativo")
-    conquistado = sum(1 for r in rows if (r["status"] or "").lower() == "conquistado")
-    perdido = sum(1 for r in rows if (r["status"] or "").lower() == "perdido")
-
-    return {
-        "cnpj_contador": cnpj,
-        "kpis": {
-            "total": total,
-            "em_andamento": em_andamento,
-            "conquistado": conquistado,
-            "perdido": perdido,
-        },
-        "leads": [dict(r) for r in rows],
-    }
 
 
 # ── Funil por colaborador/grupo (agregado para mini-funil na UI) ──
