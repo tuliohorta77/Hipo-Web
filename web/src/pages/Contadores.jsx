@@ -141,6 +141,42 @@ export default function Contadores() {
     setFiltrosDrill({ tarefa_atrasada: false, sem_tarefa_futura: false, busca_grupo: '' });
   }, [aba]);
 
+  // Pre-fetch em background: assim que a aba muda ou as linhas carregam,
+  // busca os funis de todos os grupos visiveis que ainda nao estao em cache.
+  // Mini-funis dos agregados (linhas pai) preenchem sozinhos em ~1s sem o
+  // usuario precisar expandir cada colaborador.
+  useEffect(() => {
+    const linhasAba =
+      aba === 'EC_HUNTER' ? hunter.linhas
+      : aba === 'EC_FARMER' ? farmer.linhas
+      : [];
+    if (!linhasAba.length) return;
+
+    const idGrupos = linhasAba
+      .flatMap((l) => l.grupos || [])
+      .map((g) => g.id_grupo)
+      .filter(Boolean)
+      .filter((gid) => !funilPorGrupo[gid]);
+
+    if (!idGrupos.length) return;
+
+    let cancelado = false;
+    (async () => {
+      try {
+        const { data } = await api.post('/clientes/funil-por-grupos', {
+          id_grupos: idGrupos,
+        });
+        if (cancelado) return;
+        setFunilPorGrupo((atual) => ({ ...atual, ...(data.por_grupo || {}) }));
+      } catch (e) {
+        if (!cancelado) console.error('Funil (pre-fetch):', e);
+      }
+    })();
+
+    return () => { cancelado = true; };
+  }, [aba, hunter.linhas, farmer.linhas]);
+
+
   // ── Drilldown (instantâneo: usa grupos embutidos no payload) ─
 
   async function toggleExpandir(colab_id) {
@@ -168,7 +204,7 @@ export default function Contadores() {
       const { data } = await api.post('/clientes/funil-por-grupos', {
         id_grupos: idGrupos,
       });
-setFunilPorGrupo((atual) => ({ ...atual, ...(data.por_grupo || {}) }));
+      setFunilPorGrupo((atual) => ({ ...atual, ...(data.por_grupo || {}) }));
     } catch (e) {
       // Erro silencioso — mini-funil só não aparece se a chamada falhou
       console.error('Funil:', e);
