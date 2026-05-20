@@ -8,9 +8,9 @@
 // Quando vê 1 CNPJ no grupo: aba Leads mostra os leads desse CNPJ.
 // Quando vê N CNPJs: agrega leads de TODOS os CNPJs do grupo.
 
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import {
-  X, Building2, ListChecks, MapPin, Users, Target,
+  X, Building2, ListChecks, MapPin, Users, Target, ChevronRight, ChevronDown,
   TrendingUp, AlertTriangle, ExternalLink,
 } from "lucide-react";
 import api from "../api";
@@ -66,7 +66,11 @@ export default function CarteiraGrupoDrawer({ idGrupo, onFechar, nomeGrupo }) {
 
   // Leads agregados de todos os CNPJs do grupo (carregamento lazy)
   const [leadsPorCnpj, setLeadsPorCnpj] = useState({}); // { cnpj: {kpis, leads} }
-  const [loadingLeads, setLoadingLeads] = useState(false);
+    const [loadingLeads, setLoadingLeads] = useState(false);
+
+  // Drill-in nas linhas de lead: mostra tarefas do op_id ao expandir
+  const [leadExpandido, setLeadExpandido] = useState(null); // op_id atualmente aberto
+  const [tarefasPorOp, setTarefasPorOp] = useState({});    // { op_id: { loading, tarefas, erro } }
 
   // Carrega o drilldown principal (CNPJs + tarefas) — igual à v1
   useEffect(() => {
@@ -75,6 +79,8 @@ export default function CarteiraGrupoDrawer({ idGrupo, onFechar, nomeGrupo }) {
     setErro(null);
     setDetalhe(null);
     setLeadsPorCnpj({});
+    setLeadExpandido(null);
+    setTarefasPorOp({});
     setAba("TAREFAS");
     api.get(`/carteira/grupos/${encodeURIComponent(idGrupo)}`)
       .then((r) => setDetalhe(r.data))
@@ -135,6 +141,49 @@ export default function CarteiraGrupoDrawer({ idGrupo, onFechar, nomeGrupo }) {
   }, [leadsPorCnpj]);
 
   if (!idGrupo) return null;
+  // Acordeao: abre/fecha tarefas de um lead. Lazy fetch via /clientes/oportunidades/{op_id}.
+  async function toggleLead(opId) {
+    if (!opId) return;
+    // Se ja esta expandido, fecha
+    if (leadExpandido === opId) {
+      setLeadExpandido(null);
+      return;
+    }
+    setLeadExpandido(opId);
+    // Se ja temos cache, nao refaz fetch
+    if (tarefasPorOp[opId]?.tarefas) return;
+    // Marca como carregando
+    setTarefasPorOp((atual) => ({
+      ...atual,
+      [opId]: { loading: true, tarefas: null, erro: null },
+    }));
+    try {
+      const { data } = await api.get(`/clientes/oportunidades/${opId}`);
+      setTarefasPorOp((atual) => ({
+        ...atual,
+        [opId]: { loading: false, tarefas: data.tarefas || [], erro: null },
+      }));
+    } catch (e) {
+      setTarefasPorOp((atual) => ({
+        ...atual,
+        [opId]: {
+          loading: false,
+          tarefas: null,
+          erro: e.response?.data?.detail || e.message || "Erro ao carregar tarefas.",
+        },
+      }));
+    }
+  }
+
+  // Cor do badge de situacao da tarefa (Em dia / Atrasada / Futura)
+  function badgeSituacaoTarefa(s) {
+    const v = (s || "").toLowerCase();
+    if (v === "atrasada") return "bg-red-50 text-hipo-danger border-red-100";
+    if (v === "em dia")   return "bg-emerald-50 text-emerald-700 border-emerald-100";
+    if (v === "futura")   return "bg-blue-50 text-hipo-blue border-blue-100";
+    return "bg-hipo-bg text-hipo-muted border-hipo-border";
+  }
+
 
   return (
     <div className="fixed inset-0 z-40 flex" onClick={onFechar}>
@@ -326,6 +375,7 @@ export default function CarteiraGrupoDrawer({ idGrupo, onFechar, nomeGrupo }) {
                           <table className="w-full text-xs">
                             <thead>
                               <tr className="text-hipo-slate border-b border-hipo-border text-left">
+                                <th className="px-2 py-2 font-medium w-6"></th>
                                 <th className="px-3 py-2 font-medium">Razão Social</th>
                                 <th className="px-3 py-2 font-medium">Fase</th>
                                 <th className="px-3 py-2 font-medium">Status</th>
@@ -334,26 +384,85 @@ export default function CarteiraGrupoDrawer({ idGrupo, onFechar, nomeGrupo }) {
                               </tr>
                             </thead>
                             <tbody className="divide-y divide-hipo-border">
-                              {leadsAgregados.slice(0, 50).map((l) => (
-                                <tr key={l.op_id} className="hover:bg-hipo-bg">
-                                  <td className="px-3 py-2 text-hipo-ink">
-                                    <div className="font-medium">{l.razao_social || "—"}</div>
-                                    <div className="text-xs text-hipo-muted font-mono">{l.cnpj}</div>
-                                  </td>
-                                  <td className="px-3 py-2 text-hipo-slate">{l.fase || "—"}</td>
-                                  <td className="px-3 py-2">
-                                    <span className={`text-[10px] tracking-wider px-2 py-0.5 rounded-full border ${badgeStatusLead(l.status)}`}>
-                                      {(l.status || "—").toUpperCase()}
-                                    </span>
-                                  </td>
-                                  <td className="px-3 py-2 text-right text-hipo-ink whitespace-nowrap">
-                                    {fmtMoeda(l.proposta_nmrr)}
-                                  </td>
-                                  <td className="px-3 py-2 text-right text-hipo-slate whitespace-nowrap">
-                                    {l.dias_parado != null ? `${l.dias_parado}d` : "—"}
-                                  </td>
-                                </tr>
-                              ))}
+                              {leadsAgregados.slice(0, 50).map((l) => {
+                                const aberto = leadExpandido === l.op_id;
+                                const cache = tarefasPorOp[l.op_id];
+                                return (
+                                  <Fragment key={l.op_id}>
+                                    <tr
+                                      onClick={() => toggleLead(l.op_id)}
+                                      className={`hover:bg-hipo-bg cursor-pointer ${aberto ? "bg-hipo-blueSoft hover:bg-hipo-blueSoft" : ""}`}
+                                    >
+                                      <td className="px-2 py-2 text-hipo-muted">
+                                        {aberto ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                                      </td>
+                                      <td className="px-3 py-2 text-hipo-ink">
+                                        <div className="font-medium">{l.razao_social || "—"}</div>
+                                        <div className="text-xs text-hipo-muted font-mono">{l.cnpj}</div>
+                                      </td>
+                                      <td className="px-3 py-2 text-hipo-slate">{l.fase || "—"}</td>
+                                      <td className="px-3 py-2">
+                                        <span className={`text-[10px] tracking-wider px-2 py-0.5 rounded-full border ${badgeStatusLead(l.status)}`}>
+                                          {(l.status || "—").toUpperCase()}
+                                        </span>
+                                      </td>
+                                      <td className="px-3 py-2 text-right text-hipo-ink whitespace-nowrap">
+                                        {fmtMoeda(l.proposta_nmrr)}
+                                      </td>
+                                      <td className="px-3 py-2 text-right text-hipo-slate whitespace-nowrap">
+                                        {l.dias_parado != null ? `${l.dias_parado}d` : "—"}
+                                      </td>
+                                    </tr>
+                                    {aberto && (
+                                      <tr className="bg-hipo-bg">
+                                        <td colSpan={6} className="px-4 py-3">
+                                          {cache?.loading && (
+                                            <p className="text-xs text-hipo-slate italic">Carregando tarefas...</p>
+                                          )}
+                                          {cache?.erro && (
+                                            <p className="text-xs text-hipo-danger">{cache.erro}</p>
+                                          )}
+                                          {cache?.tarefas && cache.tarefas.length === 0 && (
+                                            <p className="text-xs text-hipo-slate italic">Nenhuma tarefa registrada para este lead.</p>
+                                          )}
+                                          {cache?.tarefas && cache.tarefas.length > 0 && (
+                                            <div className="bg-hipo-card border border-hipo-border rounded-md overflow-hidden">
+                                              <table className="w-full text-xs">
+                                                <thead>
+                                                  <tr className="text-hipo-slate border-b border-hipo-border text-left">
+                                                    <th className="px-3 py-1.5 font-medium">Data</th>
+                                                    <th className="px-3 py-1.5 font-medium">Canal</th>
+                                                    <th className="px-3 py-1.5 font-medium">Finalidade</th>
+                                                    <th className="px-3 py-1.5 font-medium">Situação</th>
+                                                    <th className="px-3 py-1.5 font-medium">Resultado</th>
+                                                    <th className="px-3 py-1.5 font-medium">Executivo</th>
+                                                  </tr>
+                                                </thead>
+                                                <tbody className="divide-y divide-hipo-border">
+                                                  {cache.tarefas.map((t) => (
+                                                    <tr key={t.tarefa_id} className="hover:bg-hipo-bg/60">
+                                                      <td className="px-3 py-1.5 text-hipo-ink whitespace-nowrap">{fmtDate(t.data_agendamento)}</td>
+                                                      <td className="px-3 py-1.5 text-hipo-slate">{t.canal || "—"}</td>
+                                                      <td className="px-3 py-1.5 text-hipo-slate">{t.finalidade || "—"}</td>
+                                                      <td className="px-3 py-1.5">
+                                                        <span className={`text-[10px] tracking-wider px-2 py-0.5 rounded-full border ${badgeSituacaoTarefa(t.situacao_tarefa)}`}>
+                                                          {(t.situacao_tarefa || "—").toUpperCase()}
+                                                        </span>
+                                                      </td>
+                                                      <td className="px-3 py-1.5 text-hipo-slate">{t.resultado || "—"}</td>
+                                                      <td className="px-3 py-1.5 text-hipo-slate">{t.usuario_atribuido || "—"}</td>
+                                                    </tr>
+                                                  ))}
+                                                </tbody>
+                                              </table>
+                                            </div>
+                                          )}
+                                        </td>
+                                      </tr>
+                                    )}
+                                  </Fragment>
+                                );
+                              })}
                             </tbody>
                           </table>
                           {leadsAgregados.length > 50 && (
