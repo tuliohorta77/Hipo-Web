@@ -49,18 +49,14 @@ beforeEach(() => {
 
 describe('Clientes — render básico', () => {
   it('renderiza titulo e cabecalho', async () => {
-    api.get.mockResolvedValueOnce({ data: resumoVazio })  // /clientes/resumo
-    api.get.mockResolvedValueOnce({ data: { total: 0, items: [], page: 1, page_size: 50 } }) // ops
+    api.get.mockResolvedValueOnce({ data: resumoVazio })
+    api.get.mockResolvedValueOnce({ data: { total: 0, items: [], page: 1, page_size: 50 } })
 
     renderClientes()
 
-    // Titulo: usa H1 pra ser inambíguo
     expect(screen.getByRole('heading', { name: 'Clientes', level: 1 })).toBeInTheDocument()
-
-    // Subtítulo do header (texto exato)
     expect(screen.getByText('Oportunidades comerciais e tarefas dos leads.')).toBeInTheDocument()
 
-    // Espera a página estabilizar
     await waitFor(() => {
       expect(screen.getByText('Nenhuma oportunidade')).toBeInTheDocument()
     })
@@ -73,11 +69,9 @@ describe('Clientes — render básico', () => {
     renderClientes()
 
     await waitFor(() => {
-      // Labels únicos dos KpiCards
       expect(screen.getByText('Total de Oportunidades')).toBeInTheDocument()
       expect(screen.getByText('Conquistadas')).toBeInTheDocument()
       expect(screen.getByText('Tarefas Atrasadas')).toBeInTheDocument()
-      // Valor formatado
       expect(screen.getByText('1.500')).toBeInTheDocument()
       expect(screen.getByText('300')).toBeInTheDocument()
     })
@@ -119,20 +113,16 @@ describe('Clientes — render básico', () => {
 describe('Clientes — interações', () => {
   it('alterna entre aba Oportunidades e Tarefas', async () => {
     api.get.mockResolvedValueOnce({ data: resumoVazio })
-    api.get.mockResolvedValueOnce({ data: { total: 0, items: [], page: 1, page_size: 50 } }) // ops
+    api.get.mockResolvedValueOnce({ data: { total: 0, items: [], page: 1, page_size: 50 } })
 
     renderClientes()
 
-    // Espera carregar
     await waitFor(() => {
       expect(screen.getByText('Nenhuma oportunidade')).toBeInTheDocument()
     })
 
-    // Próxima chamada: troca pra Tarefas
     api.get.mockResolvedValueOnce({ data: { total: 0, items: [], page: 1, page_size: 50 } })
 
-    // Buscar a aba pelo role button - a aba Tarefas é a segunda
-    // (há também botões "Tarefas" no UploadButton, mas com role="" porque é <label>)
     const tabs = screen.getAllByRole('button').filter(
       (b) => b.textContent.trim() === 'Tarefas'
     )
@@ -143,6 +133,4 @@ describe('Clientes — interações', () => {
       expect(screen.getByText('Nenhuma tarefa')).toBeInTheDocument()
     })
   })
-
-})
 })
