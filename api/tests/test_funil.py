@@ -128,12 +128,23 @@ class TestFunilPorGrupos:
         assert body["G2"]["negociacao"]   == {"qtd": 1, "ticket": 7500.0}
         assert body["G2"]["suspect"]      == {"qtd": 0, "ticket": 0.0}
 
-    async def test_hunter_bloqueado(self, db_conn, client):
-        """Hunter não tem módulo 'clientes' → 403."""
+    async def test_hunter_acessa(self, db_conn, client):
+        """
+        Hunter NAO tem o modulo 'clientes', mas /funil-por-grupos foi
+        movida pro router de drilldown (clientes_drilldown.py) com guard
+        requer_qualquer_modulo(['clientes', 'carteira']). Hunter tem
+        'carteira', entao deve passar (200).
+
+        Esse teste foi invertido a partir do antigo test_hunter_bloqueado
+        quando a rota foi migrada pra liberar Hunter/Farmer (bug que
+        causava 403 no mini funil da listagem de Contadores).
+        """
         headers = await _seed_hunter(db_conn, client)
         resp = await client.post(
             "/clientes/funil-por-grupos",
             headers=headers,
             json={"id_grupos": ["g1"]},
         )
-        assert resp.status_code == 403
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert "g1" in body["por_grupo"]
