@@ -34,87 +34,80 @@ beforeEach(() => {
 })
 
 describe('Layout — filtragem por módulos', () => {
-  it('ADM vê todos os itens (PEX, POs, BD, Contadores, Clientes, Metas, Perfil)', () => {
+  it('ADM vê todos os itens (PEX, POs, BD, Carteira, Metas, Perfil)', () => {
     userMock.current = { nome: 'Tulio', email: 't@hipo.com', cargo: 'ADM' }
-    modulosMock.current = ['pex', 'po', 'bd', 'carteira', 'clientes', 'metas', 'usuarios']
+    modulosMock.current = ['pex', 'po', 'bd', 'carteira', 'metas', 'usuarios']
     renderLayout()
 
+    // Pega só os links de navegação (a sidebar tem várias instâncias por causa de mobile/desktop)
     const links = screen.getAllByRole('link').map((a) => a.textContent.trim())
     expect(links).toContain('PEX')
     expect(links).toContain('POs')
     expect(links).toContain('BD Ativados')
-    expect(links).toContain('Contadores')
-    expect(links).toContain('Clientes')
+    expect(links).toContain('Carteira')
     expect(links).toContain('Metas')
     expect(links).toContain('Perfil')
-    // Não tem mais "Carteira" no menu
-    expect(links).not.toContain('Carteira')
   })
 
   it('Franqueado vê todos os itens', () => {
     userMock.current = { nome: 'Wellington', email: 'w@omie.com.vc', cargo: 'Franqueado' }
-    modulosMock.current = ['pex', 'po', 'bd', 'carteira', 'clientes', 'metas', 'usuarios']
+    modulosMock.current = ['pex', 'po', 'bd', 'carteira', 'metas', 'usuarios']
     renderLayout()
 
     const links = screen.getAllByRole('link').map((a) => a.textContent.trim())
     expect(links).toContain('PEX')
-    expect(links).toContain('Contadores')
-    expect(links).toContain('Clientes')
+    expect(links).toContain('Carteira')
     expect(links).toContain('Perfil')
   })
 
-  it('Farmer vê APENAS Contadores e Perfil', () => {
+  it('Farmer vê APENAS Carteira e Perfil', () => {
     userMock.current = { nome: 'Aline', email: 'a@omie.com.vc', cargo: 'Farmer' }
     modulosMock.current = ['carteira']
     renderLayout()
 
     const links = screen.getAllByRole('link').map((a) => a.textContent.trim())
-    expect(links).toContain('Contadores')
+    // Pelo menos uma instância de cada (pode ter duplicata por sidebar mobile)
+    expect(links).toContain('Carteira')
     expect(links).toContain('Perfil')
+    // Os outros NÃO aparecem
     expect(links).not.toContain('PEX')
     expect(links).not.toContain('POs')
     expect(links).not.toContain('BD Ativados')
     expect(links).not.toContain('Metas')
-    expect(links).not.toContain('Clientes')
   })
 
-  it('Hunter vê APENAS Contadores e Perfil', () => {
+  it('Hunter vê APENAS Carteira e Perfil', () => {
     userMock.current = { nome: 'Beatriz', email: 'b@omie.com.vc', cargo: 'Hunter' }
     modulosMock.current = ['carteira']
     renderLayout()
 
     const links = screen.getAllByRole('link').map((a) => a.textContent.trim())
-    expect(links).toContain('Contadores')
+    expect(links).toContain('Carteira')
     expect(links).toContain('Perfil')
     expect(links).not.toContain('PEX')
-    expect(links).not.toContain('Clientes')
   })
 
-  it('EP vê Contadores + Clientes + Perfil', () => {
+  it('EP vê APENAS Carteira e Perfil', () => {
     userMock.current = { nome: 'Kethlleen', email: 'k@omie.com.vc', cargo: 'EP' }
-    modulosMock.current = ['carteira', 'clientes']
+    modulosMock.current = ['carteira']
     renderLayout()
 
     const links = screen.getAllByRole('link').map((a) => a.textContent.trim())
-    expect(links).toContain('Contadores')
-    expect(links).toContain('Clientes')
+    expect(links).toContain('Carteira')
     expect(links).toContain('Perfil')
     expect(links).not.toContain('PEX')
-    expect(links).not.toContain('POs')
     expect(links).not.toContain('Metas')
   })
 
-  it('Gerente vê Contadores + Clientes + Perfil', () => {
+  it('Gerente vê APENAS Carteira e Perfil', () => {
     userMock.current = { nome: 'Vinícius', email: 'v@omie.com.vc', cargo: 'Gerente' }
-    modulosMock.current = ['carteira', 'clientes']
+    modulosMock.current = ['carteira']
     renderLayout()
 
     const links = screen.getAllByRole('link').map((a) => a.textContent.trim())
-    expect(links).toContain('Contadores')
-    expect(links).toContain('Clientes')
+    expect(links).toContain('Carteira')
     expect(links).toContain('Perfil')
     expect(links).not.toContain('PEX')
-    expect(links).not.toContain('POs')
   })
 
   it('Usuário sem módulos vê APENAS Perfil', () => {
@@ -124,8 +117,7 @@ describe('Layout — filtragem por módulos', () => {
 
     const links = screen.getAllByRole('link').map((a) => a.textContent.trim())
     expect(links).toContain('Perfil')
-    expect(links).not.toContain('Contadores')
-    expect(links).not.toContain('Clientes')
+    expect(links).not.toContain('Carteira')
     expect(links).not.toContain('PEX')
   })
 
@@ -133,6 +125,7 @@ describe('Layout — filtragem por módulos', () => {
     userMock.current = { nome: 'Aline Martins', email: 'a@omie.com.vc', cargo: 'Farmer' }
     modulosMock.current = ['carteira']
     renderLayout()
+    // O nome aparece pelo menos uma vez (sidebar + topbar)
     expect(screen.getAllByText('Aline Martins').length).toBeGreaterThanOrEqual(1)
   })
 })

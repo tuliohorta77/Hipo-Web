@@ -30,8 +30,8 @@ def anyio_backend():
 async def db_conn():
     """Conexão direta por teste com event loop próprio."""
     conn = await asyncpg.connect(_DB_URL)
-    # NOTA: pex_metas_mensais é VIEW (não TRUNCATE).
-    # Limpamos pex_metas_cabecalho com CASCADE — puxa pex_metas_indicadores e pex_metas_big3.
+    # NOTA: pex_metas_mensais agora é VIEW (não TRUNCATE).
+    # Limpamos pex_metas_cabecalho com CASCADE — isso puxa pex_metas_indicadores e pex_metas_big3.
     await conn.execute("""
         TRUNCATE TABLE
             po_linhas, po_uploads, po_projecao_semanal, repasse_calendario,
@@ -40,7 +40,6 @@ async def db_conn():
             pex_compliance_gaps,
             pex_metas_big3, pex_metas_indicadores, pex_metas_cabecalho,
             carteira_tarefa, carteira_cnpj, carteira_upload, carteira_colaborador,
-            cliente_tarefa, cliente_oportunidade, cliente_upload,
             bd_ativados, bd_ativados_upload, usuarios
         CASCADE
     """)
@@ -94,15 +93,17 @@ async def meta_abril(db_conn):
         VALUES ('2026-04', 'BASE', 22, 2, 1, 120, 100)
         RETURNING id
     """)
+    # Metas numéricas dos 5 indicadores editáveis
     await db_conn.executemany("""
         INSERT INTO pex_metas_indicadores (cabecalho_id, codigo, meta_valor)
         VALUES ($1, $2, $3)
     """, [
         (cab_id, 'nmrr', 41044),
         (cab_id, 'demos_outbound', 100),
-        (cab_id, 'integracao_contabil', 5),
-        (cab_id, 'eventos', 3),
+        (cab_id, 'integracao_contabil', 5),  # Cluster BASE = 5
+        (cab_id, 'eventos', 3),              # Cluster BASE = 3
     ])
+    # Big3 placeholder (3 ações vazias, não atingidas)
     await db_conn.executemany("""
         INSERT INTO pex_metas_big3 (cabecalho_id, ordem, descricao, atingiu)
         VALUES ($1, $2, $3, $4)

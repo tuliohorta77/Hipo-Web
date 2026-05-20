@@ -1,11 +1,12 @@
 // web/src/components/Layout.jsx
 //
-// Layout do Hipo — sidebar branca 264px, topbar branca, item ativo azul.
+// Layout do Hipo — sidebar branca 264px (Manual §5), topbar branca,
+// item ativo em #EFF6FF com texto/ícone azul (Manual §6).
 //
-// v1.2: módulo "Carteira" renomeado visualmente para "Contadores".
-//       Novo módulo "Clientes" (oportunidades + tarefas de leads).
-//       Hunter/Farmer veem só Contadores + Perfil.
-//       Gerente/EP veem Contadores + Clientes + Perfil.
+// Sidebar é fixa no desktop e abre como drawer no mobile (toggle no header).
+//
+// v1.1: filtra os itens da nav pelos módulos do cargo do usuário logado.
+//       Hunter/Farmer/EP/Gerente veem apenas Carteira + Perfil.
 //       ADM/Franqueado veem tudo.
 
 import { useState } from 'react';
@@ -15,7 +16,6 @@ import {
   FileText,
   Database,
   Target,
-  Users,
   Briefcase,
   Menu,
   LogOut,
@@ -26,13 +26,12 @@ import { getUser, getModulos, logout } from '../api';
 import Logo, { LogoWordmark } from './Logo';
 
 // Cada item declara o módulo que precisa pra aparecer.
-// 'perfil' é especial: sempre visível pra qualquer logado.
+// 'perfil' é um item especial: sempre visível pra qualquer usuário logado.
 const NAV_ITEMS = [
   { to: '/pex',          label: 'PEX',         Icon: BarChart3, modulo: 'pex' },
   { to: '/pos',          label: 'POs',         Icon: FileText,  modulo: 'po' },
   { to: '/bd-ativados',  label: 'BD Ativados', Icon: Database,  modulo: 'bd' },
-  { to: '/contadores',   label: 'Contadores',  Icon: Briefcase, modulo: 'carteira' },
-  { to: '/clientes',     label: 'Clientes',    Icon: Users,     modulo: 'clientes' },
+  { to: '/carteira',     label: 'Carteira',    Icon: Briefcase, modulo: 'carteira' },
   { to: '/metas',        label: 'Metas',       Icon: Target,    modulo: 'metas' },
   { to: '/perfil',       label: 'Perfil',      Icon: User,      modulo: '__sempre' },
 ];
@@ -67,6 +66,7 @@ function Sidebar({ user, modulos, onClose, isMobile = false }) {
         (isMobile ? '' : 'hidden lg:flex')
       }
     >
+      {/* Brand */}
       <div className="h-16 flex items-center justify-between px-5 border-b border-hipo-border">
         <div className="flex items-center gap-2.5">
           <Logo size={28} />
@@ -83,12 +83,14 @@ function Sidebar({ user, modulos, onClose, isMobile = false }) {
         )}
       </div>
 
+      {/* Nav */}
       <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
         {itensVisiveis.map((item) => (
           <NavItem key={item.to} {...item} onClick={isMobile ? onClose : undefined} />
         ))}
       </nav>
 
+      {/* Footer com usuário + logout */}
       <div className="border-t border-hipo-border p-3 space-y-1">
         {user && (
           <div className="px-3 py-2">
@@ -122,6 +124,7 @@ function Topbar({ user, onOpenMenu }) {
 
   return (
     <header className="h-16 bg-hipo-card border-b border-hipo-border flex items-center justify-between px-4 lg:px-6 shrink-0">
+      {/* Esquerda: hamburger no mobile */}
       <button
         onClick={onOpenMenu}
         className="lg:hidden p-2 -ml-2 rounded-lg text-hipo-slate hover:bg-hipo-bg"
@@ -132,6 +135,7 @@ function Topbar({ user, onOpenMenu }) {
 
       <div className="hidden lg:block" />
 
+      {/* Direita: avatar + nome */}
       {user && (
         <div className="flex items-center gap-3">
           <div className="hidden sm:block text-right">
@@ -158,8 +162,10 @@ export default function Layout() {
 
   return (
     <div className="h-screen flex bg-hipo-bg overflow-hidden">
+      {/* Sidebar desktop */}
       <Sidebar user={user} modulos={modulos} />
 
+      {/* Sidebar mobile (drawer com overlay) */}
       {mobileOpen && (
         <>
           <div
@@ -177,6 +183,7 @@ export default function Layout() {
         </>
       )}
 
+      {/* Main */}
       <div className="flex-1 flex flex-col min-w-0">
         <Topbar user={user} onOpenMenu={() => setMobileOpen(true)} />
         <main className="flex-1 overflow-auto">

@@ -7,11 +7,13 @@ import POsDashboard from './pages/POs';
 import PEXDashboard from './pages/PEX';
 import BDAtivadosDashboard from './pages/BDAtivados';
 import Metas from './pages/Metas';
-import Contadores from './pages/Contadores';
-import Clientes from './pages/Clientes';
+import Carteira from './pages/Carteira';
 import Perfil from './pages/Perfil';
 import { primeiraRotaAcessivel } from './api';
 
+// Componente pequeno pro <Route index>: usa a primeira rota acessível
+// pelo cargo do usuário logado. ADM/Franqueado vai pra /pex, Hunter/Farmer
+// vai pra /carteira.
 function RedirectPrimeiraRota() {
   return <Navigate to={primeiraRotaAcessivel()} replace />;
 }
@@ -20,8 +22,10 @@ export default function App() {
   return (
     <BrowserRouter>
       <Routes>
+        {/* Rota pública */}
         <Route path="/login" element={<Login />} />
 
+        {/* Rotas protegidas */}
         <Route
           path="/"
           element={
@@ -34,15 +38,12 @@ export default function App() {
           <Route path="pex"          element={<PEXDashboard />} />
           <Route path="pos"          element={<POsDashboard />} />
           <Route path="bd-ativados"  element={<BDAtivadosDashboard />} />
-          <Route path="contadores"   element={<Contadores />} />
-          <Route path="clientes"     element={<Clientes />} />
+          <Route path="carteira"     element={<Carteira />} />
           <Route path="metas"        element={<Metas />} />
           <Route path="perfil"       element={<Perfil />} />
-
-          {/* Compat: /carteira redireciona pra /contadores */}
-          <Route path="carteira" element={<Navigate to="/contadores" replace />} />
         </Route>
 
+        {/* Fallback */}
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>
