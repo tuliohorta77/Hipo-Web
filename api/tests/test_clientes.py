@@ -209,7 +209,7 @@ class TestUploadOportunidades:
              "Status": "Conquistado", "Fase": "06. Conquistado",
              "CNPJ Contador": "99888777000166"},
             {"Contagem": 3, "OP ID": 33, "CNPJ": "c", "Razão Social": "EMP C",
-             "Status": "Em andamento", "Fase": "01. Suspect",
+             "Status": "Ativo", "Fase": "01. Suspect",
              "CNPJ Contador": "11111111000111"},
         ])
         resp = await client.post(
