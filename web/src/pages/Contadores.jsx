@@ -169,7 +169,7 @@ export default function Contadores() {
       const { data } = await api.post('/clientes/funil-por-grupos', {
         id_grupos: idGrupos,
       });
-      setFunilPorGrupo((atual) => ({ ...atual, ...(data.por_grupo || {}) }));
+      console.log('[HIPO] funil recebido:', Object.keys(data.por_grupo || {}).length, 'grupos'); setFunilPorGrupo((atual) => ({ ...atual, ...(data.por_grupo || {}) }));
       setFunilVersao((v) => v + 1);
     } catch (e) {
       // Erro silencioso — mini-funil só não aparece se a chamada falhou
