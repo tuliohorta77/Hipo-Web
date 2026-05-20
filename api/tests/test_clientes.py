@@ -76,7 +76,7 @@ class TestParserOportunidades:
         f.write_bytes(_xlsx_bytes_op([
             {"Contagem": 1, "OP ID": 12345, "CNPJ": "00.111.222/0001-33",
              "Razão Social": "ACME LTDA", "Data Criação": "2026-01-15",
-             "Status": "Em andamento", "Fase": "02. Cadência",
+             "Status": "Ativo", "Fase": "02. Cadência",
              "Origem Macro": "Outbound",
              "Unidade": "Omie SP - Unidade Guarulhos",
              "CNPJ Contador": "99.888.777/0001-66",
@@ -89,7 +89,7 @@ class TestParserOportunidades:
         ln = r["linhas"][0]
         assert ln["op_id"] == 12345
         assert ln["cnpj"] == "00.111.222/0001-33"
-        assert ln["status"] == "Em andamento"
+        assert ln["status"] == "Ativo"
         assert ln["cnpj_contador"] == "99.888.777/0001-66"
         assert ln["previsao_valor"] == 1500.50
         assert ln["temperatura"] == 70.0
@@ -203,7 +203,7 @@ class TestUploadOportunidades:
         # (o /contador/{cnpj}/leads não suporta barras no path).
         conteudo = _xlsx_bytes_op([
             {"Contagem": 1, "OP ID": 11, "CNPJ": "a", "Razão Social": "EMP A",
-             "Status": "Em andamento", "Fase": "02. Cadência",
+             "Status": "Ativo", "Fase": "02. Cadência",
              "CNPJ Contador": "99888777000166"},
             {"Contagem": 2, "OP ID": 22, "CNPJ": "b", "Razão Social": "EMP B",
              "Status": "Conquistado", "Fase": "06. Conquistado",
@@ -268,7 +268,7 @@ class TestUploadTarefas:
         # Primeiro insere uma OP
         op_bytes = _xlsx_bytes_op([
             {"Contagem": 1, "OP ID": 555, "CNPJ": "x", "Razão Social": "EMP X",
-             "Status": "Em andamento", "Fase": "03. Qualificação",
+             "Status": "Ativo", "Fase": "03. Qualificação",
              "CNPJ Contador": "11111111000111"},
         ])
         await client.post(
