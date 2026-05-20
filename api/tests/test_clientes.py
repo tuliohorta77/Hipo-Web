@@ -240,7 +240,7 @@ class TestUploadOportunidades:
 
         # Leads de um contador específico (CNPJ sem barras pra evitar URL encoding)
         resp = await client.get(
-            "/clientes/contador/99888777000166/leads",
+            "/clientes/contador-leads?cnpj=99888777000166",
             headers=usuario_adm["headers"],
         )
         assert resp.status_code == 200, resp.text
