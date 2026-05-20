@@ -35,6 +35,7 @@ function fmtMoedaCompacta(v) {
 }
 
 export default function MiniFunil({ dados, vazio = '—', loading = false }) {
+  console.log('[HIPO] render MiniFunil dados:', dados, 'loading:', loading);
   if (loading) {
     return <span className="text-xs text-hipo-muted italic">carregando…</span>;
   }
