@@ -329,7 +329,7 @@ export default function CarteiraGrupoDrawer({ idGrupo, onFechar, nomeGrupo }) {
                                 <th className="px-3 py-2 font-medium">Razão Social</th>
                                 <th className="px-3 py-2 font-medium">Fase</th>
                                 <th className="px-3 py-2 font-medium">Status</th>
-                                <th className="px-3 py-2 font-medium text-right">Previsão</th>
+                                <th className="px-3 py-2 font-medium text-right">Proposta NMRR</th>
                                 <th className="px-3 py-2 font-medium text-right">Dias</th>
                               </tr>
                             </thead>
@@ -347,7 +347,7 @@ export default function CarteiraGrupoDrawer({ idGrupo, onFechar, nomeGrupo }) {
                                     </span>
                                   </td>
                                   <td className="px-3 py-2 text-right text-hipo-ink whitespace-nowrap">
-                                    {fmtMoeda(l.previsao_valor)}
+                                    {fmtMoeda(l.proposta_nmrr)}
                                   </td>
                                   <td className="px-3 py-2 text-right text-hipo-slate whitespace-nowrap">
                                     {l.dias_parado != null ? `${l.dias_parado}d` : "—"}

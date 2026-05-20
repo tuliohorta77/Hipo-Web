@@ -89,13 +89,13 @@ describe('Clientes — render básico', () => {
             op_id: 1, cnpj: '00.111.222/0001-33', razao_social: 'ACME LTDA',
             status: 'Em andamento', fase: '02. Cadência',
             cnpj_contador: '99.888.777/0001-66', razao_contador: 'CONT XYZ',
-            previsao_valor: 1500, dias_parado: 5,
+            proposta_nmrr: 1500, dias_parado: 5,
           },
           {
             op_id: 2, cnpj: '01.222.333/0001-44', razao_social: 'OUTRA',
             status: 'Conquistado', fase: '06. Conquistado',
             cnpj_contador: '99.888.777/0001-66', razao_contador: 'CONT XYZ',
-            previsao_valor: 500, dias_parado: 0,
+            proposta_nmrr: 500, dias_parado: 0,
           },
         ],
       }

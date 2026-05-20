@@ -223,7 +223,7 @@ async def listar_oportunidades(
     args_paginado = args + [page_size, (page - 1) * page_size]
     sql = f"""
         SELECT op_id, cnpj, razao_social, status, fase, origem_macro,
-               temperatura, previsao_valor, previsao_data,
+               temperatura, previsao_valor, proposta_nmrr, previsao_data,
                cnpj_contador, razao_contador, executivo_contas,
                ultima_tarefa_dias, dias_parado,
                data_criacao, data_atualizacao
@@ -425,7 +425,7 @@ async def leads_do_contador(
     rows = await conn.fetch(
         """
         SELECT op_id, cnpj, razao_social, status, fase, origem_macro,
-               temperatura, previsao_valor, previsao_data,
+               temperatura, previsao_valor, proposta_nmrr, previsao_data,
                executivo_contas, executivo_vendas,
                ultima_tarefa_dias, dias_parado,
                data_criacao, data_atualizacao

@@ -315,7 +315,7 @@ export default function Clientes() {
                     <Th>Status</Th>
                     <Th>Fase</Th>
                     <Th>Contador</Th>
-                    <Th align="right">Previsão</Th>
+                    <Th align="right">Proposta NMRR</Th>
                     <Th align="right">Dias parado</Th>
                   </Tr>
                 </thead>
@@ -332,7 +332,7 @@ export default function Clientes() {
                         <div className="text-sm text-hipo-ink">{o.razao_contador || '—'}</div>
                         <div className="text-xs text-hipo-muted font-mono">{o.cnpj_contador || '—'}</div>
                       </Td>
-                      <Td align="right">{fmtMoeda(o.previsao_valor)}</Td>
+                      <Td align="right">{fmtMoeda(o.proposta_nmrr)}</Td>
                       <Td align="right">{o.dias_parado != null ? `${o.dias_parado}d` : '—'}</Td>
                     </Tr>
                   ))}
