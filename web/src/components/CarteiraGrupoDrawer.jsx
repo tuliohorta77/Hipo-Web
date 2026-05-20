@@ -39,6 +39,21 @@ function badgeStatusLead(s) {
   return "bg-hipo-bg text-hipo-muted border-hipo-border";
 }
 
+// Badge de temperatura: escala definida pelo produto.
+//   >= 80  → quente (success)
+//   40-79  → morno  (warning)
+//   < 40   → frio   (info azul)
+//   null/0 → "—" neutro
+function badgeTemperatura(t) {
+  if (t == null || t === 0) {
+    return "bg-hipo-bg text-hipo-muted border-hipo-border";
+  }
+  const v = Number(t);
+  if (v >= 80) return "bg-hipo-successSoft text-hipo-success border-hipo-successBorder";
+  if (v >= 40) return "bg-hipo-warningSoft text-hipo-warning border-hipo-warningBorder";
+  return "bg-hipo-blueSoft text-hipo-blue border-hipo-blueSoft";
+}
+
 function fmtDate(d) {
   if (!d) return "—";
   try {
@@ -53,6 +68,12 @@ function fmtMoeda(v) {
   return Number(v).toLocaleString("pt-BR", {
     style: "currency", currency: "BRL", maximumFractionDigits: 0,
   });
+}
+
+function fmtTemperatura(t) {
+  if (t == null || t === 0) return "—";
+  // Backend manda NUMERIC(8,2). Maioria dos leads chega como inteiro; arredondamos.
+  return `${Math.round(Number(t))}°`;
 }
 
 
@@ -210,7 +231,7 @@ export default function CarteiraGrupoDrawer({ idGrupo, onFechar, nomeGrupo }) {
     <div className="fixed inset-0 z-40 flex" onClick={onFechar}>
       <div className="flex-1 bg-hipo-ink/40" />
       <aside
-        className="w-full max-w-2xl bg-hipo-card border-l border-hipo-border overflow-y-auto"
+        className="w-full max-w-4xl bg-hipo-card border-l border-hipo-border overflow-y-auto"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
@@ -410,6 +431,8 @@ export default function CarteiraGrupoDrawer({ idGrupo, onFechar, nomeGrupo }) {
                                 <th className="px-3 py-2 font-medium">Razão Social</th>
                                 <th className="px-3 py-2 font-medium">Fase</th>
                                 <th className="px-3 py-2 font-medium">Status</th>
+                                <th className="px-3 py-2 font-medium">Executivo</th>
+                                <th className="px-3 py-2 font-medium text-center">Temp.</th>
                                 <th className="px-3 py-2 font-medium text-right">Proposta NMRR</th>
                                 <th className="px-3 py-2 font-medium text-right">Dias</th>
                               </tr>
@@ -437,6 +460,20 @@ export default function CarteiraGrupoDrawer({ idGrupo, onFechar, nomeGrupo }) {
                                           {(l.status || "—").toUpperCase()}
                                         </span>
                                       </td>
+                                      <td
+                                        className="px-3 py-2 text-hipo-slate truncate max-w-[140px]"
+                                        title={l.executivo_vendas || ""}
+                                      >
+                                        {l.executivo_vendas || "—"}
+                                      </td>
+                                      <td className="px-3 py-2 text-center">
+                                        <span
+                                          className={`text-[10px] tracking-wider px-2 py-0.5 rounded-full border ${badgeTemperatura(l.temperatura)}`}
+                                          title={l.temperatura != null ? `Temperatura: ${l.temperatura}` : ""}
+                                        >
+                                          {fmtTemperatura(l.temperatura)}
+                                        </span>
+                                      </td>
                                       <td className="px-3 py-2 text-right text-hipo-ink whitespace-nowrap">
                                         {fmtMoeda(l.proposta_nmrr)}
                                       </td>
@@ -446,7 +483,7 @@ export default function CarteiraGrupoDrawer({ idGrupo, onFechar, nomeGrupo }) {
                                     </tr>
                                     {aberto && (
                                       <tr className="bg-hipo-bg">
-                                        <td colSpan={6} className="px-4 py-3">
+                                        <td colSpan={8} className="px-4 py-3">
                                           {cache?.loading && (
                                             <p className="text-xs text-hipo-slate italic">Carregando tarefas...</p>
                                           )}
