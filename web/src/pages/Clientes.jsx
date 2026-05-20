@@ -203,25 +203,25 @@ export default function Clientes() {
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
           <KpiCard
             label="Total de Oportunidades"
-            value={resumo.oportunidades.total.toLocaleString('pt-BR')}
+            value={(resumo?.oportunidades?.total ?? 0).toLocaleString('pt-BR')}
             Icon={Target}
             tone="info"
           />
           <KpiCard
             label="Em andamento"
-            value={resumo.oportunidades.em_andamento.toLocaleString('pt-BR')}
+            value={(resumo?.oportunidades?.em_andamento ?? 0).toLocaleString('pt-BR')}
             Icon={Target}
             tone="info"
           />
           <KpiCard
             label="Conquistadas"
-            value={resumo.oportunidades.conquistado.toLocaleString('pt-BR')}
+            value={(resumo?.oportunidades?.conquistado ?? 0).toLocaleString('pt-BR')}
             Icon={Target}
             tone="success"
           />
           <KpiCard
             label="Tarefas Atrasadas"
-            value={resumo.tarefas.atrasada.toLocaleString('pt-BR')}
+            value={(resumo?.tarefas?.atrasada ?? 0).toLocaleString('pt-BR')}
             Icon={AlertCircle}
             tone="danger"
           />
@@ -484,14 +484,14 @@ export default function Clientes() {
             <p>
               Último upload de Oportunidades:{' '}
               {new Date(resumo.ultimo_upload_oportunidades.data_upload).toLocaleString('pt-BR')}
-              {' — '}{resumo.ultimo_upload_oportunidades.total_validos.toLocaleString('pt-BR')} linhas
+              {' — '}{(resumo.ultimo_upload_oportunidades.total_validos ?? 0).toLocaleString('pt-BR')} linhas
             </p>
           )}
           {resumo.ultimo_upload_tarefas && (
             <p>
               Último upload de Tarefas:{' '}
               {new Date(resumo.ultimo_upload_tarefas.data_upload).toLocaleString('pt-BR')}
-              {' — '}{resumo.ultimo_upload_tarefas.total_validos.toLocaleString('pt-BR')} linhas
+              {' — '}{(resumo.ultimo_upload_tarefas.total_validos ?? 0).toLocaleString('pt-BR')} linhas
             </p>
           )}
         </div>

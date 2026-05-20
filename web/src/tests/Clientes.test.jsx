@@ -48,16 +48,21 @@ beforeEach(() => {
 })
 
 describe('Clientes — render básico', () => {
-  it('renderiza titulo e botoes de upload', async () => {
+  it('renderiza titulo e cabecalho', async () => {
     api.get.mockResolvedValueOnce({ data: resumoVazio })  // /clientes/resumo
     api.get.mockResolvedValueOnce({ data: { total: 0, items: [], page: 1, page_size: 50 } }) // ops
 
     renderClientes()
 
-    expect(screen.getByText('Clientes')).toBeInTheDocument()
+    // Titulo: usa H1 pra ser inambíguo
+    expect(screen.getByRole('heading', { name: 'Clientes', level: 1 })).toBeInTheDocument()
+
+    // Subtítulo do header (texto exato)
+    expect(screen.getByText('Oportunidades comerciais e tarefas dos leads.')).toBeInTheDocument()
+
+    // Espera a página estabilizar
     await waitFor(() => {
-      expect(screen.getByText('Oportunidades')).toBeInTheDocument()
-      expect(screen.getByText('Tarefas')).toBeInTheDocument()
+      expect(screen.getByText('Nenhuma oportunidade')).toBeInTheDocument()
     })
   })
 
@@ -68,9 +73,12 @@ describe('Clientes — render básico', () => {
     renderClientes()
 
     await waitFor(() => {
-      expect(screen.getByText(/Total de Oportunidades/i)).toBeInTheDocument()
+      // Labels únicos dos KpiCards
+      expect(screen.getByText('Total de Oportunidades')).toBeInTheDocument()
+      expect(screen.getByText('Conquistadas')).toBeInTheDocument()
+      expect(screen.getByText('Tarefas Atrasadas')).toBeInTheDocument()
+      // Valor formatado
       expect(screen.getByText('1.500')).toBeInTheDocument()
-      expect(screen.getByText(/Em andamento/i)).toBeInTheDocument()
       expect(screen.getByText('300')).toBeInTheDocument()
     })
   })
@@ -122,7 +130,14 @@ describe('Clientes — interações', () => {
 
     // Próxima chamada: troca pra Tarefas
     api.get.mockResolvedValueOnce({ data: { total: 0, items: [], page: 1, page_size: 50 } })
-    fireEvent.click(screen.getByText('Tarefas'))
+
+    // Buscar a aba pelo role button - a aba Tarefas é a segunda
+    // (há também botões "Tarefas" no UploadButton, mas com role="" porque é <label>)
+    const tabs = screen.getAllByRole('button').filter(
+      (b) => b.textContent.trim() === 'Tarefas'
+    )
+    expect(tabs.length).toBeGreaterThan(0)
+    fireEvent.click(tabs[0])
 
     await waitFor(() => {
       expect(screen.getByText('Nenhuma tarefa')).toBeInTheDocument()
@@ -133,7 +148,7 @@ describe('Clientes — interações', () => {
     api.get.mockResolvedValueOnce({ data: resumoVazio })
     api.get.mockResolvedValueOnce({ data: { total: 0, items: [], page: 1, page_size: 50 } })
 
-    renderClientes()
+    const { container } = renderClientes()
     await waitFor(() => expect(screen.getByText('Nenhuma oportunidade')).toBeInTheDocument())
 
     // Mock do post
@@ -144,8 +159,8 @@ describe('Clientes — interações', () => {
     api.get.mockResolvedValueOnce({ data: resumoVazio })
     api.get.mockResolvedValueOnce({ data: { total: 99, items: [], page: 1, page_size: 50 } })
 
-    // Encontra o input de arquivo do botão "Oportunidades"
-    const fileInputs = document.querySelectorAll('input[type="file"]')
+    // Pegar os inputs de arquivo (UploadButton renderiza um <input type="file"> escondido)
+    const fileInputs = container.querySelectorAll('input[type="file"]')
     expect(fileInputs.length).toBeGreaterThan(0)
 
     const arquivo = new File(['fake'], 'ops.xlsx', {

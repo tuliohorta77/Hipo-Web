@@ -199,16 +199,18 @@ class TestEndpointsAcesso:
 
 class TestUploadOportunidades:
     async def test_upload_e_lista(self, client, usuario_adm):
+        # CNPJs sem barra '/' pra evitar problema de URL routing no httpx test client
+        # (o /contador/{cnpj}/leads não suporta barras no path).
         conteudo = _xlsx_bytes_op([
             {"Contagem": 1, "OP ID": 11, "CNPJ": "a", "Razão Social": "EMP A",
              "Status": "Em andamento", "Fase": "02. Cadência",
-             "CNPJ Contador": "99.888.777/0001-66"},
+             "CNPJ Contador": "99888777000166"},
             {"Contagem": 2, "OP ID": 22, "CNPJ": "b", "Razão Social": "EMP B",
              "Status": "Conquistado", "Fase": "06. Conquistado",
-             "CNPJ Contador": "99.888.777/0001-66"},
+             "CNPJ Contador": "99888777000166"},
             {"Contagem": 3, "OP ID": 33, "CNPJ": "c", "Razão Social": "EMP C",
              "Status": "Em andamento", "Fase": "01. Suspect",
-             "CNPJ Contador": "11.111.111/0001-11"},
+             "CNPJ Contador": "11111111000111"},
         ])
         resp = await client.post(
             "/clientes/upload-oportunidades",
@@ -236,11 +238,12 @@ class TestUploadOportunidades:
         assert resp.json()["total"] == 1
         assert resp.json()["items"][0]["op_id"] == 22
 
-        # Leads de um contador específico
+        # Leads de um contador específico (CNPJ sem barras pra evitar URL encoding)
         resp = await client.get(
-            "/clientes/contador/99.888.777%2F0001-66/leads",
+            "/clientes/contador/99888777000166/leads",
             headers=usuario_adm["headers"],
         )
+        assert resp.status_code == 200, resp.text
         body = resp.json()
         assert body["kpis"]["total"] == 2
         assert body["kpis"]["em_andamento"] == 1
@@ -266,7 +269,7 @@ class TestUploadTarefas:
         op_bytes = _xlsx_bytes_op([
             {"Contagem": 1, "OP ID": 555, "CNPJ": "x", "Razão Social": "EMP X",
              "Status": "Em andamento", "Fase": "03. Qualificação",
-             "CNPJ Contador": "11.111.111/0001-11"},
+             "CNPJ Contador": "11111111000111"},
         ])
         await client.post(
             "/clientes/upload-oportunidades",

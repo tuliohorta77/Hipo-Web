@@ -19,11 +19,11 @@ from routers.permissions import modulos_do_cargo
 class TestModulosDoCargo:
     def test_adm_ve_tudo(self):
         m = modulos_do_cargo("ADM")
-        assert m == {"pex", "po", "bd", "metas", "carteira", "usuarios"}
+        assert m == {"pex", "po", "bd", "metas", "carteira", "clientes", "usuarios"}
 
     def test_franqueado_ve_tudo(self):
         m = modulos_do_cargo("Franqueado")
-        assert m == {"pex", "po", "bd", "metas", "carteira", "usuarios"}
+        assert m == {"pex", "po", "bd", "metas", "carteira", "clientes", "usuarios"}
 
     def test_hunter_ve_so_carteira(self):
         assert modulos_do_cargo("Hunter") == {"carteira"}
@@ -32,10 +32,10 @@ class TestModulosDoCargo:
         assert modulos_do_cargo("Farmer") == {"carteira"}
 
     def test_ep_ve_so_carteira(self):
-        assert modulos_do_cargo("EP") == {"carteira"}
+        assert modulos_do_cargo("EP") == {"carteira", "clientes"}
 
     def test_gerente_ve_so_carteira(self):
-        assert modulos_do_cargo("Gerente") == {"carteira"}
+        assert modulos_do_cargo("Gerente") == {"carteira", "clientes"}
 
     def test_cargos_antigos_ve_so_carteira(self):
         # SDR e EV existem no schema antigo, devem manter acesso à carteira
@@ -93,7 +93,7 @@ class TestAuthMe:
     async def test_me_adm_ve_todos_modulos(self, db_conn, client, usuario_adm):
         resp = await client.get("/auth/me", headers=usuario_adm["headers"])
         body = resp.json()
-        assert set(body["modulos"]) == {"pex", "po", "bd", "metas", "carteira", "usuarios"}
+        assert set(body["modulos"]) == {"pex", "po", "bd", "metas", "carteira", "clientes", "usuarios"}
 
     async def test_me_sem_token_retorna_401(self, client):
         resp = await client.get("/auth/me")
