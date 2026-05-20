@@ -341,7 +341,7 @@ async def resumo(
     """Cards do topo do módulo Clientes."""
     op_total = await conn.fetchval("SELECT COUNT(*) FROM cliente_oportunidade") or 0
     op_em_andamento = await conn.fetchval(
-        "SELECT COUNT(*) FROM cliente_oportunidade WHERE status ILIKE 'em andamento'"
+        "SELECT COUNT(*) FROM cliente_oportunidade WHERE status ILIKE 'ativo'"
     ) or 0
     op_conquistado = await conn.fetchval(
         "SELECT COUNT(*) FROM cliente_oportunidade WHERE status ILIKE 'conquistado'"
@@ -438,7 +438,7 @@ async def leads_do_contador(
 
     # KPIs do bloco
     total = len(rows)
-    em_andamento = sum(1 for r in rows if (r["status"] or "").lower() == "em andamento")
+    em_andamento = sum(1 for r in rows if (r["status"] or "").lower() == "ativo")
     conquistado = sum(1 for r in rows if (r["status"] or "").lower() == "conquistado")
     perdido = sum(1 for r in rows if (r["status"] or "").lower() == "perdido")
 
@@ -498,7 +498,7 @@ async def funil_por_grupos(
       }
 
     Faz JOIN com carteira_cnpj.cnpj_contador → cliente_oportunidade.cnpj_contador.
-    Filtra leads com status = 'Em andamento'. Ticket = previsao_valor.
+    Filtra leads com status = 'Ativo'. Ticket = previsao_valor.
     """
     if not body.id_grupos:
         return {"por_grupo": {}}
@@ -514,7 +514,7 @@ async def funil_por_grupos(
         JOIN cliente_oportunidade co
           ON co.cnpj_contador = cc.cnpj_contador
         WHERE cc.id_grupo = ANY($1::text[])
-          AND LOWER(COALESCE(co.status, '')) = 'em andamento'
+          AND LOWER(COALESCE(co.status, '')) = 'ativo'
           AND LEFT(co.fase, 2) IN ('01', '02', '03', '04', '05')
         GROUP BY cc.id_grupo, LEFT(co.fase, 2)
         """,

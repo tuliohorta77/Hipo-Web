@@ -98,15 +98,15 @@ class TestFunilPorGrupos:
                VALUES ($1, $2, $3, $4, $5, $6)""",
             [
                 # Grupo A (CC-A1 + CC-A2): 3 leads ativos, etapas diversas
-                ('22222222-2222-2222-2222-222222222222', 1, 'CC-A1', 'Em andamento', '01. Suspect',       1000),
-                ('22222222-2222-2222-2222-222222222222', 2, 'CC-A1', 'Em andamento', '02. Cadência',      2000),
-                ('22222222-2222-2222-2222-222222222222', 3, 'CC-A2', 'Em andamento', '02. Cadência',      3000),
+                ('22222222-2222-2222-2222-222222222222', 1, 'CC-A1', 'Ativo', '01. Suspect',       1000),
+                ('22222222-2222-2222-2222-222222222222', 2, 'CC-A1', 'Ativo', '02. Cadência',      2000),
+                ('22222222-2222-2222-2222-222222222222', 3, 'CC-A2', 'Ativo', '02. Cadência',      3000),
                 # Grupo A: 1 conquistado (deve ser ignorado)
                 ('22222222-2222-2222-2222-222222222222', 4, 'CC-A1', 'Conquistado',  '06. Conquistado',   9999),
                 # Grupo A: 1 perdido (deve ser ignorado)
                 ('22222222-2222-2222-2222-222222222222', 5, 'CC-A2', 'Perdido',      '04. Apresentação',  5000),
                 # Grupo B: 1 lead em negociação
-                ('22222222-2222-2222-2222-222222222222', 6, 'CC-B',  'Em andamento', '05. Negociação',    7500),
+                ('22222222-2222-2222-2222-222222222222', 6, 'CC-B',  'Ativo', '05. Negociação',    7500),
             ],
         )
 
