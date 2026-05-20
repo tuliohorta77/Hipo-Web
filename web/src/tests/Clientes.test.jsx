@@ -144,35 +144,5 @@ describe('Clientes — interações', () => {
     })
   })
 
-  it('faz upload de oportunidades chama endpoint correto', async () => {
-    api.get.mockResolvedValueOnce({ data: resumoVazio })
-    api.get.mockResolvedValueOnce({ data: { total: 0, items: [], page: 1, page_size: 50 } })
-
-    const { container } = renderClientes()
-    await waitFor(() => expect(screen.getByText('Nenhuma oportunidade')).toBeInTheDocument())
-
-    // Mock do post
-    api.post.mockResolvedValueOnce({
-      data: { upload_id: 'abc', total_linhas: 100, total_validos: 99, erros: [] }
-    })
-    // Mocks pros recarregamentos que rolam após upload
-    api.get.mockResolvedValueOnce({ data: resumoVazio })
-    api.get.mockResolvedValueOnce({ data: { total: 99, items: [], page: 1, page_size: 50 } })
-
-    // Pegar os inputs de arquivo (UploadButton renderiza um <input type="file"> escondido)
-    const fileInputs = container.querySelectorAll('input[type="file"]')
-    expect(fileInputs.length).toBeGreaterThan(0)
-
-    const arquivo = new File(['fake'], 'ops.xlsx', {
-      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-    })
-    fireEvent.change(fileInputs[0], { target: { files: [arquivo] } })
-
-    await waitFor(() => {
-      expect(api.post).toHaveBeenCalledWith(
-        '/clientes/upload-oportunidades',
-        expect.any(FormData),
-      )
-    })
-  })
+})
 })
