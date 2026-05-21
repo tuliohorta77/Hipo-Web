@@ -2,25 +2,30 @@
 HIPO -- Router de Passagem de Bastão.
 
 Endpoints (montados em /carteira/* via main.py):
-  GET    /carteira/bastoes/contador/{cnpj}  -- lookup pro modal (sem registrar nada)
-  POST   /carteira/bastoes                  -- Hunter cria (PENDENTE)
-  GET    /carteira/bastoes/meus             -- Hunter vê seus próprios
-  GET    /carteira/bastoes/pendentes        -- ADM fila de aprovação
-  GET    /carteira/bastoes/kpis/{hunter}    -- KPIs agregados pro header
-  PATCH  /carteira/bastoes/{id}/aprovar     -- ADM aprova
-  PATCH  /carteira/bastoes/{id}/rejeitar    -- ADM rejeita (com motivo)
-  DELETE /carteira/bastoes/{id}             -- Hunter remove (soft delete)
+  GET    /carteira/bastoes/contador?cnpj=...   -- lookup pro modal (sem registrar nada)
+  POST   /carteira/bastoes                     -- Hunter cria (PENDENTE)
+  GET    /carteira/bastoes/meus                -- Hunter vê seus próprios
+  GET    /carteira/bastoes/pendentes           -- ADM fila de aprovação
+  GET    /carteira/bastoes/kpis/{hunter}       -- KPIs agregados pro header
+  PATCH  /carteira/bastoes/{id}/aprovar        -- ADM aprova
+  PATCH  /carteira/bastoes/{id}/rejeitar       -- ADM rejeita (com motivo)
+  DELETE /carteira/bastoes/{id}                -- Hunter remove (soft delete)
 
 Guard:
   - Todas as rotas usam dependency_modulo("carteira") herdada do main.py
   - Endpoints exclusivos do ADM verificam cargo dentro do handler
+
+NOTA sobre o lookup de contador: CNPJ é passado via query (?cnpj=...)
+em vez de path. Motivo: o CNPJ com mascara (XX.XXX.XXX/XXXX-XX) contém
+'/' e o FastAPI interpreta isso como separador de path, gerando 404
+de "rota não encontrada" em vez de chamar o handler.
 """
 from __future__ import annotations
 
 from datetime import date
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Path, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from database import get_conn
@@ -66,9 +71,6 @@ def _hunter_nome_do_user(user: dict) -> str:
 
     Convenção: o `nome` da usuarios deve casar com `carteira_colaborador.nome`
     e com `carteira_cnpj.colaborador_nome` (todos vêm da mesma fonte).
-
-    Para ADM/Franqueado criarem bastão em nome de outros, usariam um endpoint
-    dedicado (não implementado nesta fase — seria uma futura escala).
     """
     nome = user.get("nome")
     if not nome:
@@ -78,15 +80,18 @@ def _hunter_nome_do_user(user: dict) -> str:
 
 # ── Endpoints ─────────────────────────────────────────────────
 
-@router.get("/bastoes/contador/{cnpj}")
+@router.get("/bastoes/contador")
 async def lookup_contador(
-    cnpj: str = Path(..., description="CNPJ com ou sem máscara"),
+    cnpj: str = Query(..., description="CNPJ com ou sem máscara (formato livre)"),
     conn=Depends(get_conn),
     user=Depends(usuario_atual),
 ):
     """
     Lookup pro modal de inclusão de bastão.
     Não cria nada — só confere se o CNPJ existe na carteira.
+
+    CNPJ é query param (não path) porque a máscara XX.XXX.XXX/XXXX-XX
+    contém '/' que o FastAPI interpreta como separador de rota.
     """
     try:
         return await svc.buscar_contador_por_cnpj(conn, cnpj)
@@ -216,7 +221,6 @@ async def remover(
 
     try:
         if cargo in _CARGOS_ADM:
-            # ADM pode remover qualquer um — passa o nome real do dono.
             atual = await conn.fetchrow(
                 "SELECT hunter_nome FROM carteira_bastao WHERE id = $1",
                 bastao_id,

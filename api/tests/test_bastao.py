@@ -7,11 +7,6 @@ Cobre:
   - Permissões: Hunter não aprova; só ADM
   - KPIs agregados
   - Lookup de contador
-
-Padrão dos fixtures segue test_clientes_drilldown.py:
-  - cria usuários via SQL com pwd hash bcrypt
-  - login HTTP em /auth/login pra pegar JWT
-  - injeta headers Authorization nos requests
 """
 from __future__ import annotations
 
@@ -32,11 +27,6 @@ async def setup_dados(db_conn, client):
     """
     Cria usuários (ADM + Hunter + Farmer), faz login de cada,
     cria colaboradores e 2 CNPJs em carteira_cnpj.
-
-    Retorna dict com IDs, nomes, CNPJs e headers HTTP por papel.
-
-    NOTA: como db_conn TRUNCA todas as tabelas no início, este fixture
-    é seguro pra rodar com outros testes (não há conflito de email).
     """
     pwd_hash = bcrypt.hashpw(_SENHA.encode(), bcrypt.gensalt()).decode()
 
@@ -378,8 +368,11 @@ class TestRouterBastao:
 
     async def test_lookup_contador_via_http(self, client, db_conn, setup_dados):
         d = setup_dados
+        # CNPJ vai como query param (?cnpj=...) — path nao funciona com mascara
+        # que contem '/'.
         r = await client.get(
-            f"/carteira/bastoes/contador/{d['cnpj1']}",
+            "/carteira/bastoes/contador",
+            params={"cnpj": d["cnpj1"]},
             headers=d["headers_hunter"],
         )
         assert r.status_code == 200, f"Status {r.status_code}: {r.text}"
@@ -388,10 +381,11 @@ class TestRouterBastao:
     async def test_lookup_contador_404(self, client, setup_dados):
         d = setup_dados
         r = await client.get(
-            "/carteira/bastoes/contador/99.999.999/0001-99",
+            "/carteira/bastoes/contador",
+            params={"cnpj": "99.999.999/0001-99"},
             headers=d["headers_hunter"],
         )
-        assert r.status_code == 404
+        assert r.status_code == 404, f"Status {r.status_code}: {r.text}"
 
     async def test_meus_bastoes_filtra_pelo_usuario(self, client, db_conn, setup_dados):
         from services import bastao as svc
