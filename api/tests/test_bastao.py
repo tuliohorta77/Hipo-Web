@@ -2,58 +2,68 @@
 HIPO -- Testes do módulo Bastão.
 
 Cobre:
-  - Workflow completo: Hunter cria → ADM aprova/rejeita → Hunter remove
-  - Validações de regra de negócio (CNPJ inexistente, conflito de bastão ativo)
-  - Permissões (Hunter não aprova; só ADM)
+  - Workflow: Hunter cria → ADM aprova/rejeita → Hunter remove
+  - Validações: CNPJ inexistente, conflito de bastão ativo, transições inválidas
+  - Permissões: Hunter não aprova; só ADM
   - KPIs agregados
   - Lookup de contador
+
+Padrão dos fixtures segue test_clientes_drilldown.py:
+  - cria usuários via SQL com pwd hash bcrypt
+  - login HTTP em /auth/login pra pegar JWT
+  - injeta headers Authorization nos requests
 """
 from __future__ import annotations
 
 import uuid
 from datetime import date
 
+import bcrypt
 import pytest
 
 
-# ── Fixtures ──────────────────────────────────────────────────
+_SENHA = "test123"
+
+
+# ── Fixture principal ─────────────────────────────────────────
 
 @pytest.fixture
-async def setup_dados(db_conn):
+async def setup_dados(db_conn, client):
     """
-    Cria fixtures comuns: usuários (ADM + Hunter + Farmer), 1 colaborador
-    Hunter, 1 colaborador Farmer e 2 CNPJs em carteira_cnpj.
+    Cria usuários (ADM + Hunter + Farmer), faz login de cada,
+    cria colaboradores e 2 CNPJs em carteira_cnpj.
 
-    NOTA: com pytest-asyncio mode=auto, o pytest já resolve a corrotina
-    antes de injetar — os testes recebem o dict diretamente, sem 'await'.
+    Retorna dict com IDs, nomes, CNPJs e headers HTTP por papel.
+
+    NOTA: como db_conn TRUNCA todas as tabelas no início, este fixture
+    é seguro pra rodar com outros testes (não há conflito de email).
     """
-    # Limpa tabelas relevantes
-    await db_conn.execute("TRUNCATE carteira_bastao CASCADE")
-    await db_conn.execute("TRUNCATE carteira_cnpj CASCADE")
-    await db_conn.execute("TRUNCATE carteira_colaborador CASCADE")
-    await db_conn.execute("DELETE FROM usuarios WHERE email LIKE 'bastao_%'")
+    pwd_hash = bcrypt.hashpw(_SENHA.encode(), bcrypt.gensalt()).decode()
 
     # Usuários
     adm_id = await db_conn.fetchval(
         """
         INSERT INTO usuarios (nome, email, senha_hash, cargo)
-        VALUES ('Tulio ADM', 'bastao_adm@hipo.com', 'hash', 'ADM')
+        VALUES ('Tulio ADM', 'bastao_adm@hipo.com', $1, 'ADM')
         RETURNING id
-        """
+        """,
+        pwd_hash,
     )
     hunter_id = await db_conn.fetchval(
         """
         INSERT INTO usuarios (nome, email, senha_hash, cargo)
-        VALUES ('Patrick Hunter', 'bastao_hunter@hipo.com', 'hash', 'Hunter')
+        VALUES ('Patrick Hunter', 'bastao_hunter@hipo.com', $1, 'Hunter')
         RETURNING id
-        """
+        """,
+        pwd_hash,
     )
     farmer_id = await db_conn.fetchval(
         """
         INSERT INTO usuarios (nome, email, senha_hash, cargo)
-        VALUES ('Aline Farmer', 'bastao_farmer@hipo.com', 'hash', 'Farmer')
+        VALUES ('Aline Farmer', 'bastao_farmer@hipo.com', $1, 'Farmer')
         RETURNING id
-        """
+        """,
+        pwd_hash,
     )
 
     # Colaboradores
@@ -82,6 +92,20 @@ async def setup_dados(db_conn):
         upload_id,
     )
 
+    # Login de cada papel -> headers HTTP
+    async def _login(email):
+        resp = await client.post(
+            "/auth/login",
+            data={"username": email, "password": _SENHA},
+        )
+        assert resp.status_code == 200, f"Login falhou pra {email}: {resp.text}"
+        token = resp.json()["access_token"]
+        return {"Authorization": f"Bearer {token}"}
+
+    headers_adm    = await _login("bastao_adm@hipo.com")
+    headers_hunter = await _login("bastao_hunter@hipo.com")
+    headers_farmer = await _login("bastao_farmer@hipo.com")
+
     return {
         "adm_id": adm_id,
         "hunter_id": hunter_id,
@@ -90,17 +114,10 @@ async def setup_dados(db_conn):
         "farmer_nome": "Aline Farmer",
         "cnpj1": "11.111.111/0001-11",
         "cnpj2": "22.222.222/0001-22",
+        "headers_adm": headers_adm,
+        "headers_hunter": headers_hunter,
+        "headers_farmer": headers_farmer,
     }
-
-
-def _auth_header(token: str) -> dict:
-    return {"Authorization": f"Bearer {token}"}
-
-
-def _token_para(email: str) -> str:
-    """Gera um JWT pra usuário de teste (importa _gerar_token do auth)."""
-    from routers.auth import _gerar_token
-    return _gerar_token(email)
 
 
 # ── Testes do service (sem HTTP) ──────────────────────────────
@@ -214,7 +231,6 @@ class TestServiceBastao:
         )
         with pytest.raises(svc.TransicaoInvalida):
             await svc.rejeitar_bastao(db_conn, b["id"], d["adm_id"], "")
-        # Com motivo OK
         rej = await svc.rejeitar_bastao(db_conn, b["id"], d["adm_id"], "Não está apto")
         assert rej["status"] == "REJEITADO"
         assert rej["motivo_rejeicao"] == "Não está apto"
@@ -255,7 +271,6 @@ class TestServiceBastao:
             leads_iniciais=2, criado_por=d["hunter_id"],
         )
         await svc.remover_bastao(db_conn, b1["id"], d["hunter_nome"])
-        # Agora o CNPJ está livre — outro Hunter pode reivindicar
         b2 = await svc.criar_bastao(
             db_conn,
             hunter_nome="Outro Hunter", farmer_nome=d["farmer_nome"],
@@ -267,7 +282,6 @@ class TestServiceBastao:
     async def test_kpis_do_hunter(self, db_conn, setup_dados):
         from services import bastao as svc
         d = setup_dados
-        # Cria 2 bastões — aprova 1, deixa 1 pendente
         b1 = await svc.criar_bastao(
             db_conn,
             hunter_nome=d["hunter_nome"], farmer_nome=d["farmer_nome"],
@@ -285,7 +299,7 @@ class TestServiceBastao:
         kpis = await svc.kpis_do_hunter(db_conn, d["hunter_nome"])
         assert kpis["total_passados"] == 1
         assert kpis["pendentes"] == 1
-        assert kpis["leads_iniciais_soma"] == 3  # só do aprovado
+        assert kpis["leads_iniciais_soma"] == 3
 
     async def test_listar_bastoes_pendentes_apenas(self, db_conn, setup_dados):
         from services import bastao as svc
@@ -316,7 +330,6 @@ class TestRouterBastao:
 
     async def test_hunter_cria_bastao_via_http(self, client, db_conn, setup_dados):
         d = setup_dados
-        token = _token_para("bastao_hunter@hipo.com")
         r = await client.post(
             "/carteira/bastoes",
             json={
@@ -325,11 +338,12 @@ class TestRouterBastao:
                 "data_parceria": "2026-05-01",
                 "leads_iniciais": 2,
             },
-            headers=_auth_header(token),
+            headers=d["headers_hunter"],
         )
-        assert r.status_code == 201
+        assert r.status_code == 201, f"Status {r.status_code}: {r.text}"
         body = r.json()
         assert body["status"] == "PENDENTE"
+        assert body["hunter_nome"] == d["hunter_nome"]
 
     async def test_hunter_nao_pode_aprovar(self, client, db_conn, setup_dados):
         from services import bastao as svc
@@ -340,10 +354,9 @@ class TestRouterBastao:
             cnpj_contador=d["cnpj1"], data_parceria=date(2026, 5, 1),
             leads_iniciais=2, criado_por=d["hunter_id"],
         )
-        token = _token_para("bastao_hunter@hipo.com")
         r = await client.patch(
             f"/carteira/bastoes/{b['id']}/aprovar",
-            headers=_auth_header(token),
+            headers=d["headers_hunter"],
         )
         assert r.status_code == 403
 
@@ -356,45 +369,44 @@ class TestRouterBastao:
             cnpj_contador=d["cnpj1"], data_parceria=date(2026, 5, 1),
             leads_iniciais=2, criado_por=d["hunter_id"],
         )
-        token = _token_para("bastao_adm@hipo.com")
         r = await client.patch(
             f"/carteira/bastoes/{b['id']}/aprovar",
-            headers=_auth_header(token),
+            headers=d["headers_adm"],
         )
-        assert r.status_code == 200
+        assert r.status_code == 200, f"Status {r.status_code}: {r.text}"
         assert r.json()["status"] == "APROVADO"
 
     async def test_lookup_contador_via_http(self, client, db_conn, setup_dados):
         d = setup_dados
-        token = _token_para("bastao_hunter@hipo.com")
         r = await client.get(
             f"/carteira/bastoes/contador/{d['cnpj1']}",
-            headers=_auth_header(token),
+            headers=d["headers_hunter"],
         )
-        assert r.status_code == 200
+        assert r.status_code == 200, f"Status {r.status_code}: {r.text}"
         assert r.json()["cnpj_contador"] == d["cnpj1"]
 
     async def test_lookup_contador_404(self, client, setup_dados):
-        token = _token_para("bastao_hunter@hipo.com")
+        d = setup_dados
         r = await client.get(
             "/carteira/bastoes/contador/99.999.999/0001-99",
-            headers=_auth_header(token),
+            headers=d["headers_hunter"],
         )
         assert r.status_code == 404
 
     async def test_meus_bastoes_filtra_pelo_usuario(self, client, db_conn, setup_dados):
         from services import bastao as svc
         d = setup_dados
-        # Hunter cria 1
         await svc.criar_bastao(
             db_conn,
             hunter_nome=d["hunter_nome"], farmer_nome=d["farmer_nome"],
             cnpj_contador=d["cnpj1"], data_parceria=date(2026, 5, 1),
             leads_iniciais=2, criado_por=d["hunter_id"],
         )
-        token = _token_para("bastao_hunter@hipo.com")
-        r = await client.get("/carteira/bastoes/meus", headers=_auth_header(token))
-        assert r.status_code == 200
+        r = await client.get(
+            "/carteira/bastoes/meus",
+            headers=d["headers_hunter"],
+        )
+        assert r.status_code == 200, f"Status {r.status_code}: {r.text}"
         rows = r.json()
         assert len(rows) == 1
         assert rows[0]["hunter_nome"] == d["hunter_nome"]
