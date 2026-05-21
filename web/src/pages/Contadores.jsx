@@ -38,6 +38,7 @@ import CarteiraBolinhasSemana from '../components/CarteiraBolinhasSemana';
 import CarteiraTimeline from '../components/CarteiraTimeline';
 import ConfigColaboradoresModal from '../components/ConfigColaboradoresModal';
 import CarteiraGrupoDrawer from '../components/CarteiraGrupoDrawer';
+import HunterSubAbas from '../components/HunterSubAbas';
 
 import Card from '../components/ui/Card';
 import KpiCard from '../components/ui/KpiCard';
@@ -570,7 +571,11 @@ export default function Contadores() {
                     aberto && (
                       <tr key={`${l.colaborador_id}-drill`} className="bg-hipo-bg">
                         <td colSpan={8} className="px-5 py-4">
-                          <DrilldownTabela
+                          <HunterSubAbas
+                            hunterNome={l.nome}
+                            farmersDisponiveis={farmer.linhas.map((f) => f.nome)}
+                            prospecaoContent={
+                              <DrilldownTabela
                             aba="EC_HUNTER"
                             grupos={aplicarFiltrosDrill(l.grupos)}
                             totalSemFiltro={l.grupos.length}
@@ -582,6 +587,8 @@ export default function Contadores() {
                                 id_grupo: g.id_grupo,
                                 nome_grupo: g.nome_grupo,
                               })
+                            }
+                          />
                             }
                           />
                         </td>
