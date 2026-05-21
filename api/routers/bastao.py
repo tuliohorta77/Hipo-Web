@@ -5,20 +5,26 @@ Endpoints (montados em /carteira/* via main.py):
   GET    /carteira/bastoes/contador?cnpj=...   -- lookup pro modal (sem registrar nada)
   POST   /carteira/bastoes                     -- Hunter cria (PENDENTE)
   GET    /carteira/bastoes/meus                -- Hunter vê seus próprios
-  GET    /carteira/bastoes/pendentes           -- ADM fila de aprovação
+  GET    /carteira/bastoes/pendentes           -- Aprovador (Gerente/Franqueado): fila
   GET    /carteira/bastoes/kpis/{hunter}       -- KPIs agregados pro header
-  PATCH  /carteira/bastoes/{id}/aprovar        -- ADM aprova
-  PATCH  /carteira/bastoes/{id}/rejeitar       -- ADM rejeita (com motivo)
+  PATCH  /carteira/bastoes/{id}/aprovar        -- Gerente/Franqueado aprovam
+  PATCH  /carteira/bastoes/{id}/rejeitar       -- Gerente/Franqueado rejeitam (com motivo)
   DELETE /carteira/bastoes/{id}                -- Hunter remove (soft delete)
 
 Guard:
   - Todas as rotas usam dependency_modulo("carteira") herdada do main.py
-  - Endpoints exclusivos do ADM verificam cargo dentro do handler
+  - Endpoints de aprovação (aprovar/rejeitar/listar pendentes) verificam cargo
+    dentro do handler — restritos a Gerente/Franqueado (NÃO ADM).
 
 NOTA sobre o lookup de contador: CNPJ é passado via query (?cnpj=...)
 em vez de path. Motivo: o CNPJ com mascara (XX.XXX.XXX/XXXX-XX) contém
 '/' e o FastAPI interpreta isso como separador de path, gerando 404
 de "rota não encontrada" em vez de chamar o handler.
+
+NOTA sobre permissões (v1.2.0 etapa 3): aprovação de bastão é tratada
+como FLUXO DE OPERAÇÕES — competência do Gerente e do Franqueado, não
+do ADM (que cuida de outras frentes do Hipo). ADM consegue ver todos
+os bastões via /meus?hunter=X, mas não aprova/rejeita.
 """
 from __future__ import annotations
 
@@ -52,16 +58,24 @@ class BastaoRejectIn(BaseModel):
 
 # ── Helpers ───────────────────────────────────────────────────
 
-_CARGOS_ADM = {"ADM", "Franqueado"}
+# Cargos que APROVAM bastão. Operações de carteira são do
+# Gerente e do Franqueado — ADM cuida de outras frentes do Hipo.
+_CARGOS_APROVADOR = {"Gerente", "Franqueado"}
+
+# Cargos com privilégios administrativos (para /meus?hunter=X e remover
+# bastão alheio). ADM continua tendo poder operacional pra esses casos
+# excepcionais, mesmo sem poder aprovar a fila normal.
+_CARGOS_ADM_GERAL = {"ADM", "Franqueado", "Gerente"}
 
 
-def _exigir_adm(user: dict) -> None:
-    """Restringe a ADM/Franqueado. Levanta 403 se não for."""
+def _exigir_aprovador(user: dict) -> None:
+    """Restringe a Gerente/Franqueado. Levanta 403 caso contrário."""
     cargo = user.get("cargo")
-    if cargo not in _CARGOS_ADM:
+    if cargo not in _CARGOS_APROVADOR:
         raise HTTPException(
             403,
-            f"Apenas ADM/Franqueado pode executar esta ação (cargo atual: '{cargo}').",
+            f"Apenas Gerente/Franqueado pode aprovar ou rejeitar bastões "
+            f"(cargo atual: '{cargo}').",
         )
 
 
@@ -106,7 +120,7 @@ async def criar_bastao(
     user=Depends(usuario_atual),
 ):
     """
-    Hunter cria registro PENDENTE. Aguarda aprovação do ADM.
+    Hunter cria registro PENDENTE. Aguarda aprovação do Gerente/Franqueado.
     """
     hunter_nome = _hunter_nome_do_user(user)
     try:
@@ -133,15 +147,15 @@ async def meus_bastoes(
     user=Depends(usuario_atual),
     hunter: str | None = Query(
         None,
-        description="ADM pode filtrar por nome de hunter. Não-ADM ignora este param.",
+        description="Cargos com privilégio admin podem filtrar por hunter. Outros ignoram.",
     ),
 ):
     """
     Lista bastões deste usuário (todos os status).
-    ADM/Franqueado pode passar ?hunter=NOME pra ver de outros.
+    ADM/Gerente/Franqueado podem passar ?hunter=NOME pra ver de outros.
     """
     cargo = user.get("cargo")
-    if cargo in _CARGOS_ADM and hunter:
+    if cargo in _CARGOS_ADM_GERAL and hunter:
         nome = hunter
     else:
         nome = _hunter_nome_do_user(user)
@@ -153,8 +167,8 @@ async def fila_pendentes(
     conn=Depends(get_conn),
     user=Depends(usuario_atual),
 ):
-    """ADM vê fila de aprovação."""
-    _exigir_adm(user)
+    """Fila de aprovação — Gerente/Franqueado vê o que precisa aprovar."""
+    _exigir_aprovador(user)
     return await svc.listar_bastoes_pendentes(conn)
 
 
@@ -166,10 +180,10 @@ async def kpis_hunter(
 ):
     """
     KPIs agregados pro header da sub-aba Relacionamento do Hunter.
-    Hunter só vê os próprios; ADM/Gerente vê de qualquer um.
+    Hunter só vê os próprios; ADM/Gerente/Franqueado/EP vê de qualquer um.
     """
     cargo = user.get("cargo")
-    pode_ver_outros = cargo in (_CARGOS_ADM | {"Gerente", "EP"})
+    pode_ver_outros = cargo in (_CARGOS_ADM_GERAL | {"EP"})
     if not pode_ver_outros and user.get("nome") != hunter_nome:
         raise HTTPException(403, "Você só pode ver os próprios KPIs.")
     return await svc.kpis_do_hunter(conn, hunter_nome)
@@ -181,7 +195,7 @@ async def aprovar(
     conn=Depends(get_conn),
     user=Depends(usuario_atual),
 ):
-    _exigir_adm(user)
+    _exigir_aprovador(user)
     try:
         return await svc.aprovar_bastao(conn, bastao_id, user["id"])
     except svc.BastaoNaoEncontrado as e:
@@ -197,7 +211,7 @@ async def rejeitar(
     conn=Depends(get_conn),
     user=Depends(usuario_atual),
 ):
-    _exigir_adm(user)
+    _exigir_aprovador(user)
     try:
         return await svc.rejeitar_bastao(conn, bastao_id, user["id"], body.motivo)
     except svc.BastaoNaoEncontrado as e:
@@ -213,14 +227,16 @@ async def remover(
     user=Depends(usuario_atual),
 ):
     """
-    Hunter remove o próprio bastão (soft delete). ADM também pode remover
-    qualquer bastão (caso edge — não é workflow normal, mas evita lock-in).
+    Hunter remove o próprio bastão (soft delete). ADM/Gerente/Franqueado
+    também podem remover qualquer bastão (caso edge — não é workflow normal,
+    mas evita lock-in).
     """
     cargo = user.get("cargo")
     nome = _hunter_nome_do_user(user)
 
     try:
-        if cargo in _CARGOS_ADM:
+        if cargo in _CARGOS_ADM_GERAL:
+            # Privilégio admin pode remover qualquer um — passa o nome real do dono.
             atual = await conn.fetchrow(
                 "SELECT hunter_nome FROM carteira_bastao WHERE id = $1",
                 bastao_id,

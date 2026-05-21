@@ -2,11 +2,14 @@
 HIPO -- Testes do módulo Bastão.
 
 Cobre:
-  - Workflow: Hunter cria → ADM aprova/rejeita → Hunter remove
+  - Workflow: Hunter cria → Gerente aprova/rejeita → Hunter remove
   - Validações: CNPJ inexistente, conflito de bastão ativo, transições inválidas
-  - Permissões: Hunter não aprova; só ADM
+  - Permissões: Hunter NÃO aprova; ADM NÃO aprova; só Gerente/Franqueado
   - KPIs agregados
   - Lookup de contador
+
+v1.2.0 etapa 3: aprovação migrou de ADM+Franqueado pra Gerente+Franqueado.
+ADM perdeu poder de aprovar (mas mantém poder de remover e ver lista de outros).
 """
 from __future__ import annotations
 
@@ -25,7 +28,7 @@ _SENHA = "test123"
 @pytest.fixture
 async def setup_dados(db_conn, client):
     """
-    Cria usuários (ADM + Hunter + Farmer), faz login de cada,
+    Cria usuários (ADM + Gerente + Hunter + Farmer), faz login de cada,
     cria colaboradores e 2 CNPJs em carteira_cnpj.
     """
     pwd_hash = bcrypt.hashpw(_SENHA.encode(), bcrypt.gensalt()).decode()
@@ -35,6 +38,14 @@ async def setup_dados(db_conn, client):
         """
         INSERT INTO usuarios (nome, email, senha_hash, cargo)
         VALUES ('Tulio ADM', 'bastao_adm@hipo.com', $1, 'ADM')
+        RETURNING id
+        """,
+        pwd_hash,
+    )
+    gerente_id = await db_conn.fetchval(
+        """
+        INSERT INTO usuarios (nome, email, senha_hash, cargo)
+        VALUES ('Carla Gerente', 'bastao_gerente@hipo.com', $1, 'Gerente')
         RETURNING id
         """,
         pwd_hash,
@@ -92,12 +103,14 @@ async def setup_dados(db_conn, client):
         token = resp.json()["access_token"]
         return {"Authorization": f"Bearer {token}"}
 
-    headers_adm    = await _login("bastao_adm@hipo.com")
-    headers_hunter = await _login("bastao_hunter@hipo.com")
-    headers_farmer = await _login("bastao_farmer@hipo.com")
+    headers_adm     = await _login("bastao_adm@hipo.com")
+    headers_gerente = await _login("bastao_gerente@hipo.com")
+    headers_hunter  = await _login("bastao_hunter@hipo.com")
+    headers_farmer  = await _login("bastao_farmer@hipo.com")
 
     return {
         "adm_id": adm_id,
+        "gerente_id": gerente_id,
         "hunter_id": hunter_id,
         "farmer_id": farmer_id,
         "hunter_nome": "Patrick Hunter",
@@ -105,6 +118,7 @@ async def setup_dados(db_conn, client):
         "cnpj1": "11.111.111/0001-11",
         "cnpj2": "22.222.222/0001-22",
         "headers_adm": headers_adm,
+        "headers_gerente": headers_gerente,
         "headers_hunter": headers_hunter,
         "headers_farmer": headers_farmer,
     }
@@ -178,6 +192,7 @@ class TestServiceBastao:
             )
 
     async def test_aprovar_bastao(self, db_conn, setup_dados):
+        """Service aceita qualquer user_id como aprovador — quem restringe é o router."""
         from services import bastao as svc
         d = setup_dados
         b = await svc.criar_bastao(
@@ -186,16 +201,16 @@ class TestServiceBastao:
             cnpj_contador=d["cnpj1"], data_parceria=date(2026, 5, 1),
             leads_iniciais=2, criado_por=d["hunter_id"],
         )
-        aprovado = await svc.aprovar_bastao(db_conn, b["id"], d["adm_id"])
+        aprovado = await svc.aprovar_bastao(db_conn, b["id"], d["gerente_id"])
         assert aprovado["status"] == "APROVADO"
-        assert aprovado["validado_por"] == d["adm_id"]
+        assert aprovado["validado_por"] == d["gerente_id"]
         assert aprovado["validado_em"] is not None
 
     async def test_aprovar_bastao_inexistente(self, db_conn, setup_dados):
         from services import bastao as svc
         d = setup_dados
         with pytest.raises(svc.BastaoNaoEncontrado):
-            await svc.aprovar_bastao(db_conn, uuid.uuid4(), d["adm_id"])
+            await svc.aprovar_bastao(db_conn, uuid.uuid4(), d["gerente_id"])
 
     async def test_aprovar_duas_vezes_falha(self, db_conn, setup_dados):
         from services import bastao as svc
@@ -206,9 +221,9 @@ class TestServiceBastao:
             cnpj_contador=d["cnpj1"], data_parceria=date(2026, 5, 1),
             leads_iniciais=2, criado_por=d["hunter_id"],
         )
-        await svc.aprovar_bastao(db_conn, b["id"], d["adm_id"])
+        await svc.aprovar_bastao(db_conn, b["id"], d["gerente_id"])
         with pytest.raises(svc.TransicaoInvalida):
-            await svc.aprovar_bastao(db_conn, b["id"], d["adm_id"])
+            await svc.aprovar_bastao(db_conn, b["id"], d["gerente_id"])
 
     async def test_rejeitar_exige_motivo(self, db_conn, setup_dados):
         from services import bastao as svc
@@ -220,8 +235,8 @@ class TestServiceBastao:
             leads_iniciais=2, criado_por=d["hunter_id"],
         )
         with pytest.raises(svc.TransicaoInvalida):
-            await svc.rejeitar_bastao(db_conn, b["id"], d["adm_id"], "")
-        rej = await svc.rejeitar_bastao(db_conn, b["id"], d["adm_id"], "Não está apto")
+            await svc.rejeitar_bastao(db_conn, b["id"], d["gerente_id"], "")
+        rej = await svc.rejeitar_bastao(db_conn, b["id"], d["gerente_id"], "Não está apto")
         assert rej["status"] == "REJEITADO"
         assert rej["motivo_rejeicao"] == "Não está apto"
 
@@ -278,7 +293,7 @@ class TestServiceBastao:
             cnpj_contador=d["cnpj1"], data_parceria=date(2026, 5, 1),
             leads_iniciais=3, criado_por=d["hunter_id"],
         )
-        await svc.aprovar_bastao(db_conn, b1["id"], d["adm_id"])
+        await svc.aprovar_bastao(db_conn, b1["id"], d["gerente_id"])
         await svc.criar_bastao(
             db_conn,
             hunter_nome=d["hunter_nome"], farmer_nome=d["farmer_nome"],
@@ -306,7 +321,7 @@ class TestServiceBastao:
             cnpj_contador=d["cnpj2"], data_parceria=date(2026, 5, 2),
             leads_iniciais=1, criado_por=d["hunter_id"],
         )
-        await svc.aprovar_bastao(db_conn, b1["id"], d["adm_id"])
+        await svc.aprovar_bastao(db_conn, b1["id"], d["gerente_id"])
 
         pendentes = await svc.listar_bastoes_pendentes(db_conn)
         ids = {p["id"] for p in pendentes}
@@ -350,7 +365,8 @@ class TestRouterBastao:
         )
         assert r.status_code == 403
 
-    async def test_adm_aprova_via_http(self, client, db_conn, setup_dados):
+    async def test_adm_nao_pode_aprovar(self, client, db_conn, setup_dados):
+        """v1.2.0 etapa 3: ADM perdeu permissão de aprovar (operações é do Gerente)."""
         from services import bastao as svc
         d = setup_dados
         b = await svc.criar_bastao(
@@ -363,13 +379,64 @@ class TestRouterBastao:
             f"/carteira/bastoes/{b['id']}/aprovar",
             headers=d["headers_adm"],
         )
+        assert r.status_code == 403, f"Esperava 403, recebeu {r.status_code}: {r.text}"
+
+    async def test_gerente_aprova_via_http(self, client, db_conn, setup_dados):
+        """Gerente APROVA — fluxo de operações."""
+        from services import bastao as svc
+        d = setup_dados
+        b = await svc.criar_bastao(
+            db_conn,
+            hunter_nome=d["hunter_nome"], farmer_nome=d["farmer_nome"],
+            cnpj_contador=d["cnpj1"], data_parceria=date(2026, 5, 1),
+            leads_iniciais=2, criado_por=d["hunter_id"],
+        )
+        r = await client.patch(
+            f"/carteira/bastoes/{b['id']}/aprovar",
+            headers=d["headers_gerente"],
+        )
         assert r.status_code == 200, f"Status {r.status_code}: {r.text}"
         assert r.json()["status"] == "APROVADO"
 
+    async def test_gerente_rejeita_via_http(self, client, db_conn, setup_dados):
+        from services import bastao as svc
+        d = setup_dados
+        b = await svc.criar_bastao(
+            db_conn,
+            hunter_nome=d["hunter_nome"], farmer_nome=d["farmer_nome"],
+            cnpj_contador=d["cnpj1"], data_parceria=date(2026, 5, 1),
+            leads_iniciais=2, criado_por=d["hunter_id"],
+        )
+        r = await client.patch(
+            f"/carteira/bastoes/{b['id']}/rejeitar",
+            json={"motivo": "Parceria ainda nao formalizada"},
+            headers=d["headers_gerente"],
+        )
+        assert r.status_code == 200, f"Status {r.status_code}: {r.text}"
+        body = r.json()
+        assert body["status"] == "REJEITADO"
+        assert body["motivo_rejeicao"] == "Parceria ainda nao formalizada"
+
+    async def test_adm_nao_ve_fila_pendentes(self, client, db_conn, setup_dados):
+        """v1.2.0 etapa 3: ADM tampouco vê a fila de aprovação."""
+        d = setup_dados
+        r = await client.get(
+            "/carteira/bastoes/pendentes",
+            headers=d["headers_adm"],
+        )
+        assert r.status_code == 403
+
+    async def test_gerente_ve_fila_pendentes(self, client, db_conn, setup_dados):
+        d = setup_dados
+        r = await client.get(
+            "/carteira/bastoes/pendentes",
+            headers=d["headers_gerente"],
+        )
+        assert r.status_code == 200, f"Status {r.status_code}: {r.text}"
+        assert isinstance(r.json(), list)
+
     async def test_lookup_contador_via_http(self, client, db_conn, setup_dados):
         d = setup_dados
-        # CNPJ vai como query param (?cnpj=...) — path nao funciona com mascara
-        # que contem '/'.
         r = await client.get(
             "/carteira/bastoes/contador",
             params={"cnpj": d["cnpj1"]},
