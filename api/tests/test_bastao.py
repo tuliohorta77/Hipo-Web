@@ -23,6 +23,9 @@ async def setup_dados(db_conn):
     """
     Cria fixtures comuns: usuários (ADM + Hunter + Farmer), 1 colaborador
     Hunter, 1 colaborador Farmer e 2 CNPJs em carteira_cnpj.
+
+    NOTA: com pytest-asyncio mode=auto, o pytest já resolve a corrotina
+    antes de injetar — os testes recebem o dict diretamente, sem 'await'.
     """
     # Limpa tabelas relevantes
     await db_conn.execute("TRUNCATE carteira_bastao CASCADE")
@@ -94,10 +97,8 @@ def _auth_header(token: str) -> dict:
     return {"Authorization": f"Bearer {token}"}
 
 
-async def _token_para(client, email: str) -> str:
-    """Gera um JWT pra usuário de teste (fixtura padrão usa endpoint de login)."""
-    # Setup: muda senha pra valor conhecido
-    # (Idealmente o conftest expõe helper. Adaptado a partir de test_clientes.py.)
+def _token_para(email: str) -> str:
+    """Gera um JWT pra usuário de teste (importa _gerar_token do auth)."""
     from routers.auth import _gerar_token
     return _gerar_token(email)
 
@@ -108,26 +109,25 @@ class TestServiceBastao:
 
     async def test_lookup_contador_existente(self, db_conn, setup_dados):
         from services import bastao as svc
-        d = await setup_dados
+        d = setup_dados
         info = await svc.buscar_contador_por_cnpj(db_conn, d["cnpj1"])
         assert info["cnpj_contador"] == d["cnpj1"]
         assert info["contabilidade"] == "Contab Teste 1"
 
     async def test_lookup_aceita_cnpj_sem_mascara(self, db_conn, setup_dados):
         from services import bastao as svc
-        d = await setup_dados
+        d = setup_dados
         info = await svc.buscar_contador_por_cnpj(db_conn, "11111111000111")
         assert info["cnpj_contador"] == d["cnpj1"]
 
     async def test_lookup_contador_inexistente(self, db_conn, setup_dados):
         from services import bastao as svc
-        await setup_dados
         with pytest.raises(svc.ContadorNaoEncontrado):
             await svc.buscar_contador_por_cnpj(db_conn, "99.999.999/0001-99")
 
     async def test_criar_bastao_pendente(self, db_conn, setup_dados):
         from services import bastao as svc
-        d = await setup_dados
+        d = setup_dados
         row = await svc.criar_bastao(
             db_conn,
             hunter_nome=d["hunter_nome"],
@@ -143,7 +143,7 @@ class TestServiceBastao:
 
     async def test_criar_bastao_conflito_unico(self, db_conn, setup_dados):
         from services import bastao as svc
-        d = await setup_dados
+        d = setup_dados
         await svc.criar_bastao(
             db_conn,
             hunter_nome=d["hunter_nome"], farmer_nome=d["farmer_nome"],
@@ -160,7 +160,7 @@ class TestServiceBastao:
 
     async def test_criar_bastao_cnpj_inexistente(self, db_conn, setup_dados):
         from services import bastao as svc
-        d = await setup_dados
+        d = setup_dados
         with pytest.raises(svc.ContadorNaoEncontrado):
             await svc.criar_bastao(
                 db_conn,
@@ -172,7 +172,7 @@ class TestServiceBastao:
 
     async def test_aprovar_bastao(self, db_conn, setup_dados):
         from services import bastao as svc
-        d = await setup_dados
+        d = setup_dados
         b = await svc.criar_bastao(
             db_conn,
             hunter_nome=d["hunter_nome"], farmer_nome=d["farmer_nome"],
@@ -186,13 +186,13 @@ class TestServiceBastao:
 
     async def test_aprovar_bastao_inexistente(self, db_conn, setup_dados):
         from services import bastao as svc
-        d = await setup_dados
+        d = setup_dados
         with pytest.raises(svc.BastaoNaoEncontrado):
             await svc.aprovar_bastao(db_conn, uuid.uuid4(), d["adm_id"])
 
     async def test_aprovar_duas_vezes_falha(self, db_conn, setup_dados):
         from services import bastao as svc
-        d = await setup_dados
+        d = setup_dados
         b = await svc.criar_bastao(
             db_conn,
             hunter_nome=d["hunter_nome"], farmer_nome=d["farmer_nome"],
@@ -205,7 +205,7 @@ class TestServiceBastao:
 
     async def test_rejeitar_exige_motivo(self, db_conn, setup_dados):
         from services import bastao as svc
-        d = await setup_dados
+        d = setup_dados
         b = await svc.criar_bastao(
             db_conn,
             hunter_nome=d["hunter_nome"], farmer_nome=d["farmer_nome"],
@@ -221,7 +221,7 @@ class TestServiceBastao:
 
     async def test_remover_proprio_bastao(self, db_conn, setup_dados):
         from services import bastao as svc
-        d = await setup_dados
+        d = setup_dados
         b = await svc.criar_bastao(
             db_conn,
             hunter_nome=d["hunter_nome"], farmer_nome=d["farmer_nome"],
@@ -234,7 +234,7 @@ class TestServiceBastao:
 
     async def test_remover_bastao_de_outro_falha(self, db_conn, setup_dados):
         from services import bastao as svc
-        d = await setup_dados
+        d = setup_dados
         b = await svc.criar_bastao(
             db_conn,
             hunter_nome=d["hunter_nome"], farmer_nome=d["farmer_nome"],
@@ -247,7 +247,7 @@ class TestServiceBastao:
     async def test_apos_remover_pode_criar_outro(self, db_conn, setup_dados):
         """Removeu → unique partial libera o CNPJ pra novo bastão."""
         from services import bastao as svc
-        d = await setup_dados
+        d = setup_dados
         b1 = await svc.criar_bastao(
             db_conn,
             hunter_nome=d["hunter_nome"], farmer_nome=d["farmer_nome"],
@@ -266,7 +266,7 @@ class TestServiceBastao:
 
     async def test_kpis_do_hunter(self, db_conn, setup_dados):
         from services import bastao as svc
-        d = await setup_dados
+        d = setup_dados
         # Cria 2 bastões — aprova 1, deixa 1 pendente
         b1 = await svc.criar_bastao(
             db_conn,
@@ -289,7 +289,7 @@ class TestServiceBastao:
 
     async def test_listar_bastoes_pendentes_apenas(self, db_conn, setup_dados):
         from services import bastao as svc
-        d = await setup_dados
+        d = setup_dados
         b1 = await svc.criar_bastao(
             db_conn,
             hunter_nome=d["hunter_nome"], farmer_nome=d["farmer_nome"],
@@ -315,8 +315,8 @@ class TestServiceBastao:
 class TestRouterBastao:
 
     async def test_hunter_cria_bastao_via_http(self, client, db_conn, setup_dados):
-        d = await setup_dados
-        token = await _token_para(client, "bastao_hunter@hipo.com")
+        d = setup_dados
+        token = _token_para("bastao_hunter@hipo.com")
         r = await client.post(
             "/carteira/bastoes",
             json={
@@ -333,14 +333,14 @@ class TestRouterBastao:
 
     async def test_hunter_nao_pode_aprovar(self, client, db_conn, setup_dados):
         from services import bastao as svc
-        d = await setup_dados
+        d = setup_dados
         b = await svc.criar_bastao(
             db_conn,
             hunter_nome=d["hunter_nome"], farmer_nome=d["farmer_nome"],
             cnpj_contador=d["cnpj1"], data_parceria=date(2026, 5, 1),
             leads_iniciais=2, criado_por=d["hunter_id"],
         )
-        token = await _token_para(client, "bastao_hunter@hipo.com")
+        token = _token_para("bastao_hunter@hipo.com")
         r = await client.patch(
             f"/carteira/bastoes/{b['id']}/aprovar",
             headers=_auth_header(token),
@@ -349,14 +349,14 @@ class TestRouterBastao:
 
     async def test_adm_aprova_via_http(self, client, db_conn, setup_dados):
         from services import bastao as svc
-        d = await setup_dados
+        d = setup_dados
         b = await svc.criar_bastao(
             db_conn,
             hunter_nome=d["hunter_nome"], farmer_nome=d["farmer_nome"],
             cnpj_contador=d["cnpj1"], data_parceria=date(2026, 5, 1),
             leads_iniciais=2, criado_por=d["hunter_id"],
         )
-        token = await _token_para(client, "bastao_adm@hipo.com")
+        token = _token_para("bastao_adm@hipo.com")
         r = await client.patch(
             f"/carteira/bastoes/{b['id']}/aprovar",
             headers=_auth_header(token),
@@ -365,8 +365,8 @@ class TestRouterBastao:
         assert r.json()["status"] == "APROVADO"
 
     async def test_lookup_contador_via_http(self, client, db_conn, setup_dados):
-        d = await setup_dados
-        token = await _token_para(client, "bastao_hunter@hipo.com")
+        d = setup_dados
+        token = _token_para("bastao_hunter@hipo.com")
         r = await client.get(
             f"/carteira/bastoes/contador/{d['cnpj1']}",
             headers=_auth_header(token),
@@ -375,8 +375,7 @@ class TestRouterBastao:
         assert r.json()["cnpj_contador"] == d["cnpj1"]
 
     async def test_lookup_contador_404(self, client, setup_dados):
-        await setup_dados
-        token = await _token_para(client, "bastao_hunter@hipo.com")
+        token = _token_para("bastao_hunter@hipo.com")
         r = await client.get(
             "/carteira/bastoes/contador/99.999.999/0001-99",
             headers=_auth_header(token),
@@ -385,15 +384,15 @@ class TestRouterBastao:
 
     async def test_meus_bastoes_filtra_pelo_usuario(self, client, db_conn, setup_dados):
         from services import bastao as svc
-        d = await setup_dados
-        # Hunter cria 1, "Outro Hunter" cria 1 (mas Outro Hunter não tem usuário)
+        d = setup_dados
+        # Hunter cria 1
         await svc.criar_bastao(
             db_conn,
             hunter_nome=d["hunter_nome"], farmer_nome=d["farmer_nome"],
             cnpj_contador=d["cnpj1"], data_parceria=date(2026, 5, 1),
             leads_iniciais=2, criado_por=d["hunter_id"],
         )
-        token = await _token_para(client, "bastao_hunter@hipo.com")
+        token = _token_para("bastao_hunter@hipo.com")
         r = await client.get("/carteira/bastoes/meus", headers=_auth_header(token))
         assert r.status_code == 200
         rows = r.json()
