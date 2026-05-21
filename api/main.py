@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from routers import (
     po, pex, auth, bd_ativados, metas, carteira, clientes, clientes_drilldown,
+    bastao,
 )
 from routers.permissions import requer_modulo
 
@@ -47,6 +48,14 @@ app.include_router(
 app.include_router(
     carteira.router,
     prefix="/carteira", tags=["Contadores"],
+    dependencies=[Depends(requer_modulo("carteira"))],
+)
+# Bastão (passagem Hunter → Farmer): vive sob /carteira porque é feature
+# do módulo Contadores. ADM-only para aprovar/rejeitar é checado dentro
+# do handler (não dá pra fazer só com dependency de módulo).
+app.include_router(
+    bastao.router,
+    prefix="/carteira", tags=["Contadores - Bastão"],
     dependencies=[Depends(requer_modulo("carteira"))],
 )
 app.include_router(
