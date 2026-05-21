@@ -7,6 +7,13 @@
 //
 // Quando vê 1 CNPJ no grupo: aba Leads mostra os leads desse CNPJ.
 // Quando vê N CNPJs: agrega leads de TODOS os CNPJs do grupo.
+//
+// Patch 7 (filtro clicável):
+//   - Cards de KPI (Em andamento/Conquistado/Perdido) agora são clicáveis
+//   - Click filtra a tabela; click no card já ativo limpa o filtro
+//   - Card "Total" funciona como "limpar filtro" (volta a mostrar todos)
+//   - Abreviações removidas: "Em andam." → "Em andamento", "Conquist." → "Conquistado",
+//     coluna "Temp." → "Temperatura"
 
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -32,6 +39,7 @@ function badgeSituacao(s) {
 
 function badgeStatusLead(s) {
   const v = (s || "").toLowerCase();
+  if (v === "ativo")         return "bg-hipo-blueSoft text-hipo-blue border-hipo-blueSoft";
   if (v === "em andamento")  return "bg-hipo-blueSoft text-hipo-blue border-hipo-blueSoft";
   if (v === "conquistado")   return "bg-hipo-successSoft text-hipo-success border-hipo-successBorder";
   if (v === "perdido")       return "bg-hipo-dangerSoft text-hipo-danger border-hipo-dangerBorder";
@@ -72,9 +80,15 @@ function fmtMoeda(v) {
 
 function fmtTemperatura(t) {
   if (t == null || t === 0) return "—";
-  // Backend manda NUMERIC(8,2). Maioria dos leads chega como inteiro; arredondamos.
   return `${Math.round(Number(t))}°`;
 }
+
+// Mapa de status (canônico) → label legível pro contador no rodapé
+const FILTRO_LABELS = {
+  ativo:        "Em andamento",
+  conquistado:  "Conquistado",
+  perdido:      "Perdido",
+};
 
 
 // ── Componente ─────────────────────────────────────────────────
@@ -90,6 +104,10 @@ export default function CarteiraGrupoDrawer({ idGrupo, onFechar, nomeGrupo }) {
   //   - { _erro: true, status }→ falha (ex: 403, 500)
   const [leadsPorCnpj, setLeadsPorCnpj] = useState({});
   const [loadingLeads, setLoadingLeads] = useState(false);
+
+  // Patch 7: filtro de status aplicado na tabela. null = sem filtro.
+  // Valores canônicos: "ativo" | "conquistado" | "perdido" (case-insensitive ao comparar).
+  const [filtroStatus, setFiltroStatus] = useState(null);
 
   // Flag idempotente: "já tentei carregar leads deste detalhe?"
   // Necessária pra evitar loop quando TODOS os requests falham (e o map
@@ -110,6 +128,7 @@ export default function CarteiraGrupoDrawer({ idGrupo, onFechar, nomeGrupo }) {
     setLeadExpandido(null);
     setTarefasPorOp({});
     setAba("TAREFAS");
+    setFiltroStatus(null);
     leadsCarregados.current = false;
     api.get(`/carteira/grupos/${encodeURIComponent(idGrupo)}`)
       .then((r) => setDetalhe(r.data))
@@ -165,6 +184,14 @@ export default function CarteiraGrupoDrawer({ idGrupo, onFechar, nomeGrupo }) {
     return out;
   }, [leadsPorCnpj]);
 
+  // Patch 7: leads filtrados conforme o card clicado
+  const leadsFiltrados = useMemo(() => {
+    if (!filtroStatus) return leadsAgregados;
+    return leadsAgregados.filter(
+      (l) => (l.status || "").toLowerCase() === filtroStatus
+    );
+  }, [leadsAgregados, filtroStatus]);
+
   const kpisLeads = useMemo(() => {
     const k = { total: 0, em_andamento: 0, conquistado: 0, perdido: 0 };
     for (const data of Object.values(leadsPorCnpj)) {
@@ -186,6 +213,11 @@ export default function CarteiraGrupoDrawer({ idGrupo, onFechar, nomeGrupo }) {
   }, [leadsPorCnpj]);
 
   if (!idGrupo) return null;
+
+  // Patch 7: toggle de filtro. Click no card já ativo → limpa.
+  function toggleFiltro(status) {
+    setFiltroStatus((atual) => (atual === status ? null : status));
+  }
 
   // Acordeao: abre/fecha tarefas de um lead. Lazy fetch via /clientes/oportunidades/{op_id}.
   async function toggleLead(opId) {
@@ -224,6 +256,26 @@ export default function CarteiraGrupoDrawer({ idGrupo, onFechar, nomeGrupo }) {
     if (v === "em dia")   return "bg-hipo-successSoft text-hipo-success border-hipo-successBorder";
     if (v === "futura")   return "bg-hipo-blueSoft text-hipo-blue border-hipo-blueSoft";
     return "bg-hipo-bg text-hipo-muted border-hipo-border";
+  }
+
+  // Helper: classes do KPI card considerando estado de seleção.
+  // Card ativo = borda azul espessa + opacidade 100%.
+  // Outros cards quando há filtro = opacidade 50% pra atenuar visualmente.
+  // Sem filtro = todos os cards normais.
+  function classesKpiCard(statusDoCard, classesBase) {
+    const algumAtivo = filtroStatus !== null;
+    const ehEsteAtivo = filtroStatus === statusDoCard;
+
+    if (!algumAtivo) {
+      // Sem filtro: todos normais, com hover sutil pra indicar clicabilidade
+      return `${classesBase} hover:ring-2 hover:ring-hipo-blue/30 transition-all`;
+    }
+    if (ehEsteAtivo) {
+      // Este card é o filtro ativo: borda azul espessa
+      return `${classesBase} ring-2 ring-hipo-blue opacity-100 transition-all`;
+    }
+    // Outro card é o ativo: este fica atenuado
+    return `${classesBase} opacity-50 hover:opacity-80 transition-all`;
   }
 
 
@@ -402,24 +454,64 @@ export default function CarteiraGrupoDrawer({ idGrupo, onFechar, nomeGrupo }) {
                       </div>
                     ) : (
                       <>
-                        {/* Mini-KPIs */}
+                        {/* Mini-KPIs clicáveis (patch 7) */}
                         <div className="grid grid-cols-4 gap-2 mb-4">
-                          <div className="bg-hipo-bg border border-hipo-border rounded-lg p-2 text-center">
+                          {/* Card Total — funciona como "limpar filtro" */}
+                          <button
+                            type="button"
+                            onClick={() => setFiltroStatus(null)}
+                            className={classesKpiCard(
+                              null,
+                              "bg-hipo-bg border border-hipo-border rounded-lg p-2 text-center cursor-pointer"
+                            )}
+                            aria-pressed={filtroStatus === null}
+                            title="Mostrar todos"
+                          >
                             <p className="text-xs text-hipo-slate">Total</p>
                             <p className="text-lg font-semibold text-hipo-ink">{kpisLeads.total}</p>
-                          </div>
-                          <div className="bg-hipo-blueSoft border border-hipo-blueSoft rounded-lg p-2 text-center">
-                            <p className="text-xs text-hipo-blue">Em andam.</p>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => toggleFiltro("ativo")}
+                            className={classesKpiCard(
+                              "ativo",
+                              "bg-hipo-blueSoft border border-hipo-blueSoft rounded-lg p-2 text-center cursor-pointer"
+                            )}
+                            aria-pressed={filtroStatus === "ativo"}
+                            title="Filtrar leads em andamento"
+                          >
+                            <p className="text-xs text-hipo-blue">Em andamento</p>
                             <p className="text-lg font-semibold text-hipo-blue">{kpisLeads.em_andamento}</p>
-                          </div>
-                          <div className="bg-hipo-successSoft border border-hipo-successBorder rounded-lg p-2 text-center">
-                            <p className="text-xs text-hipo-success">Conquist.</p>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => toggleFiltro("conquistado")}
+                            className={classesKpiCard(
+                              "conquistado",
+                              "bg-hipo-successSoft border border-hipo-successBorder rounded-lg p-2 text-center cursor-pointer"
+                            )}
+                            aria-pressed={filtroStatus === "conquistado"}
+                            title="Filtrar leads conquistados"
+                          >
+                            <p className="text-xs text-hipo-success">Conquistado</p>
                             <p className="text-lg font-semibold text-hipo-success">{kpisLeads.conquistado}</p>
-                          </div>
-                          <div className="bg-hipo-dangerSoft border border-hipo-dangerBorder rounded-lg p-2 text-center">
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => toggleFiltro("perdido")}
+                            className={classesKpiCard(
+                              "perdido",
+                              "bg-hipo-dangerSoft border border-hipo-dangerBorder rounded-lg p-2 text-center cursor-pointer"
+                            )}
+                            aria-pressed={filtroStatus === "perdido"}
+                            title="Filtrar leads perdidos"
+                          >
                             <p className="text-xs text-hipo-danger">Perdido</p>
                             <p className="text-lg font-semibold text-hipo-danger">{kpisLeads.perdido}</p>
-                          </div>
+                          </button>
                         </div>
 
                         {/* Tabela de leads */}
@@ -432,13 +524,13 @@ export default function CarteiraGrupoDrawer({ idGrupo, onFechar, nomeGrupo }) {
                                 <th className="px-3 py-2 font-medium">Fase</th>
                                 <th className="px-3 py-2 font-medium">Status</th>
                                 <th className="px-3 py-2 font-medium">Executivo</th>
-                                <th className="px-3 py-2 font-medium text-center">Temp.</th>
+                                <th className="px-3 py-2 font-medium text-center">Temperatura</th>
                                 <th className="px-3 py-2 font-medium text-right">Proposta NMRR</th>
                                 <th className="px-3 py-2 font-medium text-right">Dias</th>
                               </tr>
                             </thead>
                             <tbody className="divide-y divide-hipo-border">
-                              {leadsAgregados.slice(0, 50).map((l) => {
+                              {leadsFiltrados.slice(0, 50).map((l) => {
                                 const aberto = leadExpandido === l.op_id;
                                 const cache = tarefasPorOp[l.op_id];
                                 return (
@@ -533,9 +625,36 @@ export default function CarteiraGrupoDrawer({ idGrupo, onFechar, nomeGrupo }) {
                               })}
                             </tbody>
                           </table>
-                          {leadsAgregados.length > 50 && (
+                          {/* Rodapé: contador adaptado ao filtro */}
+                          {leadsFiltrados.length > 0 && (
                             <div className="px-3 py-2 text-xs text-hipo-muted bg-hipo-bg border-t border-hipo-border text-center">
-                              Mostrando 50 de {leadsAgregados.length} leads. Veja todos em <strong>Clientes</strong>.
+                              {filtroStatus ? (
+                                <>
+                                  Mostrando {Math.min(leadsFiltrados.length, 50)} de {leadsFiltrados.length} leads
+                                  {' '}<span className="text-hipo-blue font-medium">(filtrado por {FILTRO_LABELS[filtroStatus]})</span>
+                                </>
+                              ) : leadsFiltrados.length > 50 ? (
+                                <>
+                                  Mostrando 50 de {leadsFiltrados.length} leads. Veja todos em <strong>Clientes</strong>.
+                                </>
+                              ) : (
+                                <>Mostrando {leadsFiltrados.length} {leadsFiltrados.length === 1 ? 'lead' : 'leads'}.</>
+                              )}
+                            </div>
+                          )}
+                          {/* Estado vazio do filtro: existe lead, mas nenhum bate com filtro */}
+                          {leadsFiltrados.length === 0 && (
+                            <div className="px-3 py-6 text-xs text-hipo-muted bg-hipo-bg text-center">
+                              Nenhum lead {filtroStatus ? `com status "${FILTRO_LABELS[filtroStatus]}"` : ''} encontrado.
+                              {filtroStatus && (
+                                <button
+                                  type="button"
+                                  onClick={() => setFiltroStatus(null)}
+                                  className="ml-2 text-hipo-blue hover:underline"
+                                >
+                                  Limpar filtro
+                                </button>
+                              )}
                             </div>
                           )}
                         </div>
