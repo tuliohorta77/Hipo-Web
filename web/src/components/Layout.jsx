@@ -11,10 +11,14 @@
 //     descendo do topbar.
 //   - Conteúdo principal ocupa 100% da largura.
 //
-// Permissão por módulo (preservado do v1.2):
-//   - ADM/Franqueado → tudo
-//   - Gerente/EP → Contadores + Clientes + Perfil
+// Permissão por módulo + cargo (v1.2.0 etapa 3):
+//   - ADM/Franqueado → tudo, exceto "Bastões" que é só Gerente+Franqueado
+//   - Gerente/EP → Contadores + Clientes + Bastões (Gerente) + Perfil
 //   - Hunter/Farmer/SDR/EV/EC → Contadores + Perfil
+//
+// Items podem ter:
+//   - modulo: string  → checa modulos.includes(modulo)
+//   - cargos: array   → checa user.cargo in cargos (opcional, restringe ainda mais)
 //
 // Acessibilidade: NavLink renderiza <a>, dropdown e hamburger fecham
 // ao clicar fora ou pressionar Esc.
@@ -26,6 +30,7 @@ import { getUser, getModulos, logout } from '../api';
 import Logo, { LogoWordmark } from './Logo';
 
 // Cada item declara o módulo que precisa pra aparecer.
+// Pode ter 'cargos' opcional pra restringir além do módulo.
 // 'perfil' não aparece na nav principal — está no dropdown do usuário.
 // '__sempre' é especial: visível pra qualquer logado.
 const NAV_ITEMS = [
@@ -34,6 +39,7 @@ const NAV_ITEMS = [
   { to: '/bd-ativados', label: 'BD Ativados', modulo: 'bd' },
   { to: '/contadores',  label: 'Contadores',  modulo: 'carteira' },
   { to: '/clientes',    label: 'Clientes',    modulo: 'clientes' },
+  { to: '/bastoes',     label: 'Bastões',     modulo: 'carteira', cargos: ['Gerente', 'Franqueado'] },
   { to: '/metas',       label: 'Metas',       modulo: 'metas' },
 ];
 
@@ -43,7 +49,15 @@ const USER_MENU_ITEMS = [
   { to: '/perfil', label: 'Perfil', Icon: UserIcon, modulo: '__sempre' },
 ];
 
-// ── Subcomponentes ─────────────────────────────────────────────
+// ── Helpers ───────────────────────────────────────────────────
+
+function itemVisivel(item, modulos, cargo) {
+  if (!modulos.includes(item.modulo)) return false;
+  if (item.cargos && !item.cargos.includes(cargo)) return false;
+  return true;
+}
+
+// ── Subcomponentes ────────────────────────────────────────────
 
 function NavItemDesktop({ to, label }) {
   return (
@@ -180,9 +194,10 @@ function UserDropdown({ user }) {
 export default function Layout() {
   const user = getUser();
   const modulos = getModulos();
+  const cargo = user?.cargo;
   const [mobileOpen, setMobileOpen] = useState(false);
 
-  const itensVisiveis = NAV_ITEMS.filter((item) => modulos.includes(item.modulo));
+  const itensVisiveis = NAV_ITEMS.filter((item) => itemVisivel(item, modulos, cargo));
 
   // Fecha menu mobile ao apertar Esc
   useEffect(() => {

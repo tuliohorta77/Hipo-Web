@@ -9,6 +9,7 @@ import BDAtivadosDashboard from './pages/BDAtivados';
 import Metas from './pages/Metas';
 import Contadores from './pages/Contadores';
 import Clientes from './pages/Clientes';
+import Bastoes from './pages/Bastoes';
 import Perfil from './pages/Perfil';
 import { primeiraRotaAcessivel } from './api';
 
@@ -36,6 +37,7 @@ export default function App() {
           <Route path="bd-ativados"  element={<BDAtivadosDashboard />} />
           <Route path="contadores"   element={<Contadores />} />
           <Route path="clientes"     element={<Clientes />} />
+          <Route path="bastoes"      element={<Bastoes />} />
           <Route path="metas"        element={<Metas />} />
           <Route path="perfil"       element={<Perfil />} />
 

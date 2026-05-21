@@ -1,6 +1,7 @@
 // web/src/tests/Layout.test.jsx
 //
 // Fase 3: layout migrado para topbar.
+// v1.2.0 etapa 3: adicionado item "Bastões" na nav — visível só pra Gerente+Franqueado.
 //
 // Os testes existentes (filtragem por módulo) continuam validando que
 // os links corretos aparecem na nav — independente do layout ser sidebar
@@ -49,7 +50,7 @@ beforeEach(() => {
 })
 
 describe('Layout — filtragem por módulos (nav principal)', () => {
-  it('ADM vê todos os itens da nav (PEX, POs, BD, Contadores, Clientes, Metas)', () => {
+  it('ADM vê PEX, POs, BD, Contadores, Clientes, Metas (mas NÃO Bastões)', () => {
     userMock.current = { nome: 'Tulio', email: 't@hipo.com', cargo: 'ADM' }
     modulosMock.current = ['pex', 'po', 'bd', 'carteira', 'clientes', 'metas', 'usuarios']
     renderLayout()
@@ -63,9 +64,11 @@ describe('Layout — filtragem por módulos (nav principal)', () => {
     expect(navLinks).toContain('Metas')
     // Não tem mais "Carteira" no menu
     expect(navLinks).not.toContain('Carteira')
+    // v1.2.0 etapa 3: ADM perdeu Bastões (operações é do Gerente)
+    expect(navLinks).not.toContain('Bastões')
   })
 
-  it('Franqueado vê todos os itens', () => {
+  it('Franqueado vê todos os itens (incluindo Bastões)', () => {
     userMock.current = { nome: 'Wellington', email: 'w@omie.com.vc', cargo: 'Franqueado' }
     modulosMock.current = ['pex', 'po', 'bd', 'carteira', 'clientes', 'metas', 'usuarios']
     renderLayout()
@@ -74,6 +77,7 @@ describe('Layout — filtragem por módulos (nav principal)', () => {
     expect(navLinks).toContain('PEX')
     expect(navLinks).toContain('Contadores')
     expect(navLinks).toContain('Clientes')
+    expect(navLinks).toContain('Bastões')
   })
 
   it('Farmer vê APENAS Contadores na nav principal', () => {
@@ -88,9 +92,10 @@ describe('Layout — filtragem por módulos (nav principal)', () => {
     expect(navLinks).not.toContain('BD Ativados')
     expect(navLinks).not.toContain('Metas')
     expect(navLinks).not.toContain('Clientes')
+    expect(navLinks).not.toContain('Bastões')
   })
 
-  it('Hunter vê APENAS Contadores na nav principal', () => {
+  it('Hunter vê APENAS Contadores na nav principal (NÃO Bastões)', () => {
     userMock.current = { nome: 'Beatriz', email: 'b@omie.com.vc', cargo: 'Hunter' }
     modulosMock.current = ['carteira']
     renderLayout()
@@ -99,9 +104,11 @@ describe('Layout — filtragem por módulos (nav principal)', () => {
     expect(navLinks).toContain('Contadores')
     expect(navLinks).not.toContain('PEX')
     expect(navLinks).not.toContain('Clientes')
+    // Hunter tem o módulo 'carteira', mas Bastões exige cargo Gerente/Franqueado
+    expect(navLinks).not.toContain('Bastões')
   })
 
-  it('EP vê Contadores + Clientes', () => {
+  it('EP vê Contadores + Clientes (NÃO Bastões)', () => {
     userMock.current = { nome: 'Kethlleen', email: 'k@omie.com.vc', cargo: 'EP' }
     modulosMock.current = ['carteira', 'clientes']
     renderLayout()
@@ -112,9 +119,11 @@ describe('Layout — filtragem por módulos (nav principal)', () => {
     expect(navLinks).not.toContain('PEX')
     expect(navLinks).not.toContain('POs')
     expect(navLinks).not.toContain('Metas')
+    // EP é operacional mas não aprova bastões
+    expect(navLinks).not.toContain('Bastões')
   })
 
-  it('Gerente vê Contadores + Clientes', () => {
+  it('Gerente vê Contadores + Clientes + Bastões', () => {
     userMock.current = { nome: 'Vinícius', email: 'v@omie.com.vc', cargo: 'Gerente' }
     modulosMock.current = ['carteira', 'clientes']
     renderLayout()
@@ -122,6 +131,7 @@ describe('Layout — filtragem por módulos (nav principal)', () => {
     const navLinks = screen.getAllByRole('link').map((a) => a.textContent.trim())
     expect(navLinks).toContain('Contadores')
     expect(navLinks).toContain('Clientes')
+    expect(navLinks).toContain('Bastões')
     expect(navLinks).not.toContain('PEX')
     expect(navLinks).not.toContain('POs')
   })
@@ -135,6 +145,27 @@ describe('Layout — filtragem por módulos (nav principal)', () => {
     expect(navLinks).not.toContain('Contadores')
     expect(navLinks).not.toContain('Clientes')
     expect(navLinks).not.toContain('PEX')
+    expect(navLinks).not.toContain('Bastões')
+  })
+
+  // ── Testes específicos do v1.2.0 etapa 3 — restrição por cargo ──
+
+  it('Bastões aparece pra Gerente mesmo sem ter outros módulos especiais', () => {
+    userMock.current = { nome: 'Vinícius', email: 'v@omie.com.vc', cargo: 'Gerente' }
+    modulosMock.current = ['carteira']  // só carteira
+    renderLayout()
+
+    const navLinks = screen.getAllByRole('link').map((a) => a.textContent.trim())
+    expect(navLinks).toContain('Bastões')
+  })
+
+  it('Bastões NÃO aparece quando o cargo é ADM (mesmo com todos os módulos)', () => {
+    userMock.current = { nome: 'Tulio', email: 't@hipo.com', cargo: 'ADM' }
+    modulosMock.current = ['pex', 'po', 'bd', 'carteira', 'clientes', 'metas', 'usuarios']
+    renderLayout()
+
+    const navLinks = screen.getAllByRole('link').map((a) => a.textContent.trim())
+    expect(navLinks).not.toContain('Bastões')
   })
 })
 
