@@ -316,3 +316,41 @@ class TestKpis:
         k = kpis_por_funcao([], "EC_HUNTER")
         assert k["total_grupos"] == 0
         assert k["compliance_pct"] == 0.0
+
+# ── Campo cnpjs no grupo (v1.2.0 etapa 5.1) ───────────────────────────────
+
+class TestGrupoCnpjs:
+    """O grupo retornado por agregar_grupos expoe a lista de CNPJs que o
+    compoem. Usado pela sub-aba Relacionamento (BastaoLista) pra cruzar os
+    grupos do dashboard Farmer com os bastoes aprovados de um Hunter."""
+
+    def test_grupo_inclui_lista_de_cnpjs(self):
+        cnpjs = [
+            _cnpj("G1", "11.111.111/0001-11", "Ana"),
+            _cnpj("G1", "11.111.111/0001-12", "Ana"),
+            _cnpj("G1", "11.111.111/0001-13", "Ana"),
+        ]
+        grupos = agregar_grupos(cnpjs, [], [_colab("Ana", "EC_FARMER")], ref_date=REF)
+        assert "cnpjs" in grupos[0]
+        assert set(grupos[0]["cnpjs"]) == {
+            "11.111.111/0001-11",
+            "11.111.111/0001-12",
+            "11.111.111/0001-13",
+        }
+        # qtd_cnpj continua coerente com o tamanho da lista
+        assert grupos[0]["qtd_cnpj"] == len(grupos[0]["cnpjs"])
+
+    def test_grupo_de_um_cnpj_so(self):
+        cnpjs = [_cnpj("G1", "22.222.222/0001-22", "Beatriz")]
+        grupos = agregar_grupos(cnpjs, [], [_colab("Beatriz", "EC_FARMER")], ref_date=REF)
+        assert grupos[0]["cnpjs"] == ["22.222.222/0001-22"]
+
+    def test_cnpjs_vazios_sao_descartados(self):
+        """Linhas de carteira sem CNPJ nao poluem a lista — so CNPJs reais
+        entram (o frontend cruza por CNPJ, string vazia nao casa com nada)."""
+        cnpjs = [
+            _cnpj("G1", "33.333.333/0001-33", "Carla"),
+            _cnpj("G1", "", "Carla"),
+        ]
+        grupos = agregar_grupos(cnpjs, [], [_colab("Carla", "EC_FARMER")], ref_date=REF)
+        assert grupos[0]["cnpjs"] == ["33.333.333/0001-33"]

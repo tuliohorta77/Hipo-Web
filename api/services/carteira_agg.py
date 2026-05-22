@@ -223,6 +223,7 @@ def agregar_grupos(
 
         saida.append({
             "id_grupo": gid,
+            "cnpjs": [k for k in cnpj_keys if k],
             "nome_grupo": nome_grupo,
             "qtd_cnpj": len(lista),
             "parceria": parceria,
