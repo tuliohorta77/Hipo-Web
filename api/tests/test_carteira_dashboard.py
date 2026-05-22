@@ -163,8 +163,8 @@ class TestDashboardHunter:
     def test_grupos_inclusos_no_dashboard(self):
         """Hunter v3: cada linha tem o campo 'grupos' com drilldown completo."""
         cnpjs = [
-            _cnpj("G1", "11.111.111/0001-11", "Patrick", nome_grupo="Alfa"),
-            _cnpj("G2", "22.222.222/0002-22", "Patrick", nome_grupo="Beta"),
+            _cnpj("G1", "11.111.111/0001-11", "Patrick", contabilidade="Alfa"),
+            _cnpj("G2", "22.222.222/0002-22", "Patrick", contabilidade="Beta"),
         ]
         colab = [_colab("Patrick", "EC_HUNTER")]
         grupos = agregar_grupos(cnpjs, [], colab, ref_date=REF)
@@ -533,9 +533,9 @@ class TestDashboardFarmer:
 class TestGruposDoColaborador:
     def test_filtra_grupos_do_colaborador_informado(self):
         cnpjs = [
-            _cnpj("G1", "11.111.111/0001-11", "Patrick", nome_grupo="Alfa"),
-            _cnpj("G2", "22.222.222/0002-22", "Caio", nome_grupo="Beta"),
-            _cnpj("G3", "33.333.333/0003-33", "Patrick", nome_grupo="Gamma"),
+            _cnpj("G1", "11.111.111/0001-11", "Patrick", contabilidade="Alfa"),
+            _cnpj("G2", "22.222.222/0002-22", "Caio", contabilidade="Beta"),
+            _cnpj("G3", "33.333.333/0003-33", "Patrick", contabilidade="Gamma"),
         ]
         colab = [_colab("Patrick", "EC_HUNTER"), _colab("Caio", "EC_HUNTER")]
         grupos = agregar_grupos(cnpjs, [], colab, ref_date=REF)

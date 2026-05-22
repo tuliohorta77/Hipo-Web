@@ -47,7 +47,7 @@ async def _seed_upload(db_conn, tipo: str, usuario_email: str) -> str:
 
 async def _seed_cnpj(db_conn, upload_id: str, id_grupo: str, cnpj: str,
                      colaborador_nome: str, nome_grupo: str = "Grupo X",
-                     leads_no_mes: int = 0):
+                     leads_no_mes: int = 0, contabilidade: str = "Contab X"):
     await db_conn.execute(
         """
         INSERT INTO carteira_cnpj (
@@ -55,10 +55,11 @@ async def _seed_cnpj(db_conn, upload_id: str, id_grupo: str, cnpj: str,
             cidade_uf, parceria, tipo_cnae, colaborador_nome,
             funcao_origem, leads_no_mes
         )
-        VALUES ($1, $2, $3, $4, 'Contab X', 'SP/SP', 'Parceiro',
+        VALUES ($1, $2, $3, $4, $7, 'SP/SP', 'Parceiro',
                 'CNAE Contábil', $5, 'Executivo de Contas - FR', $6)
         """,
         upload_id, id_grupo, nome_grupo, cnpj, colaborador_nome, leads_no_mes,
+        contabilidade,
     )
 
 
@@ -143,7 +144,7 @@ class TestDashboardHunter:
         assert "grupos" in por_nome["Patrick"]
         assert len(por_nome["Patrick"]["grupos"]) == 2
         nomes_grupos = {g["nome_grupo"] for g in por_nome["Patrick"]["grupos"]}
-        assert nomes_grupos == {"Grupo X"}  # default do _seed_cnpj
+        assert nomes_grupos == {"Contab X"}  # nome_grupo vem da contabilidade (default)
 
 
 # ── DASHBOARD FARMER ─────────────────────────────────────────────
@@ -244,12 +245,12 @@ class TestDrilldownColaborador:
         await _seed_colaborador(db_conn, "Caio", "EC_HUNTER")
 
         await _seed_cnpj(db_conn, upload_c, "P_G1", "11.111.111/0001-11",
-                         "Patrick", nome_grupo="Alfa")
+                         "Patrick", contabilidade="Alfa")
         await _seed_cnpj(db_conn, upload_c, "P_G2", "22.222.222/0002-22",
-                         "Patrick", nome_grupo="Gamma")
+                         "Patrick", contabilidade="Gamma")
         # Caio — não deve aparecer no drilldown do Patrick
         await _seed_cnpj(db_conn, upload_c, "C_G1", "33.333.333/0003-33",
-                         "Caio", nome_grupo="Beta")
+                         "Caio", contabilidade="Beta")
 
         resp = await client.get(
             f"/carteira/colaboradores/{patrick_id}/grupos",
