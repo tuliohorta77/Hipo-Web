@@ -354,3 +354,41 @@ class TestGrupoCnpjs:
         ]
         grupos = agregar_grupos(cnpjs, [], [_colab("Carla", "EC_FARMER")], ref_date=REF)
         assert grupos[0]["cnpjs"] == ["33.333.333/0001-33"]
+
+# ── nome_grupo usa a contabilidade, nao o flag Sim/Nao do CROmie ──────────
+
+class TestNomeGrupoContabilidade:
+    """A coluna 'Grupo' do CROmie e um flag Sim/Nao, nao um nome. O
+    agregador usa a contabilidade majoritaria como nome de exibicao do
+    grupo — tanto pra Hunter quanto pra Farmer."""
+
+    def test_nome_grupo_vem_da_contabilidade(self):
+        cnpjs = [
+            _cnpj("G1", "C1", "Ana", nome_grupo="Nao", contabilidade="REINADO"),
+        ]
+        grupos = agregar_grupos(cnpjs, [], [_colab("Ana", "EC_FARMER")], ref_date=REF)
+        assert grupos[0]["nome_grupo"] == "REINADO"
+
+    def test_nome_grupo_ignora_flag_sim(self):
+        cnpjs = [
+            _cnpj("G1", "C1", "Patrick", nome_grupo="Sim", contabilidade="CONTABIL ABC"),
+        ]
+        grupos = agregar_grupos(cnpjs, [], [_colab("Patrick", "EC_HUNTER")], ref_date=REF)
+        assert grupos[0]["nome_grupo"] == "CONTABIL ABC"
+        # nunca expoe o flag
+        assert grupos[0]["nome_grupo"] not in ("Sim", "Nao", "Não")
+
+    def test_nome_grupo_contabilidade_majoritaria(self):
+        # Grupo com 3 CNPJs: 2 de uma contabilidade, 1 de outra → vence a maioria
+        cnpjs = [
+            _cnpj("G1", "C1", "Ana", contabilidade="ALFA"),
+            _cnpj("G1", "C2", "Ana", contabilidade="ALFA"),
+            _cnpj("G1", "C3", "Ana", contabilidade="BETA"),
+        ]
+        grupos = agregar_grupos(cnpjs, [], [_colab("Ana", "EC_FARMER")], ref_date=REF)
+        assert grupos[0]["nome_grupo"] == "ALFA"
+
+    def test_nome_grupo_sem_contabilidade_cai_no_traco(self):
+        cnpjs = [_cnpj("G1", "C1", "Ana", contabilidade=None)]
+        grupos = agregar_grupos(cnpjs, [], [_colab("Ana", "EC_FARMER")], ref_date=REF)
+        assert grupos[0]["nome_grupo"] in ("\u2014", "")

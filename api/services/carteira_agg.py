@@ -215,7 +215,9 @@ def agregar_grupos(
             meta = False  # OUTROS nunca está "ok" — é uma fila de correção
 
         # Agregados de carteira
-        nome_grupo  = _maior_freq(l.get("nome_grupo") for l in lista) or "—"
+        # A coluna "Grupo" do CROmie e um flag Sim/Nao, nao um nome de grupo.
+        # Nome de exibicao = contabilidade majoritaria do grupo.
+        nome_grupo  = _maior_freq(l.get("contabilidade") for l in lista) or "—"
         parceria    = _maior_freq(l.get("parceria") for l in lista)
         contab_p    = _maior_freq(l.get("contabilidade") for l in lista) or ""
         cidade_uf   = _maior_freq(l.get("cidade_uf") for l in lista) or ""

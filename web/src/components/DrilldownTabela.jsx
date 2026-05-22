@@ -125,7 +125,7 @@ export default function DrilldownTabela({
                       )}
                     </span>
                     <span className="text-xs text-hipo-slate mt-0.5">
-                      {g.contabilidade_principal} · {g.cidade_uf}
+                      {g.cidade_uf}
                       {g.parceria && (
                         <span
                           className={`ml-2 ${
