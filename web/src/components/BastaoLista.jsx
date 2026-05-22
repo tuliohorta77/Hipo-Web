@@ -91,7 +91,7 @@ export default function BastaoLista({
     setErro(null);
     try {
       const [meus, kp] = await Promise.all([
-        api.get("/carteira/bastoes/meus"),
+        api.get("/carteira/bastoes/meus", { params: { hunter: hunterNome } }),
         api.get(`/carteira/bastoes/kpis/${encodeURIComponent(hunterNome)}`),
       ]);
       setBastoes(meus.data || []);
