@@ -1,103 +1,89 @@
 // web/src/components/BastaoLista.jsx
 //
-// Sub-aba "Relacionamento" do Hunter expandido.
-// Mostra:
-//   - KPIs no topo: total passados (aprovados), pendentes, leads iniciais
-//   - Botao [+ Passar contador] que abre BastaoModal
-//   - Tabela de contadores que o Hunter passou:
-//       * status (badge colorido)
-//       * contabilidade
-//       * farmer que recebeu
-//       * data parceria + leads iniciais
-//       * botão remover (soft delete) — só se status é PENDENTE ou APROVADO
+// Sub-aba "Relacionamento" do Hunter expandido (v1.2.0 etapa 5.2).
 //
-// Quando clica numa linha APROVADA → abre o CarteiraGrupoDrawer (drilldown
-// igual o do Farmer) pra ver tarefas e leads daquele contador.
+// Mostra a VISAO FARMER dos contadores que o Hunter passou via bastao
+// aprovado — a mesma UI da aba Farmer de Contadores (tabela de grupos com
+// timeline semanal, atrasadas, futuras, leads, funil + drilldown), porem
+// filtrada apenas aos grupos cujos CNPJs vieram de bastao aprovado deste
+// Hunter.
+//
+// Como funciona o cruzamento (Estrategia A' — sem endpoint dedicado):
+//   1. GET /carteira/bastoes/meus?hunter=X  → bastoes do Hunter
+//   2. GET /carteira/dashboard/farmer       → todas as linhas Farmer; cada
+//      linha traz grupos[] embutidos, e cada grupo agora tem cnpjs[] (5.1)
+//   3. Monta o Set de CNPJs com bastao APROVADO e filtra os grupos do
+//      dashboard Farmer: fica so quem tem >=1 CNPJ nesse Set.
+//   4. Renderiza DrilldownTabela aba="EC_FARMER" com esses grupos.
+//
+// O bastao em si deixa de ser linha de tabela — vira contexto. KPIs do
+// topo passam a ser estilo Farmer (grupos, atrasadas, futuras, leads).
+// Contadores com bastao aprovado que ainda nao aparecem em nenhum grupo
+// Farmer (nao atribuidos na carteira / CROmie desatualizado) entram num
+// aviso discreto, nao somem silenciosamente.
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import {
-  Plus,
-  RefreshCw,
-  Trash2,
-  Clock,
-  CheckCircle,
-  XCircle,
-  Eye,
-  AlertCircle,
-} from "lucide-react";
+import { Plus, RefreshCw, Users, AlertTriangle, Clock, Inbox } from "lucide-react";
 import api from "../api";
 import Button from "./ui/Button";
 import KpiCard from "./ui/KpiCard";
 import Empty from "./ui/Empty";
 import AlertMessage from "./ui/AlertMessage";
-import Table, { Th, Tr, Td } from "./ui/Table";
-import Modal from "./ui/Modal";
 import BastaoModal from "./BastaoModal";
 import CarteiraGrupoDrawer from "./CarteiraGrupoDrawer";
+import DrilldownTabela from "./DrilldownTabela";
 
 
-// ── Helpers ───────────────────────────────────────────────────
-
-function fmtData(d) {
-  if (!d) return "—";
-  try {
-    return new Date(d).toLocaleDateString("pt-BR");
-  } catch { return "—"; }
-}
-
-function classesStatus(status) {
-  // Pastéis do manual de marca
-  if (status === "PENDENTE")
-    return "bg-hipo-warningSoft text-hipo-warning border-hipo-warningBorder";
-  if (status === "APROVADO")
-    return "bg-hipo-successSoft text-hipo-success border-hipo-successBorder";
-  if (status === "REJEITADO")
-    return "bg-hipo-dangerSoft text-hipo-danger border-hipo-dangerBorder";
-  return "bg-hipo-bg text-hipo-slate border-hipo-border";
-}
-
-function IconePorStatus({ status, size = 12 }) {
-  if (status === "PENDENTE") return <Clock size={size} />;
-  if (status === "APROVADO") return <CheckCircle size={size} />;
-  if (status === "REJEITADO") return <XCircle size={size} />;
-  return null;
+// ── Normalizacao de CNPJ ──────────────────────────────────────────────────
+// Os bastoes guardam cnpj_contador com mascara (08.279.542/0001-57). O grupo
+// do dashboard expoe cnpjs[] tambem com mascara (vem da mesma coluna
+// carteira_cnpj.cnpj_contador). Mesmo assim normalizamos pra so digitos nos
+// dois lados — blinda contra divergencia de mascara/espaco.
+function soDigitos(cnpj) {
+  return (cnpj || "").replace(/\D/g, "");
 }
 
 
-// ── Componente ────────────────────────────────────────────────
+// ── Componente ────────────────────────────────────────────────────────────
 
 export default function BastaoLista({
   hunterNome,
   farmersDisponiveis = [],
 }) {
   const [bastoes, setBastoes] = useState([]);
-  const [kpis, setKpis] = useState(null);
+  const [linhasFarmer, setLinhasFarmer] = useState([]);
+  const [funilPorGrupo, setFunilPorGrupo] = useState({});
   const [loading, setLoading] = useState(false);
   const [erro, setErro] = useState(null);
 
   const [modalAberto, setModalAberto] = useState(false);
-
-  // Confirmação de remoção
-  const [bastaoARemover, setBastaoARemover] = useState(null);
-  const [removendoLoading, setRemovendoLoading] = useState(false);
-
-  // Drawer de drilldown ao clicar em bastão APROVADO
   const [drawerGrupo, setDrawerGrupo] = useState(null);
 
-  // ── Carregar dados ──────────────────────────────────────────
+  // Filtros locais do DrilldownTabela (mesma forma usada em Contadores.jsx)
+  const [filtros, setFiltros] = useState({
+    tarefa_atrasada: false,
+    sem_tarefa_futura: false,
+    busca_grupo: "",
+  });
+
+  // ── Carregar dados ──────────────────────────────────────────────────────
 
   const carregar = useCallback(async () => {
     setLoading(true);
     setErro(null);
     try {
-      const [meus, kp] = await Promise.all([
+      const [resBastoes, resFarmer] = await Promise.all([
         api.get("/carteira/bastoes/meus", { params: { hunter: hunterNome } }),
-        api.get(`/carteira/bastoes/kpis/${encodeURIComponent(hunterNome)}`),
+        api.get("/carteira/dashboard/farmer"),
       ]);
-      setBastoes(meus.data || []);
-      setKpis(kp.data);
+      setBastoes(resBastoes.data || []);
+      setLinhasFarmer(resFarmer.data?.linhas || []);
     } catch (e) {
-      setErro(e.response?.data?.detail || e.message || "Erro ao carregar bastões.");
+      setErro(
+        e.response?.data?.detail || e.message || "Erro ao carregar relacionamento."
+      );
+      setBastoes([]);
+      setLinhasFarmer([]);
     } finally {
       setLoading(false);
     }
@@ -107,84 +93,167 @@ export default function BastaoLista({
     carregar();
   }, [carregar]);
 
-  // ── Ações ───────────────────────────────────────────────────
+  // ── Cruzamento bastao ↔ grupo ───────────────────────────────────────────
 
-  function onSucessoModal() {
-    // Recarrega lista + KPIs após criar bastão
-    carregar();
-  }
-
-  async function confirmarRemover() {
-    if (!bastaoARemover) return;
-    setRemovendoLoading(true);
-    try {
-      await api.delete(`/carteira/bastoes/${bastaoARemover.id}`);
-      setBastaoARemover(null);
-      await carregar();
-    } catch (e) {
-      const detail = e.response?.data?.detail;
-      setErro(detail || e.message || "Erro ao remover bastão.");
-    } finally {
-      setRemovendoLoading(false);
+  // Set de CNPJs (so digitos) com bastao APROVADO deste Hunter.
+  const cnpjsAprovados = useMemo(() => {
+    const s = new Set();
+    for (const b of bastoes) {
+      if (b.status === "APROVADO") {
+        const d = soDigitos(b.cnpj_contador);
+        if (d) s.add(d);
+      }
     }
-  }
+    return s;
+  }, [bastoes]);
 
-  function abrirDrilldown(b) {
-    // Bastões APROVADOS abrem o drawer do grupo (igual o do Farmer).
-    // Precisamos do id_grupo do contador — não temos direto no bastao,
-    // então usamos o CNPJ como id (o backend aceita ambos no /grupos).
-    // Como o backend espera id_grupo, vamos buscar por CNPJ via outro path.
-    // Por enquanto, abrimos o drawer com o cnpj_contador como id_grupo —
-    // SE o backend não suportar, exibimos erro amigável.
-    //
-    // NOTA: o /carteira/grupos/{id_grupo} espera id_grupo (varchar curto).
-    // Como não temos, e o backend não tem rota por CNPJ, vamos abrir o
-    // drawer com cnpj_contador. CarteiraGrupoDrawer eventualmente lida
-    // bem se o backend retorna 404 (mostra mensagem de erro).
-    //
-    // PENDÊNCIA: backend precisa de /carteira/grupos-por-cnpj/{cnpj} ou
-    // similar pra fechar essa lacuna. Por enquanto, deixamos o usuário
-    // ver o erro e abrimos uma issue (será resolvido na Etapa 2b se
-    // necessário).
-    setDrawerGrupo({
-      id_grupo: b.cnpj_contador,
-      nome_grupo: b.contabilidade || b.cnpj_contador,
-    });
-  }
+  // Grupos do dashboard Farmer que tem >=1 CNPJ no Set de aprovados.
+  // Cada grupo ja vem com timeline, atrasadas, futuras, leads, cnpjs[].
+  const gruposViaBastao = useMemo(() => {
+    if (cnpjsAprovados.size === 0) return [];
+    const vistos = new Set();
+    const out = [];
+    for (const linha of linhasFarmer) {
+      for (const g of linha.grupos || []) {
+        if (vistos.has(g.id_grupo)) continue;
+        const cnpjsDoGrupo = (g.cnpjs || []).map(soDigitos);
+        const casa = cnpjsDoGrupo.some((c) => cnpjsAprovados.has(c));
+        if (casa) {
+          vistos.add(g.id_grupo);
+          // Anexa o nome do Farmer responsavel (vem da linha, nao do grupo)
+          out.push({ ...g, _farmer_nome: linha.nome });
+        }
+      }
+    }
+    return out;
+  }, [linhasFarmer, cnpjsAprovados]);
 
-  // ── Memos ───────────────────────────────────────────────────
+  // CNPJs aprovados que NAO casaram com nenhum grupo Farmer — contadores
+  // que ainda nao aparecem na carteira. Avisamos sem esconder.
+  const cnpjsSemGrupo = useMemo(() => {
+    if (cnpjsAprovados.size === 0) return [];
+    const cnpjsComGrupo = new Set();
+    for (const g of gruposViaBastao) {
+      for (const c of g.cnpjs || []) cnpjsComGrupo.add(soDigitos(c));
+    }
+    // Lista os bastoes aprovados cujo CNPJ nao apareceu em grupo nenhum
+    return bastoes.filter(
+      (b) =>
+        b.status === "APROVADO" &&
+        !cnpjsComGrupo.has(soDigitos(b.cnpj_contador))
+    );
+  }, [bastoes, gruposViaBastao, cnpjsAprovados]);
 
-  // Separa em 2 buckets visuais: ativos (PENDENTE+APROVADO) e historico (REJEITADO+REMOVIDO)
-  const ativos = useMemo(
-    () => bastoes.filter((b) => ["PENDENTE", "APROVADO"].includes(b.status)),
+  // Bastoes ainda pendentes de aprovacao — contam num aviso, nao na tabela.
+  const pendentes = useMemo(
+    () => bastoes.filter((b) => b.status === "PENDENTE"),
     [bastoes]
   );
+
+  // Historico: rejeitados e removidos.
   const historico = useMemo(
     () => bastoes.filter((b) => ["REJEITADO", "REMOVIDO"].includes(b.status)),
     [bastoes]
   );
 
-  // ── Render ──────────────────────────────────────────────────
+  // ── KPIs estilo Farmer (agregados dos grupos via bastao) ────────────────
+
+  const kpis = useMemo(() => {
+    const totalGrupos = gruposViaBastao.length;
+    const comAtrasada = gruposViaBastao.filter(
+      (g) => (g.tarefas_atrasadas || 0) > 0
+    ).length;
+    const comFutura = gruposViaBastao.filter(
+      (g) => (g.tarefas_futuras || 0) > 0
+    ).length;
+    const leads = gruposViaBastao.reduce(
+      (acc, g) => acc + (g.leads_no_mes || 0),
+      0
+    );
+    return { totalGrupos, comAtrasada, comFutura, leads };
+  }, [gruposViaBastao]);
+
+  // ── Funil dos grupos (lazy, igual Contadores.jsx) ───────────────────────
+
+  useEffect(() => {
+    const idGrupos = gruposViaBastao
+      .map((g) => g.id_grupo)
+      .filter(Boolean)
+      .filter((gid) => !funilPorGrupo[gid]);
+    if (idGrupos.length === 0) return;
+
+    let cancelado = false;
+    api
+      .post("/clientes/funil-por-grupos", { id_grupos: idGrupos })
+      .then(({ data }) => {
+        if (cancelado) return;
+        setFunilPorGrupo((atual) => ({ ...atual, ...(data.por_grupo || {}) }));
+      })
+      .catch((e) => {
+        if (!cancelado) console.error("Funil (Relacionamento):", e);
+      });
+    return () => {
+      cancelado = true;
+    };
+  }, [gruposViaBastao, funilPorGrupo]);
+
+  // ── Filtro local do drilldown ───────────────────────────────────────────
+
+  function aplicarFiltros(grupos) {
+    let out = grupos;
+    if (filtros.tarefa_atrasada) {
+      out = out.filter((g) => g.tarefas_atrasadas > 0);
+    }
+    if (filtros.sem_tarefa_futura) {
+      out = out.filter((g) => g.tarefas_futuras === 0);
+    }
+    const q = filtros.busca_grupo.trim().toLowerCase();
+    if (q) {
+      out = out.filter(
+        (g) =>
+          (g.nome_grupo || "").toLowerCase().includes(q) ||
+          (g.contabilidade_principal || "").toLowerCase().includes(q)
+      );
+    }
+    return out;
+  }
+
+  const gruposFiltrados = useMemo(
+    () => aplicarFiltros(gruposViaBastao),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [gruposViaBastao, filtros]
+  );
+
+  // ── Render ──────────────────────────────────────────────────────────────
 
   return (
     <div className="space-y-4">
-      {/* Header: KPIs + Acoes */}
+      {/* Header: KPIs estilo Farmer + acoes */}
       <div className="flex items-start justify-between gap-3 flex-wrap">
-        <div className="grid grid-cols-3 gap-2 flex-1 min-w-[400px]">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-2 flex-1 min-w-[420px]">
           <KpiCard
-            label="Passados (aprovados)"
-            value={kpis ? kpis.total_passados.toLocaleString("pt-BR") : "—"}
+            label="Contadores via bastao"
+            value={loading ? "—" : kpis.totalGrupos.toLocaleString("pt-BR")}
+            icon={Users}
             tone="success"
           />
           <KpiCard
-            label="Aguardando aprovacao"
-            value={kpis ? kpis.pendentes.toLocaleString("pt-BR") : "—"}
-            tone={kpis?.pendentes > 0 ? "warning" : "default"}
+            label="Com tarefa atrasada"
+            value={loading ? "—" : kpis.comAtrasada.toLocaleString("pt-BR")}
+            icon={AlertTriangle}
+            tone={kpis.comAtrasada > 0 ? "danger" : "slate"}
           />
           <KpiCard
-            label="Leads iniciais (soma)"
-            value={kpis ? kpis.leads_iniciais_soma.toLocaleString("pt-BR") : "—"}
-            tone="info"
+            label="Com tarefa futura"
+            value={loading ? "—" : kpis.comFutura.toLocaleString("pt-BR")}
+            icon={Clock}
+            tone="blue"
+          />
+          <KpiCard
+            label="Leads no mes"
+            value={loading ? "—" : kpis.leads.toLocaleString("pt-BR")}
+            icon={Inbox}
+            tone="blue"
           />
         </div>
         <div className="flex gap-2">
@@ -204,177 +273,102 @@ export default function BastaoLista({
 
       {erro && <AlertMessage tipo="erro">{erro}</AlertMessage>}
 
-      {/* Estado vazio */}
-      {!loading && ativos.length === 0 && historico.length === 0 && (
-        <Empty
-          title="Nenhum bastão registrado"
-          description="Quando você fechar parceria com um contador (Termo + 2 leads), clique em 'Passar contador' pra entregar pro Farmer."
+      {/* Aviso: bastoes pendentes de aprovacao */}
+      {pendentes.length > 0 && (
+        <AlertMessage tipo="info">
+          {pendentes.length === 1
+            ? "1 contador aguardando aprovacao do Gerente/Franqueado — aparece aqui assim que for aprovado."
+            : `${pendentes.length} contadores aguardando aprovacao do Gerente/Franqueado — aparecem aqui assim que forem aprovados.`}
+        </AlertMessage>
+      )}
+
+      {/* Aviso: bastoes aprovados sem grupo na carteira */}
+      {cnpjsSemGrupo.length > 0 && (
+        <AlertMessage tipo="aviso">
+          {cnpjsSemGrupo.length === 1
+            ? "1 contador aprovado ainda nao aparece na carteira do Farmer "
+            : `${cnpjsSemGrupo.length} contadores aprovados ainda nao aparecem na carteira do Farmer `}
+          (atribuicao pendente ou base CROmie desatualizada):{" "}
+          <span className="font-mono text-xs">
+            {cnpjsSemGrupo
+              .map((b) => b.contabilidade || b.cnpj_contador)
+              .join(", ")}
+          </span>
+        </AlertMessage>
+      )}
+
+      {/* Estado vazio total */}
+      {!loading &&
+        gruposViaBastao.length === 0 &&
+        pendentes.length === 0 &&
+        cnpjsSemGrupo.length === 0 &&
+        historico.length === 0 && (
+          <Empty
+            title="Nenhum bastao registrado"
+            description="Quando voce fechar parceria com um contador (Termo + 2 leads), clique em 'Passar contador' pra entregar pro Farmer. Apos a aprovacao, a performance do Farmer com esse contador aparece aqui."
+          />
+        )}
+
+      {/* Tabela Farmer dos contadores via bastao */}
+      {gruposViaBastao.length > 0 && (
+        <DrilldownTabela
+          aba="EC_FARMER"
+          grupos={gruposFiltrados}
+          totalSemFiltro={gruposViaBastao.length}
+          funilPorGrupo={funilPorGrupo}
+          filtros={filtros}
+          onFiltros={setFiltros}
+          onAbrirGrupo={(g) =>
+            setDrawerGrupo({
+              id_grupo: g.id_grupo,
+              nome_grupo: g.nome_grupo,
+            })
+          }
         />
       )}
 
-      {/* Lista de bastões ATIVOS */}
-      {ativos.length > 0 && (
-        <div>
-          <h4 className="text-xs font-semibold text-hipo-slate tracking-wider uppercase mb-2">
-            Ativos ({ativos.length})
-          </h4>
-          <Table className="[&_th]:!py-2 [&_th]:!text-[11px] [&_td]:!py-2 [&_td]:!text-[13px]">
-            <thead>
-              <tr>
-                <Th>Status</Th>
-                <Th>Contabilidade / CNPJ</Th>
-                <Th>Farmer responsável</Th>
-                <Th align="center">Data parceria</Th>
-                <Th align="center">Leads iniciais</Th>
-                <Th align="right" className="w-24">Ações</Th>
-              </tr>
-            </thead>
-            <tbody>
-              {ativos.map((b) => (
-                <Tr key={b.id} hover>
-                  <Td>
-                    <span
-                      className={`inline-flex items-center gap-1 text-[10px] font-medium tracking-wider px-2 py-0.5 rounded-full border ${classesStatus(b.status)}`}
-                    >
-                      <IconePorStatus status={b.status} />
-                      {b.status}
-                    </span>
-                  </Td>
-                  <Td>
-                    <div className="font-medium text-hipo-ink">{b.contabilidade || "—"}</div>
-                    <div className="text-xs text-hipo-muted font-mono">{b.cnpj_contador}</div>
-                  </Td>
-                  <Td className="text-hipo-ink">{b.farmer_nome}</Td>
-                  <Td align="center" className="whitespace-nowrap">
-                    {fmtData(b.data_parceria)}
-                  </Td>
-                  <Td align="center" className="text-hipo-blue font-semibold">
-                    {b.leads_iniciais}
-                  </Td>
-                  <Td align="right">
-                    <div className="flex justify-end gap-1">
-                      {b.status === "APROVADO" && (
-                        <button
-                          type="button"
-                          onClick={() => abrirDrilldown(b)}
-                          className="p-1.5 rounded text-hipo-blue hover:bg-hipo-blueSoft"
-                          title="Ver drilldown"
-                        >
-                          <Eye size={14} />
-                        </button>
-                      )}
-                      <button
-                        type="button"
-                        onClick={() => setBastaoARemover(b)}
-                        className="p-1.5 rounded text-hipo-danger hover:bg-hipo-dangerSoft"
-                        title="Remover bastão"
-                      >
-                        <Trash2 size={14} />
-                      </button>
-                    </div>
-                  </Td>
-                </Tr>
-              ))}
-            </tbody>
-          </Table>
-        </div>
-      )}
-
-      {/* Lista de bastões HISTÓRICO (rejeitados/removidos) — colapsável visualmente */}
+      {/* Historico (rejeitados/removidos) — discreto, colapsavel */}
       {historico.length > 0 && (
         <details className="group">
-          <summary className="cursor-pointer text-xs font-semibold text-hipo-slate tracking-wider uppercase mb-2 hover:text-hipo-ink">
-            Histórico ({historico.length}) — rejeitados e removidos
+          <summary className="cursor-pointer text-xs font-semibold text-hipo-slate tracking-wider uppercase hover:text-hipo-ink">
+            Historico ({historico.length}) — rejeitados e removidos
           </summary>
-          <Table className="mt-2 opacity-70 [&_th]:!py-2 [&_th]:!text-[11px] [&_td]:!py-2 [&_td]:!text-[13px]">
-            <thead>
-              <tr>
-                <Th>Status</Th>
-                <Th>Contabilidade / CNPJ</Th>
-                <Th>Farmer</Th>
-                <Th align="center">Data parceria</Th>
-                <Th>Motivo / Removido em</Th>
-              </tr>
-            </thead>
-            <tbody>
-              {historico.map((b) => (
-                <Tr key={b.id}>
-                  <Td>
-                    <span
-                      className={`inline-flex items-center gap-1 text-[10px] font-medium tracking-wider px-2 py-0.5 rounded-full border ${classesStatus(b.status)}`}
-                    >
-                      <IconePorStatus status={b.status} />
-                      {b.status}
-                    </span>
-                  </Td>
-                  <Td>
-                    <div className="text-hipo-ink">{b.contabilidade || "—"}</div>
-                    <div className="text-xs text-hipo-muted font-mono">{b.cnpj_contador}</div>
-                  </Td>
-                  <Td className="text-hipo-slate">{b.farmer_nome}</Td>
-                  <Td align="center" className="text-hipo-slate whitespace-nowrap">
-                    {fmtData(b.data_parceria)}
-                  </Td>
-                  <Td className="text-xs text-hipo-slate">
-                    {b.status === "REJEITADO" && (b.motivo_rejeicao || "—")}
-                    {b.status === "REMOVIDO" && `Removido em ${fmtData(b.removido_em)}`}
-                  </Td>
-                </Tr>
-              ))}
-            </tbody>
-          </Table>
+          <ul className="mt-2 space-y-1.5 text-xs">
+            {historico.map((b) => (
+              <li
+                key={b.id}
+                className="flex items-center gap-2 text-hipo-slate"
+              >
+                <span
+                  className={`inline-block px-1.5 py-0.5 rounded-full text-[10px] font-medium ${
+                    b.status === "REJEITADO"
+                      ? "bg-hipo-dangerSoft text-hipo-danger"
+                      : "bg-hipo-bg text-hipo-slate"
+                  }`}
+                >
+                  {b.status}
+                </span>
+                <span className="text-hipo-ink">
+                  {b.contabilidade || b.cnpj_contador}
+                </span>
+                {b.status === "REJEITADO" && b.motivo_rejeicao && (
+                  <span className="text-hipo-muted">— {b.motivo_rejeicao}</span>
+                )}
+              </li>
+            ))}
+          </ul>
         </details>
       )}
 
-      {/* Modal de inclusão */}
+      {/* Modal de inclusao */}
       <BastaoModal
         aberto={modalAberto}
         onFechar={() => setModalAberto(false)}
         farmersDisponiveis={farmersDisponiveis}
-        onSucesso={onSucessoModal}
+        onSucesso={carregar}
       />
 
-      {/* Modal de confirmação de remoção */}
-      <Modal
-        aberto={!!bastaoARemover}
-        onFechar={() => !removendoLoading && setBastaoARemover(null)}
-        titulo="Remover bastão?"
-        size="sm"
-        footer={
-          <div className="flex justify-end gap-2">
-            <Button
-              variant="ghost"
-              onClick={() => setBastaoARemover(null)}
-              disabled={removendoLoading}
-            >
-              Cancelar
-            </Button>
-            <Button
-              onClick={confirmarRemover}
-              loading={removendoLoading}
-              variant="danger"
-            >
-              Remover
-            </Button>
-          </div>
-        }
-      >
-        <div className="flex items-start gap-3">
-          <AlertCircle size={20} className="text-hipo-danger shrink-0 mt-0.5" />
-          <div className="space-y-1.5 text-sm">
-            <p className="text-hipo-ink">
-              O bastão de <strong>{bastaoARemover?.contabilidade || bastaoARemover?.cnpj_contador}</strong>{" "}
-              será removido da sua aba Relacionamento.
-            </p>
-            <p className="text-xs text-hipo-slate">
-              O contador continua na base. Você pode passar bastão de novo depois,
-              se quiser. Ação reversível só com novo registro.
-            </p>
-          </div>
-        </div>
-      </Modal>
-
-      {/* Drilldown drawer — abre quando clica em bastão APROVADO */}
+      {/* Drilldown drawer — abre ao clicar num grupo */}
       {drawerGrupo && (
         <CarteiraGrupoDrawer
           idGrupo={drawerGrupo.id_grupo}
