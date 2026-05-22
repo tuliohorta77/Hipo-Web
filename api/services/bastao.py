@@ -101,7 +101,7 @@ async def criar_bastao(
 ) -> dict:
     """
     Hunter cria um novo registro de passagem de bastão.
-    Status inicial = PENDENTE (precisa ADM aprovar).
+    Status inicial = PENDENTE (precisa Gerente/Franqueado aprovar).
 
     Raises:
         ContadorNaoEncontrado: CNPJ não existe em carteira_cnpj
@@ -182,7 +182,7 @@ async def listar_bastoes_do_hunter(conn, hunter_nome: str) -> list[dict]:
 
 
 async def listar_bastoes_pendentes(conn) -> list[dict]:
-    """Fila de aprovação do ADM. Apenas status=PENDENTE."""
+    """Fila de aprovação do Gerente/Franqueado. Apenas status=PENDENTE."""
     rows = await conn.fetch(
         """
         SELECT
@@ -206,9 +206,51 @@ async def listar_bastoes_pendentes(conn) -> list[dict]:
     return [dict(r) for r in rows]
 
 
+async def listar_todos_bastoes(conn) -> list[dict]:
+    """
+    Lista TODOS os bastões (todos os hunters, todos os status).
+    Usado pela página /bastoes do Gerente/Franqueado pra montar as 4 abas
+    (Pendentes / Aprovados / Rejeitados / Removidos) sem N+1.
+
+    Inclui:
+      - dados do contador (contabilidade, cidade)
+      - quem criou (criado_por_nome)
+      - quem validou (validado_por_nome) — null se ainda PENDENTE
+    """
+    rows = await conn.fetch(
+        """
+        SELECT
+            b.*,
+            c.contabilidade,
+            c.cidade_uf,
+            uc.nome  AS criado_por_nome,
+            uc.email AS criado_por_email,
+            uv.nome  AS validado_por_nome
+        FROM carteira_bastao b
+        LEFT JOIN LATERAL (
+            SELECT contabilidade, cidade_uf
+            FROM carteira_cnpj
+            WHERE cnpj_contador = b.cnpj_contador
+            LIMIT 1
+        ) c ON TRUE
+        LEFT JOIN usuarios uc ON uc.id = b.criado_por
+        LEFT JOIN usuarios uv ON uv.id = b.validado_por
+        ORDER BY
+            CASE b.status
+                WHEN 'PENDENTE'  THEN 0
+                WHEN 'APROVADO'  THEN 1
+                WHEN 'REJEITADO' THEN 2
+                WHEN 'REMOVIDO'  THEN 3
+            END,
+            b.criado_em DESC
+        """,
+    )
+    return [dict(r) for r in rows]
+
+
 async def aprovar_bastao(conn, bastao_id: UUID, validado_por: UUID) -> dict:
     """
-    ADM aprova. Só transita PENDENTE → APROVADO.
+    Gerente/Franqueado aprova. Só transita PENDENTE → APROVADO.
     """
     atual = await conn.fetchrow(
         "SELECT status FROM carteira_bastao WHERE id = $1",
@@ -241,7 +283,7 @@ async def rejeitar_bastao(
     validado_por: UUID,
     motivo: str,
 ) -> dict:
-    """ADM rejeita com motivo obrigatório. Só transita PENDENTE → REJEITADO."""
+    """Gerente/Franqueado rejeita com motivo obrigatório. Só transita PENDENTE → REJEITADO."""
     if not motivo or not motivo.strip():
         raise TransicaoInvalida("Motivo da rejeição é obrigatório.")
 
@@ -307,7 +349,7 @@ async def kpis_do_hunter(conn, hunter_nome: str) -> dict:
     """
     Resumo agregado pro topo da sub-aba Relacionamento:
       - total_passados: bastões APROVADOS deste hunter
-      - pendentes: PENDENTES (aguardando ADM)
+      - pendentes: PENDENTES (aguardando aprovação)
       - rejeitados: REJEITADOS
       - leads_iniciais_soma: soma dos leads_iniciais dos APROVADOS
     """

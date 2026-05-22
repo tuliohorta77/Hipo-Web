@@ -2,22 +2,23 @@
 //
 // Página de aprovação de bastões (Gerente + Franqueado).
 //
+// v1.2.0 etapa 4: passou a buscar /carteira/bastoes/todos — então as 4 abas
+// (Pendentes/Aprovados/Rejeitados/Removidos) e os 4 KPIs são reais.
+//
 // Layout:
 //   - PageHeader com botão Atualizar
-//   - 4 KpiCards: Pendentes, Aprovados, Rejeitados, Removidos
-//   - Aba "Pendentes" como padrão (fila de trabalho) + abas Aprovados/Rejeitados/Removidos
-//   - Tabela com Hunter, Farmer, Contador, Data, Leads, ações
+//   - 4 KpiCards: Pendentes, Aprovados, Rejeitados, Removidos (valores reais)
+//   - 4 abas; cada uma mostra a tabela filtrada pelo status
 //
 // Ações por status:
 //   - PENDENTE: botões Aprovar (verde) e Rejeitar (vermelho, abre modal de motivo)
 //   - APROVADO / REJEITADO / REMOVIDO: read-only, mostra quem validou e quando
 //
-// Após uma ação, a lista recarrega — bastão muda de status (não some, decisão
-// de produto v1.2.0 etapa 3).
+// Após uma ação, a lista recarrega — bastão muda de status (não some).
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  RefreshCw, CheckCircle, XCircle, Clock, Ban, AlertCircle, Award,
+  RefreshCw, CheckCircle, XCircle, Clock, Ban, Award,
 } from "lucide-react";
 import api from "../api";
 
@@ -50,44 +51,19 @@ function fmtDataHora(d) {
   } catch { return "—"; }
 }
 
-function classesStatus(status) {
-  if (status === "PENDENTE")
-    return "bg-hipo-warningSoft text-hipo-warning border-hipo-warningBorder";
-  if (status === "APROVADO")
-    return "bg-hipo-successSoft text-hipo-success border-hipo-successBorder";
-  if (status === "REJEITADO")
-    return "bg-hipo-dangerSoft text-hipo-danger border-hipo-dangerBorder";
-  return "bg-hipo-bg text-hipo-slate border-hipo-border";
-}
-
-function IconePorStatus({ status, size = 12 }) {
-  if (status === "PENDENTE")  return <Clock size={size} />;
-  if (status === "APROVADO")  return <CheckCircle size={size} />;
-  if (status === "REJEITADO") return <XCircle size={size} />;
-  if (status === "REMOVIDO")  return <Ban size={size} />;
-  return null;
-}
-
 
 // ── Página ────────────────────────────────────────────────────
 
-export default function Bastoes() {
-  // bastoes guarda TODOS os bastões (todos os hunters, todos os status).
-  // Como o backend só expõe /bastoes/pendentes pra aprovador e /bastoes/meus
-  // pra cada usuário, precisamos puxar todos via /bastoes/pendentes + /bastoes/meus
-  // de cada hunter. Como isso seria N+1, optamos por chamar /bastoes/pendentes
-  // como fonte primária e mostrar APROVADO/REJEITADO/REMOVIDO em abas separadas
-  // só quando o Gerente clicar — buscando via outro endpoint.
-  //
-  // SIMPLIFICAÇÃO PRA ESTA FASE: backend retorna SÓ pendentes via
-  // /carteira/bastoes/pendentes. Pra ver bastões finalizados (aprovados,
-  // rejeitados, removidos), o Gerente precisa abrir o drilldown do Hunter
-  // específico em Contadores. A tela Bastões é primariamente a FILA DE TRABALHO.
-  //
-  // Abas "Aprovados / Rejeitados / Removidos" mostram listas vazias com aviso.
+const ABAS = [
+  { v: "PENDENTE",  label: "Pendentes",  Icon: Clock },
+  { v: "APROVADO",  label: "Aprovados",  Icon: CheckCircle },
+  { v: "REJEITADO", label: "Rejeitados", Icon: XCircle },
+  { v: "REMOVIDO",  label: "Removidos",  Icon: Ban },
+];
 
-  const [aba, setAba] = useState("PENDENTES");
-  const [pendentes, setPendentes] = useState([]);
+export default function Bastoes() {
+  const [aba, setAba] = useState("PENDENTE");
+  const [bastoes, setBastoes] = useState([]);   // todos os status
   const [loading, setLoading] = useState(false);
   const [erro, setErro] = useState(null);
   const [acaoErro, setAcaoErro] = useState(null);
@@ -102,8 +78,8 @@ export default function Bastoes() {
     setErro(null);
     setAcaoErro(null);
     try {
-      const { data } = await api.get("/carteira/bastoes/pendentes");
-      setPendentes(data || []);
+      const { data } = await api.get("/carteira/bastoes/todos");
+      setBastoes(data || []);
     } catch (e) {
       setErro(e.response?.data?.detail || e.message || "Erro ao carregar bastões.");
     } finally {
@@ -153,13 +129,24 @@ export default function Bastoes() {
     }
   }
 
-  // ── KPIs ────────────────────────────────────────────────────
+  // ── Agrupamento + KPIs ──────────────────────────────────────
 
-  const kpis = useMemo(() => {
-    return {
-      pendentes: pendentes.length,
-    };
-  }, [pendentes]);
+  const porStatus = useMemo(() => {
+    const buckets = { PENDENTE: [], APROVADO: [], REJEITADO: [], REMOVIDO: [] };
+    for (const b of bastoes) {
+      if (buckets[b.status]) buckets[b.status].push(b);
+    }
+    return buckets;
+  }, [bastoes]);
+
+  const kpis = useMemo(() => ({
+    PENDENTE:  porStatus.PENDENTE.length,
+    APROVADO:  porStatus.APROVADO.length,
+    REJEITADO: porStatus.REJEITADO.length,
+    REMOVIDO:  porStatus.REMOVIDO.length,
+  }), [porStatus]);
+
+  const listaAba = porStatus[aba] || [];
 
   // ── Render ──────────────────────────────────────────────────
 
@@ -187,25 +174,25 @@ export default function Bastoes() {
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
         <KpiCard
           label="Pendentes"
-          value={kpis.pendentes.toLocaleString("pt-BR")}
+          value={kpis.PENDENTE.toLocaleString("pt-BR")}
           Icon={Clock}
-          tone={kpis.pendentes > 0 ? "warning" : "default"}
+          tone={kpis.PENDENTE > 0 ? "warning" : "default"}
         />
         <KpiCard
           label="Aprovados"
-          value="—"
+          value={kpis.APROVADO.toLocaleString("pt-BR")}
           Icon={CheckCircle}
-          tone="default"
+          tone={kpis.APROVADO > 0 ? "success" : "default"}
         />
         <KpiCard
           label="Rejeitados"
-          value="—"
+          value={kpis.REJEITADO.toLocaleString("pt-BR")}
           Icon={XCircle}
           tone="default"
         />
         <KpiCard
           label="Removidos"
-          value="—"
+          value={kpis.REMOVIDO.toLocaleString("pt-BR")}
           Icon={Ban}
           tone="default"
         />
@@ -213,13 +200,9 @@ export default function Bastoes() {
 
       {/* Tabs */}
       <div className="flex border-b border-hipo-border mb-4">
-        {[
-          { v: "PENDENTES",  label: "Pendentes",  Icon: Clock },
-          { v: "APROVADOS",  label: "Aprovados",  Icon: CheckCircle },
-          { v: "REJEITADOS", label: "Rejeitados", Icon: XCircle },
-          { v: "REMOVIDOS",  label: "Removidos",  Icon: Ban },
-        ].map(({ v, label, Icon }) => {
+        {ABAS.map(({ v, label, Icon }) => {
           const ativo = aba === v;
+          const count = kpis[v];
           return (
             <button
               key={v}
@@ -234,9 +217,15 @@ export default function Bastoes() {
               <span className="flex items-center gap-2">
                 <Icon size={14} />
                 {label}
-                {v === "PENDENTES" && kpis.pendentes > 0 && (
-                  <span className="ml-1 text-[10px] bg-hipo-warningSoft text-hipo-warning px-1.5 py-0.5 rounded-full">
-                    {kpis.pendentes}
+                {count > 0 && (
+                  <span
+                    className={`ml-1 text-[10px] px-1.5 py-0.5 rounded-full ${
+                      v === "PENDENTE"
+                        ? "bg-hipo-warningSoft text-hipo-warning"
+                        : "bg-hipo-bg text-hipo-slate"
+                    }`}
+                  >
+                    {count}
                   </span>
                 )}
               </span>
@@ -245,50 +234,59 @@ export default function Bastoes() {
         })}
       </div>
 
-      {/* Conteúdo da aba PENDENTES */}
-      {aba === "PENDENTES" && (
-        <Card padding="none">
-          {loading ? (
-            <p className="p-6 text-sm text-hipo-slate">Carregando...</p>
-          ) : pendentes.length === 0 ? (
-            <Empty
-              Icon={Award}
-              title="Nenhum bastão pendente"
-              description="Quando um Hunter passar um contador pra um Farmer, ele aparece aqui pra você aprovar ou rejeitar."
-            />
-          ) : (
-            <Table className="[&_th]:!py-2 [&_th]:!text-[11px] [&_td]:!py-2 [&_td]:!text-[13px]">
-              <thead>
-                <tr>
-                  <Th>Hunter</Th>
-                  <Th>Farmer</Th>
-                  <Th>Contador</Th>
-                  <Th align="center">Data parceria</Th>
-                  <Th align="center">Leads</Th>
-                  <Th>Criado em</Th>
-                  <Th align="right" className="w-44">Ações</Th>
-                </tr>
-              </thead>
-              <tbody>
-                {pendentes.map((b) => {
-                  const esteEmAcao = acaoLoading === b.id;
-                  return (
-                    <Tr key={b.id} hover>
-                      <Td className="font-medium text-hipo-ink">{b.hunter_nome}</Td>
-                      <Td className="text-hipo-ink">{b.farmer_nome}</Td>
-                      <Td>
-                        <div className="text-hipo-ink">{b.contabilidade || "—"}</div>
-                        <div className="text-xs text-hipo-muted font-mono">{b.cnpj_contador}</div>
-                        {b.cidade_uf && (
-                          <div className="text-xs text-hipo-slate">{b.cidade_uf}</div>
-                        )}
-                      </Td>
-                      <Td align="center" className="whitespace-nowrap">
-                        {fmtData(b.data_parceria)}
-                      </Td>
-                      <Td align="center" className="text-hipo-blue font-semibold">
-                        {b.leads_iniciais}
-                      </Td>
+      {/* Conteúdo da aba */}
+      <Card padding="none">
+        {loading ? (
+          <p className="p-6 text-sm text-hipo-slate">Carregando...</p>
+        ) : listaAba.length === 0 ? (
+          <Empty
+            Icon={Award}
+            title={`Nenhum bastão ${ABAS.find((a) => a.v === aba)?.label.toLowerCase()}`}
+            description={
+              aba === "PENDENTE"
+                ? "Quando um Hunter passar um contador pra um Farmer, ele aparece aqui pra você aprovar ou rejeitar."
+                : "Nada por aqui ainda."
+            }
+          />
+        ) : (
+          <Table className="[&_th]:!py-2 [&_th]:!text-[11px] [&_td]:!py-2 [&_td]:!text-[13px]">
+            <thead>
+              <tr>
+                <Th>Hunter</Th>
+                <Th>Farmer</Th>
+                <Th>Contador</Th>
+                <Th align="center">Data parceria</Th>
+                <Th align="center">Leads</Th>
+                {aba === "PENDENTE" && <Th>Criado em</Th>}
+                {aba === "APROVADO" && <Th>Aprovado por</Th>}
+                {aba === "REJEITADO" && <Th>Motivo da rejeição</Th>}
+                {aba === "REMOVIDO" && <Th>Removido em</Th>}
+                {aba === "PENDENTE" && <Th align="right" className="w-44">Ações</Th>}
+              </tr>
+            </thead>
+            <tbody>
+              {listaAba.map((b) => {
+                const esteEmAcao = acaoLoading === b.id;
+                return (
+                  <Tr key={b.id} hover>
+                    <Td className="font-medium text-hipo-ink">{b.hunter_nome}</Td>
+                    <Td className="text-hipo-ink">{b.farmer_nome}</Td>
+                    <Td>
+                      <div className="text-hipo-ink">{b.contabilidade || "—"}</div>
+                      <div className="text-xs text-hipo-muted font-mono">{b.cnpj_contador}</div>
+                      {b.cidade_uf && (
+                        <div className="text-xs text-hipo-slate">{b.cidade_uf}</div>
+                      )}
+                    </Td>
+                    <Td align="center" className="whitespace-nowrap">
+                      {fmtData(b.data_parceria)}
+                    </Td>
+                    <Td align="center" className="text-hipo-blue font-semibold">
+                      {b.leads_iniciais}
+                    </Td>
+
+                    {/* Coluna que varia por aba */}
+                    {aba === "PENDENTE" && (
                       <Td className="text-xs text-hipo-slate whitespace-nowrap">
                         {fmtDataHora(b.criado_em)}
                         {b.observacoes && (
@@ -300,6 +298,33 @@ export default function Bastoes() {
                           </div>
                         )}
                       </Td>
+                    )}
+                    {aba === "APROVADO" && (
+                      <Td className="text-xs text-hipo-slate whitespace-nowrap">
+                        {b.validado_por_nome || "—"}
+                        <div className="text-[10px] text-hipo-muted">
+                          {fmtDataHora(b.validado_em)}
+                        </div>
+                      </Td>
+                    )}
+                    {aba === "REJEITADO" && (
+                      <Td className="text-xs text-hipo-slate max-w-[240px]">
+                        {b.motivo_rejeicao || "—"}
+                        {b.validado_por_nome && (
+                          <div className="text-[10px] text-hipo-muted mt-0.5">
+                            por {b.validado_por_nome} · {fmtDataHora(b.validado_em)}
+                          </div>
+                        )}
+                      </Td>
+                    )}
+                    {aba === "REMOVIDO" && (
+                      <Td className="text-xs text-hipo-slate whitespace-nowrap">
+                        {fmtDataHora(b.removido_em)}
+                      </Td>
+                    )}
+
+                    {/* Ações só na aba Pendentes */}
+                    {aba === "PENDENTE" && (
                       <Td align="right">
                         <div className="flex justify-end gap-1">
                           <button
@@ -324,30 +349,14 @@ export default function Bastoes() {
                           </button>
                         </div>
                       </Td>
-                    </Tr>
-                  );
-                })}
-              </tbody>
-            </Table>
-          )}
-        </Card>
-      )}
-
-      {/* Outras abas: aviso de scope futuro */}
-      {aba !== "PENDENTES" && (
-        <Card>
-          <div className="text-center py-8">
-            <AlertCircle size={32} className="mx-auto text-hipo-muted mb-2" />
-            <p className="text-sm text-hipo-slate">
-              Lista de bastões {aba.toLowerCase()} fica disponível no drilldown do Hunter
-              em <strong>Contadores</strong>.
-            </p>
-            <p className="text-xs text-hipo-muted mt-1">
-              Esta tela foca na fila de trabalho do Gerente/Franqueado.
-            </p>
-          </div>
-        </Card>
-      )}
+                    )}
+                  </Tr>
+                );
+              })}
+            </tbody>
+          </Table>
+        )}
+      </Card>
 
       {/* Modal de rejeição */}
       <BastaoRejeitarModal

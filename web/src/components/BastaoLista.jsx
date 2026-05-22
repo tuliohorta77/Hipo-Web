@@ -177,7 +177,7 @@ export default function BastaoLista({
             tone="success"
           />
           <KpiCard
-            label="Aguardando ADM"
+            label="Aguardando aprovacao"
             value={kpis ? kpis.pendentes.toLocaleString("pt-BR") : "—"}
             tone={kpis?.pendentes > 0 ? "warning" : "default"}
           />

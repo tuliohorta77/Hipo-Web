@@ -172,6 +172,22 @@ async def fila_pendentes(
     return await svc.listar_bastoes_pendentes(conn)
 
 
+@router.get("/bastoes/todos")
+async def todos_bastoes(
+    conn=Depends(get_conn),
+    user=Depends(usuario_atual),
+):
+    """
+    Lista TODOS os bastões (todos os status) — alimenta as 4 abas da
+    página /bastoes (Pendentes/Aprovados/Rejeitados/Removidos).
+
+    Restrito a Gerente/Franqueado, igual à fila de pendentes: é uma
+    visão operacional consolidada.
+    """
+    _exigir_aprovador(user)
+    return await svc.listar_todos_bastoes(conn)
+
+
 @router.get("/bastoes/kpis/{hunter_nome}")
 async def kpis_hunter(
     hunter_nome: str,

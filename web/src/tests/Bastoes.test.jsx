@@ -1,19 +1,19 @@
 // web/src/tests/Bastoes.test.jsx
 //
 // Testes da página de aprovação de bastões.
+// v1.2.0 etapa 4: página busca /carteira/bastoes/todos (não mais /pendentes).
+//
 // Cobre:
 //   - render básico (titulo + estado vazio se fila vazia)
 //   - render com 1 bastão pendente (mostra Hunter, Farmer, contador, botões)
 //   - clica em Aprovar → chama PATCH /aprovar
 //   - clica em Rejeitar → abre modal, valida motivo, confirma chama PATCH /rejeitar
-//   - tab Aprovados/Rejeitados/Removidos → mostra aviso de "ver no Hunter"
+//   - aba Aprovados mostra os bastões aprovados de verdade
+//   - KPIs refletem a contagem por status
 //
 // Notas:
 //   - "Rejeitar bastão" aparece em 2 lugares no modal (titulo + botao).
 //     Usamos getByRole pra distinguir: heading vs button.
-//   - Usamos findBy* para esperas (mais robusto que await waitFor + getBy).
-//
-// Mock do api: vi.mock('../api', () => ({ default: { get, patch }, ... })).
 
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -40,8 +40,8 @@ function renderWith() {
   );
 }
 
-// Fixture: 1 bastão pendente
-const PENDENTE_BASE = {
+// Fixtures
+const PENDENTE = {
   id: 'bast-1',
   hunter_nome: 'Patrick Hunter',
   farmer_nome: 'Aline Farmer',
@@ -55,6 +55,22 @@ const PENDENTE_BASE = {
   observacoes: null,
 };
 
+const APROVADO = {
+  id: 'bast-2',
+  hunter_nome: 'Marta Santos',
+  farmer_nome: 'Joao Farmer',
+  cnpj_contador: '22.222.222/0001-22',
+  contabilidade: 'Contab Aprovada',
+  cidade_uf: 'Guarulhos/SP',
+  data_parceria: '2026-04-10',
+  leads_iniciais: 3,
+  criado_em: '2026-04-10T09:00:00Z',
+  status: 'APROVADO',
+  validado_por_nome: 'Tulio Horta',
+  validado_em: '2026-04-12T14:00:00Z',
+  observacoes: null,
+};
+
 
 describe('Bastoes — pagina de aprovacao', () => {
   beforeEach(() => {
@@ -62,19 +78,28 @@ describe('Bastoes — pagina de aprovacao', () => {
     mockPatch.mockReset();
   });
 
-  it('renderiza titulo e KPI de pendentes zerado quando lista vazia', async () => {
+  it('renderiza titulo e KPIs zerados quando lista vazia', async () => {
     mockGet.mockResolvedValue({ data: [] });
     renderWith();
 
     expect(await screen.findByRole('heading', { name: 'Bastões' })).toBeInTheDocument();
     expect(screen.getByText('Fila de aprovação de passagens Hunter → Farmer.')).toBeInTheDocument();
 
-    // Estado vazio na aba Pendentes
-    expect(await screen.findByText('Nenhum bastão pendente')).toBeInTheDocument();
+    // Estado vazio na aba Pendentes (default)
+    expect(await screen.findByText('Nenhum bastão pendentes')).toBeInTheDocument();
+  });
+
+  it('busca o endpoint /todos', async () => {
+    mockGet.mockResolvedValue({ data: [] });
+    renderWith();
+
+    await waitFor(() => {
+      expect(mockGet).toHaveBeenCalledWith('/carteira/bastoes/todos');
+    });
   });
 
   it('renderiza 1 bastao pendente com Hunter, Farmer, contador e botoes', async () => {
-    mockGet.mockResolvedValue({ data: [PENDENTE_BASE] });
+    mockGet.mockResolvedValue({ data: [PENDENTE] });
     renderWith();
 
     expect(await screen.findByText('Patrick Hunter')).toBeInTheDocument();
@@ -82,13 +107,12 @@ describe('Bastoes — pagina de aprovacao', () => {
     expect(screen.getByText('Contab Teste')).toBeInTheDocument();
     expect(screen.getByText('11.111.111/0001-11')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Aprovar/i })).toBeInTheDocument();
-    // Só existe 1 botão "Rejeitar" antes de abrir o modal
     expect(screen.getByRole('button', { name: /^Rejeitar$/i })).toBeInTheDocument();
   });
 
   it('clica em Aprovar -> chama PATCH /aprovar', async () => {
-    mockGet.mockResolvedValue({ data: [PENDENTE_BASE] });
-    mockPatch.mockResolvedValue({ data: { ...PENDENTE_BASE, status: 'APROVADO' } });
+    mockGet.mockResolvedValue({ data: [PENDENTE] });
+    mockPatch.mockResolvedValue({ data: { ...PENDENTE, status: 'APROVADO' } });
     renderWith();
 
     const aprovarBtn = await screen.findByRole('button', { name: /Aprovar/i });
@@ -100,50 +124,40 @@ describe('Bastoes — pagina de aprovacao', () => {
   });
 
   it('clica em Rejeitar -> abre modal com titulo Rejeitar bastao', async () => {
-    mockGet.mockResolvedValue({ data: [PENDENTE_BASE] });
+    mockGet.mockResolvedValue({ data: [PENDENTE] });
     renderWith();
 
     const rejeitarBtn = await screen.findByRole('button', { name: /^Rejeitar$/i });
     fireEvent.click(rejeitarBtn);
 
-    // Titulo do modal (h2) — distingue do botão que tem o mesmo texto
     expect(
       await screen.findByRole('heading', { name: 'Rejeitar bastão' })
     ).toBeInTheDocument();
-
-    // Subtitulo do modal mostra hunter -> farmer (pode haver caracteres no meio,
-    // como o ID/contabilidade entre parenteses)
     expect(
       screen.getByText(/Patrick Hunter.*Aline Farmer/)
     ).toBeInTheDocument();
   });
 
   it('modal de rejeicao valida motivo vazio', async () => {
-    mockGet.mockResolvedValue({ data: [PENDENTE_BASE] });
+    mockGet.mockResolvedValue({ data: [PENDENTE] });
     renderWith();
 
     fireEvent.click(await screen.findByRole('button', { name: /^Rejeitar$/i }));
-
-    // Espera modal abrir (h2)
     await screen.findByRole('heading', { name: 'Rejeitar bastão' });
 
-    // Clica no BOTAO "Rejeitar bastão" do modal sem preencher motivo
     const btnConfirmar = screen.getByRole('button', { name: 'Rejeitar bastão' });
     fireEvent.click(btnConfirmar);
 
-    // Aparece erro de validação
     expect(await screen.findByText(/Informe o motivo/)).toBeInTheDocument();
-    // E patch NAO foi chamado
     expect(mockPatch).not.toHaveBeenCalled();
   });
 
   it('modal de rejeicao com motivo valido -> chama PATCH /rejeitar', async () => {
-    mockGet.mockResolvedValue({ data: [PENDENTE_BASE] });
-    mockPatch.mockResolvedValue({ data: { ...PENDENTE_BASE, status: 'REJEITADO' } });
+    mockGet.mockResolvedValue({ data: [PENDENTE] });
+    mockPatch.mockResolvedValue({ data: { ...PENDENTE, status: 'REJEITADO' } });
     renderWith();
 
     fireEvent.click(await screen.findByRole('button', { name: /^Rejeitar$/i }));
-
     await screen.findByRole('heading', { name: 'Rejeitar bastão' });
 
     const textarea = screen.getByPlaceholderText(/Ex: Termo de parceria/);
@@ -151,7 +165,6 @@ describe('Bastoes — pagina de aprovacao', () => {
       target: { value: 'Termo nao assinado pelo socio.' },
     });
 
-    // Clica no BOTAO do modal (não no título)
     fireEvent.click(screen.getByRole('button', { name: 'Rejeitar bastão' }));
 
     await waitFor(() => {
@@ -162,17 +175,35 @@ describe('Bastoes — pagina de aprovacao', () => {
     });
   });
 
-  it('aba Aprovados mostra aviso de scope futuro', async () => {
-    mockGet.mockResolvedValue({ data: [] });
+  it('aba Aprovados mostra os bastoes aprovados de verdade', async () => {
+    mockGet.mockResolvedValue({ data: [PENDENTE, APROVADO] });
     renderWith();
 
-    await screen.findByRole('heading', { name: 'Bastões' });
+    // Espera carregar — aba Pendentes (default) mostra o PENDENTE
+    await screen.findByText('Patrick Hunter');
 
+    // Clica na aba Aprovados
     fireEvent.click(screen.getByRole('button', { name: /Aprovados/i }));
 
-    expect(
-      await screen.findByText(/disponível no drilldown do Hunter/)
-    ).toBeInTheDocument();
+    // Agora aparece o bastão APROVADO (Marta Santos) e quem aprovou
+    expect(await screen.findByText('Marta Santos')).toBeInTheDocument();
+    expect(screen.getByText('Contab Aprovada')).toBeInTheDocument();
+    expect(screen.getByText('Tulio Horta')).toBeInTheDocument();
+  });
+
+  it('KPI de Aprovados reflete a contagem', async () => {
+    mockGet.mockResolvedValue({ data: [PENDENTE, APROVADO] });
+    renderWith();
+
+    await screen.findByText('Patrick Hunter');
+
+    // "Aprovados" aparece em 2 lugares: KpiCard (dentro de <p>) e aba (<span>).
+    // Pegamos so o do KpiCard filtrando pela tag P.
+    const labels = screen.getAllByText('Aprovados');
+    const labelKpi = labels.find((el) => el.tagName === 'P');
+    expect(labelKpi).toBeDefined();
+    const kpiCard = labelKpi.closest('div').parentElement;
+    expect(kpiCard).toHaveTextContent('1');
   });
 
   it('exibe erro de carregamento quando GET falha', async () => {

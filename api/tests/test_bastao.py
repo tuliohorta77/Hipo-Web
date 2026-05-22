@@ -328,6 +328,34 @@ class TestServiceBastao:
         assert b2["id"] in ids
         assert b1["id"] not in ids
 
+    async def test_listar_todos_bastoes(self, db_conn, setup_dados):
+        """listar_todos_bastoes traz todos os status (nao filtra)."""
+        from services import bastao as svc
+        d = setup_dados
+        b1 = await svc.criar_bastao(
+            db_conn,
+            hunter_nome=d["hunter_nome"], farmer_nome=d["farmer_nome"],
+            cnpj_contador=d["cnpj1"], data_parceria=date(2026, 5, 1),
+            leads_iniciais=2, criado_por=d["hunter_id"],
+        )
+        b2 = await svc.criar_bastao(
+            db_conn,
+            hunter_nome=d["hunter_nome"], farmer_nome=d["farmer_nome"],
+            cnpj_contador=d["cnpj2"], data_parceria=date(2026, 5, 2),
+            leads_iniciais=1, criado_por=d["hunter_id"],
+        )
+        await svc.aprovar_bastao(db_conn, b1["id"], d["gerente_id"])
+
+        todos = await svc.listar_todos_bastoes(db_conn)
+        por_id = {t["id"]: t for t in todos}
+        # Os 2 aparecem, independente do status
+        assert b1["id"] in por_id
+        assert b2["id"] in por_id
+        assert por_id[b1["id"]]["status"] == "APROVADO"
+        assert por_id[b2["id"]]["status"] == "PENDENTE"
+        # APROVADO traz quem validou
+        assert por_id[b1["id"]]["validado_por_nome"] == "Carla Gerente"
+
 
 # ── Testes HTTP (router) ──────────────────────────────────────
 
@@ -453,6 +481,43 @@ class TestRouterBastao:
             headers=d["headers_hunter"],
         )
         assert r.status_code == 404, f"Status {r.status_code}: {r.text}"
+
+    async def test_gerente_ve_todos_via_http(self, client, db_conn, setup_dados):
+        """GET /carteira/bastoes/todos retorna lista pro Gerente."""
+        from services import bastao as svc
+        d = setup_dados
+        await svc.criar_bastao(
+            db_conn,
+            hunter_nome=d["hunter_nome"], farmer_nome=d["farmer_nome"],
+            cnpj_contador=d["cnpj1"], data_parceria=date(2026, 5, 1),
+            leads_iniciais=2, criado_por=d["hunter_id"],
+        )
+        r = await client.get(
+            "/carteira/bastoes/todos",
+            headers=d["headers_gerente"],
+        )
+        assert r.status_code == 200, f"Status {r.status_code}: {r.text}"
+        rows = r.json()
+        assert isinstance(rows, list)
+        assert len(rows) == 1
+
+    async def test_adm_nao_ve_todos(self, client, db_conn, setup_dados):
+        """ADM nao acessa /todos (mesma restricao da fila de pendentes)."""
+        d = setup_dados
+        r = await client.get(
+            "/carteira/bastoes/todos",
+            headers=d["headers_adm"],
+        )
+        assert r.status_code == 403, f"Esperava 403, recebeu {r.status_code}: {r.text}"
+
+    async def test_hunter_nao_ve_todos(self, client, db_conn, setup_dados):
+        """Hunter tampouco acessa /todos."""
+        d = setup_dados
+        r = await client.get(
+            "/carteira/bastoes/todos",
+            headers=d["headers_hunter"],
+        )
+        assert r.status_code == 403
 
     async def test_meus_bastoes_filtra_pelo_usuario(self, client, db_conn, setup_dados):
         from services import bastao as svc

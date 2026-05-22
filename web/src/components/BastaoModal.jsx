@@ -163,7 +163,7 @@ export default function BastaoModal({
       aberto={aberto}
       onFechar={onFechar}
       titulo="Passar bastão pra um Farmer"
-      subtitulo="O ADM precisa aprovar antes do contador aparecer na sua aba Relacionamento."
+      subtitulo="O Gerente ou Franqueado precisa aprovar antes do contador aparecer na sua aba Relacionamento."
       size="lg"
       footer={
         <div className="flex justify-end gap-2">
@@ -280,7 +280,7 @@ export default function BastaoModal({
             rows={2}
             value={observacoes}
             onChange={(e) => setObservacoes(e.target.value)}
-            placeholder="Algum contexto que o ADM precise saber..."
+            placeholder="Algum contexto que o aprovador precise saber..."
             className="w-full px-3 py-2 rounded-lg border border-hipo-border bg-hipo-card text-sm text-hipo-ink resize-none focus:outline-none focus:ring-2 focus:ring-hipo-blue/30"
             maxLength={1000}
           />
@@ -292,7 +292,7 @@ export default function BastaoModal({
         {/* Aviso pra confirmação */}
         <div className="text-xs text-hipo-slate bg-hipo-bg border border-hipo-border rounded-md px-3 py-2">
           <strong>Importante:</strong> esse registro fica como{" "}
-          <span className="text-hipo-warning font-medium">PENDENTE</span> até o ADM
+          <span className="text-hipo-warning font-medium">PENDENTE</span> até o Gerente/Franqueado
           aprovar. Você verá o status do bastão na sub-aba "Relacionamento".
         </div>
       </div>
