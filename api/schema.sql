@@ -666,12 +666,17 @@ CREATE TABLE IF NOT EXISTS carteira_colaborador (
     funcao          carteira_funcao_enum NOT NULL DEFAULT 'OUTROS',
     funcao_origem   VARCHAR(120),
     ativo           BOOLEAN DEFAULT TRUE,
+    usuario_id      UUID REFERENCES usuarios(id) ON DELETE SET NULL UNIQUE,
     updated_at      TIMESTAMPTZ DEFAULT NOW(),
     created_at      TIMESTAMPTZ DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS idx_colaborador_funcao
     ON carteira_colaborador(funcao);
+
+CREATE INDEX IF NOT EXISTS idx_colaborador_usuario
+    ON carteira_colaborador(usuario_id)
+    WHERE usuario_id IS NOT NULL;
 
 -- UPLOADS
 

@@ -7,7 +7,8 @@ Endpoints:
   GET  /carteira/grupos               — lista agregada (com filtros e abas)
   GET  /carteira/grupos/{id_grupo}    — drill-down (CNPJs + tarefas do grupo)
   GET  /carteira/colaboradores        — lista para o modal de configuração
-  PUT  /carteira/colaboradores/{id}   — atualiza função
+  PUT  /carteira/colaboradores/{id}   — atualiza função e/ou vínculo de usuário
+  GET  /carteira/usuarios-ativos      — usuários ativos (dropdown de vínculo)
   GET  /carteira/historico            — últimos uploads
   GET  /carteira/resumo               — totais para os cards do topo
 
@@ -23,6 +24,7 @@ import uuid
 import shutil
 from datetime import date
 
+import asyncpg
 from fastapi import APIRouter, UploadFile, File, HTTPException, Depends, Query
 from pydantic import BaseModel, Field
 
@@ -49,7 +51,22 @@ FUNCOES_VALIDAS = {"EC_HUNTER", "EC_FARMER", "OUTROS"}
 # ── Schemas Pydantic ─────────────────────────────────────────────
 
 class ColaboradorUpdate(BaseModel):
+    """
+    Payload do PUT /colaboradores/{id}.
+
+    `funcao` é obrigatório (mantém o comportamento anterior do endpoint).
+
+    `usuario_id` é OPCIONAL e tri-estado, distinguido via model_fields_set:
+      - campo ausente no JSON  -> o vínculo NÃO é alterado;
+      - campo presente com valor (UUID em string) -> vincula ao usuário;
+      - campo presente com null -> desvincula (usuario_id = NULL).
+    """
     funcao: str = Field(..., description="EC_HUNTER | EC_FARMER | OUTROS")
+    usuario_id: str | None = Field(
+        default=None,
+        description="UUID do usuário a vincular; null desvincula; "
+                    "omitir o campo mantém o vínculo atual.",
+    )
 
 
 # ── Helpers ──────────────────────────────────────────────────────
@@ -361,18 +378,34 @@ async def listar_colaboradores(
     conn=Depends(get_conn),
     user=Depends(usuario_atual),
 ):
+    """
+    Lista colaboradores para o modal de configuração.
+
+    Cada linha traz o vínculo de usuário (v1.3.0):
+      - usuario_id    : UUID do usuário vinculado, ou null;
+      - usuario_email : email do usuário vinculado, ou null;
+      - usuario_nome  : nome do usuário vinculado, ou null.
+    O LEFT JOIN garante que colaboradores SEM vínculo continuem na lista
+    (decisão de produto: aparecem para o gestor com aviso "sem usuário").
+    """
     if incluir_inativos:
         rows = await conn.fetch("""
-            SELECT id, nome, funcao::text AS funcao, funcao_origem, ativo, updated_at
-            FROM carteira_colaborador
-            ORDER BY ativo DESC, nome
+            SELECT c.id, c.nome, c.funcao::text AS funcao, c.funcao_origem,
+                   c.ativo, c.updated_at,
+                   c.usuario_id, u.email AS usuario_email, u.nome AS usuario_nome
+            FROM carteira_colaborador c
+            LEFT JOIN usuarios u ON u.id = c.usuario_id
+            ORDER BY c.ativo DESC, c.nome
         """)
     else:
         rows = await conn.fetch("""
-            SELECT id, nome, funcao::text AS funcao, funcao_origem, ativo, updated_at
-            FROM carteira_colaborador
-            WHERE ativo = TRUE
-            ORDER BY nome
+            SELECT c.id, c.nome, c.funcao::text AS funcao, c.funcao_origem,
+                   c.ativo, c.updated_at,
+                   c.usuario_id, u.email AS usuario_email, u.nome AS usuario_nome
+            FROM carteira_colaborador c
+            LEFT JOIN usuarios u ON u.id = c.usuario_id
+            WHERE c.ativo = TRUE
+            ORDER BY c.nome
         """)
     return [dict(r) for r in rows]
 
@@ -384,6 +417,17 @@ async def atualizar_colaborador(
     conn=Depends(get_conn),
     user=Depends(usuario_atual),
 ):
+    """
+    Atualiza a função do colaborador e, opcionalmente, o vínculo de usuário.
+
+    Tri-estado do campo `usuario_id` (ver ColaboradorUpdate):
+      - ausente -> vínculo intacto;
+      - UUID    -> vincula;
+      - null    -> desvincula.
+
+    Cardinalidade 1:1: um usuário só pode estar vinculado a um colaborador.
+    Tentar reutilizar um usuário já vinculado devolve 409.
+    """
     if payload.funcao not in FUNCOES_VALIDAS:
         raise HTTPException(400, f"Função inválida: {payload.funcao}")
 
@@ -392,19 +436,85 @@ async def atualizar_colaborador(
     except ValueError:
         raise HTTPException(400, "ID inválido")
 
-    updated = await conn.fetchrow(
-        """
-        UPDATE carteira_colaborador
-        SET funcao = $1::carteira_funcao_enum, updated_at = NOW()
-        WHERE id = $2
-        RETURNING id, nome, funcao::text AS funcao
-        """,
-        payload.funcao, colab_uuid,
-    )
+    mexer_no_vinculo = "usuario_id" in payload.model_fields_set
+
+    # Resolve o usuario_id alvo (quando o campo veio no payload).
+    usuario_uuid = None
+    if mexer_no_vinculo and payload.usuario_id is not None:
+        try:
+            usuario_uuid = uuid.UUID(payload.usuario_id)
+        except ValueError:
+            raise HTTPException(400, "usuario_id inválido")
+        existe = await conn.fetchval(
+            "SELECT 1 FROM usuarios WHERE id = $1 AND ativo = TRUE", usuario_uuid
+        )
+        if not existe:
+            raise HTTPException(400, "Usuário não encontrado ou inativo.")
+
+    try:
+        if mexer_no_vinculo:
+            updated = await conn.fetchrow(
+                """
+                UPDATE carteira_colaborador
+                SET funcao = $1::carteira_funcao_enum,
+                    usuario_id = $2,
+                    updated_at = NOW()
+                WHERE id = $3
+                RETURNING id, nome, funcao::text AS funcao, usuario_id
+                """,
+                payload.funcao, usuario_uuid, colab_uuid,
+            )
+        else:
+            updated = await conn.fetchrow(
+                """
+                UPDATE carteira_colaborador
+                SET funcao = $1::carteira_funcao_enum, updated_at = NOW()
+                WHERE id = $2
+                RETURNING id, nome, funcao::text AS funcao, usuario_id
+                """,
+                payload.funcao, colab_uuid,
+            )
+    except asyncpg.UniqueViolationError:
+        # usuario_id já está vinculado a outro colaborador (constraint 1:1).
+        outro = await conn.fetchrow(
+            "SELECT nome FROM carteira_colaborador WHERE usuario_id = $1",
+            usuario_uuid,
+        )
+        nome_outro = outro["nome"] if outro else "outro colaborador"
+        raise HTTPException(
+            409,
+            f"Este usuário já está vinculado ao colaborador '{nome_outro}'. "
+            f"Cada usuário pode estar vinculado a apenas um colaborador.",
+        )
+
     if not updated:
         raise HTTPException(404, "Colaborador não encontrado")
 
-    return dict(updated)
+    row = dict(updated)
+    if row.get("usuario_id") is not None:
+        row["usuario_id"] = str(row["usuario_id"])
+    return row
+
+
+@router.get("/usuarios-ativos")
+async def listar_usuarios_ativos(
+    conn=Depends(get_conn),
+    user=Depends(usuario_atual),
+):
+    """
+    Lista os usuários ativos para o dropdown de vínculo na tela Configurar.
+    Retorna apenas id, nome e email — sem dados sensíveis.
+    """
+    rows = await conn.fetch("""
+        SELECT id, nome, email
+        FROM usuarios
+        WHERE ativo = TRUE
+        ORDER BY nome
+    """)
+    return [
+        {"id": str(r["id"]), "nome": r["nome"], "email": r["email"]}
+        for r in rows
+    ]
 
 
 # ── HISTÓRICO ────────────────────────────────────────────────────
