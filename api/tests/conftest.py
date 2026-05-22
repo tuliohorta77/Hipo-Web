@@ -15,10 +15,61 @@ os.environ.setdefault("JWT_SECRET", "test-secret-key-hipo-2026")
 os.environ.setdefault("JWT_EXPIRE_HOURS", "1")
 os.environ.setdefault("UPLOAD_DIR", "/tmp/hipo_test_uploads")
 
-from main import app
-
 _SENHA_TESTE = "test123"
 _DB_URL = os.environ["DATABASE_URL"]
+
+
+# ---------------------------------------------------------------------------
+# SAFEGUARD DE PRODUÇÃO
+# ---------------------------------------------------------------------------
+# A fixture `db_conn` executa TRUNCATE ... CASCADE em dezenas de tabelas.
+# Se a suíte de testes rodar acidentalmente apontada para o banco de
+# produção (hipo-db no AWS RDS), TODOS os dados seriam apagados.
+#
+# Este bloco aborta a sessão de testes ANTES de coletar qualquer teste ou
+# abrir qualquer conexão, caso a DATABASE_URL aponte para um host de
+# produção. A checagem roda no import do conftest, ou seja, na primeira
+# coisa que o pytest faz.
+#
+# Escotilha de emergência: definir HIPO_PERMITIR_DB_REMOTO=1 no ambiente
+# desativa o bloqueio conscientemente. Use apenas se souber exatamente o
+# que está fazendo (ex.: banco remoto de homologação que não é produção).
+# ---------------------------------------------------------------------------
+_MARCADORES_PRODUCAO = ("amazonaws.com", "hipo-db")
+
+
+def _abortar_se_producao(db_url: str) -> None:
+    if os.environ.get("HIPO_PERMITIR_DB_REMOTO") == "1":
+        return
+    url_lower = (db_url or "").lower()
+    encontrados = [m for m in _MARCADORES_PRODUCAO if m in url_lower]
+    if encontrados:
+        pytest.exit(
+            "\n"
+            "================================================================\n"
+            " ABORTADO: DATABASE_URL aponta para um banco de PRODUCAO.\n"
+            "================================================================\n"
+            f" Marcador(es) detectado(s): {', '.join(encontrados)}\n"
+            "\n"
+            " A suite de testes executa TRUNCATE CASCADE em dezenas de\n"
+            " tabelas. Rodar contra producao apagaria todos os dados do\n"
+            " HIPO (usuarios, carteira, PEX, POs, BD Ativados).\n"
+            "\n"
+            " Use um banco de teste local ou o container do CI.\n"
+            " DATABASE_URL de teste esperada aponta para 'localhost'.\n"
+            "\n"
+            " Se realmente precisa rodar contra um banco remoto que NAO\n"
+            " e producao, defina HIPO_PERMITIR_DB_REMOTO=1 no ambiente.\n"
+            "================================================================\n",
+            returncode=1,
+        )
+
+
+# Executado no momento do import do conftest, antes de qualquer fixture.
+_abortar_se_producao(_DB_URL)
+
+
+from main import app  # noqa: E402  (import após o safeguard, de propósito)
 
 
 @pytest.fixture
