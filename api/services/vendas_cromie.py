@@ -33,6 +33,14 @@ Regras por fase (régua interna):
 Uma oportunidade é "conforme" se cumpre TODAS as regras aplicáveis à
 sua fase. Se falha em qualquer uma, é "não conforme" e o serviço lista
 exatamente quais regras falharam.
+
+Tipos das colunas em cliente_oportunidade (conferidos no schema/dados):
+  - previsao_preenchido : VARCHAR(10) — texto "Sim" / "Não"
+  - ticket_preenchido   : VARCHAR(10) — texto "Sim" / "Não"
+  - tarefa_futura       : INT          — 0 (não) / 1 (sim)
+  - temperatura         : NUMERIC      — preenchida quando > 0
+ATENÇÃO: bool() direto numa string NÃO serve — bool("Não") é True em
+Python. Por isso as flags de texto passam por _flag_texto().
 """
 from __future__ import annotations
 
@@ -73,6 +81,36 @@ FASES_ANALISADAS = [
     "05. Negociação",
 ]
 
+# Valores de texto que contam como "sim" nas colunas VARCHAR de flag.
+# A base usa "Sim"/"Não"; aceitamos variações por robustez (acento,
+# caixa, espaços, e formas alternativas que outro export possa trazer).
+_TEXTO_SIM = {"sim", "s", "true", "1", "verdadeiro", "yes", "y"}
+
+
+def _flag_texto(valor: Any) -> bool:
+    """
+    Interpreta uma coluna VARCHAR de flag (ex.: previsao_preenchido).
+
+    NUNCA usar bool() direto: bool("Não") é True em Python. Esta função
+    normaliza o texto e compara contra o conjunto de valores "sim".
+    """
+    if valor is None:
+        return False
+    return str(valor).strip().lower() in _TEXTO_SIM
+
+
+def _flag_inteira(valor: Any) -> bool:
+    """
+    Interpreta uma coluna INT de flag (tarefa_futura: 0/1).
+    Qualquer valor > 0 conta como verdadeiro.
+    """
+    if valor is None:
+        return False
+    try:
+        return int(valor) > 0
+    except (TypeError, ValueError):
+        return False
+
 
 def _temperatura_preenchida(op: dict) -> bool:
     """Temperatura conta como preenchida se existe e é maior que zero."""
@@ -88,13 +126,17 @@ def _temperatura_preenchida(op: dict) -> bool:
 def _regra_cumprida(op: dict, regra: str) -> bool:
     """Verifica se a oportunidade cumpre uma regra específica."""
     if regra == REGRA_TAREFA_FUTURA:
-        return bool(op.get("tarefa_futura"))
+        # Coluna INT 0/1.
+        return _flag_inteira(op.get("tarefa_futura"))
     if regra == REGRA_TEMPERATURA:
+        # Coluna NUMERIC.
         return _temperatura_preenchida(op)
     if regra == REGRA_PREVISAO:
-        return bool(op.get("previsao_preenchido"))
+        # Coluna VARCHAR "Sim"/"Não".
+        return _flag_texto(op.get("previsao_preenchido"))
     if regra == REGRA_TICKET:
-        return bool(op.get("ticket_preenchido"))
+        # Coluna VARCHAR "Sim"/"Não".
+        return _flag_texto(op.get("ticket_preenchido"))
     # Regra desconhecida: trata como não cumprida (defensivo).
     return False
 
@@ -104,8 +146,9 @@ def classificar_oportunidade(op: dict) -> dict[str, Any]:
     Classifica UMA oportunidade pela régua interna do funil CROmie.
 
     Args:
-      op: dict com pelo menos 'fase' e as flags 'tarefa_futura',
-          'previsao_preenchido', 'ticket_preenchido' e 'temperatura'.
+      op: dict de cliente_oportunidade com 'fase', 'tarefa_futura' (int),
+          'previsao_preenchido' (texto), 'ticket_preenchido' (texto) e
+          'temperatura' (numérico).
 
     Returns:
       dict com:
