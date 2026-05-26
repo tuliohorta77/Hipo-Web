@@ -62,6 +62,29 @@ def modulos_do_cargo(cargo: str | None) -> set[str]:
     return set()
 
 
+def deve_filtrar_por_usuario(cargo: str | None) -> bool:
+    """
+    Decide se a visão de Carteira deve ser restrita ao colaborador
+    vinculado ao usuário logado (v1.3.0 — visibilidade por colaborador).
+
+    Regra:
+      - Cargos ADMIN (ADM, Franqueado) e GESTÃO (Gerente, EP) veem a
+        carteira inteira  -> retorna False (sem filtro).
+      - Cargos OPERACIONAIS (Hunter, Farmer, SDR, EV, EC) veem apenas
+        a própria fatia    -> retorna True (filtra por usuario_id).
+      - Cargo desconhecido ou ausente: por segurança, retorna True
+        (filtra). Um cargo não mapeado não deve ver tudo por acidente.
+
+    Usada pelos endpoints de dashboard/resumo do router de carteira.
+    """
+    if not cargo:
+        return True
+    if cargo in CARGOS_ADMIN or cargo in CARGOS_GESTAO:
+        return False
+    # Operacionais e quaisquer cargos não mapeados: filtra.
+    return True
+
+
 def requer_modulo(modulo: str):
     """Dependency factory. 403 se o cargo não tem o módulo."""
     async def _dep(user=Depends(usuario_atual)):

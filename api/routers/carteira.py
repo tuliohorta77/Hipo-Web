@@ -16,6 +16,15 @@ Dashboard por colaborador (layout v2):
   GET  /carteira/dashboard/hunter         — 1 linha por colab Hunter + KPIs
   GET  /carteira/dashboard/farmer         — 1 linha por colab Farmer + bolinhas semanais
   GET  /carteira/colaboradores/{id}/grupos — drilldown: grupos do colaborador
+
+Visibilidade por colaborador (v1.3.0 — Commit 2a):
+  Cargos operacionais (Hunter, Farmer, ...) só enxergam o colaborador
+  vinculado ao seu usuário (carteira_colaborador.usuario_id). Cargos
+  admin/gestão (ADM, Franqueado, Gerente, EP) veem tudo. A decisão é
+  centralizada em permissions.deve_filtrar_por_usuario().
+  NOTA: /dashboard/farmer NÃO é filtrado neste commit — o filtro do
+  Farmer entra no Commit 2c, junto do refactor da sub-aba Relacionamento
+  (que depende de /dashboard/farmer devolver todos os Farmers).
 """
 from __future__ import annotations
 
@@ -30,6 +39,7 @@ from pydantic import BaseModel, Field
 
 from database import get_conn
 from routers.auth import usuario_atual
+from routers.permissions import deve_filtrar_por_usuario
 from parsers.carteira import parse_carteira_arquivo
 from parsers.tarefas import parse_tarefas_arquivo
 from services.carteira_agg import (
@@ -46,6 +56,12 @@ router = APIRouter()
 UPLOAD_DIR = os.getenv("UPLOAD_DIR", "/home/hipo/app/uploads")
 
 FUNCOES_VALIDAS = {"EC_HUNTER", "EC_FARMER", "OUTROS"}
+
+# Mensagem para operacional (Hunter/Farmer) sem colaborador vinculado.
+AVISO_SEM_VINCULO = (
+    "Sua carteira ainda não foi configurada. "
+    "Peça ao gestor para vincular seu usuário a um colaborador."
+)
 
 
 # ── Schemas Pydantic ─────────────────────────────────────────────
@@ -113,7 +129,7 @@ async def _carregar_estado(conn) -> tuple[list[dict], list[dict], list[dict]]:
         FROM carteira_tarefa
     """)
     colab_rows = await conn.fetch("""
-        SELECT id, nome, funcao::text AS funcao, funcao_origem
+        SELECT id, nome, funcao::text AS funcao, funcao_origem, usuario_id
         FROM carteira_colaborador WHERE ativo = TRUE
     """)
     return (
@@ -121,6 +137,25 @@ async def _carregar_estado(conn) -> tuple[list[dict], list[dict], list[dict]]:
         [dict(r) for r in tarefas_rows],
         [dict(r) for r in colab_rows],
     )
+
+
+async def _colaborador_do_usuario(conn, user: dict) -> dict | None:
+    """
+    Traduz o usuário logado -> colaborador da carteira vinculado a ele.
+
+    O vínculo é a coluna carteira_colaborador.usuario_id (v1.3.0 etapa 1).
+    Retorna o dict do colaborador (id, nome, funcao) ou None se o usuário
+    não estiver vinculado a nenhum colaborador ativo.
+    """
+    row = await conn.fetchrow(
+        """
+        SELECT id, nome, funcao::text AS funcao
+        FROM carteira_colaborador
+        WHERE usuario_id = $1 AND ativo = TRUE
+        """,
+        user["id"],
+    )
+    return dict(row) if row else None
 
 
 # ── UPLOAD: CARTEIRA ─────────────────────────────────────────────
@@ -298,6 +333,11 @@ async def listar_grupos(
     conn=Depends(get_conn),
     user=Depends(usuario_atual),
 ):
+    """
+    Lista agregada de grupos. NÃO é filtrado por usuário (decisão de produto
+    v1.3.0: a aba 'Outros' é visível para todos os cargos, inclusive
+    operacionais — é uma fila de correção de bagunça da carteira).
+    """
     if funcao and funcao not in FUNCOES_VALIDAS:
         raise HTTPException(400, f"Função inválida: {funcao}")
 
@@ -544,8 +584,30 @@ async def resumo(
     conn=Depends(get_conn),
     user=Depends(usuario_atual),
 ):
+    """
+    Totais para os cards do topo da tela Contadores.
+
+    Visibilidade por colaborador (v1.3.0 — Commit 2a):
+      - Cargo operacional COM vínculo  -> KPIs calculados só sobre os
+        grupos do colaborador vinculado.
+      - Cargo operacional SEM vínculo  -> KPIs zerados + campo 'aviso'.
+      - Cargo admin/gestão             -> KPIs da unidade inteira.
+    """
     cnpjs, tarefas, colab = await _carregar_estado(conn)
     grupos = agregar_grupos(cnpjs, tarefas, colab)
+
+    aviso = None
+    if deve_filtrar_por_usuario(user.get("cargo")):
+        meu_colab = await _colaborador_do_usuario(conn, user)
+        if meu_colab is None:
+            # Operacional sem vínculo: nada a mostrar.
+            grupos = []
+            aviso = AVISO_SEM_VINCULO
+        else:
+            grupos = [
+                g for g in grupos
+                if g.get("colaborador_nome") == meu_colab["nome"]
+            ]
 
     ultima_carteira = await conn.fetchrow(
         "SELECT data_upload FROM carteira_upload "
@@ -568,6 +630,7 @@ async def resumo(
             "tarefas_total": len(tarefas),
             "colaboradores": len(colab),
         },
+        "aviso": aviso,
         "ultima_carteira": ultima_carteira["data_upload"].isoformat() if ultima_carteira else None,
         "ultima_tarefas":  ultima_tarefas["data_upload"].isoformat() if ultima_tarefas else None,
     }
@@ -586,13 +649,27 @@ async def dashboard_hunter_endpoint(
     Lista 1 linha por colaborador EC_HUNTER com agregados do mês:
       total_grupos, meta_atingida, tarefas_atrasadas, sem_tarefa_futura,
       leads_no_mes, compliance_pct.
-    Ordenado por compliance descendente (melhor primeiro).
+
+    Visibilidade por colaborador (v1.3.0 — Commit 2a):
+      - Cargo operacional COM vínculo  -> só a linha do colaborador dele.
+      - Cargo operacional SEM vínculo  -> linhas=[] + campo 'aviso'.
+      - Cargo admin/gestão             -> todas as linhas Hunter.
     """
     cnpjs, tarefas, colab = await _carregar_estado(conn)
     grupos = agregar_grupos(cnpjs, tarefas, colab)
+    linhas = dashboard_hunter(grupos, colab)
+
+    aviso = None
+    if deve_filtrar_por_usuario(user.get("cargo")):
+        meu_colab = await _colaborador_do_usuario(conn, user)
+        if meu_colab is None:
+            return {"total": 0, "linhas": [], "aviso": AVISO_SEM_VINCULO}
+        linhas = [l for l in linhas if l.get("nome") == meu_colab["nome"]]
+
     return {
-        "total": len([c for c in colab if c["funcao"] == "EC_HUNTER"]),
-        "linhas": dashboard_hunter(grupos, colab),
+        "total": len(linhas),
+        "linhas": linhas,
+        "aviso": aviso,
     }
 
 
@@ -607,6 +684,12 @@ async def dashboard_farmer_endpoint(
       - semanas: lista das semanas ISO do mês corrente; cada uma com
         com_reuniao / sem_reuniao / pendente (contagem de CONTADORES).
       - tarefas_atrasadas, tarefas_futuras, leads_no_mes.
+
+    NOTA (v1.3.0): este endpoint NÃO é filtrado por usuário no Commit 2a.
+    A sub-aba Relacionamento do Hunter (BastaoLista.jsx) depende dele
+    devolver TODOS os Farmers para cruzar com os bastões. O filtro do
+    Farmer entra no Commit 2c, junto do refactor que move esse cruzamento
+    para o endpoint /carteira/relacionamento.
     """
     cnpjs, tarefas, colab = await _carregar_estado(conn)
     return {
@@ -624,6 +707,13 @@ async def grupos_do_colaborador_endpoint(
     """
     Drilldown: devolve os grupos atribuídos a um colaborador específico.
     Mesmo schema do GET /grupos, mas filtrado pelo ID.
+
+    Visibilidade por colaborador (v1.3.0 — Commit 2a):
+      - Cargo operacional só pode acessar o drilldown do PRÓPRIO
+        colaborador vinculado. Tentar o ID de outro colaborador devolve
+        403 (não 404, não lista vazia — bloqueio explícito, para não
+        permitir bisbilhotar trocando o ID na URL).
+      - Cargo admin/gestão acessa o drilldown de qualquer colaborador.
     """
     try:
         colab_uuid = uuid.UUID(colab_id)
@@ -636,6 +726,15 @@ async def grupos_do_colaborador_endpoint(
     )
     if not colaborador:
         raise HTTPException(404, "Colaborador não encontrado")
+
+    # Controle de acesso: operacional só vê o próprio colaborador.
+    if deve_filtrar_por_usuario(user.get("cargo")):
+        meu_colab = await _colaborador_do_usuario(conn, user)
+        if meu_colab is None or str(meu_colab["id"]) != str(colaborador["id"]):
+            raise HTTPException(
+                403,
+                "Você não tem acesso à carteira deste colaborador.",
+            )
 
     cnpjs, tarefas, colab = await _carregar_estado(conn)
     grupos = agregar_grupos(cnpjs, tarefas, colab)
