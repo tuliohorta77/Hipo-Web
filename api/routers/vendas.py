@@ -46,13 +46,22 @@ _COLUNAS = """
     dias_parado, ultima_tarefa_dias, data_atualizacao
 """
 
+# Lista de fases do SDR como literal SQL — usada na expressão CASE do
+# "responsável pela fase". É um literal (e não um parâmetro) de
+# propósito: a expressão CASE pode aparecer numa posição (cast de array)
+# em que o Postgres não consegue inferir o tipo de um parâmetro $N.
+# As fases são valores fixos e seguros, definidos no código (não vêm do
+# usuário), então embuti-las como literal é seguro — sem risco de SQL
+# injection. FASES_DO_SDR vem de services.vendas_cromie.
+_FASES_SDR_SQL = ", ".join(
+    "'" + f.replace("'", "''") + "'" for f in sorted(FASES_DO_SDR)
+)
+
 # Expressão SQL do "responsável pela fase": SDR nas fases iniciais,
 # executivo de vendas nas demais. Mantida idêntica à regra de
 # services.vendas_cromie.responsavel_da_op (as duas precisam casar).
-# As fases iniciais entram como parâmetro ($1::text[]) para não
-# embutir literais na string.
-_RESPONSAVEL_SQL = """
-    CASE WHEN fase = ANY($FASES_SDR::text[])
+_RESPONSAVEL_SQL = f"""
+    CASE WHEN fase IN ({_FASES_SDR_SQL})
          THEN sdr_fr
          ELSE executivo_vendas
     END
@@ -82,20 +91,22 @@ async def funil_cromie(
     resultado), e por isso o 'resumo' é sempre calculado sobre o
     conjunto completo (sem so_problema) — o cabeçalho mostra o
     panorama real, não o filtrado.
+
+    Parâmetros SQL são adicionados APENAS quando o filtro correspondente
+    está ativo — um parâmetro $N declarado mas não usado faz o Postgres
+    falhar com IndeterminateDatatypeError.
     """
-    # $1 é sempre a lista de fases do SDR (usada na expressão CASE).
-    # $2 é o status ativo. Os demais filtros entram a partir de $3.
-    args: list[Any] = [list(FASES_DO_SDR), _STATUS_ATIVO]
-    where = ["status ILIKE $2"]
+    args: list[Any] = [_STATUS_ATIVO]
+    where = ["status ILIKE $1"]
 
     if fase:
         args.append(fase)
         where.append(f"fase = ${len(args)}")
     if responsavel:
         args.append(responsavel)
-        # Casa contra a mesma expressão CASE do responsável.
-        resp_expr = _RESPONSAVEL_SQL.replace("$FASES_SDR", "$1")
-        where.append(f"({resp_expr}) = ${len(args)}")
+        # A expressão do responsável usa fases como literal SQL, então
+        # o único parâmetro aqui é o nome do responsável.
+        where.append(f"({_RESPONSAVEL_SQL}) = ${len(args)}")
 
     where_sql = " AND ".join(where)
     sql = f"""
@@ -157,15 +168,15 @@ async def funil_cromie_filtros(
     # Mantém a ordem do funil, não a ordem alfabética.
     fases = [f for f in FASES_ANALISADAS if f in fases_presentes]
 
-    # Responsáveis: aplica a mesma expressão CASE e coleta os distintos.
-    resp_expr = _RESPONSAVEL_SQL.replace("$FASES_SDR", "$1")
+    # Responsáveis: aplica a mesma expressão CASE (com fases literais)
+    # e coleta os distintos. O único parâmetro aqui é o status.
     resp_rows = await conn.fetch(
         f"""
-        SELECT DISTINCT ({resp_expr}) AS responsavel
+        SELECT DISTINCT ({_RESPONSAVEL_SQL}) AS responsavel
         FROM cliente_oportunidade
-        WHERE status ILIKE $2
+        WHERE status ILIKE $1
         """,
-        list(FASES_DO_SDR), _STATUS_ATIVO,
+        _STATUS_ATIVO,
     )
     responsaveis = sorted(
         r["responsavel"].strip()
