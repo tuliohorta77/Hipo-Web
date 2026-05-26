@@ -16,11 +16,12 @@
 //   ativa com 100 é incoerência, fica fora do funil.
 //
 // Clique numa faixa do funil abre um drawer com as oportunidades
-// daquele recorte (fase + faixa de temperatura).
+// daquele recorte (fase + faixa de temperatura). O drawer tem um
+// filtro por responsável que recalcula a soma de valor.
 //
 // Acesso: mesmo módulo 'clientes' (quem vê Clientes vê Vendas).
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   TrendingUp,
   CheckCircle2,
@@ -84,8 +85,6 @@ const FAIXAS = [
 ];
 
 // Largura relativa de cada degrau do funil, na ordem das fases.
-// Largura decrescente FIXA (cara de funil clássico) — a quantidade
-// real fica no rótulo, não na largura.
 const LARGURA_FASE = [100, 86, 72, 58, 44];
 
 
@@ -384,6 +383,9 @@ function DrawerRecorte({ fase, faixa, onClose }) {
   const [itens, setItens] = useState(null);
   const [loading, setLoading] = useState(true);
   const [erro, setErro] = useState(null);
+  // Filtro por responsável — aplicado no frontend sobre a lista do
+  // recorte (que já é pequena). Recalcula a soma de valor.
+  const [respFiltro, setRespFiltro] = useState('');
 
   const faixaInfo = FAIXAS.find((f) => f.key === faixa);
 
@@ -392,6 +394,7 @@ function DrawerRecorte({ fase, faixa, onClose }) {
     (async () => {
       setLoading(true);
       setErro(null);
+      setRespFiltro('');
       try {
         const params = new URLSearchParams();
         params.set('fase', fase);
@@ -411,9 +414,33 @@ function DrawerRecorte({ fase, faixa, onClose }) {
     };
   }, [fase, faixa]);
 
-  const valorTotal = (itens || []).reduce(
-    (acc, o) => acc + (Number(o.proposta_nmrr) || 0),
-    0,
+  // Lista de responsáveis distintos PRESENTES neste recorte —
+  // popula o dropdown. Só quem realmente tem OP aqui.
+  const responsaveis = useMemo(() => {
+    const set = new Set();
+    (itens || []).forEach((o) => {
+      const r = (o.responsavel || '').trim();
+      if (r) set.add(r);
+    });
+    return [...set].sort();
+  }, [itens]);
+
+  // Lista após o filtro de responsável.
+  const itensFiltrados = useMemo(() => {
+    if (!respFiltro) return itens || [];
+    return (itens || []).filter(
+      (o) => (o.responsavel || '').trim() === respFiltro,
+    );
+  }, [itens, respFiltro]);
+
+  // Soma de valor — recalcula conforme o filtro.
+  const valorTotal = useMemo(
+    () =>
+      itensFiltrados.reduce(
+        (acc, o) => acc + (Number(o.proposta_nmrr) || 0),
+        0,
+      ),
+    [itensFiltrados],
   );
 
   return (
@@ -463,43 +490,75 @@ function DrawerRecorte({ fase, faixa, onClose }) {
             />
           ) : (
             <>
-              <div className="flex items-center justify-between mb-3">
-                <p className="text-xs text-hipo-slate">
-                  {itens.length.toLocaleString('pt-BR')} oportunidade(s)
-                </p>
-                <p className="text-sm font-medium text-hipo-ink">
-                  {fmtValor(valorTotal)}
-                </p>
-              </div>
-              <Table>
-                <thead>
-                  <Tr>
-                    <Th>Razão Social / CNPJ</Th>
-                    <Th>Responsável</Th>
-                    <Th align="right">Valor (NMRR)</Th>
-                  </Tr>
-                </thead>
-                <tbody>
-                  {itens.map((o) => (
-                    <Tr key={o.op_id} hover>
-                      <Td>
-                        <div className="font-medium text-hipo-ink">
-                          {o.razao_social || '—'}
-                        </div>
-                        <div className="text-xs text-hipo-muted font-mono">
-                          {o.cnpj}
-                        </div>
-                      </Td>
-                      <Td className="text-hipo-slate">
-                        {o.responsavel || '—'}
-                      </Td>
-                      <Td align="right" className="whitespace-nowrap text-hipo-ink">
-                        {fmtValor(Number(o.proposta_nmrr))}
-                      </Td>
-                    </Tr>
+              {/* Filtro por responsável — recalcula a soma de valor. */}
+              <div className="flex flex-wrap items-center gap-2 mb-3">
+                <select
+                  value={respFiltro}
+                  onChange={(e) => setRespFiltro(e.target.value)}
+                  className="h-9 px-3 rounded-lg border border-hipo-border bg-hipo-card text-sm text-hipo-ink"
+                >
+                  <option value="">Todos os responsáveis</option>
+                  {responsaveis.map((r) => (
+                    <option key={r} value={r}>
+                      {r}
+                    </option>
                   ))}
-                </tbody>
-              </Table>
+                </select>
+                {respFiltro && (
+                  <Button variant="ghost" onClick={() => setRespFiltro('')}>
+                    Limpar
+                  </Button>
+                )}
+              </div>
+
+              {itensFiltrados.length === 0 ? (
+                <Empty
+                  Icon={BarChart3}
+                  title="Nenhuma oportunidade"
+                  description="Este responsável não tem oportunidades neste recorte."
+                />
+              ) : (
+                <>
+                  <div className="flex items-center justify-between mb-3">
+                    <p className="text-xs text-hipo-slate">
+                      {itensFiltrados.length.toLocaleString('pt-BR')}{' '}
+                      oportunidade(s)
+                    </p>
+                    <p className="text-sm font-medium text-hipo-ink">
+                      {fmtValor(valorTotal)}
+                    </p>
+                  </div>
+                  <Table>
+                    <thead>
+                      <Tr>
+                        <Th>Razão Social / CNPJ</Th>
+                        <Th>Responsável</Th>
+                        <Th align="right">Valor (NMRR)</Th>
+                      </Tr>
+                    </thead>
+                    <tbody>
+                      {itensFiltrados.map((o) => (
+                        <Tr key={o.op_id} hover>
+                          <Td>
+                            <div className="font-medium text-hipo-ink">
+                              {o.razao_social || '—'}
+                            </div>
+                            <div className="text-xs text-hipo-muted font-mono">
+                              {o.cnpj}
+                            </div>
+                          </Td>
+                          <Td className="text-hipo-slate">
+                            {o.responsavel || '—'}
+                          </Td>
+                          <Td align="right" className="whitespace-nowrap text-hipo-ink">
+                            {fmtValor(Number(o.proposta_nmrr))}
+                          </Td>
+                        </Tr>
+                      ))}
+                    </tbody>
+                  </Table>
+                </>
+              )}
             </>
           )}
         </div>
@@ -515,7 +574,6 @@ function AbaFunil() {
   const [dados, setDados] = useState(null);
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState(null);
-  // Recorte selecionado para o drawer: { fase, faixa } ou null.
   const [recorte, setRecorte] = useState(null);
 
   const carregar = useCallback(async () => {

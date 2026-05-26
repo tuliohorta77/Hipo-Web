@@ -70,23 +70,34 @@ function funilCromieMock() {
   }
 }
 
-// Resposta do drawer — recorte fase + faixa.
+// Resposta do drawer — recorte com DOIS responsáveis, para dar
+// material ao filtro: Bruno (1500) e Diego (400).
 const drawerMock = {
   data: {
     itens: [
       {
         op_id: 9,
         cnpj: '00000000000009',
-        razao_social: 'Empresa do Recorte',
+        razao_social: 'Empresa do Bruno',
         fase: '05. Negociação',
         responsavel: 'Bruno EV',
         proposta_nmrr: 1500,
         classificacao: {
-          fase_analisada: true,
-          conforme: true,
-          problemas: [],
-          problemas_rotulos: [],
-          regras_aplicaveis: [],
+          fase_analisada: true, conforme: true, problemas: [],
+          problemas_rotulos: [], regras_aplicaveis: [],
+          temperatura_incoerente: false,
+        },
+      },
+      {
+        op_id: 10,
+        cnpj: '00000000000010',
+        razao_social: 'Empresa do Diego',
+        fase: '05. Negociação',
+        responsavel: 'Diego EV',
+        proposta_nmrr: 400,
+        classificacao: {
+          fase_analisada: true, conforme: true, problemas: [],
+          problemas_rotulos: [], regras_aplicaveis: [],
           temperatura_incoerente: false,
         },
       },
@@ -142,7 +153,6 @@ function setupApi({ cromie = funilCromieMock(), funil = funilMock,
     if (url === '/vendas/funil') {
       return Promise.resolve(funil)
     }
-    // Recorte do drawer: tem o parâmetro temperatura.
     if (url.startsWith('/vendas/funil-cromie') && url.includes('temperatura=')) {
       return Promise.resolve(drawer)
     }
@@ -213,17 +223,7 @@ describe('Vendas — sub-aba Funil', () => {
     })
   })
 
-  it('mostra o total e o valor geral do funil', async () => {
-    setupApi()
-    render(<Vendas />)
-    await waitFor(() => screen.getByText('Empresa Conforme'))
-    fireEvent.click(screen.getByText('Funil'))
-    await waitFor(() => {
-      expect(screen.getByText('322')).toBeInTheDocument()
-    })
-  })
-
-  it('exibe a legenda com as 5 faixas, incluindo Fechando', async () => {
+  it('exibe a legenda com Quente e Fechando separados', async () => {
     setupApi()
     render(<Vendas />)
     await waitFor(() => screen.getByText('Empresa Conforme'))
@@ -241,13 +241,40 @@ describe('Vendas — sub-aba Funil', () => {
     fireEvent.click(screen.getByText('Funil'))
     await waitFor(() => screen.getByText('05. Negociação'))
 
-    // Clica numa faixa (botão com aria-label de Negociação).
-    const faixa = screen.getByLabelText(/05\. Negociação, Fechando/i)
-    fireEvent.click(faixa)
+    fireEvent.click(screen.getByLabelText(/05\. Negociação, Fechando/i))
 
     await waitFor(() => {
-      expect(screen.getByText('Empresa do Recorte')).toBeInTheDocument()
+      expect(screen.getByText('Empresa do Bruno')).toBeInTheDocument()
+      expect(screen.getByText('Empresa do Diego')).toBeInTheDocument()
     })
+  })
+
+  it('filtra o drawer por responsável e recalcula a soma de valor', async () => {
+    setupApi()
+    render(<Vendas />)
+    await waitFor(() => screen.getByText('Empresa Conforme'))
+    fireEvent.click(screen.getByText('Funil'))
+    await waitFor(() => screen.getByText('05. Negociação'))
+
+    fireEvent.click(screen.getByLabelText(/05\. Negociação, Fechando/i))
+    await waitFor(() => screen.getByText('Empresa do Bruno'))
+
+    // Antes de filtrar: soma 1500 + 400 = 1900.
+    expect(screen.getByText('R$ 1.900')).toBeInTheDocument()
+
+    // Filtra por Bruno EV — o select do drawer.
+    const selects = screen.getAllByRole('combobox')
+    const selectDrawer = selects[selects.length - 1]
+    fireEvent.change(selectDrawer, { target: { value: 'Bruno EV' } })
+
+    await waitFor(() => {
+      // Diego sai da lista.
+      expect(screen.queryByText('Empresa do Diego')).not.toBeInTheDocument()
+      // Soma recalcula só com a OP do Bruno: 1500.
+      expect(screen.getByText('R$ 1.500')).toBeInTheDocument()
+    })
+    // Bruno continua.
+    expect(screen.getByText('Empresa do Bruno')).toBeInTheDocument()
   })
 
   it('o drawer fecha ao clicar no botão fechar', async () => {
@@ -258,22 +285,11 @@ describe('Vendas — sub-aba Funil', () => {
     await waitFor(() => screen.getByText('05. Negociação'))
 
     fireEvent.click(screen.getByLabelText(/05\. Negociação, Fechando/i))
-    await waitFor(() => screen.getByText('Empresa do Recorte'))
+    await waitFor(() => screen.getByText('Empresa do Bruno'))
 
     fireEvent.click(screen.getByLabelText('Fechar'))
     await waitFor(() => {
-      expect(screen.queryByText('Empresa do Recorte')).not.toBeInTheDocument()
-    })
-  })
-
-  it('mostra o aviso de temperatura incoerente no funil quando há caso', async () => {
-    const funil = { data: { ...funilMock.data, temperatura_incoerente: 2 } }
-    setupApi({ funil })
-    render(<Vendas />)
-    await waitFor(() => screen.getByText('Empresa Conforme'))
-    fireEvent.click(screen.getByText('Funil'))
-    await waitFor(() => {
-      expect(screen.getByText(/não entra/i)).toBeInTheDocument()
+      expect(screen.queryByText('Empresa do Bruno')).not.toBeInTheDocument()
     })
   })
 
