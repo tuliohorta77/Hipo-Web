@@ -11,6 +11,7 @@ Endpoints:
   GET  /carteira/usuarios-ativos      — usuários ativos (dropdown de vínculo)
   GET  /carteira/historico            — últimos uploads
   GET  /carteira/resumo               — totais para os cards do topo
+  GET  /carteira/relacionamento       — grupos Farmer via bastão do Hunter
 
 Dashboard por colaborador (layout v2):
   GET  /carteira/dashboard/hunter         — 1 linha por colab Hunter + KPIs
@@ -50,6 +51,8 @@ from services.carteira_agg import (
     dashboard_farmer,
     grupos_do_colaborador,
 )
+from services.carteira_relacionamento import cruzar_bastoes_com_grupos
+from services import bastao as svc_bastao
 
 router = APIRouter()
 
@@ -62,6 +65,10 @@ AVISO_SEM_VINCULO = (
     "Sua carteira ainda não foi configurada. "
     "Peça ao gestor para vincular seu usuário a um colaborador."
 )
+
+# Cargos que podem consultar o Relacionamento de outro Hunter via ?hunter=.
+# Mesma política do /bastoes/meus em routers/bastao.py.
+_CARGOS_VE_OUTRO_HUNTER = {"ADM", "Franqueado", "Gerente", "EP"}
 
 
 # ── Schemas Pydantic ─────────────────────────────────────────────
@@ -633,6 +640,88 @@ async def resumo(
         "aviso": aviso,
         "ultima_carteira": ultima_carteira["data_upload"].isoformat() if ultima_carteira else None,
         "ultima_tarefas":  ultima_tarefas["data_upload"].isoformat() if ultima_tarefas else None,
+    }
+
+
+# ── RELACIONAMENTO (Hunter — grupos passados via bastão) ─────────
+
+@router.get("/relacionamento")
+async def relacionamento(
+    hunter: str | None = Query(
+        None,
+        description="Nome do Hunter. Cargos admin/gestão podem consultar "
+                    "outro Hunter; operacionais ignoram o parâmetro.",
+    ),
+    conn=Depends(get_conn),
+    user=Depends(usuario_atual),
+):
+    """
+    Sub-aba 'Relacionamento' do Hunter: os grupos Farmer correspondentes
+    aos contadores que o Hunter passou via bastão APROVADO.
+
+    Move para o backend o cruzamento bastão ↔ grupo que antes era feito
+    no frontend (BastaoLista.jsx). Assim /dashboard/farmer pode ser
+    filtrado por usuário (Commit 2c) sem quebrar o Relacionamento.
+
+    Resolução do Hunter-alvo:
+      - Cargo operacional  -> sempre o colaborador vinculado ao seu
+        usuário (ignora o parâmetro ?hunter=). Sem vínculo -> 'aviso'.
+      - Cargo admin/gestão -> usa ?hunter=NOME se informado; senão,
+        usa o próprio nome do usuário logado.
+
+    Retorno:
+      - hunter_nome: str — o Hunter efetivamente consultado
+      - grupos: list[dict] — grupos Farmer via bastão (formato Farmer)
+      - bastoes_sem_grupo: list[dict] — bastões aprovados ainda sem grupo
+      - kpis: dict — total_grupos, com_atrasada, com_futura, leads
+      - aviso: str | null — preenchido quando operacional sem vínculo
+    """
+    cargo = user.get("cargo")
+
+    # 1) Resolve de qual Hunter é o Relacionamento.
+    if deve_filtrar_por_usuario(cargo):
+        # Operacional: só o próprio colaborador vinculado.
+        meu_colab = await _colaborador_do_usuario(conn, user)
+        if meu_colab is None:
+            return {
+                "hunter_nome": None,
+                "grupos": [],
+                "bastoes_sem_grupo": [],
+                "kpis": {"total_grupos": 0, "com_atrasada": 0,
+                         "com_futura": 0, "leads": 0},
+                "aviso": AVISO_SEM_VINCULO,
+            }
+        hunter_nome = meu_colab["nome"]
+    else:
+        # Admin/gestão: ?hunter= se veio; senão, o próprio nome.
+        if hunter and cargo in _CARGOS_VE_OUTRO_HUNTER:
+            hunter_nome = hunter
+        else:
+            hunter_nome = user.get("nome")
+        if not hunter_nome:
+            raise HTTPException(
+                400,
+                "Não foi possível determinar o Hunter. "
+                "Informe ?hunter=NOME.",
+            )
+
+    # 2) Bastões do Hunter (reusa o service de bastão).
+    bastoes = await svc_bastao.listar_bastoes_do_hunter(conn, hunter_nome)
+
+    # 3) Grupos Farmer agregados.
+    cnpjs, tarefas, colab = await _carregar_estado(conn)
+    grupos = agregar_grupos(cnpjs, tarefas, colab)
+    grupos_farmer = [g for g in grupos if g.get("funcao") == "EC_FARMER"]
+
+    # 4) Cruzamento bastão ↔ grupo (service puro).
+    resultado = cruzar_bastoes_com_grupos(bastoes, grupos_farmer)
+
+    return {
+        "hunter_nome": hunter_nome,
+        "grupos": resultado["grupos"],
+        "bastoes_sem_grupo": resultado["bastoes_sem_grupo"],
+        "kpis": resultado["kpis"],
+        "aviso": None,
     }
 
 
