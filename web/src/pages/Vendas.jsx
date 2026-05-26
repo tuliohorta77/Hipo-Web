@@ -1,23 +1,22 @@
 // web/src/pages/Vendas.jsx
 //
 // Módulo Vendas. Duas sub-abas:
-//   - Conformidade: Funil de Vendas CROmie — classifica as oportunidades
-//     ATIVAS pela "régua interna" de utilização correta do CROmie.
-//   - Funil: o Funil de Vendas — oportunidades ativas agregadas por
-//     fase x faixa de temperatura, em formato de funil.
+//   - Conformidade: régua interna de utilização correta do CROmie.
+//   - Funil: o Funil de Vendas — oportunidades ativas por fase x faixa
+//     de temperatura, com valor (proposta_nmrr). A temperatura aqui é a
+//     previsão de venda: quanto mais alta, mais perto de fechar.
 //
 // IMPORTANTE — a aba Conformidade NÃO é a apuração oficial do PEX:
-//   O indicador PEX "Utilização correta do CROmie" cobra tarefa futura
-//   apenas em Suspect/Cadência/Qualificação. Por decisão de gestão, esta
-//   tela cobra tarefa futura em TODAS as fases ativas — régua interna,
-//   mais exigente. O percentual tende a ser menor que o número apurado
-//   pela consultoria de campo da Omie.
+//   cobra tarefa futura em todas as fases (régua interna, mais
+//   exigente). O percentual tende a ser menor que o da consultoria.
 //
-// Temperatura incoerente: temperatura 100 = oportunidade conquistada.
-//   Uma OP ATIVA com temperatura 100 é uma incoerência (provável OP
-//   fechada que não teve o status atualizado no CROmie). Essas OPs são
-//   excluídas do funil e sinalizadas na Conformidade. Hoje a base não
-//   tem nenhum caso — os elementos de alerta só aparecem se houver.
+// Funil — 5 faixas de temperatura: sem / fria (10–40) / morna (50–70) /
+//   quente (80) / fechando (90). "Fechando" é separado de "quente"
+//   porque 90 é a venda iminente. Temperatura 100 = conquistado: OP
+//   ativa com 100 é incoerência, fica fora do funil.
+//
+// Clique numa faixa do funil abre um drawer com as oportunidades
+// daquele recorte (fase + faixa de temperatura).
 //
 // Acesso: mesmo módulo 'clientes' (quem vê Clientes vê Vendas).
 
@@ -29,6 +28,8 @@ import {
   Info,
   BarChart3,
   ClipboardCheck,
+  DollarSign,
+  X,
 } from 'lucide-react';
 import api from '../api';
 
@@ -53,6 +54,17 @@ function fmtData(d) {
   }
 }
 
+const BRL = new Intl.NumberFormat('pt-BR', {
+  style: 'currency',
+  currency: 'BRL',
+  maximumFractionDigits: 0,
+});
+
+function fmtValor(v) {
+  if (!v || v <= 0) return '—';
+  return BRL.format(v);
+}
+
 function toneDoPct(pct) {
   if (pct >= 100) return 'success';
   if (pct >= 80) return 'warning';
@@ -60,18 +72,20 @@ function toneDoPct(pct) {
 }
 
 // Faixas de temperatura do funil — código, rótulo e cor.
-// A cor é fixa por faixa (decisão de produto). Mantida em sincronia
-// com services/vendas_cromie.py (FAIXAS_TEMPERATURA / ROTULO_FAIXA).
+// Mantida em sincronia com services/vendas_cromie.py
+// (FAIXAS_TEMPERATURA / ROTULO_FAIXA). "fechando" usa um laranja
+// escuro puxando pro vermelho — é a faixa de venda iminente.
 const FAIXAS = [
-  { key: 'sem',    label: 'Sem temperatura', cor: '#94a3b8' },
-  { key: 'fria',   label: 'Fria (10–40)',    cor: '#60a5fa' },
-  { key: 'morna',  label: 'Morna (50–70)',   cor: '#fbbf24' },
-  { key: 'quente', label: 'Quente (80–90)',  cor: '#f97316' },
+  { key: 'sem',      label: 'Sem temperatura', cor: '#94a3b8' },
+  { key: 'fria',     label: 'Fria (10–40)',    cor: '#60a5fa' },
+  { key: 'morna',    label: 'Morna (50–70)',   cor: '#fbbf24' },
+  { key: 'quente',   label: 'Quente (80)',     cor: '#f97316' },
+  { key: 'fechando', label: 'Fechando (90)',   cor: '#9a3412' },
 ];
 
 // Largura relativa de cada degrau do funil, na ordem das fases.
-// Decisão de produto: largura decrescente FIXA (cara de funil
-// clássico) — a quantidade real fica no rótulo, não na largura.
+// Largura decrescente FIXA (cara de funil clássico) — a quantidade
+// real fica no rótulo, não na largura.
 const LARGURA_FASE = [100, 86, 72, 58, 44];
 
 
@@ -111,7 +125,7 @@ function AbaConformidade() {
     } catch (e) {
       const detail = e.response?.data?.detail;
       const txt = typeof detail === 'string' ? detail : e.message;
-      setMsg({ tipo: 'erro', texto: `Erro ao carregar o funil: ${txt}` });
+      setMsg({ tipo: 'erro', texto: `Erro ao carregar: ${txt}` });
       setDados(null);
     } finally {
       setLoading(false);
@@ -128,7 +142,6 @@ function AbaConformidade() {
 
   const resumo = dados?.resumo;
   const itens = dados?.itens || [];
-  // Contador de temperatura incoerente — só vira KPI se houver caso.
   const incoerentes = resumo?.temperatura_incoerente || 0;
   const temFiltro = fase || responsavel || soProblema || soIncoerente;
 
@@ -190,7 +203,6 @@ function AbaConformidade() {
         </div>
       )}
 
-      {/* Aviso de temperatura incoerente — só quando há caso. */}
       {incoerentes > 0 && (
         <AlertMessage tipo="aviso" className="mb-4">
           {incoerentes.toLocaleString('pt-BR')} oportunidade(s) ativa(s) com
@@ -238,7 +250,6 @@ function AbaConformidade() {
             Só com problema
           </label>
 
-          {/* Filtro de temperatura incoerente — só aparece se houver caso. */}
           {incoerentes > 0 && (
             <label className="flex items-center gap-2 text-sm text-hipo-danger cursor-pointer select-none px-2">
               <input
@@ -328,7 +339,6 @@ function AbaConformidade() {
                       </Td>
                       <Td>
                         <div className="flex flex-wrap gap-1">
-                          {/* Badge de temperatura incoerente — só quando aplicável. */}
                           {cls.temperatura_incoerente && (
                             <span
                               className="text-[11px] font-medium px-1.5 py-0.5 rounded
@@ -368,12 +378,145 @@ function AbaConformidade() {
 }
 
 
+// ── Drawer: lista de oportunidades de um recorte (fase + faixa) ───
+
+function DrawerRecorte({ fase, faixa, onClose }) {
+  const [itens, setItens] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [erro, setErro] = useState(null);
+
+  const faixaInfo = FAIXAS.find((f) => f.key === faixa);
+
+  useEffect(() => {
+    let ativo = true;
+    (async () => {
+      setLoading(true);
+      setErro(null);
+      try {
+        const params = new URLSearchParams();
+        params.set('fase', fase);
+        params.set('temperatura', faixa);
+        const { data } = await api.get(`/vendas/funil-cromie?${params}`);
+        if (ativo) setItens(data.itens || []);
+      } catch (e) {
+        const detail = e.response?.data?.detail;
+        const txt = typeof detail === 'string' ? detail : e.message;
+        if (ativo) setErro(`Erro ao carregar: ${txt}`);
+      } finally {
+        if (ativo) setLoading(false);
+      }
+    })();
+    return () => {
+      ativo = false;
+    };
+  }, [fase, faixa]);
+
+  const valorTotal = (itens || []).reduce(
+    (acc, o) => acc + (Number(o.proposta_nmrr) || 0),
+    0,
+  );
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex justify-end bg-black/40"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-2xl h-full bg-hipo-card border-l border-hipo-border
+                   overflow-y-auto shadow-xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-start justify-between p-5 border-b border-hipo-border">
+          <div>
+            <div className="text-sm font-medium text-hipo-ink">{fase}</div>
+            <div className="flex items-center gap-2 mt-1">
+              <span
+                className="w-3 h-3 rounded-sm inline-block"
+                style={{ backgroundColor: faixaInfo?.cor }}
+              />
+              <span className="text-xs text-hipo-slate">
+                {faixaInfo?.label || faixa}
+              </span>
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            className="p-1 rounded hover:bg-hipo-bg text-hipo-slate"
+            aria-label="Fechar"
+          >
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="p-5">
+          {loading ? (
+            <p className="text-sm text-hipo-slate text-center py-8">
+              Carregando oportunidades...
+            </p>
+          ) : erro ? (
+            <AlertMessage tipo="erro">{erro}</AlertMessage>
+          ) : !itens || itens.length === 0 ? (
+            <Empty
+              Icon={BarChart3}
+              title="Nenhuma oportunidade"
+              description="Este recorte não tem oportunidades."
+            />
+          ) : (
+            <>
+              <div className="flex items-center justify-between mb-3">
+                <p className="text-xs text-hipo-slate">
+                  {itens.length.toLocaleString('pt-BR')} oportunidade(s)
+                </p>
+                <p className="text-sm font-medium text-hipo-ink">
+                  {fmtValor(valorTotal)}
+                </p>
+              </div>
+              <Table>
+                <thead>
+                  <Tr>
+                    <Th>Razão Social / CNPJ</Th>
+                    <Th>Responsável</Th>
+                    <Th align="right">Valor (NMRR)</Th>
+                  </Tr>
+                </thead>
+                <tbody>
+                  {itens.map((o) => (
+                    <Tr key={o.op_id} hover>
+                      <Td>
+                        <div className="font-medium text-hipo-ink">
+                          {o.razao_social || '—'}
+                        </div>
+                        <div className="text-xs text-hipo-muted font-mono">
+                          {o.cnpj}
+                        </div>
+                      </Td>
+                      <Td className="text-hipo-slate">
+                        {o.responsavel || '—'}
+                      </Td>
+                      <Td align="right" className="whitespace-nowrap text-hipo-ink">
+                        {fmtValor(Number(o.proposta_nmrr))}
+                      </Td>
+                    </Tr>
+                  ))}
+                </tbody>
+              </Table>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
 // ── Sub-aba Funil ────────────────────────────────────────────────
 
 function AbaFunil() {
   const [dados, setDados] = useState(null);
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState(null);
+  // Recorte selecionado para o drawer: { fase, faixa } ou null.
+  const [recorte, setRecorte] = useState(null);
 
   const carregar = useCallback(async () => {
     setLoading(true);
@@ -425,11 +568,17 @@ function AbaFunil() {
 
   return (
     <>
-      <div className="grid grid-cols-2 gap-4 mb-6">
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-6">
         <KpiCard
           label="Oportunidades no funil"
           value={dados.total_geral.toLocaleString('pt-BR')}
           Icon={TrendingUp}
+          tone="info"
+        />
+        <KpiCard
+          label="Valor em proposta (NMRR)"
+          value={fmtValor(dados.valor_geral)}
+          Icon={DollarSign}
           tone="info"
         />
         <KpiCard
@@ -440,7 +589,6 @@ function AbaFunil() {
         />
       </div>
 
-      {/* Aviso de OPs excluídas do funil — só quando há caso. */}
       {incoerentes > 0 && (
         <AlertMessage tipo="aviso" className="mb-4">
           {incoerentes.toLocaleString('pt-BR')} oportunidade(s) ativa(s) com
@@ -449,7 +597,6 @@ function AbaFunil() {
       )}
 
       <Card>
-        {/* Legenda de temperatura */}
         <div className="flex flex-wrap items-center gap-4 mb-5 text-xs text-hipo-slate">
           {FAIXAS.map((fx) => (
             <span key={fx.key} className="flex items-center gap-1.5">
@@ -462,15 +609,19 @@ function AbaFunil() {
           ))}
         </div>
 
-        {/* Funil — uma linha por fase */}
         <div className="space-y-2">
           {dados.fases.map((f, idx) => {
             const largura = LARGURA_FASE[idx] ?? 40;
             const total = f.total;
             return (
               <div key={f.fase} className="flex items-center gap-3">
-                <div className="w-32 shrink-0 text-right text-sm font-medium text-hipo-ink">
-                  {f.fase}
+                <div className="w-32 shrink-0 text-right">
+                  <div className="text-sm font-medium text-hipo-ink">
+                    {f.fase}
+                  </div>
+                  <div className="text-[11px] text-hipo-muted">
+                    {fmtValor(f.valor)}
+                  </div>
                 </div>
                 <div className="flex-1 flex justify-center">
                   <div
@@ -481,17 +632,24 @@ function AbaFunil() {
                       <div className="w-full bg-hipo-bg" />
                     ) : (
                       FAIXAS.map((fx) => {
-                        const n = f.faixas[fx.key] || 0;
+                        const slot = f.faixas[fx.key] || { total: 0 };
+                        const n = slot.total || 0;
                         if (n <= 0) return null;
                         const pct = (n / total) * 100;
                         return (
-                          <div
+                          <button
                             key={fx.key}
-                            title={`${fx.label}: ${n}`}
+                            title={`${fx.label}: ${n} — clique para ver`}
+                            onClick={() =>
+                              setRecorte({ fase: f.fase, faixa: fx.key })
+                            }
                             style={{
                               width: `${pct}%`,
                               backgroundColor: fx.cor,
                             }}
+                            className="h-full cursor-pointer hover:opacity-80
+                                       transition-opacity"
+                            aria-label={`${f.fase}, ${fx.label}, ${n} oportunidades`}
                           />
                         );
                       })
@@ -512,10 +670,19 @@ function AbaFunil() {
         </div>
 
         <p className="text-xs text-hipo-muted mt-5">
-          A largura de cada fase é fixa decrescente — a quantidade real está
-          no número ao lado. As cores indicam a temperatura das oportunidades.
+          Clique numa faixa colorida para ver as oportunidades daquele
+          recorte. A largura de cada fase é fixa decrescente — a quantidade
+          real está no número ao lado.
         </p>
       </Card>
+
+      {recorte && (
+        <DrawerRecorte
+          fase={recorte.fase}
+          faixa={recorte.faixa}
+          onClose={() => setRecorte(null)}
+        />
+      )}
     </>
   );
 }

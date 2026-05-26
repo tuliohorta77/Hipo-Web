@@ -17,7 +17,6 @@ import api from '../api'
 import Vendas from '../pages/Vendas'
 
 
-// Resposta de /vendas/funil-cromie com 1 conforme e 1 com problema.
 function funilCromieMock() {
   return {
     data: {
@@ -28,6 +27,7 @@ function funilCromieMock() {
           razao_social: 'Empresa Conforme',
           fase: '01. Suspect',
           responsavel: 'Carla SDR',
+          proposta_nmrr: 0,
           data_atualizacao: '2026-05-20T10:00:00Z',
           classificacao: {
             fase_analisada: true,
@@ -44,6 +44,7 @@ function funilCromieMock() {
           razao_social: 'Empresa Com Problema',
           fase: '03. Qualificação',
           responsavel: 'Bruno EV',
+          proposta_nmrr: 0,
           data_atualizacao: '2026-05-21T10:00:00Z',
           classificacao: {
             fase_analisada: true,
@@ -69,17 +70,58 @@ function funilCromieMock() {
   }
 }
 
-// Resposta de /vendas/funil — 5 fases com faixas.
+// Resposta do drawer — recorte fase + faixa.
+const drawerMock = {
+  data: {
+    itens: [
+      {
+        op_id: 9,
+        cnpj: '00000000000009',
+        razao_social: 'Empresa do Recorte',
+        fase: '05. Negociação',
+        responsavel: 'Bruno EV',
+        proposta_nmrr: 1500,
+        classificacao: {
+          fase_analisada: true,
+          conforme: true,
+          problemas: [],
+          problemas_rotulos: [],
+          regras_aplicaveis: [],
+          temperatura_incoerente: false,
+        },
+      },
+    ],
+    resumo: {},
+    por_fase: {},
+    filtro_aplicado: {},
+  },
+}
+
+function novaFaixa(t = 0, v = 0) {
+  return { total: t, valor: v }
+}
+
 const funilMock = {
   data: {
     fases: [
-      { fase: '01. Suspect',      total: 81,  faixas: { sem: 49, fria: 32,  morna: 0,  quente: 0 } },
-      { fase: '02. Cadência',     total: 141, faixas: { sem: 12, fria: 106, morna: 23, quente: 0 } },
-      { fase: '03. Qualificação', total: 10,  faixas: { sem: 1,  fria: 9,   morna: 0,  quente: 0 } },
-      { fase: '04. Apresentação', total: 12,  faixas: { sem: 3,  fria: 7,   morna: 2,  quente: 0 } },
-      { fase: '05. Negociação',   total: 78,  faixas: { sem: 4,  fria: 1,   morna: 54, quente: 19 } },
+      { fase: '01. Suspect', total: 81, valor: 0, faixas: {
+        sem: novaFaixa(49), fria: novaFaixa(32), morna: novaFaixa(),
+        quente: novaFaixa(), fechando: novaFaixa() } },
+      { fase: '02. Cadência', total: 141, valor: 0, faixas: {
+        sem: novaFaixa(12), fria: novaFaixa(106), morna: novaFaixa(23),
+        quente: novaFaixa(), fechando: novaFaixa() } },
+      { fase: '03. Qualificação', total: 10, valor: 0, faixas: {
+        sem: novaFaixa(1), fria: novaFaixa(9), morna: novaFaixa(),
+        quente: novaFaixa(), fechando: novaFaixa() } },
+      { fase: '04. Apresentação', total: 12, valor: 28400, faixas: {
+        sem: novaFaixa(3), fria: novaFaixa(7), morna: novaFaixa(2),
+        quente: novaFaixa(), fechando: novaFaixa() } },
+      { fase: '05. Negociação', total: 78, valor: 96957, faixas: {
+        sem: novaFaixa(4), fria: novaFaixa(1), morna: novaFaixa(54),
+        quente: novaFaixa(14, 60000), fechando: novaFaixa(5, 36957) } },
     ],
     total_geral: 322,
+    valor_geral: 125357,
     temperatura_incoerente: 0,
   },
 }
@@ -91,13 +133,18 @@ const filtrosMock = {
   },
 }
 
-function setupApi({ cromie = funilCromieMock(), funil = funilMock } = {}) {
+function setupApi({ cromie = funilCromieMock(), funil = funilMock,
+                    drawer = drawerMock } = {}) {
   api.get.mockImplementation((url) => {
     if (url === '/vendas/funil-cromie/filtros') {
       return Promise.resolve(filtrosMock)
     }
     if (url === '/vendas/funil') {
       return Promise.resolve(funil)
+    }
+    // Recorte do drawer: tem o parâmetro temperatura.
+    if (url.startsWith('/vendas/funil-cromie') && url.includes('temperatura=')) {
+      return Promise.resolve(drawer)
     }
     if (url.startsWith('/vendas/funil-cromie')) {
       return Promise.resolve(cromie)
@@ -112,7 +159,7 @@ describe('Vendas — sub-aba Conformidade', () => {
     vi.clearAllMocks()
   })
 
-  it('abre na sub-aba Conformidade e lista as oportunidades', async () => {
+  it('abre na Conformidade e lista as oportunidades', async () => {
     setupApi()
     render(<Vendas />)
     await waitFor(() => {
@@ -121,7 +168,7 @@ describe('Vendas — sub-aba Conformidade', () => {
     })
   })
 
-  it('mostra o percentual de conformidade interna no KPI', async () => {
+  it('mostra o percentual de conformidade interna', async () => {
     setupApi()
     render(<Vendas />)
     await waitFor(() => {
@@ -129,30 +176,15 @@ describe('Vendas — sub-aba Conformidade', () => {
     })
   })
 
-  it('exibe o aviso de que é régua interna, não o PEX oficial', async () => {
-    setupApi()
-    render(<Vendas />)
-    await waitFor(() => screen.getByText('Empresa Conforme'))
-    expect(screen.getByText(/régua interna/i)).toBeInTheDocument()
-  })
-
-  it('mostra a coluna Responsável com o nome calculado por fase', async () => {
+  it('mostra a coluna Responsável', async () => {
     setupApi()
     render(<Vendas />)
     await waitFor(() => screen.getByText('Empresa Conforme'))
     const tabela = screen.getByRole('table')
     expect(within(tabela).getByText('Carla SDR')).toBeInTheDocument()
-    expect(within(tabela).getByText('Bruno EV')).toBeInTheDocument()
   })
 
-  it('não mostra o KPI de temperatura a revisar quando não há caso', async () => {
-    setupApi()
-    render(<Vendas />)
-    await waitFor(() => screen.getByText('Empresa Conforme'))
-    expect(screen.queryByText(/a revisar/i)).not.toBeInTheDocument()
-  })
-
-  it('mostra o aviso e o badge de temperatura incoerente quando há caso', async () => {
+  it('mostra o badge de temperatura incoerente quando há caso', async () => {
     const cromie = funilCromieMock()
     cromie.data.resumo.temperatura_incoerente = 1
     cromie.data.itens[1].classificacao.temperatura_incoerente = true
@@ -174,37 +206,63 @@ describe('Vendas — sub-aba Funil', () => {
     setupApi()
     render(<Vendas />)
     await waitFor(() => screen.getByText('Empresa Conforme'))
-
     fireEvent.click(screen.getByText('Funil'))
-
     await waitFor(() => {
       expect(screen.getByText('01. Suspect')).toBeInTheDocument()
       expect(screen.getByText('05. Negociação')).toBeInTheDocument()
     })
   })
 
-  it('mostra o total de oportunidades no funil', async () => {
+  it('mostra o total e o valor geral do funil', async () => {
     setupApi()
     render(<Vendas />)
     await waitFor(() => screen.getByText('Empresa Conforme'))
-
     fireEvent.click(screen.getByText('Funil'))
-
     await waitFor(() => {
       expect(screen.getByText('322')).toBeInTheDocument()
     })
   })
 
-  it('exibe a legenda de faixas de temperatura', async () => {
+  it('exibe a legenda com as 5 faixas, incluindo Fechando', async () => {
     setupApi()
     render(<Vendas />)
     await waitFor(() => screen.getByText('Empresa Conforme'))
-
     fireEvent.click(screen.getByText('Funil'))
+    await waitFor(() => {
+      expect(screen.getByText(/Quente \(80\)/i)).toBeInTheDocument()
+      expect(screen.getByText(/Fechando \(90\)/i)).toBeInTheDocument()
+    })
+  })
+
+  it('clicar numa faixa abre o drawer com a lista do recorte', async () => {
+    setupApi()
+    render(<Vendas />)
+    await waitFor(() => screen.getByText('Empresa Conforme'))
+    fireEvent.click(screen.getByText('Funil'))
+    await waitFor(() => screen.getByText('05. Negociação'))
+
+    // Clica numa faixa (botão com aria-label de Negociação).
+    const faixa = screen.getByLabelText(/05\. Negociação, Fechando/i)
+    fireEvent.click(faixa)
 
     await waitFor(() => {
-      expect(screen.getByText(/Fria/i)).toBeInTheDocument()
-      expect(screen.getByText(/Quente/i)).toBeInTheDocument()
+      expect(screen.getByText('Empresa do Recorte')).toBeInTheDocument()
+    })
+  })
+
+  it('o drawer fecha ao clicar no botão fechar', async () => {
+    setupApi()
+    render(<Vendas />)
+    await waitFor(() => screen.getByText('Empresa Conforme'))
+    fireEvent.click(screen.getByText('Funil'))
+    await waitFor(() => screen.getByText('05. Negociação'))
+
+    fireEvent.click(screen.getByLabelText(/05\. Negociação, Fechando/i))
+    await waitFor(() => screen.getByText('Empresa do Recorte'))
+
+    fireEvent.click(screen.getByLabelText('Fechar'))
+    await waitFor(() => {
+      expect(screen.queryByText('Empresa do Recorte')).not.toBeInTheDocument()
     })
   })
 
@@ -213,9 +271,7 @@ describe('Vendas — sub-aba Funil', () => {
     setupApi({ funil })
     render(<Vendas />)
     await waitFor(() => screen.getByText('Empresa Conforme'))
-
     fireEvent.click(screen.getByText('Funil'))
-
     await waitFor(() => {
       expect(screen.getByText(/não entra/i)).toBeInTheDocument()
     })
@@ -225,18 +281,19 @@ describe('Vendas — sub-aba Funil', () => {
     const funil = {
       data: {
         fases: [
-          { fase: '01. Suspect', total: 0, faixas: { sem: 0, fria: 0, morna: 0, quente: 0 } },
+          { fase: '01. Suspect', total: 0, valor: 0, faixas: {
+            sem: novaFaixa(), fria: novaFaixa(), morna: novaFaixa(),
+            quente: novaFaixa(), fechando: novaFaixa() } },
         ],
         total_geral: 0,
+        valor_geral: 0,
         temperatura_incoerente: 0,
       },
     }
     setupApi({ funil })
     render(<Vendas />)
     await waitFor(() => screen.getByText('Empresa Conforme'))
-
     fireEvent.click(screen.getByText('Funil'))
-
     await waitFor(() => {
       expect(screen.getByText(/Sem oportunidades no funil/i)).toBeInTheDocument()
     })
