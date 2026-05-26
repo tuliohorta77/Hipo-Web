@@ -1,8 +1,23 @@
 // web/src/components/ConfigColaboradoresModal.jsx
 //
-// Modal para classificar colaboradores como EC_HUNTER, EC_FARMER ou OUTROS.
-// Lista populada pelo backend a partir da última carteira carregada.
+// Modal para classificar colaboradores como EC_HUNTER, EC_FARMER ou OUTROS
+// e VINCULAR cada colaborador a um usuário do sistema (v1.3.0 etapa 3).
+//
+// O vínculo usuário<->colaborador (carteira_colaborador.usuario_id) é o que
+// faz a visibilidade por colaborador funcionar: um Hunter/Farmer logado só
+// enxerga a carteira do colaborador vinculado ao seu usuário.
+//
 // Persistência: PUT /carteira/colaboradores/:id
+//   - body { funcao }                    -> só muda a função
+//   - body { funcao, usuario_id }        -> também grava/limpa o vínculo
+//   O backend distingue "campo ausente" (preserva vínculo) de "null"
+//   (desvincula). Por isso só enviamos usuario_id quando o gestor mexeu
+//   no dropdown daquela linha.
+//
+// Cardinalidade 1:1: um usuário só pode estar vinculado a um colaborador.
+// O dropdown mostra todos os usuários ativos; os já vinculados a OUTRO
+// colaborador aparecem com sufixo "(já em: Nome)". Se o gestor escolher
+// um já ocupado, o backend devolve 409 e a mensagem é exibida.
 
 import { useState, useEffect, useMemo } from 'react';
 import { X, Save, Search } from 'lucide-react';
@@ -28,9 +43,14 @@ const OPCOES = [
   },
 ];
 
+// Valor especial do <select> que representa "sem usuário vinculado".
+const SEM_USUARIO = '';
+
 export default function ConfigColaboradoresModal({ aberto, onFechar, onSalvo }) {
   const [colaboradores, setColaboradores] = useState([]);
+  const [usuarios, setUsuarios] = useState([]);
   const [busca, setBusca] = useState('');
+  // dirty[id] = { funcao?, usuario_id? } — só as chaves que o gestor mexeu.
   const [dirty, setDirty] = useState({});
   const [salvando, setSalvando] = useState(false);
   const [msg, setMsg] = useState(null);
@@ -39,10 +59,24 @@ export default function ConfigColaboradoresModal({ aberto, onFechar, onSalvo }) 
     if (!aberto) return;
     setMsg(null);
     setDirty({});
-    api
-      .get('/carteira/colaboradores')
-      .then((r) => setColaboradores(r.data || []))
-      .catch(() => setColaboradores([]));
+    setBusca('');
+    // Carrega colaboradores + usuários ativos em paralelo.
+    Promise.all([
+      api.get('/carteira/colaboradores'),
+      api.get('/carteira/usuarios-ativos'),
+    ])
+      .then(([rColab, rUsr]) => {
+        setColaboradores(rColab.data || []);
+        setUsuarios(rUsr.data || []);
+      })
+      .catch(() => {
+        setColaboradores([]);
+        setUsuarios([]);
+        setMsg({
+          tipo: 'erro',
+          texto: 'Erro ao carregar colaboradores ou usuários.',
+        });
+      });
   }, [aberto]);
 
   const filtrados = useMemo(() => {
@@ -51,45 +85,95 @@ export default function ConfigColaboradoresModal({ aberto, onFechar, onSalvo }) 
     return colaboradores.filter((c) => c.nome.toLowerCase().includes(n));
   }, [colaboradores, busca]);
 
-  function marcar(id, funcao) {
-    setDirty((prev) => ({ ...prev, [id]: funcao }));
+  // Mapa usuario_id -> nome do colaborador que já o usa (estado salvo no
+  // servidor). Serve para marcar "(já em: Nome)" no dropdown — opção (b).
+  const usuarioOcupadoPor = useMemo(() => {
+    const mapa = {};
+    for (const c of colaboradores) {
+      if (c.usuario_id) mapa[c.usuario_id] = c.nome;
+    }
+    return mapa;
+  }, [colaboradores]);
+
+  // Valor atual da função de um colaborador (considerando edições pendentes).
+  function funcaoDe(c) {
+    return dirty[c.id]?.funcao ?? c.funcao;
+  }
+
+  // Valor atual do vínculo (usuario_id) de um colaborador.
+  // Retorna string (UUID) ou SEM_USUARIO ('').
+  function usuarioDe(c) {
+    const d = dirty[c.id];
+    if (d && 'usuario_id' in d) {
+      return d.usuario_id ?? SEM_USUARIO;
+    }
+    return c.usuario_id ?? SEM_USUARIO;
+  }
+
+  function marcarFuncao(id, funcao) {
+    setDirty((prev) => ({
+      ...prev,
+      [id]: { ...prev[id], funcao },
+    }));
+  }
+
+  function marcarUsuario(id, valor) {
+    // valor vem do <select>: '' = sem usuário; senão é o UUID.
+    setDirty((prev) => ({
+      ...prev,
+      [id]: { ...prev[id], usuario_id: valor === SEM_USUARIO ? null : valor },
+    }));
   }
 
   async function salvar() {
-    if (!Object.keys(dirty).length) {
+    const entradas = Object.entries(dirty);
+    if (entradas.length === 0) {
       onFechar();
       return;
     }
     setSalvando(true);
     setMsg(null);
-    try {
-      const entradas = Object.entries(dirty);
-      const results = await Promise.allSettled(
-        entradas.map(([id, funcao]) =>
-          api.put(`/carteira/colaboradores/${id}`, { funcao })
-        )
-      );
-      const ok = results.filter((r) => r.status === 'fulfilled').length;
-      const err = results.length - ok;
+
+    const results = await Promise.allSettled(
+      entradas.map(([id, mud]) => {
+        // Monta o body. funcao é sempre obrigatório no PUT — se o gestor
+        // só mexeu no vínculo, mandamos a função atual do colaborador.
+        const colab = colaboradores.find((c) => c.id === id);
+        const body = { funcao: mud.funcao ?? colab?.funcao };
+        // usuario_id só entra no body se o dropdown foi tocado.
+        if ('usuario_id' in mud) {
+          body.usuario_id = mud.usuario_id; // string (UUID) ou null
+        }
+        return api.put(`/carteira/colaboradores/${id}`, body);
+      })
+    );
+
+    const ok = results.filter((r) => r.status === 'fulfilled').length;
+    const falhas = results.filter((r) => r.status === 'rejected');
+
+    if (falhas.length === 0) {
+      setMsg({ tipo: 'ok', texto: `${ok} colaborador(es) atualizado(s).` });
+      if (onSalvo) onSalvo();
+      setTimeout(onFechar, 600);
+    } else {
+      // Extrai a 1ª mensagem de erro útil (ex: 409 de usuário já vinculado).
+      const primeiroDetalhe =
+        falhas
+          .map((f) => f.reason?.response?.data?.detail)
+          .find((d) => typeof d === 'string') || 'Erro ao salvar.';
       setMsg({
-        tipo: err === 0 ? 'ok' : 'aviso',
+        tipo: 'aviso',
         texto:
-          err === 0
-            ? `${ok} colaborador(es) atualizado(s).`
-            : `${ok} OK, ${err} com erro.`,
+          `${ok} salvo(s), ${falhas.length} com erro. ` + primeiroDetalhe,
       });
       if (ok > 0 && onSalvo) onSalvo();
-      if (err === 0) {
-        setTimeout(onFechar, 600);
-      }
-    } catch (e) {
-      setMsg({ tipo: 'erro', texto: e.message });
-    } finally {
-      setSalvando(false);
     }
+    setSalvando(false);
   }
 
   if (!aberto) return null;
+
+  const qtdPendente = Object.keys(dirty).length;
 
   return (
     <div
@@ -97,7 +181,7 @@ export default function ConfigColaboradoresModal({ aberto, onFechar, onSalvo }) 
       onClick={onFechar}
     >
       <div
-        className="bg-hipo-card border border-hipo-border rounded-2xl w-full max-w-3xl max-h-[85vh] flex flex-col shadow-soft"
+        className="bg-hipo-card border border-hipo-border rounded-2xl w-full max-w-4xl max-h-[85vh] flex flex-col shadow-soft"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
@@ -105,8 +189,8 @@ export default function ConfigColaboradoresModal({ aberto, onFechar, onSalvo }) 
           <div>
             <h2 className="text-h2 text-hipo-ink">Configurar colaboradores</h2>
             <p className="text-sm text-hipo-slate mt-0.5">
-              Classifique cada colaborador. Hunter/Farmer/Outros define em qual
-              aba o grupo aparece.
+              Classifique a função e vincule cada colaborador ao usuário do
+              sistema. O vínculo define o que cada Hunter/Farmer enxerga.
             </p>
           </div>
           <button
@@ -157,7 +241,7 @@ export default function ConfigColaboradoresModal({ aberto, onFechar, onSalvo }) 
                     Colaborador
                   </th>
                   <th className="text-left py-2.5 px-2 font-medium">
-                    Função (planilha)
+                    Usuário vinculado
                   </th>
                   <th className="text-right py-2.5 px-2 font-medium">
                     Classificação Hipo
@@ -166,18 +250,62 @@ export default function ConfigColaboradoresModal({ aberto, onFechar, onSalvo }) 
               </thead>
               <tbody>
                 {filtrados.map((c) => {
-                  const funcaoAtual = dirty[c.id] ?? c.funcao;
+                  const funcaoAtual = funcaoDe(c);
+                  const usuarioAtual = usuarioDe(c);
+                  const semVinculo = usuarioAtual === SEM_USUARIO;
                   return (
                     <tr
                       key={c.id}
                       className="border-b border-hipo-border last:border-0 hover:bg-hipo-bg/60"
                     >
-                      <td className="py-3 px-2 font-medium text-hipo-ink">
-                        {c.nome}
+                      {/* Nome + função de origem */}
+                      <td className="py-3 px-2">
+                        <div className="font-medium text-hipo-ink">
+                          {c.nome}
+                        </div>
+                        <div className="text-xs text-hipo-slate">
+                          {c.funcao_origem || '—'}
+                        </div>
                       </td>
-                      <td className="py-3 px-2 text-hipo-slate text-xs">
-                        {c.funcao_origem || '—'}
+
+                      {/* Dropdown de vínculo */}
+                      <td className="py-3 px-2">
+                        <select
+                          value={usuarioAtual}
+                          onChange={(e) => marcarUsuario(c.id, e.target.value)}
+                          className={
+                            'w-full max-w-[260px] h-9 px-2 rounded-md border bg-hipo-card ' +
+                            'text-sm outline-none focus:border-hipo-blue focus:ring-2 focus:ring-blue-100 ' +
+                            (semVinculo
+                              ? 'border-hipo-border text-hipo-slate'
+                              : 'border-hipo-border text-hipo-ink')
+                          }
+                        >
+                          <option value={SEM_USUARIO}>
+                            — sem usuário —
+                          </option>
+                          {usuarios.map((u) => {
+                            // Marca usuários já vinculados a OUTRO colaborador.
+                            const ocupadoPor = usuarioOcupadoPor[u.id];
+                            const ehOutro =
+                              ocupadoPor && ocupadoPor !== c.nome;
+                            return (
+                              <option key={u.id} value={u.id}>
+                                {u.email}
+                                {ehOutro ? ` (já em: ${ocupadoPor})` : ''}
+                              </option>
+                            );
+                          })}
+                        </select>
+                        {semVinculo && (
+                          <div className="text-[11px] text-hipo-warning mt-1">
+                            sem usuário — este colaborador não aparece para
+                            nenhum Hunter/Farmer
+                          </div>
+                        )}
                       </td>
+
+                      {/* Botões de classificação */}
                       <td className="py-3 px-2">
                         <div className="flex gap-1 justify-end">
                           {OPCOES.map((op) => {
@@ -185,7 +313,7 @@ export default function ConfigColaboradoresModal({ aberto, onFechar, onSalvo }) 
                             return (
                               <button
                                 key={op.v}
-                                onClick={() => marcar(c.id, op.v)}
+                                onClick={() => marcarFuncao(c.id, op.v)}
                                 className={
                                   'text-xs font-medium px-2.5 py-1 rounded-md border transition-all ' +
                                   (ativo
@@ -210,8 +338,8 @@ export default function ConfigColaboradoresModal({ aberto, onFechar, onSalvo }) 
         {/* Footer */}
         <div className="px-6 py-3 border-t border-hipo-border flex justify-between items-center">
           <span className="text-sm text-hipo-slate">
-            {Object.keys(dirty).length > 0
-              ? `${Object.keys(dirty).length} alteração(ões) pendente(s)`
+            {qtdPendente > 0
+              ? `${qtdPendente} alteração(ões) pendente(s)`
               : 'Sem alterações'}
           </span>
           <div className="flex gap-2">
@@ -220,7 +348,7 @@ export default function ConfigColaboradoresModal({ aberto, onFechar, onSalvo }) 
             </Button>
             <Button
               onClick={salvar}
-              disabled={salvando || Object.keys(dirty).length === 0}
+              disabled={salvando || qtdPendente === 0}
               loading={salvando}
               icon={!salvando ? Save : undefined}
             >
