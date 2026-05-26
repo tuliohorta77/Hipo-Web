@@ -574,7 +574,6 @@ export default function Contadores() {
                         <td colSpan={8} className="px-5 py-4">
                           <HunterSubAbas
                             hunterNome={l.nome}
-                            farmersDisponiveis={farmer.linhas.map((f) => f.nome)}
                             prospecaoContent={
                               <DrilldownTabela
                             aba="EC_HUNTER"

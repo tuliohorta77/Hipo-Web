@@ -1,26 +1,22 @@
 // web/src/components/BastaoLista.jsx
 //
-// Sub-aba "Relacionamento" do Hunter expandido (v1.2.0 etapa 5.2).
+// Sub-aba "Relacionamento" do Hunter expandido.
 //
-// Mostra a VISAO FARMER dos contadores que o Hunter passou via bastao
-// aprovado — a mesma UI da aba Farmer de Contadores (tabela de grupos com
-// timeline semanal, atrasadas, futuras, leads, funil + drilldown), porem
-// filtrada apenas aos grupos cujos CNPJs vieram de bastao aprovado deste
-// Hunter.
+// v1.3.0 (etapa 2c): o cruzamento bastao <-> grupo Farmer agora e feito
+// no BACKEND, pelo endpoint GET /carteira/relacionamento. Antes este
+// componente baixava /carteira/dashboard/farmer inteiro e cruzava os
+// CNPJs no JS — isso quebraria quando /dashboard/farmer passou a ser
+// filtrado por usuario. Agora o backend entrega pronto:
+//   - grupos: grupos Farmer dos contadores passados via bastao aprovado
+//   - bastoes_sem_grupo: bastoes aprovados que ainda nao tem grupo
+//   - kpis: total_grupos, com_atrasada, com_futura, leads
 //
-// Como funciona o cruzamento (Estrategia A' — sem endpoint dedicado):
-//   1. GET /carteira/bastoes/meus?hunter=X  → bastoes do Hunter
-//   2. GET /carteira/dashboard/farmer       → todas as linhas Farmer; cada
-//      linha traz grupos[] embutidos, e cada grupo agora tem cnpjs[] (5.1)
-//   3. Monta o Set de CNPJs com bastao APROVADO e filtra os grupos do
-//      dashboard Farmer: fica so quem tem >=1 CNPJ nesse Set.
-//   4. Renderiza DrilldownTabela aba="EC_FARMER" com esses grupos.
+// Este componente ainda chama /carteira/bastoes/meus para obter os
+// bastoes PENDENTES e o HISTORICO (rejeitados/removidos) — informacao
+// que /relacionamento nao devolve por nao ser ligada a grupos.
 //
-// O bastao em si deixa de ser linha de tabela — vira contexto. KPIs do
-// topo passam a ser estilo Farmer (grupos, atrasadas, futuras, leads).
-// Contadores com bastao aprovado que ainda nao aparecem em nenhum grupo
-// Farmer (nao atribuidos na carteira / CROmie desatualizado) entram num
-// aviso discreto, nao somem silenciosamente.
+// A lista de Farmers do BastaoModal vem de /carteira/colaboradores
+// (nao filtrado) — todos os colaboradores EC_FARMER ativos.
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Plus, RefreshCw, Users, AlertTriangle, Clock, Inbox } from "lucide-react";
@@ -34,27 +30,22 @@ import CarteiraGrupoDrawer from "./CarteiraGrupoDrawer";
 import DrilldownTabela from "./DrilldownTabela";
 
 
-// ── Normalizacao de CNPJ ──────────────────────────────────────────────────
-// Os bastoes guardam cnpj_contador com mascara (08.279.542/0001-57). O grupo
-// do dashboard expoe cnpjs[] tambem com mascara (vem da mesma coluna
-// carteira_cnpj.cnpj_contador). Mesmo assim normalizamos pra so digitos nos
-// dois lados — blinda contra divergencia de mascara/espaco.
-function soDigitos(cnpj) {
-  return (cnpj || "").replace(/\D/g, "");
-}
-
-
-// ── Componente ────────────────────────────────────────────────────────────
-
-export default function BastaoLista({
-  hunterNome,
-  farmersDisponiveis = [],
-}) {
-  const [bastoes, setBastoes] = useState([]);
-  const [linhasFarmer, setLinhasFarmer] = useState([]);
+export default function BastaoLista({ hunterNome }) {
+  const [grupos, setGrupos] = useState([]);
+  const [bastoesSemGrupo, setBastoesSemGrupo] = useState([]);
+  const [kpis, setKpis] = useState({
+    total_grupos: 0,
+    com_atrasada: 0,
+    com_futura: 0,
+    leads: 0,
+  });
+  const [pendentes, setPendentes] = useState([]);
+  const [historico, setHistorico] = useState([]);
+  const [farmersDisponiveis, setFarmersDisponiveis] = useState([]);
   const [funilPorGrupo, setFunilPorGrupo] = useState({});
   const [loading, setLoading] = useState(false);
   const [erro, setErro] = useState(null);
+  const [avisoSemVinculo, setAvisoSemVinculo] = useState(null);
 
   const [modalAberto, setModalAberto] = useState(false);
   const [drawerGrupo, setDrawerGrupo] = useState(null);
@@ -72,18 +63,54 @@ export default function BastaoLista({
     setLoading(true);
     setErro(null);
     try {
-      const [resBastoes, resFarmer] = await Promise.all([
-        api.get("/carteira/bastoes/meus", { params: { hunter: hunterNome } }),
-        api.get("/carteira/dashboard/farmer"),
+      // /relacionamento  -> grupos via bastao (cruzamento ja feito no backend)
+      // /bastoes/meus    -> pendentes + historico (rejeitados/removidos)
+      // /colaboradores   -> lista de Farmers ativos para o modal de passagem
+      const [resRel, resBastoes, resColab] = await Promise.all([
+        api.get("/carteira/relacionamento", {
+          params: hunterNome ? { hunter: hunterNome } : {},
+        }),
+        api.get("/carteira/bastoes/meus", {
+          params: hunterNome ? { hunter: hunterNome } : {},
+        }),
+        api.get("/carteira/colaboradores"),
       ]);
-      setBastoes(resBastoes.data || []);
-      setLinhasFarmer(resFarmer.data?.linhas || []);
+
+      const rel = resRel.data || {};
+      setGrupos(rel.grupos || []);
+      setBastoesSemGrupo(rel.bastoes_sem_grupo || []);
+      setKpis(
+        rel.kpis || {
+          total_grupos: 0,
+          com_atrasada: 0,
+          com_futura: 0,
+          leads: 0,
+        }
+      );
+      setAvisoSemVinculo(rel.aviso || null);
+
+      const todosBastoes = resBastoes.data || [];
+      setPendentes(todosBastoes.filter((b) => b.status === "PENDENTE"));
+      setHistorico(
+        todosBastoes.filter((b) =>
+          ["REJEITADO", "REMOVIDO"].includes(b.status)
+        )
+      );
+
+      const colaboradores = resColab.data || [];
+      setFarmersDisponiveis(
+        colaboradores
+          .filter((c) => c.funcao === "EC_FARMER")
+          .map((c) => c.nome)
+      );
     } catch (e) {
       setErro(
         e.response?.data?.detail || e.message || "Erro ao carregar relacionamento."
       );
-      setBastoes([]);
-      setLinhasFarmer([]);
+      setGrupos([]);
+      setBastoesSemGrupo([]);
+      setPendentes([]);
+      setHistorico([]);
     } finally {
       setLoading(false);
     }
@@ -93,90 +120,10 @@ export default function BastaoLista({
     carregar();
   }, [carregar]);
 
-  // ── Cruzamento bastao ↔ grupo ───────────────────────────────────────────
-
-  // Set de CNPJs (so digitos) com bastao APROVADO deste Hunter.
-  const cnpjsAprovados = useMemo(() => {
-    const s = new Set();
-    for (const b of bastoes) {
-      if (b.status === "APROVADO") {
-        const d = soDigitos(b.cnpj_contador);
-        if (d) s.add(d);
-      }
-    }
-    return s;
-  }, [bastoes]);
-
-  // Grupos do dashboard Farmer que tem >=1 CNPJ no Set de aprovados.
-  // Cada grupo ja vem com timeline, atrasadas, futuras, leads, cnpjs[].
-  const gruposViaBastao = useMemo(() => {
-    if (cnpjsAprovados.size === 0) return [];
-    const vistos = new Set();
-    const out = [];
-    for (const linha of linhasFarmer) {
-      for (const g of linha.grupos || []) {
-        if (vistos.has(g.id_grupo)) continue;
-        const cnpjsDoGrupo = (g.cnpjs || []).map(soDigitos);
-        const casa = cnpjsDoGrupo.some((c) => cnpjsAprovados.has(c));
-        if (casa) {
-          vistos.add(g.id_grupo);
-          // Anexa o nome do Farmer responsavel (vem da linha, nao do grupo)
-          out.push({ ...g, _farmer_nome: linha.nome });
-        }
-      }
-    }
-    return out;
-  }, [linhasFarmer, cnpjsAprovados]);
-
-  // CNPJs aprovados que NAO casaram com nenhum grupo Farmer — contadores
-  // que ainda nao aparecem na carteira. Avisamos sem esconder.
-  const cnpjsSemGrupo = useMemo(() => {
-    if (cnpjsAprovados.size === 0) return [];
-    const cnpjsComGrupo = new Set();
-    for (const g of gruposViaBastao) {
-      for (const c of g.cnpjs || []) cnpjsComGrupo.add(soDigitos(c));
-    }
-    // Lista os bastoes aprovados cujo CNPJ nao apareceu em grupo nenhum
-    return bastoes.filter(
-      (b) =>
-        b.status === "APROVADO" &&
-        !cnpjsComGrupo.has(soDigitos(b.cnpj_contador))
-    );
-  }, [bastoes, gruposViaBastao, cnpjsAprovados]);
-
-  // Bastoes ainda pendentes de aprovacao — contam num aviso, nao na tabela.
-  const pendentes = useMemo(
-    () => bastoes.filter((b) => b.status === "PENDENTE"),
-    [bastoes]
-  );
-
-  // Historico: rejeitados e removidos.
-  const historico = useMemo(
-    () => bastoes.filter((b) => ["REJEITADO", "REMOVIDO"].includes(b.status)),
-    [bastoes]
-  );
-
-  // ── KPIs estilo Farmer (agregados dos grupos via bastao) ────────────────
-
-  const kpis = useMemo(() => {
-    const totalGrupos = gruposViaBastao.length;
-    const comAtrasada = gruposViaBastao.filter(
-      (g) => (g.tarefas_atrasadas || 0) > 0
-    ).length;
-    const comFutura = gruposViaBastao.filter(
-      (g) => (g.tarefas_futuras || 0) > 0
-    ).length;
-    const leads = gruposViaBastao.reduce(
-      (acc, g) => acc + (g.leads_no_mes || 0),
-      0
-    );
-    return { totalGrupos, comAtrasada, comFutura, leads };
-  }, [gruposViaBastao]);
-
   // ── Funil dos grupos (lazy, igual Contadores.jsx) ───────────────────────
 
   useEffect(() => {
-    const idGrupos = gruposViaBastao
+    const idGrupos = grupos
       .map((g) => g.id_grupo)
       .filter(Boolean)
       .filter((gid) => !funilPorGrupo[gid]);
@@ -195,11 +142,11 @@ export default function BastaoLista({
     return () => {
       cancelado = true;
     };
-  }, [gruposViaBastao, funilPorGrupo]);
+  }, [grupos, funilPorGrupo]);
 
   // ── Filtro local do drilldown ───────────────────────────────────────────
 
-  function aplicarFiltros(grupos) {
+  const gruposFiltrados = useMemo(() => {
     let out = grupos;
     if (filtros.tarefa_atrasada) {
       out = out.filter((g) => g.tarefas_atrasadas > 0);
@@ -216,15 +163,18 @@ export default function BastaoLista({
       );
     }
     return out;
-  }
-
-  const gruposFiltrados = useMemo(
-    () => aplicarFiltros(gruposViaBastao),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [gruposViaBastao, filtros]
-  );
+  }, [grupos, filtros]);
 
   // ── Render ──────────────────────────────────────────────────────────────
+
+  // Operacional sem vinculo: o backend devolve aviso e listas vazias.
+  if (avisoSemVinculo) {
+    return (
+      <div className="space-y-4">
+        <AlertMessage tipo="info">{avisoSemVinculo}</AlertMessage>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4">
@@ -233,19 +183,19 @@ export default function BastaoLista({
         <div className="grid grid-cols-2 md:grid-cols-4 gap-2 flex-1 min-w-[420px]">
           <KpiCard
             label="Contadores via bastao"
-            value={loading ? "—" : kpis.totalGrupos.toLocaleString("pt-BR")}
+            value={loading ? "—" : kpis.total_grupos.toLocaleString("pt-BR")}
             icon={Users}
             tone="success"
           />
           <KpiCard
             label="Com tarefa atrasada"
-            value={loading ? "—" : kpis.comAtrasada.toLocaleString("pt-BR")}
+            value={loading ? "—" : kpis.com_atrasada.toLocaleString("pt-BR")}
             icon={AlertTriangle}
-            tone={kpis.comAtrasada > 0 ? "danger" : "slate"}
+            tone={kpis.com_atrasada > 0 ? "danger" : "slate"}
           />
           <KpiCard
             label="Com tarefa futura"
-            value={loading ? "—" : kpis.comFutura.toLocaleString("pt-BR")}
+            value={loading ? "—" : kpis.com_futura.toLocaleString("pt-BR")}
             icon={Clock}
             tone="blue"
           />
@@ -283,14 +233,14 @@ export default function BastaoLista({
       )}
 
       {/* Aviso: bastoes aprovados sem grupo na carteira */}
-      {cnpjsSemGrupo.length > 0 && (
+      {bastoesSemGrupo.length > 0 && (
         <AlertMessage tipo="aviso">
-          {cnpjsSemGrupo.length === 1
+          {bastoesSemGrupo.length === 1
             ? "1 contador aprovado ainda nao aparece na carteira do Farmer "
-            : `${cnpjsSemGrupo.length} contadores aprovados ainda nao aparecem na carteira do Farmer `}
+            : `${bastoesSemGrupo.length} contadores aprovados ainda nao aparecem na carteira do Farmer `}
           (atribuicao pendente ou base CROmie desatualizada):{" "}
           <span className="font-mono text-xs">
-            {cnpjsSemGrupo
+            {bastoesSemGrupo
               .map((b) => b.contabilidade || b.cnpj_contador)
               .join(", ")}
           </span>
@@ -299,9 +249,9 @@ export default function BastaoLista({
 
       {/* Estado vazio total */}
       {!loading &&
-        gruposViaBastao.length === 0 &&
+        grupos.length === 0 &&
         pendentes.length === 0 &&
-        cnpjsSemGrupo.length === 0 &&
+        bastoesSemGrupo.length === 0 &&
         historico.length === 0 && (
           <Empty
             title="Nenhum bastao registrado"
@@ -310,11 +260,11 @@ export default function BastaoLista({
         )}
 
       {/* Tabela Farmer dos contadores via bastao */}
-      {gruposViaBastao.length > 0 && (
+      {grupos.length > 0 && (
         <DrilldownTabela
           aba="EC_FARMER"
           grupos={gruposFiltrados}
-          totalSemFiltro={gruposViaBastao.length}
+          totalSemFiltro={grupos.length}
           funilPorGrupo={funilPorGrupo}
           filtros={filtros}
           onFiltros={setFiltros}

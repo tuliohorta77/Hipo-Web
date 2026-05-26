@@ -16,6 +16,12 @@
 //   - Contadores.jsx tem 36KB e é frágil
 //   - Toda a lógica de bastão fica encapsulada aqui
 //   - Edição cirúrgica em Contadores.jsx fica em 1 ponto só
+//
+// v1.3.0 (etapa 2c): a prop `farmersDisponiveis` foi removida. Antes ela
+// descia de Contadores.jsx (derivada de /dashboard/farmer) ate o
+// BastaoModal. Como /dashboard/farmer passou a ser filtrado por usuario,
+// essa lista ficaria vazia para um Hunter logado. Agora o BastaoLista
+// busca os Farmers diretamente de /carteira/colaboradores (nao filtrado).
 
 import { useState } from "react";
 import { Target, Award } from "lucide-react";
@@ -29,9 +35,6 @@ export default function HunterSubAbas({
   // Conteúdo da sub-aba "Prospecção" — passado pelo Contadores.jsx
   // (é o JSX antigo: DrilldownTabela com aba="EC_HUNTER")
   prospecaoContent,
-
-  // Lista de nomes de Farmers conhecidos — pra dropdown no modal
-  farmersDisponiveis = [],
 }) {
   const [subAba, setSubAba] = useState("PROSPECCAO");
 
@@ -72,10 +75,7 @@ export default function HunterSubAbas({
       )}
 
       {subAba === "RELACIONAMENTO" && (
-        <BastaoLista
-          hunterNome={hunterNome}
-          farmersDisponiveis={farmersDisponiveis}
-        />
+        <BastaoLista hunterNome={hunterNome} />
       )}
     </div>
   );

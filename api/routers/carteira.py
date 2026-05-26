@@ -18,14 +18,13 @@ Dashboard por colaborador (layout v2):
   GET  /carteira/dashboard/farmer         — 1 linha por colab Farmer + bolinhas semanais
   GET  /carteira/colaboradores/{id}/grupos — drilldown: grupos do colaborador
 
-Visibilidade por colaborador (v1.3.0 — Commit 2a):
+Visibilidade por colaborador (v1.3.0 — Etapa 2 completa):
   Cargos operacionais (Hunter, Farmer, ...) só enxergam o colaborador
   vinculado ao seu usuário (carteira_colaborador.usuario_id). Cargos
   admin/gestão (ADM, Franqueado, Gerente, EP) veem tudo. A decisão é
   centralizada em permissions.deve_filtrar_por_usuario().
-  NOTA: /dashboard/farmer NÃO é filtrado neste commit — o filtro do
-  Farmer entra no Commit 2c, junto do refactor da sub-aba Relacionamento
-  (que depende de /dashboard/farmer devolver todos os Farmers).
+  Os 3 dashboards (hunter, farmer, resumo) filtram; /grupos (aba Outros)
+  permanece visível a todos por decisão de produto.
 """
 from __future__ import annotations
 
@@ -434,6 +433,11 @@ async def listar_colaboradores(
       - usuario_nome  : nome do usuário vinculado, ou null.
     O LEFT JOIN garante que colaboradores SEM vínculo continuem na lista
     (decisão de produto: aparecem para o gestor com aviso "sem usuário").
+
+    NÃO é filtrado por usuário: além do modal de configuração, alimenta
+    o dropdown de Farmers do modal de passagem de bastão (BastaoModal),
+    que precisa de todos os Farmers ativos independentemente de quem
+    está logado.
     """
     if incluir_inativos:
         rows = await conn.fetch("""
@@ -594,7 +598,7 @@ async def resumo(
     """
     Totais para os cards do topo da tela Contadores.
 
-    Visibilidade por colaborador (v1.3.0 — Commit 2a):
+    Visibilidade por colaborador (v1.3.0):
       - Cargo operacional COM vínculo  -> KPIs calculados só sobre os
         grupos do colaborador vinculado.
       - Cargo operacional SEM vínculo  -> KPIs zerados + campo 'aviso'.
@@ -661,7 +665,7 @@ async def relacionamento(
 
     Move para o backend o cruzamento bastão ↔ grupo que antes era feito
     no frontend (BastaoLista.jsx). Assim /dashboard/farmer pode ser
-    filtrado por usuário (Commit 2c) sem quebrar o Relacionamento.
+    filtrado por usuário sem quebrar o Relacionamento.
 
     Resolução do Hunter-alvo:
       - Cargo operacional  -> sempre o colaborador vinculado ao seu
@@ -739,7 +743,7 @@ async def dashboard_hunter_endpoint(
       total_grupos, meta_atingida, tarefas_atrasadas, sem_tarefa_futura,
       leads_no_mes, compliance_pct.
 
-    Visibilidade por colaborador (v1.3.0 — Commit 2a):
+    Visibilidade por colaborador (v1.3.0):
       - Cargo operacional COM vínculo  -> só a linha do colaborador dele.
       - Cargo operacional SEM vínculo  -> linhas=[] + campo 'aviso'.
       - Cargo admin/gestão             -> todas as linhas Hunter.
@@ -774,16 +778,30 @@ async def dashboard_farmer_endpoint(
         com_reuniao / sem_reuniao / pendente (contagem de CONTADORES).
       - tarefas_atrasadas, tarefas_futuras, leads_no_mes.
 
-    NOTA (v1.3.0): este endpoint NÃO é filtrado por usuário no Commit 2a.
-    A sub-aba Relacionamento do Hunter (BastaoLista.jsx) depende dele
-    devolver TODOS os Farmers para cruzar com os bastões. O filtro do
-    Farmer entra no Commit 2c, junto do refactor que move esse cruzamento
-    para o endpoint /carteira/relacionamento.
+    Visibilidade por colaborador (v1.3.0 — Etapa 2c):
+      - Cargo operacional COM vínculo  -> só a linha do colaborador dele.
+      - Cargo operacional SEM vínculo  -> linhas=[] + campo 'aviso'.
+      - Cargo admin/gestão             -> todas as linhas Farmer.
+
+    NOTA: a sub-aba Relacionamento do Hunter NÃO depende mais deste
+    endpoint — o cruzamento bastão↔grupo agora é feito pelo endpoint
+    /carteira/relacionamento (Commit 2b). Por isso este endpoint pode
+    ser filtrado sem quebrar o Relacionamento.
     """
     cnpjs, tarefas, colab = await _carregar_estado(conn)
+    linhas = dashboard_farmer(cnpjs, tarefas, colab)
+
+    aviso = None
+    if deve_filtrar_por_usuario(user.get("cargo")):
+        meu_colab = await _colaborador_do_usuario(conn, user)
+        if meu_colab is None:
+            return {"total": 0, "linhas": [], "aviso": AVISO_SEM_VINCULO}
+        linhas = [l for l in linhas if l.get("nome") == meu_colab["nome"]]
+
     return {
-        "total": len([c for c in colab if c["funcao"] == "EC_FARMER"]),
-        "linhas": dashboard_farmer(cnpjs, tarefas, colab),
+        "total": len(linhas),
+        "linhas": linhas,
+        "aviso": aviso,
     }
 
 
@@ -797,7 +815,7 @@ async def grupos_do_colaborador_endpoint(
     Drilldown: devolve os grupos atribuídos a um colaborador específico.
     Mesmo schema do GET /grupos, mas filtrado pelo ID.
 
-    Visibilidade por colaborador (v1.3.0 — Commit 2a):
+    Visibilidade por colaborador (v1.3.0):
       - Cargo operacional só pode acessar o drilldown do PRÓPRIO
         colaborador vinculado. Tentar o ID de outro colaborador devolve
         403 (não 404, não lista vazia — bloqueio explícito, para não
