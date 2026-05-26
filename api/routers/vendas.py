@@ -10,6 +10,11 @@ ATENÇÃO: a régua interna é mais exigente que o indicador PEX oficial
 NÃO é o número que a consultoria de campo da Omie apura — é uma
 ferramenta interna de correção. O frontend deixa isso explícito.
 
+Responsável pela oportunidade: depende da fase. Nas fases iniciais
+(Suspect, Cadência) o responsável é o SDR (coluna sdr_fr); nas demais
+é o executivo de vendas (coluna executivo_vendas). O filtro
+?responsavel= e o endpoint /filtros respeitam essa regra.
+
 Endpoints:
   GET /vendas/funil-cromie          — oportunidades ativas classificadas
   GET /vendas/funil-cromie/filtros  — valores distintos p/ os dropdowns
@@ -22,7 +27,7 @@ from fastapi import APIRouter, Depends, Query
 
 from database import get_conn
 from routers.auth import usuario_atual
-from services.vendas_cromie import resumir_funil, FASES_ANALISADAS
+from services.vendas_cromie import resumir_funil, FASES_ANALISADAS, FASES_DO_SDR
 
 router = APIRouter()
 
@@ -31,20 +36,36 @@ router = APIRouter()
 _STATUS_ATIVO = "ativo"
 
 # Colunas de cliente_oportunidade necessárias para classificar + exibir.
+# sdr_fr e executivo_vendas entram para o serviço calcular o responsável.
 _COLUNAS = """
     op_id, cnpj, razao_social, fase, status,
     temperatura, previsao_data, previsao_valor, proposta_nmrr,
     tarefa_futura, previsao_preenchido, ticket_preenchido,
-    cnpj_contador, razao_contador, executivo_contas, executivo_vendas,
+    cnpj_contador, razao_contador, executivo_contas,
+    sdr_fr, executivo_vendas,
     dias_parado, ultima_tarefa_dias, data_atualizacao
+"""
+
+# Expressão SQL do "responsável pela fase": SDR nas fases iniciais,
+# executivo de vendas nas demais. Mantida idêntica à regra de
+# services.vendas_cromie.responsavel_da_op (as duas precisam casar).
+# As fases iniciais entram como parâmetro ($1::text[]) para não
+# embutir literais na string.
+_RESPONSAVEL_SQL = """
+    CASE WHEN fase = ANY($FASES_SDR::text[])
+         THEN sdr_fr
+         ELSE executivo_vendas
+    END
 """
 
 
 @router.get("/funil-cromie")
 async def funil_cromie(
     fase: str | None = Query(None, description="Filtra por fase exata."),
-    executivo: str | None = Query(
-        None, description="Filtra por executivo de vendas."
+    responsavel: str | None = Query(
+        None,
+        description="Filtra por responsável (SDR nas fases iniciais, "
+                    "executivo de vendas nas demais).",
     ),
     so_problema: bool = Query(
         False, description="Se true, devolve apenas oportunidades não conformes."
@@ -56,20 +77,25 @@ async def funil_cromie(
     Lista as oportunidades ATIVAS classificadas pela régua interna do
     funil CROmie, com um resumo agregado para o cabeçalho da tela.
 
-    O filtro por fase/executivo é aplicado no SQL. O filtro 'so_problema'
-    é aplicado DEPOIS da classificação (depende do resultado), e por isso
-    o 'resumo' é sempre calculado sobre o conjunto completo (sem
-    so_problema) — o cabeçalho mostra o panorama real, não o filtrado.
+    O filtro por fase/responsável é aplicado no SQL. O filtro
+    'so_problema' é aplicado DEPOIS da classificação (depende do
+    resultado), e por isso o 'resumo' é sempre calculado sobre o
+    conjunto completo (sem so_problema) — o cabeçalho mostra o
+    panorama real, não o filtrado.
     """
-    where = [f"status ILIKE $1"]
-    args: list[Any] = [_STATUS_ATIVO]
+    # $1 é sempre a lista de fases do SDR (usada na expressão CASE).
+    # $2 é o status ativo. Os demais filtros entram a partir de $3.
+    args: list[Any] = [list(FASES_DO_SDR), _STATUS_ATIVO]
+    where = ["status ILIKE $2"]
 
     if fase:
         args.append(fase)
         where.append(f"fase = ${len(args)}")
-    if executivo:
-        args.append(executivo)
-        where.append(f"executivo_vendas = ${len(args)}")
+    if responsavel:
+        args.append(responsavel)
+        # Casa contra a mesma expressão CASE do responsável.
+        resp_expr = _RESPONSAVEL_SQL.replace("$FASES_SDR", "$1")
+        where.append(f"({resp_expr}) = ${len(args)}")
 
     where_sql = " AND ".join(where)
     sql = f"""
@@ -82,7 +108,7 @@ async def funil_cromie(
     oportunidades = [dict(r) for r in rows]
 
     # Classifica tudo. O resumo reflete o conjunto filtrado por
-    # fase/executivo (mas NÃO por so_problema).
+    # fase/responsável (mas NÃO por so_problema).
     resultado = resumir_funil(oportunidades)
 
     itens = resultado["itens"]
@@ -99,7 +125,7 @@ async def funil_cromie(
         "por_fase": resultado["por_fase"],
         "filtro_aplicado": {
             "fase": fase,
-            "executivo": executivo,
+            "responsavel": responsavel,
             "so_problema": so_problema,
         },
     }
@@ -115,7 +141,9 @@ async def funil_cromie_filtros(
 
     - fases: as fases analisadas (ordem fixa do funil), apenas as que
       têm ao menos uma oportunidade ativa.
-    - executivos: executivos de vendas com oportunidade ativa, ordenados.
+    - responsaveis: nomes distintos do responsável pela fase — SDRs
+      (das fases iniciais) e executivos (das demais) numa lista única,
+      ordenada. É a lista que alimenta o filtro unificado "Responsável".
     """
     fases_rows = await conn.fetch(
         """
@@ -129,17 +157,20 @@ async def funil_cromie_filtros(
     # Mantém a ordem do funil, não a ordem alfabética.
     fases = [f for f in FASES_ANALISADAS if f in fases_presentes]
 
-    exec_rows = await conn.fetch(
-        """
-        SELECT DISTINCT executivo_vendas
+    # Responsáveis: aplica a mesma expressão CASE e coleta os distintos.
+    resp_expr = _RESPONSAVEL_SQL.replace("$FASES_SDR", "$1")
+    resp_rows = await conn.fetch(
+        f"""
+        SELECT DISTINCT ({resp_expr}) AS responsavel
         FROM cliente_oportunidade
-        WHERE status ILIKE $1
-          AND executivo_vendas IS NOT NULL
-          AND executivo_vendas <> ''
-        ORDER BY executivo_vendas
+        WHERE status ILIKE $2
         """,
-        _STATUS_ATIVO,
+        list(FASES_DO_SDR), _STATUS_ATIVO,
     )
-    executivos = [r["executivo_vendas"] for r in exec_rows]
+    responsaveis = sorted(
+        r["responsavel"].strip()
+        for r in resp_rows
+        if r["responsavel"] and r["responsavel"].strip()
+    )
 
-    return {"fases": fases, "executivos": executivos}
+    return {"fases": fases, "responsaveis": responsaveis}

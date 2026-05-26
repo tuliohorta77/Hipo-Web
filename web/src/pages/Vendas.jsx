@@ -1,18 +1,20 @@
 // web/src/pages/Vendas.jsx
 //
-// Módulo Vendas — primeira visualização: Funil de Vendas CROmie.
+// Módulo Vendas. Duas sub-abas:
+//   - Conformidade: Funil de Vendas CROmie — classifica as oportunidades
+//     ATIVAS pela "régua interna" de utilização correta do CROmie.
+//   - Funil: placeholder ("em breve") — visualização futura do funil.
 //
-// Classifica as oportunidades ATIVAS pela "régua interna" de utilização
-// correta do CROmie. Cada oportunidade aparece como conforme (✓) ou com
-// problema (✗ + quais regras falharam), conforme a fase em que está.
-//
-// IMPORTANTE — esta NÃO é a apuração oficial do PEX:
+// IMPORTANTE — a aba Conformidade NÃO é a apuração oficial do PEX:
 //   O indicador PEX "Utilização correta do CROmie" cobra tarefa futura
 //   apenas em Suspect/Cadência/Qualificação. Por decisão de gestão, esta
-//   tela cobra tarefa futura em TODAS as fases ativas — é uma régua
-//   interna, mais exigente. O percentual aqui tende a ser menor que o
-//   número apurado pela consultoria de campo da Omie. A tela deixa isso
-//   explícito para ninguém confundir.
+//   tela cobra tarefa futura em TODAS as fases ativas — régua interna,
+//   mais exigente. O percentual tende a ser menor que o número apurado
+//   pela consultoria de campo da Omie. A tela deixa isso explícito.
+//
+// Responsável pela oportunidade: o backend já calcula por fase — SDR
+// nas fases iniciais (Suspect/Cadência), executivo de vendas nas demais.
+// A coluna e o filtro "Responsável" usam esse campo unificado.
 //
 // Acesso: mesmo módulo 'clientes' (quem vê Clientes vê Vendas).
 
@@ -22,8 +24,9 @@ import {
   TrendingUp,
   CheckCircle2,
   AlertTriangle,
-  Search,
   Info,
+  BarChart3,
+  ClipboardCheck,
 } from 'lucide-react';
 import api from '../api';
 
@@ -34,7 +37,6 @@ import Button from '../components/ui/Button';
 import AlertMessage from '../components/ui/AlertMessage';
 import Empty from '../components/ui/Empty';
 import Badge from '../components/ui/Badge';
-import Input from '../components/ui/Input';
 import Table, { Th, Tr, Td } from '../components/ui/Table';
 
 
@@ -57,27 +59,25 @@ function toneDoPct(pct) {
 }
 
 
-// ── Componente principal ─────────────────────────────────────────
+// ── Sub-aba Conformidade ─────────────────────────────────────────
 
-export default function Vendas() {
+function AbaConformidade() {
   const [dados, setDados] = useState(null); // { itens, resumo, por_fase }
-  const [opcoesFiltro, setOpcoesFiltro] = useState({ fases: [], executivos: [] });
+  const [opcoesFiltro, setOpcoesFiltro] = useState({ fases: [], responsaveis: [] });
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState(null);
 
   // Filtros
   const [fase, setFase] = useState('');
-  const [executivo, setExecutivo] = useState('');
+  const [responsavel, setResponsavel] = useState('');
   const [soProblema, setSoProblema] = useState(false);
-
-  // ── Loaders ────────────────────────────────────────────────────
 
   const carregarFiltros = useCallback(async () => {
     try {
       const { data } = await api.get('/vendas/funil-cromie/filtros');
       setOpcoesFiltro(data);
     } catch {
-      setOpcoesFiltro({ fases: [], executivos: [] });
+      setOpcoesFiltro({ fases: [], responsaveis: [] });
     }
   }, []);
 
@@ -87,7 +87,7 @@ export default function Vendas() {
     try {
       const params = new URLSearchParams();
       if (fase) params.set('fase', fase);
-      if (executivo) params.set('executivo', executivo);
+      if (responsavel) params.set('responsavel', responsavel);
       if (soProblema) params.set('so_problema', 'true');
       const { data } = await api.get(`/vendas/funil-cromie?${params}`);
       setDados(data);
@@ -99,7 +99,7 @@ export default function Vendas() {
     } finally {
       setLoading(false);
     }
-  }, [fase, executivo, soProblema]);
+  }, [fase, responsavel, soProblema]);
 
   useEffect(() => {
     carregarFiltros();
@@ -112,20 +112,8 @@ export default function Vendas() {
   const resumo = dados?.resumo;
   const itens = dados?.itens || [];
 
-  // ── Render ─────────────────────────────────────────────────────
-
   return (
     <>
-      <PageHeader
-        title="Vendas"
-        subtitle="Funil de Vendas — utilização correta do CROmie."
-        actions={
-          <Button variant="ghost" onClick={carregar} icon={RefreshCw}>
-            Atualizar
-          </Button>
-        }
-      />
-
       {/* Aviso fixo: esta é a régua interna, não o PEX oficial. */}
       <div className="mb-4 flex items-start gap-2 rounded-lg border border-hipo-border bg-hipo-bg px-4 py-3 text-sm text-hipo-slate">
         <Info size={16} className="mt-0.5 shrink-0 text-hipo-blue" />
@@ -192,14 +180,14 @@ export default function Vendas() {
           </select>
 
           <select
-            value={executivo}
-            onChange={(e) => setExecutivo(e.target.value)}
+            value={responsavel}
+            onChange={(e) => setResponsavel(e.target.value)}
             className="h-10 px-3 rounded-lg border border-hipo-border bg-hipo-card text-sm text-hipo-ink"
           >
-            <option value="">Todos os executivos</option>
-            {opcoesFiltro.executivos.map((ex) => (
-              <option key={ex} value={ex}>
-                {ex}
+            <option value="">Todos os responsáveis</option>
+            {opcoesFiltro.responsaveis.map((r) => (
+              <option key={r} value={r}>
+                {r}
               </option>
             ))}
           </select>
@@ -214,12 +202,12 @@ export default function Vendas() {
             Só com problema
           </label>
 
-          {(fase || executivo || soProblema) && (
+          {(fase || responsavel || soProblema) && (
             <Button
               variant="ghost"
               onClick={() => {
                 setFase('');
-                setExecutivo('');
+                setResponsavel('');
                 setSoProblema(false);
               }}
             >
@@ -256,7 +244,7 @@ export default function Vendas() {
                 <Tr>
                   <Th>Razão Social / CNPJ</Th>
                   <Th>Fase</Th>
-                  <Th>Executivo</Th>
+                  <Th>Responsável</Th>
                   <Th align="center">Situação</Th>
                   <Th>Pendências</Th>
                   <Th align="right">Atualizada</Th>
@@ -279,7 +267,7 @@ export default function Vendas() {
                         {o.fase || '—'}
                       </Td>
                       <Td className="text-hipo-slate">
-                        {o.executivo_vendas || '—'}
+                        {o.responsavel || '—'}
                       </Td>
                       <Td align="center">
                         {cls.conforme ? (
@@ -316,6 +304,65 @@ export default function Vendas() {
           </>
         )}
       </Card>
+    </>
+  );
+}
+
+
+// ── Sub-aba Funil (placeholder) ──────────────────────────────────
+
+function AbaFunil() {
+  return (
+    <Card>
+      <Empty
+        Icon={BarChart3}
+        title="Funil de Vendas — em breve"
+        description="Esta visualização ainda está sendo construída. Em breve você verá aqui o funil de vendas com a evolução das oportunidades por fase."
+      />
+    </Card>
+  );
+}
+
+
+// ── Componente principal ─────────────────────────────────────────
+
+const SUB_ABAS = [
+  { v: 'CONFORMIDADE', label: 'Conformidade', Icon: ClipboardCheck },
+  { v: 'FUNIL',        label: 'Funil',        Icon: BarChart3 },
+];
+
+export default function Vendas() {
+  const [aba, setAba] = useState('CONFORMIDADE');
+
+  return (
+    <>
+      <PageHeader
+        title="Vendas"
+        subtitle="Funil de Vendas — utilização correta do CROmie."
+      />
+
+      {/* Sub-abas */}
+      <div className="flex border-b border-hipo-border mb-4">
+        {SUB_ABAS.map(({ v, label, Icon }) => (
+          <button
+            key={v}
+            onClick={() => setAba(v)}
+            className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
+              aba === v
+                ? 'border-hipo-blue text-hipo-blue'
+                : 'border-transparent text-hipo-slate hover:text-hipo-ink'
+            }`}
+          >
+            <span className="flex items-center gap-2">
+              <Icon size={16} />
+              {label}
+            </span>
+          </button>
+        ))}
+      </div>
+
+      {aba === 'CONFORMIDADE' && <AbaConformidade />}
+      {aba === 'FUNIL' && <AbaFunil />}
     </>
   );
 }

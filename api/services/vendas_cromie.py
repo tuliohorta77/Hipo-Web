@@ -34,6 +34,12 @@ Uma oportunidade é "conforme" se cumpre TODAS as regras aplicáveis à
 sua fase. Se falha em qualquer uma, é "não conforme" e o serviço lista
 exatamente quais regras falharam.
 
+Responsável pela oportunidade (depende da fase):
+  - Fases 01. Suspect e 02. Cadência -> o SDR (coluna sdr_fr).
+  - Demais fases ativas              -> o executivo (executivo_vendas).
+  Nas fases iniciais quem toca a oportunidade é o SDR; a partir da
+  Qualificação ela passa para o executivo de vendas.
+
 Tipos das colunas em cliente_oportunidade (conferidos no schema/dados):
   - previsao_preenchido : VARCHAR(10) — texto "Sim" / "Não"
   - ticket_preenchido   : VARCHAR(10) — texto "Sim" / "Não"
@@ -81,6 +87,9 @@ FASES_ANALISADAS = [
     "05. Negociação",
 ]
 
+# Fases iniciais em que o responsável é o SDR (e não o executivo).
+FASES_DO_SDR = {"01. Suspect", "02. Cadência"}
+
 # Valores de texto que contam como "sim" nas colunas VARCHAR de flag.
 # A base usa "Sim"/"Não"; aceitamos variações por robustez (acento,
 # caixa, espaços, e formas alternativas que outro export possa trazer).
@@ -121,6 +130,27 @@ def _temperatura_preenchida(op: dict) -> bool:
         return float(t) > 0
     except (TypeError, ValueError):
         return False
+
+
+def _txt(valor: Any) -> str | None:
+    """Normaliza um campo de texto: strip; vazio vira None."""
+    if valor is None:
+        return None
+    s = str(valor).strip()
+    return s or None
+
+
+def responsavel_da_op(op: dict) -> str | None:
+    """
+    Devolve o responsável pela oportunidade conforme a fase:
+      - Suspect / Cadência -> sdr_fr (o SDR);
+      - demais fases       -> executivo_vendas.
+    Retorna None se a coluna correspondente estiver vazia.
+    """
+    fase = op.get("fase")
+    if fase in FASES_DO_SDR:
+        return _txt(op.get("sdr_fr"))
+    return _txt(op.get("executivo_vendas"))
 
 
 def _regra_cumprida(op: dict, regra: str) -> bool:
@@ -189,16 +219,17 @@ def resumir_funil(oportunidades: list[dict]) -> dict[str, Any]:
     Classifica uma lista de oportunidades e devolve cada uma anotada
     + um resumo agregado.
 
+    Cada item ganha duas chaves novas:
+      - 'classificacao': resultado de classificar_oportunidade();
+      - 'responsavel'  : o responsável pela fase (SDR ou executivo).
+
     Só oportunidades em fase analisada entram no cálculo do percentual;
     oportunidades fora da análise (Conquistado etc.) são contadas à
     parte e não afetam o '% conforme'.
 
-    Args:
-      oportunidades: lista de dicts de cliente_oportunidade.
-
     Returns:
       dict com:
-        - itens: list[dict] — cada oportunidade + a chave 'classificacao'.
+        - itens: list[dict] — cada oportunidade + 'classificacao' + 'responsavel'.
         - resumo: dict — total_analisadas, conformes, nao_conformes,
           pct_conforme (0..100, arredondado a 2 casas), fora_da_analise.
         - por_fase: dict[fase] -> {total, conformes, nao_conformes}.
@@ -216,6 +247,7 @@ def resumir_funil(oportunidades: list[dict]) -> dict[str, Any]:
         cls = classificar_oportunidade(op)
         item = dict(op)
         item["classificacao"] = cls
+        item["responsavel"] = responsavel_da_op(op)
         itens.append(item)
 
         if not cls["fase_analisada"]:

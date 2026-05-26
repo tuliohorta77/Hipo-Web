@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 
 // Mock do api antes do import do componente — mesmo padrão dos demais testes.
 vi.mock('../api', () => ({
@@ -28,7 +28,7 @@ function funilMock() {
           cnpj: '00000000000001',
           razao_social: 'Empresa Conforme',
           fase: '01. Suspect',
-          executivo_vendas: 'Ana',
+          responsavel: 'Carla SDR',
           data_atualizacao: '2026-05-20T10:00:00Z',
           classificacao: {
             fase_analisada: true,
@@ -43,7 +43,7 @@ function funilMock() {
           cnpj: '00000000000002',
           razao_social: 'Empresa Com Problema',
           fase: '03. Qualificação',
-          executivo_vendas: 'Bruno',
+          responsavel: 'Bruno EV',
           data_atualizacao: '2026-05-21T10:00:00Z',
           classificacao: {
             fase_analisada: true,
@@ -62,7 +62,7 @@ function funilMock() {
         fora_da_analise: 0,
       },
       por_fase: {},
-      filtro_aplicado: { fase: null, executivo: null, so_problema: false },
+      filtro_aplicado: { fase: null, responsavel: null, so_problema: false },
     },
   }
 }
@@ -70,7 +70,7 @@ function funilMock() {
 const filtrosMock = {
   data: {
     fases: ['01. Suspect', '03. Qualificação'],
-    executivos: ['Ana', 'Bruno'],
+    responsaveis: ['Bruno EV', 'Carla SDR'],
   },
 }
 
@@ -87,12 +87,12 @@ function setupApi({ funil = funilMock() } = {}) {
 }
 
 
-describe('Vendas — funil CROmie', () => {
+describe('Vendas — sub-abas e funil CROmie', () => {
   beforeEach(() => {
     vi.clearAllMocks()
   })
 
-  it('carrega e lista as oportunidades classificadas', async () => {
+  it('abre na sub-aba Conformidade e lista as oportunidades', async () => {
     setupApi()
     render(<Vendas />)
     await waitFor(() => {
@@ -117,12 +117,34 @@ describe('Vendas — funil CROmie', () => {
     expect(screen.getByText(/tarefa futura em todas as fases/i)).toBeInTheDocument()
   })
 
+  it('mostra a coluna Responsável com o nome calculado por fase', async () => {
+    setupApi()
+    render(<Vendas />)
+    await waitFor(() => {
+      // Suspect -> SDR; Qualificação -> executivo.
+      expect(screen.getByText('Carla SDR')).toBeInTheDocument()
+      expect(screen.getByText('Bruno EV')).toBeInTheDocument()
+    })
+  })
+
   it('mostra os rótulos de pendência nas oportunidades com problema', async () => {
     setupApi()
     render(<Vendas />)
     await waitFor(() => {
       expect(screen.getByText('Falta temperatura')).toBeInTheDocument()
       expect(screen.getByText('Falta previsão de fechamento')).toBeInTheDocument()
+    })
+  })
+
+  it('troca para a sub-aba Funil e mostra o placeholder', async () => {
+    setupApi()
+    render(<Vendas />)
+    await waitFor(() => screen.getByText('Empresa Conforme'))
+
+    fireEvent.click(screen.getByText('Funil'))
+
+    await waitFor(() => {
+      expect(screen.getByText(/em breve/i)).toBeInTheDocument()
     })
   })
 
