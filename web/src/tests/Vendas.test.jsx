@@ -70,18 +70,34 @@ function funilCromieMock() {
   }
 }
 
-// Resposta do drawer — recorte com DOIS responsáveis, para dar
-// material ao filtro: Bruno (1500) e Diego (400).
+// Resposta do drawer — recorte com TRÊS oportunidades de dois
+// responsáveis. Bruno tem duas (1500 + 200 = 1700) e Diego uma (400).
+// As somas (1700 sem filtro = 2300, com filtro Bruno = 1700) são
+// distintas de qualquer valor de linha individual, evitando que uma
+// busca por texto case com o resumo E com uma célula da tabela.
 const drawerMock = {
   data: {
     itens: [
       {
         op_id: 9,
         cnpj: '00000000000009',
-        razao_social: 'Empresa do Bruno',
+        razao_social: 'Empresa do Bruno A',
         fase: '05. Negociação',
         responsavel: 'Bruno EV',
         proposta_nmrr: 1500,
+        classificacao: {
+          fase_analisada: true, conforme: true, problemas: [],
+          problemas_rotulos: [], regras_aplicaveis: [],
+          temperatura_incoerente: false,
+        },
+      },
+      {
+        op_id: 11,
+        cnpj: '00000000000011',
+        razao_social: 'Empresa do Bruno B',
+        fase: '05. Negociação',
+        responsavel: 'Bruno EV',
+        proposta_nmrr: 200,
         classificacao: {
           fase_analisada: true, conforme: true, problemas: [],
           problemas_rotulos: [], regras_aplicaveis: [],
@@ -94,7 +110,7 @@ const drawerMock = {
         razao_social: 'Empresa do Diego',
         fase: '05. Negociação',
         responsavel: 'Diego EV',
-        proposta_nmrr: 400,
+        proposta_nmrr: 600,
         classificacao: {
           fase_analisada: true, conforme: true, problemas: [],
           problemas_rotulos: [], regras_aplicaveis: [],
@@ -244,7 +260,7 @@ describe('Vendas — sub-aba Funil', () => {
     fireEvent.click(screen.getByLabelText(/05\. Negociação, Fechando/i))
 
     await waitFor(() => {
-      expect(screen.getByText('Empresa do Bruno')).toBeInTheDocument()
+      expect(screen.getByText('Empresa do Bruno A')).toBeInTheDocument()
       expect(screen.getByText('Empresa do Diego')).toBeInTheDocument()
     })
   })
@@ -257,12 +273,13 @@ describe('Vendas — sub-aba Funil', () => {
     await waitFor(() => screen.getByText('05. Negociação'))
 
     fireEvent.click(screen.getByLabelText(/05\. Negociação, Fechando/i))
-    await waitFor(() => screen.getByText('Empresa do Bruno'))
+    await waitFor(() => screen.getByText('Empresa do Bruno A'))
 
-    // Antes de filtrar: soma 1500 + 400 = 1900.
-    expect(screen.getByText('R$ 1.900')).toBeInTheDocument()
+    // Sem filtro: soma 1500 + 200 + 600 = 2300. É um valor distinto
+    // de qualquer linha individual, então getByText é seguro.
+    expect(screen.getByText('R$ 2.300')).toBeInTheDocument()
 
-    // Filtra por Bruno EV — o select do drawer.
+    // Filtra por Bruno EV — o select do drawer é o último da tela.
     const selects = screen.getAllByRole('combobox')
     const selectDrawer = selects[selects.length - 1]
     fireEvent.change(selectDrawer, { target: { value: 'Bruno EV' } })
@@ -270,11 +287,13 @@ describe('Vendas — sub-aba Funil', () => {
     await waitFor(() => {
       // Diego sai da lista.
       expect(screen.queryByText('Empresa do Diego')).not.toBeInTheDocument()
-      // Soma recalcula só com a OP do Bruno: 1500.
-      expect(screen.getByText('R$ 1.500')).toBeInTheDocument()
+      // Soma recalcula para 1500 + 200 = 1700 (distinto das linhas
+      // 1500 e 200), então não há colisão de texto.
+      expect(screen.getByText('R$ 1.700')).toBeInTheDocument()
     })
-    // Bruno continua.
-    expect(screen.getByText('Empresa do Bruno')).toBeInTheDocument()
+    // As duas OPs do Bruno continuam.
+    expect(screen.getByText('Empresa do Bruno A')).toBeInTheDocument()
+    expect(screen.getByText('Empresa do Bruno B')).toBeInTheDocument()
   })
 
   it('o drawer fecha ao clicar no botão fechar', async () => {
@@ -285,11 +304,11 @@ describe('Vendas — sub-aba Funil', () => {
     await waitFor(() => screen.getByText('05. Negociação'))
 
     fireEvent.click(screen.getByLabelText(/05\. Negociação, Fechando/i))
-    await waitFor(() => screen.getByText('Empresa do Bruno'))
+    await waitFor(() => screen.getByText('Empresa do Bruno A'))
 
     fireEvent.click(screen.getByLabelText('Fechar'))
     await waitFor(() => {
-      expect(screen.queryByText('Empresa do Bruno')).not.toBeInTheDocument()
+      expect(screen.queryByText('Empresa do Bruno A')).not.toBeInTheDocument()
     })
   })
 
