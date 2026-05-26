@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor, fireEvent } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent, within } from '@testing-library/react'
 
 // Mock do api antes do import do componente — mesmo padrão dos demais testes.
 vi.mock('../api', () => ({
@@ -120,11 +120,14 @@ describe('Vendas — sub-abas e funil CROmie', () => {
   it('mostra a coluna Responsável com o nome calculado por fase', async () => {
     setupApi()
     render(<Vendas />)
-    await waitFor(() => {
-      // Suspect -> SDR; Qualificação -> executivo.
-      expect(screen.getByText('Carla SDR')).toBeInTheDocument()
-      expect(screen.getByText('Bruno EV')).toBeInTheDocument()
-    })
+    // O nome do responsável aparece tanto no <option> do filtro quanto na
+    // <td> da tabela — por isso a busca é restrita às células da tabela.
+    await waitFor(() => screen.getByText('Empresa Conforme'))
+
+    const tabela = screen.getByRole('table')
+    // Suspect -> responsável é o SDR; Qualificação -> o executivo.
+    expect(within(tabela).getByText('Carla SDR')).toBeInTheDocument()
+    expect(within(tabela).getByText('Bruno EV')).toBeInTheDocument()
   })
 
   it('mostra os rótulos de pendência nas oportunidades com problema', async () => {
@@ -143,8 +146,12 @@ describe('Vendas — sub-abas e funil CROmie', () => {
 
     fireEvent.click(screen.getByText('Funil'))
 
+    // "em breve" aparece no título e na descrição do placeholder —
+    // o título é uma âncora única e suficiente.
     await waitFor(() => {
-      expect(screen.getByText(/em breve/i)).toBeInTheDocument()
+      expect(
+        screen.getByText('Funil de Vendas — em breve')
+      ).toBeInTheDocument()
     })
   })
 
