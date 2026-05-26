@@ -37,14 +37,25 @@ exatamente quais regras falharam.
 Responsável pela oportunidade (depende da fase):
   - Fases 01. Suspect e 02. Cadência -> o SDR (coluna sdr_fr).
   - Demais fases ativas              -> o executivo (executivo_vendas).
-  Nas fases iniciais quem toca a oportunidade é o SDR; a partir da
-  Qualificação ela passa para o executivo de vendas.
+
+Funil de Vendas (aba "Funil"):
+  Agrega as oportunidades ATIVAS por fase x faixa de temperatura.
+  Faixas de temperatura (escala 0..100, valores de 10 em 10):
+    - sem    : temperatura nula (não preenchida)
+    - fria   : 10 a 40
+    - morna  : 50 a 70
+    - quente : 80 a 90
+  Temperatura 100 = oportunidade conquistada. Uma OP ATIVA com
+  temperatura 100 é uma INCOERÊNCIA (provavelmente foi fechada e o
+  status não foi atualizado no CROmie). Essas OPs:
+    - NÃO entram no funil (são excluídas das faixas);
+    - são sinalizadas na aba Conformidade (flag temperatura_incoerente).
 
 Tipos das colunas em cliente_oportunidade (conferidos no schema/dados):
   - previsao_preenchido : VARCHAR(10) — texto "Sim" / "Não"
   - ticket_preenchido   : VARCHAR(10) — texto "Sim" / "Não"
   - tarefa_futura       : INT          — 0 (não) / 1 (sim)
-  - temperatura         : NUMERIC      — preenchida quando > 0
+  - temperatura         : NUMERIC      — 0..100, de 10 em 10
 ATENÇÃO: bool() direto numa string NÃO serve — bool("Não") é True em
 Python. Por isso as flags de texto passam por _flag_texto().
 """
@@ -90,9 +101,29 @@ FASES_ANALISADAS = [
 # Fases iniciais em que o responsável é o SDR (e não o executivo).
 FASES_DO_SDR = {"01. Suspect", "02. Cadência"}
 
+# ── Faixas de temperatura (funil) ────────────────────────────────
+# Códigos das faixas, na ordem fria -> quente.
+FAIXA_SEM = "sem"
+FAIXA_FRIA = "fria"
+FAIXA_MORNA = "morna"
+FAIXA_QUENTE = "quente"
+
+# Ordem canônica das faixas (o frontend renderiza nesta ordem).
+FAIXAS_TEMPERATURA = [FAIXA_SEM, FAIXA_FRIA, FAIXA_MORNA, FAIXA_QUENTE]
+
+# Rótulo legível de cada faixa.
+ROTULO_FAIXA = {
+    FAIXA_SEM: "Sem temperatura",
+    FAIXA_FRIA: "Fria (10–40)",
+    FAIXA_MORNA: "Morna (50–70)",
+    FAIXA_QUENTE: "Quente (80–90)",
+}
+
+# Temperatura que indica oportunidade conquistada. Numa OP ATIVA esse
+# valor é uma incoerência (ver docstring do módulo).
+TEMPERATURA_CONQUISTADO = 100
+
 # Valores de texto que contam como "sim" nas colunas VARCHAR de flag.
-# A base usa "Sim"/"Não"; aceitamos variações por robustez (acento,
-# caixa, espaços, e formas alternativas que outro export possa trazer).
 _TEXTO_SIM = {"sim", "s", "true", "1", "verdadeiro", "yes", "y"}
 
 
@@ -121,15 +152,64 @@ def _flag_inteira(valor: Any) -> bool:
         return False
 
 
-def _temperatura_preenchida(op: dict) -> bool:
-    """Temperatura conta como preenchida se existe e é maior que zero."""
+def _temperatura_num(op: dict) -> float | None:
+    """Devolve a temperatura como float, ou None se ausente/inválida."""
     t = op.get("temperatura")
     if t is None:
-        return False
+        return None
     try:
-        return float(t) > 0
+        return float(t)
     except (TypeError, ValueError):
+        return None
+
+
+def _temperatura_preenchida(op: dict) -> bool:
+    """Temperatura conta como preenchida se existe e é maior que zero."""
+    t = _temperatura_num(op)
+    return t is not None and t > 0
+
+
+def faixa_temperatura(op: dict) -> str | None:
+    """
+    Classifica a oportunidade numa faixa de temperatura do funil:
+      - FAIXA_SEM    : temperatura nula ou 0
+      - FAIXA_FRIA   : 10 a 40
+      - FAIXA_MORNA  : 50 a 70
+      - FAIXA_QUENTE : 80 a 90
+
+    Retorna None para temperatura 100 (conquistado) — essa OP NÃO
+    entra no funil; ver temperatura_incoerente(). Também retorna None
+    para qualquer valor fora das faixas conhecidas (defensivo).
+    """
+    t = _temperatura_num(op)
+    if t is None or t <= 0:
+        return FAIXA_SEM
+    if 10 <= t <= 40:
+        return FAIXA_FRIA
+    if 50 <= t <= 70:
+        return FAIXA_MORNA
+    if 80 <= t <= 90:
+        return FAIXA_QUENTE
+    # 100 (conquistado) ou valor inesperado: fora do funil.
+    return None
+
+
+def temperatura_incoerente(op: dict) -> bool:
+    """
+    True quando a oportunidade está numa fase ATIVA (analisada) mas tem
+    temperatura 100 — valor reservado a oportunidades conquistadas.
+
+    É uma rede de segurança: hoje a base não tem nenhum caso (as OPs
+    com temperatura 100 estão todas em '06. Conquistado'), mas se um
+    upload futuro trouxer uma OP ativa marcada com 100, a aba
+    Conformidade sinaliza para revisão no CROmie.
+    """
+    fase = op.get("fase")
+    if fase not in REGRAS_POR_FASE:
+        # Conquistado ou fase desconhecida: 100 ali é esperado/ignorado.
         return False
+    t = _temperatura_num(op)
+    return t is not None and t >= TEMPERATURA_CONQUISTADO
 
 
 def _txt(valor: Any) -> str | None:
@@ -156,16 +236,12 @@ def responsavel_da_op(op: dict) -> str | None:
 def _regra_cumprida(op: dict, regra: str) -> bool:
     """Verifica se a oportunidade cumpre uma regra específica."""
     if regra == REGRA_TAREFA_FUTURA:
-        # Coluna INT 0/1.
         return _flag_inteira(op.get("tarefa_futura"))
     if regra == REGRA_TEMPERATURA:
-        # Coluna NUMERIC.
         return _temperatura_preenchida(op)
     if regra == REGRA_PREVISAO:
-        # Coluna VARCHAR "Sim"/"Não".
         return _flag_texto(op.get("previsao_preenchido"))
     if regra == REGRA_TICKET:
-        # Coluna VARCHAR "Sim"/"Não".
         return _flag_texto(op.get("ticket_preenchido"))
     # Regra desconhecida: trata como não cumprida (defensivo).
     return False
@@ -175,32 +251,25 @@ def classificar_oportunidade(op: dict) -> dict[str, Any]:
     """
     Classifica UMA oportunidade pela régua interna do funil CROmie.
 
-    Args:
-      op: dict de cliente_oportunidade com 'fase', 'tarefa_futura' (int),
-          'previsao_preenchido' (texto), 'ticket_preenchido' (texto) e
-          'temperatura' (numérico).
-
     Returns:
       dict com:
-        - fase_analisada: bool — False se a fase está fora da análise
-          (ex.: Conquistado, ou fase desconhecida).
+        - fase_analisada: bool — False se a fase está fora da análise.
         - conforme: bool — True se cumpre todas as regras da fase.
-          Sempre False quando fase_analisada é False.
-        - problemas: list[str] — códigos das regras que falharam.
-        - problemas_rotulos: list[str] — os mesmos, em texto legível.
-        - regras_aplicaveis: list[str] — regras que a fase exige.
+        - problemas / problemas_rotulos / regras_aplicaveis.
+        - temperatura_incoerente: bool — temp 100 em fase ativa.
     """
     fase = op.get("fase")
     regras = REGRAS_POR_FASE.get(fase)
+    incoerente = temperatura_incoerente(op)
 
     if regras is None:
-        # Fase fora da análise (Conquistado, nula, ou valor inesperado).
         return {
             "fase_analisada": False,
             "conforme": False,
             "problemas": [],
             "problemas_rotulos": [],
             "regras_aplicaveis": [],
+            "temperatura_incoerente": incoerente,
         }
 
     problemas = [r for r in regras if not _regra_cumprida(op, r)]
@@ -211,33 +280,31 @@ def classificar_oportunidade(op: dict) -> dict[str, Any]:
         "problemas": problemas,
         "problemas_rotulos": [ROTULO_REGRA[r] for r in problemas],
         "regras_aplicaveis": list(regras),
+        "temperatura_incoerente": incoerente,
     }
 
 
 def resumir_funil(oportunidades: list[dict]) -> dict[str, Any]:
     """
-    Classifica uma lista de oportunidades e devolve cada uma anotada
-    + um resumo agregado.
+    Classifica uma lista de oportunidades (régua de conformidade) e
+    devolve cada uma anotada + um resumo agregado.
 
-    Cada item ganha duas chaves novas:
+    Cada item ganha:
       - 'classificacao': resultado de classificar_oportunidade();
       - 'responsavel'  : o responsável pela fase (SDR ou executivo).
 
-    Só oportunidades em fase analisada entram no cálculo do percentual;
-    oportunidades fora da análise (Conquistado etc.) são contadas à
-    parte e não afetam o '% conforme'.
+    Só oportunidades em fase analisada entram no cálculo do percentual.
 
     Returns:
-      dict com:
-        - itens: list[dict] — cada oportunidade + 'classificacao' + 'responsavel'.
-        - resumo: dict — total_analisadas, conformes, nao_conformes,
-          pct_conforme (0..100, arredondado a 2 casas), fora_da_analise.
-        - por_fase: dict[fase] -> {total, conformes, nao_conformes}.
+      dict com 'itens', 'resumo' e 'por_fase'. O 'resumo' inclui
+      'temperatura_incoerente' — contagem de OPs com temp 100 em fase
+      ativa (rede de segurança; normalmente 0).
     """
     itens: list[dict] = []
     conformes = 0
     nao_conformes = 0
     fora = 0
+    incoerentes = 0
     por_fase: dict[str, dict[str, int]] = {
         f: {"total": 0, "conformes": 0, "nao_conformes": 0}
         for f in FASES_ANALISADAS
@@ -249,6 +316,9 @@ def resumir_funil(oportunidades: list[dict]) -> dict[str, Any]:
         item["classificacao"] = cls
         item["responsavel"] = responsavel_da_op(op)
         itens.append(item)
+
+        if cls["temperatura_incoerente"]:
+            incoerentes += 1
 
         if not cls["fase_analisada"]:
             fora += 1
@@ -278,6 +348,67 @@ def resumir_funil(oportunidades: list[dict]) -> dict[str, Any]:
             "nao_conformes": nao_conformes,
             "pct_conforme": pct,
             "fora_da_analise": fora,
+            "temperatura_incoerente": incoerentes,
         },
         "por_fase": por_fase,
+    }
+
+
+def montar_funil(oportunidades: list[dict]) -> dict[str, Any]:
+    """
+    Agrega as oportunidades ATIVAS por fase x faixa de temperatura,
+    para a aba "Funil".
+
+    Considera apenas as oportunidades nas fases analisadas (as 5 fases
+    ativas — Conquistado fica de fora). Oportunidades com temperatura
+    100 (conquistado) NÃO entram nas faixas: são contadas à parte como
+    'temperatura_incoerente'.
+
+    Args:
+      oportunidades: lista de dicts de cliente_oportunidade já
+        filtrada para status ativo (o router faz esse filtro no SQL).
+
+    Returns:
+      dict com:
+        - fases: lista na ordem do funil, cada item:
+            { 'fase', 'total', 'faixas': {sem, fria, morna, quente} }
+          'total' é a soma das 4 faixas (NÃO inclui as incoerentes).
+        - total_geral: soma de 'total' de todas as fases.
+        - temperatura_incoerente: nº de OPs ativas com temp 100
+          (excluídas do funil; sinalizadas na aba Conformidade).
+    """
+    # Estrutura zerada, na ordem do funil.
+    fases: dict[str, dict[str, int]] = {
+        f: {faixa: 0 for faixa in FAIXAS_TEMPERATURA}
+        for f in FASES_ANALISADAS
+    }
+    incoerentes = 0
+
+    for op in oportunidades:
+        fase = op.get("fase")
+        if fase not in fases:
+            # Fora das 5 fases ativas (ex.: Conquistado). Ignora.
+            continue
+        if temperatura_incoerente(op):
+            # Temp 100 em fase ativa: não entra no funil.
+            incoerentes += 1
+            continue
+        faixa = faixa_temperatura(op)
+        if faixa is None:
+            # Temperatura fora das faixas conhecidas (defensivo).
+            continue
+        fases[fase][faixa] += 1
+
+    lista = []
+    total_geral = 0
+    for f in FASES_ANALISADAS:
+        faixas = fases[f]
+        total = sum(faixas.values())
+        total_geral += total
+        lista.append({"fase": f, "total": total, "faixas": faixas})
+
+    return {
+        "fases": lista,
+        "total_geral": total_geral,
+        "temperatura_incoerente": incoerentes,
     }

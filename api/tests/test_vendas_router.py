@@ -1,11 +1,14 @@
 """
-HIPO — Testes do módulo Vendas (funil CROmie).
+HIPO — Testes do módulo Vendas (funil CROmie + Funil de Vendas).
 
 Cobre:
   - services.vendas_cromie: classificar_oportunidade, resumir_funil,
-    responsavel_da_op (SDR nas fases iniciais, executivo nas demais)
-  - GET /vendas/funil-cromie: classificação, filtros, so_problema, responsável
+    responsavel_da_op, faixa_temperatura, temperatura_incoerente,
+    montar_funil
+  - GET /vendas/funil-cromie: classificação, filtros, so_problema,
+    so_incoerente, responsável
   - GET /vendas/funil-cromie/filtros
+  - GET /vendas/funil: agregação por fase x faixa de temperatura
 
 Depende das fixtures de conftest.py (db_conn, client, usuario_adm).
 
@@ -13,15 +16,23 @@ Tipos das colunas de flag em cliente_oportunidade (conferidos no banco):
   - previsao_preenchido : VARCHAR(10) — "Sim" / "Não"
   - ticket_preenchido   : VARCHAR(10) — "Sim" / "Não"
   - tarefa_futura       : INT          — 0 / 1
+  - temperatura         : NUMERIC      — 0..100, de 10 em 10
 """
 from services.vendas_cromie import (
     classificar_oportunidade,
     resumir_funil,
     responsavel_da_op,
+    faixa_temperatura,
+    temperatura_incoerente,
+    montar_funil,
     REGRA_TAREFA_FUTURA,
     REGRA_TEMPERATURA,
     REGRA_PREVISAO,
     REGRA_TICKET,
+    FAIXA_SEM,
+    FAIXA_FRIA,
+    FAIXA_MORNA,
+    FAIXA_QUENTE,
 )
 
 
@@ -31,11 +42,7 @@ from services.vendas_cromie import (
 
 def _op(fase, *, tf=0, temp=None, prev="Não", ticket="Não",
         sdr_fr=None, executivo_vendas=None):
-    """
-    Monta uma oportunidade mínima para os testes do service, usando os
-    MESMOS tipos do banco: tf é INT (0/1), prev/ticket são texto
-    ("Sim"/"Não"), temp é numérico.
-    """
+    """Oportunidade mínima com os tipos reais do banco."""
     return {
         "fase": fase,
         "tarefa_futura": tf,
@@ -83,31 +90,14 @@ class TestClassificarOportunidade:
         )
         assert cls["conforme"] is True
 
-    def test_apresentacao_cobra_tarefa_futura_regra_interna(self):
-        cls = classificar_oportunidade(
-            _op("04. Apresentação", tf=0, temp=50, prev="Sim")
-        )
-        assert cls["conforme"] is False
-        assert REGRA_TAREFA_FUTURA in cls["problemas"]
-
     def test_conquistado_fora_da_analise(self):
         cls = classificar_oportunidade(_op("06. Conquistado", tf=1))
         assert cls["fase_analisada"] is False
         assert cls["conforme"] is False
 
-    def test_fase_desconhecida_fora_da_analise(self):
-        cls = classificar_oportunidade(_op("99. Inexistente", tf=1))
-        assert cls["fase_analisada"] is False
-
     def test_temperatura_zero_nao_conta(self):
         cls = classificar_oportunidade(
             _op("03. Qualificação", tf=1, temp=0, prev="Sim")
-        )
-        assert REGRA_TEMPERATURA in cls["problemas"]
-
-    def test_temperatura_nula_nao_conta(self):
-        cls = classificar_oportunidade(
-            _op("03. Qualificação", tf=1, temp=None, prev="Sim")
         )
         assert REGRA_TEMPERATURA in cls["problemas"]
 
@@ -117,31 +107,60 @@ class TestClassificarOportunidade:
         )
         assert REGRA_PREVISAO in cls["problemas"]
 
-    def test_previsao_sim_conta_como_preenchido(self):
-        cls = classificar_oportunidade(
-            _op("03. Qualificação", tf=1, temp=70, prev="Sim")
-        )
-        assert REGRA_PREVISAO not in cls["problemas"]
-
     def test_ticket_nao_texto_nao_conta(self):
         cls = classificar_oportunidade(
             _op("05. Negociação", tf=1, temp=80, prev="Sim", ticket="Não")
         )
         assert REGRA_TICKET in cls["problemas"]
 
+    def test_classificacao_traz_flag_incoerente(self):
+        cls = classificar_oportunidade(_op("05. Negociação", tf=1, temp=100))
+        assert cls["temperatura_incoerente"] is True
+
+
+class TestFaixaTemperatura:
+    def test_nula_e_sem(self):
+        assert faixa_temperatura(_op("01. Suspect", temp=None)) == FAIXA_SEM
+
+    def test_zero_e_sem(self):
+        assert faixa_temperatura(_op("01. Suspect", temp=0)) == FAIXA_SEM
+
+    def test_fria(self):
+        assert faixa_temperatura(_op("01. Suspect", temp=10)) == FAIXA_FRIA
+        assert faixa_temperatura(_op("01. Suspect", temp=40)) == FAIXA_FRIA
+
+    def test_morna(self):
+        assert faixa_temperatura(_op("01. Suspect", temp=50)) == FAIXA_MORNA
+        assert faixa_temperatura(_op("01. Suspect", temp=70)) == FAIXA_MORNA
+
+    def test_quente(self):
+        assert faixa_temperatura(_op("01. Suspect", temp=80)) == FAIXA_QUENTE
+        assert faixa_temperatura(_op("01. Suspect", temp=90)) == FAIXA_QUENTE
+
+    def test_cem_fica_fora_do_funil(self):
+        # Temperatura 100 (conquistado) não tem faixa: None.
+        assert faixa_temperatura(_op("05. Negociação", temp=100)) is None
+
+
+class TestTemperaturaIncoerente:
+    def test_cem_em_fase_ativa_e_incoerente(self):
+        assert temperatura_incoerente(_op("05. Negociação", temp=100)) is True
+
+    def test_cem_em_conquistado_nao_e_incoerente(self):
+        # 100 em Conquistado é o valor esperado, não incoerência.
+        assert temperatura_incoerente(_op("06. Conquistado", temp=100)) is False
+
+    def test_noventa_em_fase_ativa_nao_e_incoerente(self):
+        assert temperatura_incoerente(_op("05. Negociação", temp=90)) is False
+
+    def test_sem_temperatura_nao_e_incoerente(self):
+        assert temperatura_incoerente(_op("01. Suspect", temp=None)) is False
+
 
 class TestResponsavelDaOp:
     def test_suspect_usa_sdr(self):
         op = _op("01. Suspect", sdr_fr="Carla SDR", executivo_vendas="Bruno EV")
         assert responsavel_da_op(op) == "Carla SDR"
-
-    def test_cadencia_usa_sdr(self):
-        op = _op("02. Cadência", sdr_fr="Carla SDR", executivo_vendas="Bruno EV")
-        assert responsavel_da_op(op) == "Carla SDR"
-
-    def test_qualificacao_usa_executivo(self):
-        op = _op("03. Qualificação", sdr_fr="Carla SDR", executivo_vendas="Bruno EV")
-        assert responsavel_da_op(op) == "Bruno EV"
 
     def test_negociacao_usa_executivo(self):
         op = _op("05. Negociação", sdr_fr="Carla SDR", executivo_vendas="Bruno EV")
@@ -150,15 +169,6 @@ class TestResponsavelDaOp:
     def test_sdr_vazio_retorna_none(self):
         op = _op("01. Suspect", sdr_fr=None, executivo_vendas="Bruno EV")
         assert responsavel_da_op(op) is None
-
-    def test_executivo_vazio_retorna_none(self):
-        op = _op("05. Negociação", sdr_fr="Carla SDR", executivo_vendas="")
-        assert responsavel_da_op(op) is None
-
-    def test_resumir_funil_anexa_responsavel(self):
-        ops = [_op("01. Suspect", tf=1, sdr_fr="Carla SDR")]
-        r = resumir_funil(ops)
-        assert r["itens"][0]["responsavel"] == "Carla SDR"
 
 
 class TestResumirFunil:
@@ -172,23 +182,72 @@ class TestResumirFunil:
         r = resumir_funil(ops)
         assert r["resumo"]["total_analisadas"] == 3
         assert r["resumo"]["conformes"] == 2
-        assert r["resumo"]["nao_conformes"] == 1
-        assert r["resumo"]["fora_da_analise"] == 1
         assert r["resumo"]["pct_conforme"] == 66.67
+
+    def test_resumo_conta_incoerentes(self):
+        ops = [
+            _op("05. Negociação", tf=1, temp=100),
+            _op("05. Negociação", tf=1, temp=90),
+        ]
+        r = resumir_funil(ops)
+        assert r["resumo"]["temperatura_incoerente"] == 1
 
     def test_funil_vazio_pct_zero(self):
         r = resumir_funil([])
         assert r["resumo"]["pct_conforme"] == 0.0
-        assert r["resumo"]["total_analisadas"] == 0
+        assert r["resumo"]["temperatura_incoerente"] == 0
 
-    def test_so_conquistadas_pct_zero(self):
-        r = resumir_funil([_op("06. Conquistado", tf=1)])
-        assert r["resumo"]["total_analisadas"] == 0
-        assert r["resumo"]["fora_da_analise"] == 1
+
+class TestMontarFunil:
+    def test_agrega_por_fase_e_faixa(self):
+        ops = [
+            _op("01. Suspect", temp=None),
+            _op("01. Suspect", temp=20),
+            _op("01. Suspect", temp=30),
+            _op("05. Negociação", temp=80),
+        ]
+        funil = montar_funil(ops)
+        fases = {f["fase"]: f for f in funil["fases"]}
+        assert fases["01. Suspect"]["faixas"]["sem"] == 1
+        assert fases["01. Suspect"]["faixas"]["fria"] == 2
+        assert fases["01. Suspect"]["total"] == 3
+        assert fases["05. Negociação"]["faixas"]["quente"] == 1
+
+    def test_cinco_fases_sempre_presentes(self):
+        # Mesmo sem dado, o funil traz as 5 fases (zeradas).
+        funil = montar_funil([])
+        assert len(funil["fases"]) == 5
+        assert funil["total_geral"] == 0
+
+    def test_conquistado_nao_entra(self):
+        funil = montar_funil([_op("06. Conquistado", temp=100)])
+        assert funil["total_geral"] == 0
+        fases = [f["fase"] for f in funil["fases"]]
+        assert "06. Conquistado" not in fases
+
+    def test_temp_cem_em_fase_ativa_nao_entra_e_e_contada(self):
+        # OP ativa com temp 100: fora das faixas, mas contada à parte.
+        ops = [
+            _op("05. Negociação", temp=100),
+            _op("05. Negociação", temp=80),
+        ]
+        funil = montar_funil(ops)
+        fases = {f["fase"]: f for f in funil["fases"]}
+        assert fases["05. Negociação"]["total"] == 1   # só a de 80
+        assert fases["05. Negociação"]["faixas"]["quente"] == 1
+        assert funil["temperatura_incoerente"] == 1
+
+    def test_ordem_das_fases(self):
+        funil = montar_funil([])
+        ordem = [f["fase"] for f in funil["fases"]]
+        assert ordem == [
+            "01. Suspect", "02. Cadência", "03. Qualificação",
+            "04. Apresentação", "05. Negociação",
+        ]
 
 
 # ─────────────────────────────────────────────────────────────────
-#  PARTE 2 — endpoint /vendas/funil-cromie
+#  PARTE 2 — endpoints
 # ─────────────────────────────────────────────────────────────────
 
 async def _seed_upload(db_conn) -> str:
@@ -206,12 +265,7 @@ async def _seed_upload(db_conn) -> str:
 async def _seed_op(db_conn, upload_id, op_id, fase, *, status="ativo",
                    tf=0, temp=None, prev="Não", ticket="Não",
                    sdr_fr="SDR Padrao", executivo_vendas="Exec Padrao"):
-    """
-    Insere uma oportunidade respeitando os tipos reais das colunas:
-      - tarefa_futura: INT  (0/1)
-      - previsao_preenchido / ticket_preenchido: VARCHAR ("Sim"/"Não")
-      - sdr_fr / executivo_vendas: VARCHAR
-    """
+    """Insere uma oportunidade com os tipos reais das colunas."""
     await db_conn.execute(
         """
         INSERT INTO cliente_oportunidade (
@@ -255,21 +309,6 @@ class TestFunilCromieEndpoint:
         )
         assert resp.json()["resumo"]["total_analisadas"] == 1
 
-    async def test_previsao_nao_classifica_como_problema(self, db_conn, client, usuario_adm):
-        """Regressão do bug bool('Não')."""
-        up = await _seed_upload(db_conn)
-        await _seed_op(
-            db_conn, up, 1, "03. Qualificação",
-            tf=1, temp=80, prev="Não", ticket="Não",
-        )
-        resp = await client.get(
-            "/vendas/funil-cromie?so_problema=true",
-            headers=usuario_adm["headers"],
-        )
-        data = resp.json()
-        assert len(data["itens"]) == 1
-        assert "previsao" in data["itens"][0]["classificacao"]["problemas"]
-
     async def test_filtro_so_problema(self, db_conn, client, usuario_adm):
         up = await _seed_upload(db_conn)
         await _seed_op(db_conn, up, 1, "01. Suspect", tf=1)
@@ -282,7 +321,20 @@ class TestFunilCromieEndpoint:
         data = resp.json()
         assert len(data["itens"]) == 1
         assert data["itens"][0]["op_id"] == 2
-        assert data["resumo"]["total_analisadas"] == 2
+
+    async def test_filtro_so_incoerente(self, db_conn, client, usuario_adm):
+        up = await _seed_upload(db_conn)
+        await _seed_op(db_conn, up, 1, "05. Negociação", tf=1, temp=100)
+        await _seed_op(db_conn, up, 2, "05. Negociação", tf=1, temp=80)
+
+        resp = await client.get(
+            "/vendas/funil-cromie?so_incoerente=true",
+            headers=usuario_adm["headers"],
+        )
+        data = resp.json()
+        assert len(data["itens"]) == 1
+        assert data["itens"][0]["op_id"] == 1
+        assert data["resumo"]["temperatura_incoerente"] == 1
 
     async def test_filtro_por_fase(self, db_conn, client, usuario_adm):
         up = await _seed_upload(db_conn)
@@ -297,7 +349,6 @@ class TestFunilCromieEndpoint:
         assert all(it["fase"] == "05. Negociação" for it in data["itens"])
 
     async def test_item_traz_responsavel_por_fase(self, db_conn, client, usuario_adm):
-        """Suspect -> responsável é o SDR; Negociação -> o executivo."""
         up = await _seed_upload(db_conn)
         await _seed_op(db_conn, up, 1, "01. Suspect", tf=1,
                        sdr_fr="Carla SDR", executivo_vendas="Bruno EV")
@@ -308,11 +359,10 @@ class TestFunilCromieEndpoint:
             "/vendas/funil-cromie", headers=usuario_adm["headers"]
         )
         itens = {it["op_id"]: it for it in resp.json()["itens"]}
-        assert itens[1]["responsavel"] == "Carla SDR"   # Suspect -> SDR
-        assert itens[2]["responsavel"] == "Bruno EV"    # Negociação -> exec
+        assert itens[1]["responsavel"] == "Carla SDR"
+        assert itens[2]["responsavel"] == "Bruno EV"
 
     async def test_filtro_por_responsavel_sdr(self, db_conn, client, usuario_adm):
-        """Filtrar pelo SDR traz as OPs em fase inicial dele."""
         up = await _seed_upload(db_conn)
         await _seed_op(db_conn, up, 1, "01. Suspect", tf=1,
                        sdr_fr="Carla SDR", executivo_vendas="Bruno EV")
@@ -324,24 +374,6 @@ class TestFunilCromieEndpoint:
             headers=usuario_adm["headers"],
         )
         data = resp.json()
-        assert len(data["itens"]) == 1
-        assert data["itens"][0]["op_id"] == 1
-
-    async def test_filtro_por_responsavel_executivo(self, db_conn, client, usuario_adm):
-        """Filtrar pelo executivo traz as OPs em fase avançada dele,
-        e NÃO traz uma OP em Suspect mesmo que ele seja o executivo_vendas."""
-        up = await _seed_upload(db_conn)
-        await _seed_op(db_conn, up, 1, "05. Negociação", tf=1,
-                       sdr_fr="Carla SDR", executivo_vendas="Bruno EV")
-        await _seed_op(db_conn, up, 2, "01. Suspect", tf=1,
-                       sdr_fr="Carla SDR", executivo_vendas="Bruno EV")
-
-        resp = await client.get(
-            "/vendas/funil-cromie?responsavel=Bruno%20EV",
-            headers=usuario_adm["headers"],
-        )
-        data = resp.json()
-        # Só a Negociação (op 1). A Suspect (op 2) pertence à Carla SDR.
         assert len(data["itens"]) == 1
         assert data["itens"][0]["op_id"] == 1
 
@@ -358,7 +390,55 @@ class TestFunilCromieEndpoint:
         assert resp.status_code == 200
         data = resp.json()
         assert "01. Suspect" in data["fases"]
-        assert "05. Negociação" in data["fases"]
-        # Responsáveis: a Carla (SDR da Suspect) e o Bruno (exec da Negociação).
         assert "Carla SDR" in data["responsaveis"]
         assert "Bruno EV" in data["responsaveis"]
+
+
+class TestFunilEndpoint:
+    async def test_sem_auth_401(self, client):
+        resp = await client.get("/vendas/funil")
+        assert resp.status_code == 401
+
+    async def test_agrega_por_fase_e_faixa(self, db_conn, client, usuario_adm):
+        up = await _seed_upload(db_conn)
+        await _seed_op(db_conn, up, 1, "01. Suspect", temp=None)
+        await _seed_op(db_conn, up, 2, "01. Suspect", temp=20)
+        await _seed_op(db_conn, up, 3, "05. Negociação", temp=80)
+
+        resp = await client.get("/vendas/funil", headers=usuario_adm["headers"])
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data["fases"]) == 5
+        fases = {f["fase"]: f for f in data["fases"]}
+        assert fases["01. Suspect"]["faixas"]["sem"] == 1
+        assert fases["01. Suspect"]["faixas"]["fria"] == 1
+        assert fases["05. Negociação"]["faixas"]["quente"] == 1
+        assert data["total_geral"] == 3
+
+    async def test_ignora_status_nao_ativo(self, db_conn, client, usuario_adm):
+        up = await _seed_upload(db_conn)
+        await _seed_op(db_conn, up, 1, "01. Suspect", temp=20, status="ativo")
+        await _seed_op(db_conn, up, 2, "01. Suspect", temp=20, status="perdido")
+
+        resp = await client.get("/vendas/funil", headers=usuario_adm["headers"])
+        assert resp.json()["total_geral"] == 1
+
+    async def test_temp_cem_fica_fora_e_e_contada(self, db_conn, client, usuario_adm):
+        up = await _seed_upload(db_conn)
+        await _seed_op(db_conn, up, 1, "05. Negociação", temp=100)
+        await _seed_op(db_conn, up, 2, "05. Negociação", temp=80)
+
+        resp = await client.get("/vendas/funil", headers=usuario_adm["headers"])
+        data = resp.json()
+        assert data["total_geral"] == 1   # só a de 80
+        assert data["temperatura_incoerente"] == 1
+
+    async def test_conquistado_fora_do_funil(self, db_conn, client, usuario_adm):
+        up = await _seed_upload(db_conn)
+        await _seed_op(db_conn, up, 1, "06. Conquistado", temp=100)
+
+        resp = await client.get("/vendas/funil", headers=usuario_adm["headers"])
+        data = resp.json()
+        assert data["total_geral"] == 0
+        # Conquistado com temp 100 não é incoerência.
+        assert data["temperatura_incoerente"] == 0

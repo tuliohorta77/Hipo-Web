@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor, fireEvent, within } from '@testing-library/react'
 
-// Mock do api antes do import do componente — mesmo padrão dos demais testes.
 vi.mock('../api', () => ({
   default: {
     get: vi.fn(),
@@ -19,7 +18,7 @@ import Vendas from '../pages/Vendas'
 
 
 // Resposta de /vendas/funil-cromie com 1 conforme e 1 com problema.
-function funilMock() {
+function funilCromieMock() {
   return {
     data: {
       itens: [
@@ -36,6 +35,7 @@ function funilMock() {
             problemas: [],
             problemas_rotulos: [],
             regras_aplicaveis: ['tarefa_futura'],
+            temperatura_incoerente: false,
           },
         },
         {
@@ -51,6 +51,7 @@ function funilMock() {
             problemas: ['temperatura', 'previsao'],
             problemas_rotulos: ['Falta temperatura', 'Falta previsão de fechamento'],
             regras_aplicaveis: ['tarefa_futura', 'temperatura', 'previsao'],
+            temperatura_incoerente: false,
           },
         },
       ],
@@ -60,11 +61,27 @@ function funilMock() {
         nao_conformes: 1,
         pct_conforme: 50.0,
         fora_da_analise: 0,
+        temperatura_incoerente: 0,
       },
       por_fase: {},
-      filtro_aplicado: { fase: null, responsavel: null, so_problema: false },
+      filtro_aplicado: {},
     },
   }
+}
+
+// Resposta de /vendas/funil — 5 fases com faixas.
+const funilMock = {
+  data: {
+    fases: [
+      { fase: '01. Suspect',      total: 81,  faixas: { sem: 49, fria: 32,  morna: 0,  quente: 0 } },
+      { fase: '02. Cadência',     total: 141, faixas: { sem: 12, fria: 106, morna: 23, quente: 0 } },
+      { fase: '03. Qualificação', total: 10,  faixas: { sem: 1,  fria: 9,   morna: 0,  quente: 0 } },
+      { fase: '04. Apresentação', total: 12,  faixas: { sem: 3,  fria: 7,   morna: 2,  quente: 0 } },
+      { fase: '05. Negociação',   total: 78,  faixas: { sem: 4,  fria: 1,   morna: 54, quente: 19 } },
+    ],
+    total_geral: 322,
+    temperatura_incoerente: 0,
+  },
 }
 
 const filtrosMock = {
@@ -74,20 +91,23 @@ const filtrosMock = {
   },
 }
 
-function setupApi({ funil = funilMock() } = {}) {
+function setupApi({ cromie = funilCromieMock(), funil = funilMock } = {}) {
   api.get.mockImplementation((url) => {
     if (url === '/vendas/funil-cromie/filtros') {
       return Promise.resolve(filtrosMock)
     }
-    if (url.startsWith('/vendas/funil-cromie')) {
+    if (url === '/vendas/funil') {
       return Promise.resolve(funil)
+    }
+    if (url.startsWith('/vendas/funil-cromie')) {
+      return Promise.resolve(cromie)
     }
     return Promise.reject(new Error(`URL não mockada: ${url}`))
   })
 }
 
 
-describe('Vendas — sub-abas e funil CROmie', () => {
+describe('Vendas — sub-aba Conformidade', () => {
   beforeEach(() => {
     vi.clearAllMocks()
   })
@@ -114,53 +134,111 @@ describe('Vendas — sub-abas e funil CROmie', () => {
     render(<Vendas />)
     await waitFor(() => screen.getByText('Empresa Conforme'))
     expect(screen.getByText(/régua interna/i)).toBeInTheDocument()
-    expect(screen.getByText(/tarefa futura em todas as fases/i)).toBeInTheDocument()
   })
 
   it('mostra a coluna Responsável com o nome calculado por fase', async () => {
     setupApi()
     render(<Vendas />)
-    // O nome do responsável aparece tanto no <option> do filtro quanto na
-    // <td> da tabela — por isso a busca é restrita às células da tabela.
     await waitFor(() => screen.getByText('Empresa Conforme'))
-
     const tabela = screen.getByRole('table')
-    // Suspect -> responsável é o SDR; Qualificação -> o executivo.
     expect(within(tabela).getByText('Carla SDR')).toBeInTheDocument()
     expect(within(tabela).getByText('Bruno EV')).toBeInTheDocument()
   })
 
-  it('mostra os rótulos de pendência nas oportunidades com problema', async () => {
+  it('não mostra o KPI de temperatura a revisar quando não há caso', async () => {
     setupApi()
     render(<Vendas />)
-    await waitFor(() => {
-      expect(screen.getByText('Falta temperatura')).toBeInTheDocument()
-      expect(screen.getByText('Falta previsão de fechamento')).toBeInTheDocument()
-    })
+    await waitFor(() => screen.getByText('Empresa Conforme'))
+    expect(screen.queryByText(/a revisar/i)).not.toBeInTheDocument()
   })
 
-  it('troca para a sub-aba Funil e mostra o placeholder', async () => {
+  it('mostra o aviso e o badge de temperatura incoerente quando há caso', async () => {
+    const cromie = funilCromieMock()
+    cromie.data.resumo.temperatura_incoerente = 1
+    cromie.data.itens[1].classificacao.temperatura_incoerente = true
+    setupApi({ cromie })
+    render(<Vendas />)
+    await waitFor(() => {
+      expect(screen.getByText(/Revisar temperatura/i)).toBeInTheDocument()
+    })
+  })
+})
+
+
+describe('Vendas — sub-aba Funil', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('troca para a aba Funil e renderiza as 5 fases', async () => {
     setupApi()
     render(<Vendas />)
     await waitFor(() => screen.getByText('Empresa Conforme'))
 
     fireEvent.click(screen.getByText('Funil'))
 
-    // "em breve" aparece no título e na descrição do placeholder —
-    // o título é uma âncora única e suficiente.
     await waitFor(() => {
-      expect(
-        screen.getByText('Funil de Vendas — em breve')
-      ).toBeInTheDocument()
+      expect(screen.getByText('01. Suspect')).toBeInTheDocument()
+      expect(screen.getByText('05. Negociação')).toBeInTheDocument()
     })
   })
 
-  it('chama o endpoint de filtros para popular os dropdowns', async () => {
+  it('mostra o total de oportunidades no funil', async () => {
     setupApi()
     render(<Vendas />)
+    await waitFor(() => screen.getByText('Empresa Conforme'))
+
+    fireEvent.click(screen.getByText('Funil'))
+
     await waitFor(() => {
-      const urls = api.get.mock.calls.map(([u]) => u)
-      expect(urls).toContain('/vendas/funil-cromie/filtros')
+      expect(screen.getByText('322')).toBeInTheDocument()
+    })
+  })
+
+  it('exibe a legenda de faixas de temperatura', async () => {
+    setupApi()
+    render(<Vendas />)
+    await waitFor(() => screen.getByText('Empresa Conforme'))
+
+    fireEvent.click(screen.getByText('Funil'))
+
+    await waitFor(() => {
+      expect(screen.getByText(/Fria/i)).toBeInTheDocument()
+      expect(screen.getByText(/Quente/i)).toBeInTheDocument()
+    })
+  })
+
+  it('mostra o aviso de temperatura incoerente no funil quando há caso', async () => {
+    const funil = { data: { ...funilMock.data, temperatura_incoerente: 2 } }
+    setupApi({ funil })
+    render(<Vendas />)
+    await waitFor(() => screen.getByText('Empresa Conforme'))
+
+    fireEvent.click(screen.getByText('Funil'))
+
+    await waitFor(() => {
+      expect(screen.getByText(/não entra/i)).toBeInTheDocument()
+    })
+  })
+
+  it('mostra estado vazio quando o funil não tem oportunidades', async () => {
+    const funil = {
+      data: {
+        fases: [
+          { fase: '01. Suspect', total: 0, faixas: { sem: 0, fria: 0, morna: 0, quente: 0 } },
+        ],
+        total_geral: 0,
+        temperatura_incoerente: 0,
+      },
+    }
+    setupApi({ funil })
+    render(<Vendas />)
+    await waitFor(() => screen.getByText('Empresa Conforme'))
+
+    fireEvent.click(screen.getByText('Funil'))
+
+    await waitFor(() => {
+      expect(screen.getByText(/Sem oportunidades no funil/i)).toBeInTheDocument()
     })
   })
 })

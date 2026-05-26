@@ -1,23 +1,27 @@
 """
 HIPO — Router do módulo Vendas.
 
-Primeira visualização: o Funil de Vendas CROmie — classifica as
-oportunidades ATIVAS pela "régua interna" de utilização correta do
-CROmie (ver services/vendas_cromie.py para a definição das regras).
+Duas visualizações sobre as oportunidades ATIVAS do CROmie:
 
-ATENÇÃO: a régua interna é mais exigente que o indicador PEX oficial
-(cobra tarefa futura em todas as fases). O percentual devolvido aqui
-NÃO é o número que a consultoria de campo da Omie apura — é uma
-ferramenta interna de correção. O frontend deixa isso explícito.
+1. Funil-cromie (aba "Conformidade") — classifica as oportunidades
+   pela "régua interna" de utilização correta do CROmie. Ver
+   services/vendas_cromie.py para a definição das regras.
+
+   ATENÇÃO: a régua interna é mais exigente que o indicador PEX
+   oficial (cobra tarefa futura em todas as fases). O percentual
+   devolvido NÃO é o número que a consultoria de campo da Omie apura.
+
+2. Funil de Vendas (aba "Funil") — agrega as oportunidades ativas por
+   fase x faixa de temperatura, para a visualização em funil.
 
 Responsável pela oportunidade: depende da fase. Nas fases iniciais
 (Suspect, Cadência) o responsável é o SDR (coluna sdr_fr); nas demais
-é o executivo de vendas (coluna executivo_vendas). O filtro
-?responsavel= e o endpoint /filtros respeitam essa regra.
+é o executivo de vendas (coluna executivo_vendas).
 
 Endpoints:
   GET /vendas/funil-cromie          — oportunidades ativas classificadas
   GET /vendas/funil-cromie/filtros  — valores distintos p/ os dropdowns
+  GET /vendas/funil                 — agregação por fase x temperatura
 """
 from __future__ import annotations
 
@@ -27,7 +31,12 @@ from fastapi import APIRouter, Depends, Query
 
 from database import get_conn
 from routers.auth import usuario_atual
-from services.vendas_cromie import resumir_funil, FASES_ANALISADAS, FASES_DO_SDR
+from services.vendas_cromie import (
+    resumir_funil,
+    montar_funil,
+    FASES_ANALISADAS,
+    FASES_DO_SDR,
+)
 
 router = APIRouter()
 
@@ -46,13 +55,14 @@ _COLUNAS = """
     dias_parado, ultima_tarefa_dias, data_atualizacao
 """
 
+# Colunas mínimas para a agregação do funil (fase + temperatura).
+_COLUNAS_FUNIL = "fase, temperatura"
+
 # Lista de fases do SDR como literal SQL — usada na expressão CASE do
 # "responsável pela fase". É um literal (e não um parâmetro) de
 # propósito: a expressão CASE pode aparecer numa posição (cast de array)
 # em que o Postgres não consegue inferir o tipo de um parâmetro $N.
-# As fases são valores fixos e seguros, definidos no código (não vêm do
-# usuário), então embuti-las como literal é seguro — sem risco de SQL
-# injection. FASES_DO_SDR vem de services.vendas_cromie.
+# As fases são valores fixos definidos no código (não vêm do usuário).
 _FASES_SDR_SQL = ", ".join(
     "'" + f.replace("'", "''") + "'" for f in sorted(FASES_DO_SDR)
 )
@@ -79,6 +89,11 @@ async def funil_cromie(
     so_problema: bool = Query(
         False, description="Se true, devolve apenas oportunidades não conformes."
     ),
+    so_incoerente: bool = Query(
+        False,
+        description="Se true, devolve apenas oportunidades com temperatura "
+                    "incoerente (temp 100 em fase ativa).",
+    ),
     conn=Depends(get_conn),
     _user=Depends(usuario_atual),
 ):
@@ -86,10 +101,10 @@ async def funil_cromie(
     Lista as oportunidades ATIVAS classificadas pela régua interna do
     funil CROmie, com um resumo agregado para o cabeçalho da tela.
 
-    O filtro por fase/responsável é aplicado no SQL. O filtro
-    'so_problema' é aplicado DEPOIS da classificação (depende do
-    resultado), e por isso o 'resumo' é sempre calculado sobre o
-    conjunto completo (sem so_problema) — o cabeçalho mostra o
+    O filtro por fase/responsável é aplicado no SQL. Os filtros
+    'so_problema' e 'so_incoerente' são aplicados DEPOIS da
+    classificação (dependem do resultado), e por isso o 'resumo' é
+    sempre calculado sobre o conjunto completo — o cabeçalho mostra o
     panorama real, não o filtrado.
 
     Parâmetros SQL são adicionados APENAS quando o filtro correspondente
@@ -104,8 +119,6 @@ async def funil_cromie(
         where.append(f"fase = ${len(args)}")
     if responsavel:
         args.append(responsavel)
-        # A expressão do responsável usa fases como literal SQL, então
-        # o único parâmetro aqui é o nome do responsável.
         where.append(f"({_RESPONSAVEL_SQL}) = ${len(args)}")
 
     where_sql = " AND ".join(where)
@@ -118,8 +131,6 @@ async def funil_cromie(
     rows = await conn.fetch(sql, *args)
     oportunidades = [dict(r) for r in rows]
 
-    # Classifica tudo. O resumo reflete o conjunto filtrado por
-    # fase/responsável (mas NÃO por so_problema).
     resultado = resumir_funil(oportunidades)
 
     itens = resultado["itens"]
@@ -128,6 +139,11 @@ async def funil_cromie(
             it for it in itens
             if it["classificacao"]["fase_analisada"]
             and not it["classificacao"]["conforme"]
+        ]
+    if so_incoerente:
+        itens = [
+            it for it in itens
+            if it["classificacao"]["temperatura_incoerente"]
         ]
 
     return {
@@ -138,6 +154,7 @@ async def funil_cromie(
             "fase": fase,
             "responsavel": responsavel,
             "so_problema": so_problema,
+            "so_incoerente": so_incoerente,
         },
     }
 
@@ -153,8 +170,7 @@ async def funil_cromie_filtros(
     - fases: as fases analisadas (ordem fixa do funil), apenas as que
       têm ao menos uma oportunidade ativa.
     - responsaveis: nomes distintos do responsável pela fase — SDRs
-      (das fases iniciais) e executivos (das demais) numa lista única,
-      ordenada. É a lista que alimenta o filtro unificado "Responsável".
+      (das fases iniciais) e executivos (das demais) numa lista única.
     """
     fases_rows = await conn.fetch(
         """
@@ -165,11 +181,8 @@ async def funil_cromie_filtros(
         _STATUS_ATIVO, FASES_ANALISADAS,
     )
     fases_presentes = {r["fase"] for r in fases_rows}
-    # Mantém a ordem do funil, não a ordem alfabética.
     fases = [f for f in FASES_ANALISADAS if f in fases_presentes]
 
-    # Responsáveis: aplica a mesma expressão CASE (com fases literais)
-    # e coleta os distintos. O único parâmetro aqui é o status.
     resp_rows = await conn.fetch(
         f"""
         SELECT DISTINCT ({_RESPONSAVEL_SQL}) AS responsavel
@@ -185,3 +198,37 @@ async def funil_cromie_filtros(
     )
 
     return {"fases": fases, "responsaveis": responsaveis}
+
+
+@router.get("/funil")
+async def funil(
+    conn=Depends(get_conn),
+    _user=Depends(usuario_atual),
+):
+    """
+    Funil de Vendas — agrega as oportunidades ATIVAS por fase x faixa
+    de temperatura, para a aba "Funil".
+
+    São consideradas apenas as 5 fases ativas (Suspect..Negociação);
+    Conquistado fica de fora. Oportunidades com temperatura 100
+    (conquistado) numa fase ativa NÃO entram nas faixas — são contadas
+    à parte em 'temperatura_incoerente' (rede de segurança; ver
+    services/vendas_cromie.py).
+
+    Returns:
+      dict com:
+        - fases: lista na ordem do funil; cada item tem 'fase',
+          'total' e 'faixas' {sem, fria, morna, quente}.
+        - total_geral: soma das oportunidades em todas as fases.
+        - temperatura_incoerente: nº de OPs ativas com temp 100.
+    """
+    rows = await conn.fetch(
+        f"""
+        SELECT {_COLUNAS_FUNIL}
+        FROM cliente_oportunidade
+        WHERE status ILIKE $1
+        """,
+        _STATUS_ATIVO,
+    )
+    oportunidades = [dict(r) for r in rows]
+    return montar_funil(oportunidades)

@@ -3,24 +3,26 @@
 // Módulo Vendas. Duas sub-abas:
 //   - Conformidade: Funil de Vendas CROmie — classifica as oportunidades
 //     ATIVAS pela "régua interna" de utilização correta do CROmie.
-//   - Funil: placeholder ("em breve") — visualização futura do funil.
+//   - Funil: o Funil de Vendas — oportunidades ativas agregadas por
+//     fase x faixa de temperatura, em formato de funil.
 //
 // IMPORTANTE — a aba Conformidade NÃO é a apuração oficial do PEX:
 //   O indicador PEX "Utilização correta do CROmie" cobra tarefa futura
 //   apenas em Suspect/Cadência/Qualificação. Por decisão de gestão, esta
 //   tela cobra tarefa futura em TODAS as fases ativas — régua interna,
 //   mais exigente. O percentual tende a ser menor que o número apurado
-//   pela consultoria de campo da Omie. A tela deixa isso explícito.
+//   pela consultoria de campo da Omie.
 //
-// Responsável pela oportunidade: o backend já calcula por fase — SDR
-// nas fases iniciais (Suspect/Cadência), executivo de vendas nas demais.
-// A coluna e o filtro "Responsável" usam esse campo unificado.
+// Temperatura incoerente: temperatura 100 = oportunidade conquistada.
+//   Uma OP ATIVA com temperatura 100 é uma incoerência (provável OP
+//   fechada que não teve o status atualizado no CROmie). Essas OPs são
+//   excluídas do funil e sinalizadas na Conformidade. Hoje a base não
+//   tem nenhum caso — os elementos de alerta só aparecem se houver.
 //
 // Acesso: mesmo módulo 'clientes' (quem vê Clientes vê Vendas).
 
 import { useState, useEffect, useCallback } from 'react';
 import {
-  RefreshCw,
   TrendingUp,
   CheckCircle2,
   AlertTriangle,
@@ -51,26 +53,40 @@ function fmtData(d) {
   }
 }
 
-// Cor do percentual de conformidade — termômetro visual.
 function toneDoPct(pct) {
   if (pct >= 100) return 'success';
   if (pct >= 80) return 'warning';
   return 'danger';
 }
 
+// Faixas de temperatura do funil — código, rótulo e cor.
+// A cor é fixa por faixa (decisão de produto). Mantida em sincronia
+// com services/vendas_cromie.py (FAIXAS_TEMPERATURA / ROTULO_FAIXA).
+const FAIXAS = [
+  { key: 'sem',    label: 'Sem temperatura', cor: '#94a3b8' },
+  { key: 'fria',   label: 'Fria (10–40)',    cor: '#60a5fa' },
+  { key: 'morna',  label: 'Morna (50–70)',   cor: '#fbbf24' },
+  { key: 'quente', label: 'Quente (80–90)',  cor: '#f97316' },
+];
+
+// Largura relativa de cada degrau do funil, na ordem das fases.
+// Decisão de produto: largura decrescente FIXA (cara de funil
+// clássico) — a quantidade real fica no rótulo, não na largura.
+const LARGURA_FASE = [100, 86, 72, 58, 44];
+
 
 // ── Sub-aba Conformidade ─────────────────────────────────────────
 
 function AbaConformidade() {
-  const [dados, setDados] = useState(null); // { itens, resumo, por_fase }
+  const [dados, setDados] = useState(null);
   const [opcoesFiltro, setOpcoesFiltro] = useState({ fases: [], responsaveis: [] });
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState(null);
 
-  // Filtros
   const [fase, setFase] = useState('');
   const [responsavel, setResponsavel] = useState('');
   const [soProblema, setSoProblema] = useState(false);
+  const [soIncoerente, setSoIncoerente] = useState(false);
 
   const carregarFiltros = useCallback(async () => {
     try {
@@ -89,6 +105,7 @@ function AbaConformidade() {
       if (fase) params.set('fase', fase);
       if (responsavel) params.set('responsavel', responsavel);
       if (soProblema) params.set('so_problema', 'true');
+      if (soIncoerente) params.set('so_incoerente', 'true');
       const { data } = await api.get(`/vendas/funil-cromie?${params}`);
       setDados(data);
     } catch (e) {
@@ -99,7 +116,7 @@ function AbaConformidade() {
     } finally {
       setLoading(false);
     }
-  }, [fase, responsavel, soProblema]);
+  }, [fase, responsavel, soProblema, soIncoerente]);
 
   useEffect(() => {
     carregarFiltros();
@@ -111,10 +128,12 @@ function AbaConformidade() {
 
   const resumo = dados?.resumo;
   const itens = dados?.itens || [];
+  // Contador de temperatura incoerente — só vira KPI se houver caso.
+  const incoerentes = resumo?.temperatura_incoerente || 0;
+  const temFiltro = fase || responsavel || soProblema || soIncoerente;
 
   return (
     <>
-      {/* Aviso fixo: esta é a régua interna, não o PEX oficial. */}
       <div className="mb-4 flex items-start gap-2 rounded-lg border border-hipo-border bg-hipo-bg px-4 py-3 text-sm text-hipo-slate">
         <Info size={16} className="mt-0.5 shrink-0 text-hipo-blue" />
         <p>
@@ -133,7 +152,6 @@ function AbaConformidade() {
         </AlertMessage>
       )}
 
-      {/* KPIs */}
       {resumo && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
           <KpiCard
@@ -154,17 +172,35 @@ function AbaConformidade() {
             Icon={AlertTriangle}
             tone={resumo.nao_conformes > 0 ? 'danger' : 'success'}
           />
-          <KpiCard
-            label="Oportunidades ativas"
-            value={resumo.total_analisadas.toLocaleString('pt-BR')}
-            Icon={TrendingUp}
-            tone="info"
-          />
+          {incoerentes > 0 ? (
+            <KpiCard
+              label="A revisar (temp. 100)"
+              value={incoerentes.toLocaleString('pt-BR')}
+              Icon={AlertTriangle}
+              tone="danger"
+            />
+          ) : (
+            <KpiCard
+              label="Oportunidades ativas"
+              value={resumo.total_analisadas.toLocaleString('pt-BR')}
+              Icon={TrendingUp}
+              tone="info"
+            />
+          )}
         </div>
       )}
 
+      {/* Aviso de temperatura incoerente — só quando há caso. */}
+      {incoerentes > 0 && (
+        <AlertMessage tipo="aviso" className="mb-4">
+          {incoerentes.toLocaleString('pt-BR')} oportunidade(s) ativa(s) com
+          temperatura 100 (valor reservado a "Conquistado"). Provável
+          oportunidade fechada sem atualização do status no CROmie —
+          recomendamos revisar.
+        </AlertMessage>
+      )}
+
       <Card>
-        {/* Filtros */}
         <div className="flex flex-wrap items-center gap-2 mb-4">
           <select
             value={fase}
@@ -202,13 +238,27 @@ function AbaConformidade() {
             Só com problema
           </label>
 
-          {(fase || responsavel || soProblema) && (
+          {/* Filtro de temperatura incoerente — só aparece se houver caso. */}
+          {incoerentes > 0 && (
+            <label className="flex items-center gap-2 text-sm text-hipo-danger cursor-pointer select-none px-2">
+              <input
+                type="checkbox"
+                checked={soIncoerente}
+                onChange={(e) => setSoIncoerente(e.target.checked)}
+                className="w-4 h-4 accent-hipo-danger cursor-pointer"
+              />
+              Só temperatura incoerente
+            </label>
+          )}
+
+          {temFiltro && (
             <Button
               variant="ghost"
               onClick={() => {
                 setFase('');
                 setResponsavel('');
                 setSoProblema(false);
+                setSoIncoerente(false);
               }}
             >
               Limpar filtros
@@ -224,13 +274,13 @@ function AbaConformidade() {
           <Empty
             Icon={CheckCircle2}
             title={
-              soProblema
-                ? 'Nenhuma oportunidade com problema'
+              soProblema || soIncoerente
+                ? 'Nenhuma oportunidade no filtro'
                 : 'Nenhuma oportunidade ativa'
             }
             description={
-              soProblema
-                ? 'Com os filtros atuais, todas as oportunidades estão conformes.'
+              soProblema || soIncoerente
+                ? 'Com os filtros atuais, nenhuma oportunidade foi encontrada.'
                 : 'Faça upload da planilha de Oportunidades no módulo Clientes.'
             }
           />
@@ -277,11 +327,20 @@ function AbaConformidade() {
                         )}
                       </Td>
                       <Td>
-                        {cls.conforme ? (
-                          <span className="text-xs text-hipo-muted">—</span>
-                        ) : (
-                          <div className="flex flex-wrap gap-1">
-                            {cls.problemas_rotulos.map((p) => (
+                        <div className="flex flex-wrap gap-1">
+                          {/* Badge de temperatura incoerente — só quando aplicável. */}
+                          {cls.temperatura_incoerente && (
+                            <span
+                              className="text-[11px] font-medium px-1.5 py-0.5 rounded
+                                         bg-hipo-dangerSoft text-hipo-danger"
+                            >
+                              ⚠ Revisar temperatura
+                            </span>
+                          )}
+                          {cls.conforme && !cls.temperatura_incoerente ? (
+                            <span className="text-xs text-hipo-muted">—</span>
+                          ) : (
+                            cls.problemas_rotulos.map((p) => (
                               <span
                                 key={p}
                                 className="text-[11px] font-medium px-1.5 py-0.5 rounded
@@ -289,9 +348,9 @@ function AbaConformidade() {
                               >
                                 {p}
                               </span>
-                            ))}
-                          </div>
-                        )}
+                            ))
+                          )}
+                        </div>
                       </Td>
                       <Td align="right" className="whitespace-nowrap text-hipo-slate">
                         {fmtData(o.data_atualizacao)}
@@ -309,17 +368,155 @@ function AbaConformidade() {
 }
 
 
-// ── Sub-aba Funil (placeholder) ──────────────────────────────────
+// ── Sub-aba Funil ────────────────────────────────────────────────
 
 function AbaFunil() {
+  const [dados, setDados] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [msg, setMsg] = useState(null);
+
+  const carregar = useCallback(async () => {
+    setLoading(true);
+    setMsg(null);
+    try {
+      const { data } = await api.get('/vendas/funil');
+      setDados(data);
+    } catch (e) {
+      const detail = e.response?.data?.detail;
+      const txt = typeof detail === 'string' ? detail : e.message;
+      setMsg({ tipo: 'erro', texto: `Erro ao carregar o funil: ${txt}` });
+      setDados(null);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    carregar();
+  }, [carregar]);
+
+  if (loading) {
+    return (
+      <Card>
+        <p className="text-sm text-hipo-slate text-center py-8">
+          Carregando o funil...
+        </p>
+      </Card>
+    );
+  }
+
+  if (msg) {
+    return <AlertMessage tipo={msg.tipo}>{msg.texto}</AlertMessage>;
+  }
+
+  if (!dados || dados.total_geral === 0) {
+    return (
+      <Card>
+        <Empty
+          Icon={BarChart3}
+          title="Sem oportunidades no funil"
+          description="Não há oportunidades ativas para exibir. Faça upload da planilha de Oportunidades no módulo Clientes."
+        />
+      </Card>
+    );
+  }
+
+  const incoerentes = dados.temperatura_incoerente || 0;
+
   return (
-    <Card>
-      <Empty
-        Icon={BarChart3}
-        title="Funil de Vendas — em breve"
-        description="Esta visualização ainda está sendo construída. Em breve você verá aqui o funil de vendas com a evolução das oportunidades por fase."
-      />
-    </Card>
+    <>
+      <div className="grid grid-cols-2 gap-4 mb-6">
+        <KpiCard
+          label="Oportunidades no funil"
+          value={dados.total_geral.toLocaleString('pt-BR')}
+          Icon={TrendingUp}
+          tone="info"
+        />
+        <KpiCard
+          label="Fases ativas"
+          value={dados.fases.length.toLocaleString('pt-BR')}
+          Icon={BarChart3}
+          tone="info"
+        />
+      </div>
+
+      {/* Aviso de OPs excluídas do funil — só quando há caso. */}
+      {incoerentes > 0 && (
+        <AlertMessage tipo="aviso" className="mb-4">
+          {incoerentes.toLocaleString('pt-BR')} oportunidade(s) ativa(s) com
+          temperatura 100 não entra(m) no funil. Veja na aba Conformidade.
+        </AlertMessage>
+      )}
+
+      <Card>
+        {/* Legenda de temperatura */}
+        <div className="flex flex-wrap items-center gap-4 mb-5 text-xs text-hipo-slate">
+          {FAIXAS.map((fx) => (
+            <span key={fx.key} className="flex items-center gap-1.5">
+              <span
+                className="w-3 h-3 rounded-sm inline-block"
+                style={{ backgroundColor: fx.cor }}
+              />
+              {fx.label}
+            </span>
+          ))}
+        </div>
+
+        {/* Funil — uma linha por fase */}
+        <div className="space-y-2">
+          {dados.fases.map((f, idx) => {
+            const largura = LARGURA_FASE[idx] ?? 40;
+            const total = f.total;
+            return (
+              <div key={f.fase} className="flex items-center gap-3">
+                <div className="w-32 shrink-0 text-right text-sm font-medium text-hipo-ink">
+                  {f.fase}
+                </div>
+                <div className="flex-1 flex justify-center">
+                  <div
+                    className="flex h-9 rounded-md overflow-hidden border border-hipo-border"
+                    style={{ width: `${largura}%` }}
+                  >
+                    {total === 0 ? (
+                      <div className="w-full bg-hipo-bg" />
+                    ) : (
+                      FAIXAS.map((fx) => {
+                        const n = f.faixas[fx.key] || 0;
+                        if (n <= 0) return null;
+                        const pct = (n / total) * 100;
+                        return (
+                          <div
+                            key={fx.key}
+                            title={`${fx.label}: ${n}`}
+                            style={{
+                              width: `${pct}%`,
+                              backgroundColor: fx.cor,
+                            }}
+                          />
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+                <div className="w-24 shrink-0 text-left">
+                  <div className="text-sm font-medium text-hipo-ink">
+                    {total.toLocaleString('pt-BR')}
+                  </div>
+                  <div className="text-[11px] text-hipo-muted">
+                    oportunidades
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        <p className="text-xs text-hipo-muted mt-5">
+          A largura de cada fase é fixa decrescente — a quantidade real está
+          no número ao lado. As cores indicam a temperatura das oportunidades.
+        </p>
+      </Card>
+    </>
   );
 }
 
@@ -341,7 +538,6 @@ export default function Vendas() {
         subtitle="Funil de Vendas — utilização correta do CROmie."
       />
 
-      {/* Sub-abas */}
       <div className="flex border-b border-hipo-border mb-4">
         {SUB_ABAS.map(({ v, label, Icon }) => (
           <button
