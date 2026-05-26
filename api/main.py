@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from routers import (
     po, pex, auth, bd_ativados, metas, carteira, clientes, clientes_drilldown,
-    bastao,
+    bastao, vendas,
 )
 from routers.permissions import requer_modulo
 
@@ -70,6 +70,13 @@ app.include_router(
 app.include_router(
     clientes_drilldown.router,
     prefix="/clientes", tags=["Clientes - Drilldown"],
+)
+# Vendas: funil CROmie. Usa o modulo 'clientes' (mesma permissao) por
+# decisao de produto — quem ve Clientes ve Vendas.
+app.include_router(
+    vendas.router,
+    prefix="/vendas", tags=["Vendas"],
+    dependencies=[Depends(requer_modulo("clientes"))],
 )
 
 

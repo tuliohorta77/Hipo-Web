@@ -39,6 +39,7 @@ const NAV_ITEMS = [
   { to: '/bd-ativados', label: 'BD Ativados', modulo: 'bd' },
   { to: '/contadores',  label: 'Contadores',  modulo: 'carteira' },
   { to: '/clientes',    label: 'Clientes',    modulo: 'clientes' },
+  { to: '/vendas',      label: 'Vendas',      modulo: 'clientes' },
   { to: '/bastoes',     label: 'Bastões',     modulo: 'carteira', cargos: ['Gerente', 'Franqueado'] },
   { to: '/metas',       label: 'Metas',       modulo: 'metas' },
 ];
