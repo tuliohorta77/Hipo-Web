@@ -4,6 +4,7 @@ HIPO — Testes de permissões por cargo e endpoints de auth.
 Cobertura:
   - Cargo ADM/Franqueado acessa todos os módulos
   - Cargo Hunter/Farmer/EP/Gerente acessa SÓ Carteira; outros endpoints → 403
+  - Cargo EV acessa 'clientes' (Vendas + Clientes), NÃO acessa Carteira
   - GET /auth/me retorna o cargo + lista de módulos
   - PUT /auth/senha troca a senha; senha errada retorna 400
   - Helper modulos_do_cargo retorna conjuntos corretos
@@ -31,16 +32,20 @@ class TestModulosDoCargo:
     def test_farmer_ve_so_carteira(self):
         assert modulos_do_cargo("Farmer") == {"carteira"}
 
-    def test_ep_ve_so_carteira(self):
+    def test_ep_ve_carteira_e_clientes(self):
         assert modulos_do_cargo("EP") == {"carteira", "clientes"}
 
-    def test_gerente_ve_so_carteira(self):
+    def test_gerente_ve_carteira_e_clientes(self):
         assert modulos_do_cargo("Gerente") == {"carteira", "clientes"}
 
-    def test_cargos_antigos_ve_so_carteira(self):
-        # SDR e EV existem no schema antigo, devem manter acesso à carteira
+    def test_ev_ve_so_clientes(self):
+        # EV (Executivo de Vendas): Clientes + Vendas, SEM Contadores.
+        assert modulos_do_cargo("EV") == {"clientes"}
+
+    def test_cargos_compat_antigos_ve_so_carteira(self):
+        # SDR e EC permanecem como compatibilidade (só carteira).
         assert modulos_do_cargo("SDR") == {"carteira"}
-        assert modulos_do_cargo("EV") == {"carteira"}
+        assert modulos_do_cargo("EC") == {"carteira"}
 
     def test_cargo_desconhecido_nada(self):
         assert modulos_do_cargo("DesconhecidoXYZ") == set()
@@ -95,6 +100,13 @@ class TestAuthMe:
         body = resp.json()
         assert set(body["modulos"]) == {"pex", "po", "bd", "metas", "carteira", "clientes", "usuarios"}
 
+    async def test_me_ev_ve_so_clientes(self, db_conn, client):
+        u = await _seed_user(db_conn, client, "EV", "ev1@teste.com")
+        resp = await client.get("/auth/me", headers=u["headers"])
+        body = resp.json()
+        assert body["cargo"] == "EV"
+        assert body["modulos"] == ["clientes"]
+
     async def test_me_sem_token_retorna_401(self, client):
         resp = await client.get("/auth/me")
         assert resp.status_code == 401
@@ -121,11 +133,33 @@ class TestBloqueioPorModulo:
 
     async def test_gerente_no_metas_recebe_403(self, db_conn, client):
         u = await _seed_user(db_conn, client, "Gerente", "g@teste.com")
-        # Qualquer rota do /metas
         resp = await client.get("/metas/catalogo", headers=u["headers"])
-        # 403 ou 405 (Method Not Allowed pra rota não existente) — ambos provam
-        # que o cargo foi rejeitado pelo dependency. Aceitamos só 403:
         assert resp.status_code == 403
+
+    async def test_ev_no_carteira_recebe_403(self, db_conn, client):
+        """EV NÃO tem módulo 'carteira' — tem que bloquear."""
+        u = await _seed_user(db_conn, client, "EV", "ev-block@teste.com")
+        resp = await client.get(
+            "/carteira/dashboard/hunter", headers=u["headers"]
+        )
+        assert resp.status_code == 403
+
+    async def test_ev_no_pex_recebe_403(self, db_conn, client):
+        """EV NÃO tem módulo 'pex'."""
+        u = await _seed_user(db_conn, client, "EV", "ev-pex@teste.com")
+        resp = await client.get("/pex/painel", headers=u["headers"])
+        assert resp.status_code == 403
+
+    async def test_ev_acessa_vendas_e_clientes(self, db_conn, client):
+        """EV tem módulo 'clientes' — vendas e clientes liberados."""
+        u = await _seed_user(db_conn, client, "EV", "ev-ok@teste.com")
+        # Vendas é protegida por requer_modulo('clientes').
+        resp = await client.get(
+            "/vendas/funil-cromie/filtros", headers=u["headers"]
+        )
+        assert resp.status_code != 403, "EV foi bloqueado de Vendas"
+        resp = await client.get("/vendas/funil", headers=u["headers"])
+        assert resp.status_code != 403, "EV foi bloqueado de /vendas/funil"
 
     async def test_adm_passa_em_todos_modulos(self, client, usuario_adm):
         for rota in ["/pex/painel", "/po/reconciliacao/ultima", "/bd-ativados/resumo"]:
@@ -138,7 +172,9 @@ class TestBloqueioPorModulo:
             resp = await client.get(rota, headers=u["headers"])
             assert resp.status_code != 403, f"{rota} retornou 403 pro Franqueado!"
 
-    async def test_todos_cargos_validos_acessam_carteira(self, db_conn, client):
+    async def test_todos_cargos_com_carteira_acessam_carteira(self, db_conn, client):
+        # Cargos que TÊM 'carteira' devem passar. EV NÃO entra nesta lista:
+        # EV não tem 'carteira' (testado em test_ev_no_carteira_recebe_403).
         for cargo in ["Hunter", "Farmer", "EP", "Gerente", "Franqueado"]:
             u = await _seed_user(db_conn, client, cargo, f"u-{cargo.lower()}@teste.com")
             resp = await client.get("/carteira/dashboard/hunter", headers=u["headers"])

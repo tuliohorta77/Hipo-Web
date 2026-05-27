@@ -3,14 +3,19 @@ HIPO -- Permissões por cargo (controle de acesso aos módulos).
 
 Cargos e seus módulos:
   ADM, Franqueado:  tudo
-  Gerente, EP:      pex + po + bd + metas + carteira + clientes + usuarios
-  Hunter, Farmer:   só carteira (contadores)
-  SDR, EV, EC:      só carteira (compat)
+  Gerente, EP:      carteira + clientes
+  EV:               clientes              (Vendas + Clientes, SEM Contadores)
+  Hunter, Farmer:   só carteira (Contadores)
+  SDR, EC:          só carteira (compat)
 
 Notas:
   - O módulo é chamado 'carteira' no backend mas o frontend o chama
     de "Contadores" (renomeação visual, não estrutural).
-  - 'clientes' é o módulo de oportunidades/leads + tarefas.
+  - 'clientes' é o módulo de oportunidades/leads + tarefas, e a página
+    Vendas também é protegida por ele (decisão de produto:
+    "quem vê Clientes vê Vendas").
+  - EV (Executivo de Vendas) tem 'clientes' mas NÃO tem 'carteira':
+    vê Clientes + Vendas e não vê Contadores.
   - Rotas que servem ao drilldown da carteira (ex: /clientes/contador-leads)
     devem usar requer_qualquer_modulo(["clientes", "carteira"]) para
     permitir que Hunter/Farmer (que só têm 'carteira') também acessem.
@@ -30,10 +35,14 @@ CARGOS_ADMIN = {"ADM", "Franqueado"}
 # Cargos com acesso a Contadores + Clientes (mas não admin).
 CARGOS_GESTAO = {"Gerente", "EP"}
 
+# Cargos de Vendas: Clientes + Vendas, SEM Contadores.
+CARGOS_VENDAS = {"EV"}
+
 # Cargos que veem só Contadores (acesso a leads é via drilldown).
+# Mantemos SDR e EC por compat com o schema antigo.
 CARGOS_OPERACIONAL = {
     "Hunter", "Farmer",
-    "SDR", "EV", "EC",  # cargos antigos do schema, mantidos por compat
+    "SDR", "EC",
 }
 
 
@@ -47,7 +56,7 @@ def modulos_do_cargo(cargo: str | None) -> set[str]:
       - 'bd'         : BD Ativados
       - 'metas'      : Configuração de metas
       - 'carteira'   : Contadores (Hunter/Farmer/Outros + upload)
-      - 'clientes'   : Oportunidades + Tarefas de clientes
+      - 'clientes'   : Oportunidades + Tarefas de clientes (cobre Vendas)
       - 'usuarios'   : Gestão de usuários (futuro)
     """
     if not cargo:
@@ -55,8 +64,10 @@ def modulos_do_cargo(cargo: str | None) -> set[str]:
     if cargo in CARGOS_ADMIN:
         return {"pex", "po", "bd", "metas", "carteira", "clientes", "usuarios"}
     if cargo in CARGOS_GESTAO:
-        # Gerente e EP veem apenas Contadores e Clientes
         return {"carteira", "clientes"}
+    if cargo in CARGOS_VENDAS:
+        # Vendas e Clientes, sem Contadores.
+        return {"clientes"}
     if cargo in CARGOS_OPERACIONAL:
         return {"carteira"}
     return set()
@@ -68,18 +79,23 @@ def deve_filtrar_por_usuario(cargo: str | None) -> bool:
     vinculado ao usuário logado (v1.3.0 — visibilidade por colaborador).
 
     Regra:
-      - Cargos ADMIN (ADM, Franqueado) e GESTÃO (Gerente, EP) veem a
-        carteira inteira  -> retorna False (sem filtro).
-      - Cargos OPERACIONAIS (Hunter, Farmer, SDR, EV, EC) veem apenas
-        a própria fatia    -> retorna True (filtra por usuario_id).
+      - Cargos ADMIN (ADM, Franqueado), GESTÃO (Gerente, EP) e VENDAS
+        (EV) veem o conjunto inteiro -> retorna False (sem filtro).
+      - Cargos OPERACIONAIS (Hunter, Farmer, SDR, EC) veem apenas a
+        própria fatia -> retorna True (filtra por usuario_id).
       - Cargo desconhecido ou ausente: por segurança, retorna True
         (filtra). Um cargo não mapeado não deve ver tudo por acidente.
+
+    Nota: EV não tem o módulo 'carteira', então na prática essa função
+    nem é consultada para EV nos endpoints de Carteira. Mas se um dia
+    EV ganhar acesso parcial à carteira (ex: ver os próprios contadores),
+    esta função precisará ser revista.
 
     Usada pelos endpoints de dashboard/resumo do router de carteira.
     """
     if not cargo:
         return True
-    if cargo in CARGOS_ADMIN or cargo in CARGOS_GESTAO:
+    if cargo in CARGOS_ADMIN or cargo in CARGOS_GESTAO or cargo in CARGOS_VENDAS:
         return False
     # Operacionais e quaisquer cargos não mapeados: filtra.
     return True
