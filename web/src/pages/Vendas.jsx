@@ -1,10 +1,11 @@
 // web/src/pages/Vendas.jsx
 //
-// Módulo Vendas. Duas sub-abas:
-//   - Conformidade: régua interna de utilização correta do CROmie.
+// Módulo Vendas. Duas sub-abas, na ordem Funil → Conformidade:
 //   - Funil: o Funil de Vendas — oportunidades ativas por fase x faixa
 //     de temperatura, com valor (proposta_nmrr). A temperatura aqui é a
-//     previsão de venda: quanto mais alta, mais perto de fechar.
+//     previsão de venda: quanto mais alta, mais perto de fechar. Abre
+//     por padrão — é a tela do dia-a-dia do EV.
+//   - Conformidade: régua interna de utilização correta do CROmie.
 //
 // IMPORTANTE — a aba Conformidade NÃO é a apuração oficial do PEX:
 //   cobra tarefa futura em todas as fases (régua interna, mais
@@ -25,7 +26,7 @@
 //   id da URL. Tanto a tabela da aba Conformidade quanto a do drawer
 //   da aba Funil expõem o ícone de abrir no CROmie.
 //
-// Acesso: mesmo módulo 'clientes' (quem vê Clientes vê Vendas).
+// Acesso: módulo 'clientes' (EP/Gerente/EV/ADM/Franqueado).
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import {
@@ -783,13 +784,15 @@ function AbaFunil() {
 
 // ── Componente principal ─────────────────────────────────────────
 
+// Ordem: Funil primeiro (abre por padrão), Conformidade depois.
+// Funil é a tela do dia-a-dia do EV; Conformidade é diagnóstico/correção.
 const SUB_ABAS = [
-  { v: 'CONFORMIDADE', label: 'Conformidade', Icon: ClipboardCheck },
   { v: 'FUNIL',        label: 'Funil',        Icon: BarChart3 },
+  { v: 'CONFORMIDADE', label: 'Conformidade', Icon: ClipboardCheck },
 ];
 
 export default function Vendas() {
-  const [aba, setAba] = useState('CONFORMIDADE');
+  const [aba, setAba] = useState('FUNIL');
 
   return (
     <>

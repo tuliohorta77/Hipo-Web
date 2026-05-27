@@ -177,72 +177,16 @@ function setupApi({ cromie = funilCromieMock(), funil = funilMock,
 }
 
 
-describe('Vendas — sub-aba Conformidade', () => {
+// ── Aba Funil (abre por padrão) ──────────────────────────────────
+
+describe('Vendas — sub-aba Funil (padrão)', () => {
   beforeEach(() => {
     vi.clearAllMocks()
   })
 
-  it('abre na Conformidade e lista as oportunidades', async () => {
+  it('abre na aba Funil por padrão e renderiza as 5 fases', async () => {
     setupApi()
     render(<Vendas />)
-    await waitFor(() => {
-      expect(screen.getByText('Empresa Conforme')).toBeInTheDocument()
-      expect(screen.getByText('Empresa Com Problema')).toBeInTheDocument()
-    })
-  })
-
-  it('mostra o percentual de conformidade interna', async () => {
-    setupApi()
-    render(<Vendas />)
-    await waitFor(() => {
-      expect(screen.getByText('50%')).toBeInTheDocument()
-    })
-  })
-
-  it('mostra a coluna Responsável', async () => {
-    setupApi()
-    render(<Vendas />)
-    await waitFor(() => screen.getByText('Empresa Conforme'))
-    const tabela = screen.getByRole('table')
-    expect(within(tabela).getByText('Carla SDR')).toBeInTheDocument()
-  })
-
-  it('cada linha da Conformidade tem o link para o CROmie com o op_id certo', async () => {
-    setupApi()
-    render(<Vendas />)
-    await waitFor(() => screen.getByText('Empresa Conforme'))
-
-    const link = screen.getByLabelText(/Abrir Empresa Conforme no CROmie/i)
-    expect(link).toHaveAttribute(
-      'href',
-      'https://app.crm.omie.com.br/business-opportunity/44/700111',
-    )
-    expect(link).toHaveAttribute('target', '_blank')
-  })
-
-  it('mostra o badge de temperatura incoerente quando há caso', async () => {
-    const cromie = funilCromieMock()
-    cromie.data.resumo.temperatura_incoerente = 1
-    cromie.data.itens[1].classificacao.temperatura_incoerente = true
-    setupApi({ cromie })
-    render(<Vendas />)
-    await waitFor(() => {
-      expect(screen.getByText(/Revisar temperatura/i)).toBeInTheDocument()
-    })
-  })
-})
-
-
-describe('Vendas — sub-aba Funil', () => {
-  beforeEach(() => {
-    vi.clearAllMocks()
-  })
-
-  it('troca para a aba Funil e renderiza as 5 fases', async () => {
-    setupApi()
-    render(<Vendas />)
-    await waitFor(() => screen.getByText('Empresa Conforme'))
-    fireEvent.click(screen.getByText('Funil'))
     await waitFor(() => {
       expect(screen.getByText('01. Suspect')).toBeInTheDocument()
       expect(screen.getByText('05. Negociação')).toBeInTheDocument()
@@ -252,8 +196,6 @@ describe('Vendas — sub-aba Funil', () => {
   it('exibe a legenda com Quente e Fechando separados', async () => {
     setupApi()
     render(<Vendas />)
-    await waitFor(() => screen.getByText('Empresa Conforme'))
-    fireEvent.click(screen.getByText('Funil'))
     await waitFor(() => {
       expect(screen.getByText(/Quente \(80\)/i)).toBeInTheDocument()
       expect(screen.getByText(/Fechando \(90\)/i)).toBeInTheDocument()
@@ -263,8 +205,6 @@ describe('Vendas — sub-aba Funil', () => {
   it('clicar numa faixa abre o drawer com a lista do recorte', async () => {
     setupApi()
     render(<Vendas />)
-    await waitFor(() => screen.getByText('Empresa Conforme'))
-    fireEvent.click(screen.getByText('Funil'))
     await waitFor(() => screen.getByText('05. Negociação'))
 
     fireEvent.click(screen.getByLabelText(/05\. Negociação, Fechando/i))
@@ -278,8 +218,6 @@ describe('Vendas — sub-aba Funil', () => {
   it('o drawer tem o link para abrir a OP no CROmie com o op_id certo', async () => {
     setupApi()
     render(<Vendas />)
-    await waitFor(() => screen.getByText('Empresa Conforme'))
-    fireEvent.click(screen.getByText('Funil'))
     await waitFor(() => screen.getByText('05. Negociação'))
 
     fireEvent.click(screen.getByLabelText(/05\. Negociação, Fechando/i))
@@ -296,8 +234,6 @@ describe('Vendas — sub-aba Funil', () => {
   it('filtra o drawer por responsável e recalcula a soma de valor', async () => {
     setupApi()
     render(<Vendas />)
-    await waitFor(() => screen.getByText('Empresa Conforme'))
-    fireEvent.click(screen.getByText('Funil'))
     await waitFor(() => screen.getByText('05. Negociação'))
 
     fireEvent.click(screen.getByLabelText(/05\. Negociação, Fechando/i))
@@ -322,8 +258,6 @@ describe('Vendas — sub-aba Funil', () => {
   it('o drawer fecha ao clicar no botão fechar', async () => {
     setupApi()
     render(<Vendas />)
-    await waitFor(() => screen.getByText('Empresa Conforme'))
-    fireEvent.click(screen.getByText('Funil'))
     await waitFor(() => screen.getByText('05. Negociação'))
 
     fireEvent.click(screen.getByLabelText(/05\. Negociação, Fechando/i))
@@ -350,10 +284,80 @@ describe('Vendas — sub-aba Funil', () => {
     }
     setupApi({ funil })
     render(<Vendas />)
-    await waitFor(() => screen.getByText('Empresa Conforme'))
-    fireEvent.click(screen.getByText('Funil'))
     await waitFor(() => {
       expect(screen.getByText(/Sem oportunidades no funil/i)).toBeInTheDocument()
+    })
+  })
+})
+
+
+// ── Aba Conformidade (acessada por clique) ───────────────────────
+
+describe('Vendas — sub-aba Conformidade', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('mostra a lista de oportunidades ao clicar na aba Conformidade', async () => {
+    setupApi()
+    render(<Vendas />)
+    // Aguarda o funil aparecer (tela inicial).
+    await waitFor(() => screen.getByText('05. Negociação'))
+
+    fireEvent.click(screen.getByText('Conformidade'))
+
+    await waitFor(() => {
+      expect(screen.getByText('Empresa Conforme')).toBeInTheDocument()
+      expect(screen.getByText('Empresa Com Problema')).toBeInTheDocument()
+    })
+  })
+
+  it('mostra o percentual de conformidade interna', async () => {
+    setupApi()
+    render(<Vendas />)
+    await waitFor(() => screen.getByText('05. Negociação'))
+    fireEvent.click(screen.getByText('Conformidade'))
+    await waitFor(() => {
+      expect(screen.getByText('50%')).toBeInTheDocument()
+    })
+  })
+
+  it('mostra a coluna Responsável', async () => {
+    setupApi()
+    render(<Vendas />)
+    await waitFor(() => screen.getByText('05. Negociação'))
+    fireEvent.click(screen.getByText('Conformidade'))
+    await waitFor(() => screen.getByText('Empresa Conforme'))
+
+    const tabela = screen.getByRole('table')
+    expect(within(tabela).getByText('Carla SDR')).toBeInTheDocument()
+  })
+
+  it('cada linha da Conformidade tem o link para o CROmie com o op_id certo', async () => {
+    setupApi()
+    render(<Vendas />)
+    await waitFor(() => screen.getByText('05. Negociação'))
+    fireEvent.click(screen.getByText('Conformidade'))
+    await waitFor(() => screen.getByText('Empresa Conforme'))
+
+    const link = screen.getByLabelText(/Abrir Empresa Conforme no CROmie/i)
+    expect(link).toHaveAttribute(
+      'href',
+      'https://app.crm.omie.com.br/business-opportunity/44/700111',
+    )
+    expect(link).toHaveAttribute('target', '_blank')
+  })
+
+  it('mostra o badge de temperatura incoerente quando há caso', async () => {
+    const cromie = funilCromieMock()
+    cromie.data.resumo.temperatura_incoerente = 1
+    cromie.data.itens[1].classificacao.temperatura_incoerente = true
+    setupApi({ cromie })
+    render(<Vendas />)
+    await waitFor(() => screen.getByText('05. Negociação'))
+    fireEvent.click(screen.getByText('Conformidade'))
+    await waitFor(() => {
+      expect(screen.getByText(/Revisar temperatura/i)).toBeInTheDocument()
     })
   })
 })

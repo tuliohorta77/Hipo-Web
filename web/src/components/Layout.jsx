@@ -13,8 +13,13 @@
 //
 // Permissão por módulo + cargo (v1.2.0 etapa 3):
 //   - ADM/Franqueado → tudo, exceto "Bastões" que é só Gerente+Franqueado
-//   - Gerente/EP → Contadores + Clientes + Bastões (Gerente) + Perfil
-//   - Hunter/Farmer/SDR/EV/EC → Contadores + Perfil
+//   - Gerente/EP → Contadores + Clientes + Vendas + Bastões (Gerente) + Perfil
+//   - EV → Clientes + Vendas + Perfil (NÃO vê Contadores)
+//   - Hunter/Farmer/SDR/EC → Contadores + Perfil
+//
+// Ordem dos itens (UX): Vendas aparece ANTES de Clientes, porque o
+// dia-a-dia do EV gira em torno do funil de Vendas. Mantém Clientes
+// acessível em segundo plano sem virar a primeira coisa que aparece.
 //
 // Items podem ter:
 //   - modulo: string  → checa modulos.includes(modulo)
@@ -33,13 +38,16 @@ import Logo, { LogoWordmark } from './Logo';
 // Pode ter 'cargos' opcional pra restringir além do módulo.
 // 'perfil' não aparece na nav principal — está no dropdown do usuário.
 // '__sempre' é especial: visível pra qualquer logado.
+//
+// Ordem: Vendas aparece antes de Clientes (decisão de UX — funil de
+// vendas é a tela do dia-a-dia do EV).
 const NAV_ITEMS = [
   { to: '/pex',         label: 'PEX',         modulo: 'pex' },
   { to: '/pos',         label: 'POs',         modulo: 'po' },
   { to: '/bd-ativados', label: 'BD Ativados', modulo: 'bd' },
   { to: '/contadores',  label: 'Contadores',  modulo: 'carteira' },
-  { to: '/clientes',    label: 'Clientes',    modulo: 'clientes' },
   { to: '/vendas',      label: 'Vendas',      modulo: 'clientes' },
+  { to: '/clientes',    label: 'Clientes',    modulo: 'clientes' },
   { to: '/bastoes',     label: 'Bastões',     modulo: 'carteira', cargos: ['Gerente', 'Franqueado'] },
   { to: '/metas',       label: 'Metas',       modulo: 'metas' },
 ];
@@ -50,7 +58,7 @@ const USER_MENU_ITEMS = [
   { to: '/perfil', label: 'Perfil', Icon: UserIcon, modulo: '__sempre' },
 ];
 
-// ── Helpers ───────────────────────────────────────────────────
+// ── Helpers ──────────────────────────────────────────────────────
 
 function itemVisivel(item, modulos, cargo) {
   if (!modulos.includes(item.modulo)) return false;
@@ -58,7 +66,7 @@ function itemVisivel(item, modulos, cargo) {
   return true;
 }
 
-// ── Subcomponentes ────────────────────────────────────────────
+// ── Subcomponentes ───────────────────────────────────────────────
 
 function NavItemDesktop({ to, label }) {
   return (
@@ -190,7 +198,7 @@ function UserDropdown({ user }) {
   );
 }
 
-// ── Componente principal ──────────────────────────────────────
+// ── Componente principal ─────────────────────────────────────────
 
 export default function Layout() {
   const user = getUser();

@@ -8,7 +8,10 @@
 // ou topbar, porque NavLink renderiza <a> em ambos.
 //
 // O item "Perfil" agora vive no dropdown do usuário, não na nav principal.
-// Testes atualizados refletem isso: Perfil é acessível via dropdown.
+//
+// Ordem dos itens: Vendas aparece ANTES de Clientes — decisão de UX
+// (funil de vendas é a tela do dia-a-dia do EV). Há um teste dedicado
+// para essa ordem; quem reverter sem propósito vai ver o CI estourar.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, cleanup, fireEvent } from '@testing-library/react'
@@ -61,6 +64,7 @@ describe('Layout — filtragem por módulos (nav principal)', () => {
     expect(navLinks).toContain('BD Ativados')
     expect(navLinks).toContain('Contadores')
     expect(navLinks).toContain('Clientes')
+    expect(navLinks).toContain('Vendas')
     expect(navLinks).toContain('Metas')
     // Não tem mais "Carteira" no menu
     expect(navLinks).not.toContain('Carteira')
@@ -77,6 +81,7 @@ describe('Layout — filtragem por módulos (nav principal)', () => {
     expect(navLinks).toContain('PEX')
     expect(navLinks).toContain('Contadores')
     expect(navLinks).toContain('Clientes')
+    expect(navLinks).toContain('Vendas')
     expect(navLinks).toContain('Bastões')
   })
 
@@ -92,6 +97,7 @@ describe('Layout — filtragem por módulos (nav principal)', () => {
     expect(navLinks).not.toContain('BD Ativados')
     expect(navLinks).not.toContain('Metas')
     expect(navLinks).not.toContain('Clientes')
+    expect(navLinks).not.toContain('Vendas')
     expect(navLinks).not.toContain('Bastões')
   })
 
@@ -104,11 +110,12 @@ describe('Layout — filtragem por módulos (nav principal)', () => {
     expect(navLinks).toContain('Contadores')
     expect(navLinks).not.toContain('PEX')
     expect(navLinks).not.toContain('Clientes')
+    expect(navLinks).not.toContain('Vendas')
     // Hunter tem o módulo 'carteira', mas Bastões exige cargo Gerente/Franqueado
     expect(navLinks).not.toContain('Bastões')
   })
 
-  it('EP vê Contadores + Clientes (NÃO Bastões)', () => {
+  it('EP vê Contadores + Clientes + Vendas (NÃO Bastões)', () => {
     userMock.current = { nome: 'Kethlleen', email: 'k@omie.com.vc', cargo: 'EP' }
     modulosMock.current = ['carteira', 'clientes']
     renderLayout()
@@ -116,6 +123,7 @@ describe('Layout — filtragem por módulos (nav principal)', () => {
     const navLinks = screen.getAllByRole('link').map((a) => a.textContent.trim())
     expect(navLinks).toContain('Contadores')
     expect(navLinks).toContain('Clientes')
+    expect(navLinks).toContain('Vendas')
     expect(navLinks).not.toContain('PEX')
     expect(navLinks).not.toContain('POs')
     expect(navLinks).not.toContain('Metas')
@@ -123,7 +131,7 @@ describe('Layout — filtragem por módulos (nav principal)', () => {
     expect(navLinks).not.toContain('Bastões')
   })
 
-  it('Gerente vê Contadores + Clientes + Bastões', () => {
+  it('Gerente vê Contadores + Clientes + Vendas + Bastões', () => {
     userMock.current = { nome: 'Vinícius', email: 'v@omie.com.vc', cargo: 'Gerente' }
     modulosMock.current = ['carteira', 'clientes']
     renderLayout()
@@ -131,9 +139,23 @@ describe('Layout — filtragem por módulos (nav principal)', () => {
     const navLinks = screen.getAllByRole('link').map((a) => a.textContent.trim())
     expect(navLinks).toContain('Contadores')
     expect(navLinks).toContain('Clientes')
+    expect(navLinks).toContain('Vendas')
     expect(navLinks).toContain('Bastões')
     expect(navLinks).not.toContain('PEX')
     expect(navLinks).not.toContain('POs')
+  })
+
+  it('EV vê Clientes + Vendas (sem Contadores, sem Bastões)', () => {
+    userMock.current = { nome: 'Bruno Goncalo', email: 'bruno.goncalo@omie.com.vc', cargo: 'EV' }
+    modulosMock.current = ['clientes']
+    renderLayout()
+
+    const navLinks = screen.getAllByRole('link').map((a) => a.textContent.trim())
+    expect(navLinks).toContain('Vendas')
+    expect(navLinks).toContain('Clientes')
+    expect(navLinks).not.toContain('Contadores')
+    expect(navLinks).not.toContain('Bastões')
+    expect(navLinks).not.toContain('PEX')
   })
 
   it('Usuário sem módulos não vê nenhum item de nav principal', () => {
@@ -144,6 +166,7 @@ describe('Layout — filtragem por módulos (nav principal)', () => {
     const navLinks = screen.getAllByRole('link').map((a) => a.textContent.trim())
     expect(navLinks).not.toContain('Contadores')
     expect(navLinks).not.toContain('Clientes')
+    expect(navLinks).not.toContain('Vendas')
     expect(navLinks).not.toContain('PEX')
     expect(navLinks).not.toContain('Bastões')
   })
@@ -166,6 +189,24 @@ describe('Layout — filtragem por módulos (nav principal)', () => {
 
     const navLinks = screen.getAllByRole('link').map((a) => a.textContent.trim())
     expect(navLinks).not.toContain('Bastões')
+  })
+
+  // ── Ordem dos itens (UX) ─────────────────────────────────────
+
+  it('Vendas aparece ANTES de Clientes na nav', () => {
+    // Decisão de UX: funil de Vendas é a tela do dia-a-dia do EV;
+    // Clientes fica em segundo plano. Quem tem os dois módulos vê
+    // Vendas primeiro no menu.
+    userMock.current = { nome: 'Tulio', email: 't@hipo.com', cargo: 'ADM' }
+    modulosMock.current = ['pex', 'po', 'bd', 'carteira', 'clientes', 'metas', 'usuarios']
+    renderLayout()
+
+    const navLinks = screen.getAllByRole('link').map((a) => a.textContent.trim())
+    const idxVendas = navLinks.indexOf('Vendas')
+    const idxClientes = navLinks.indexOf('Clientes')
+    expect(idxVendas).toBeGreaterThanOrEqual(0)
+    expect(idxClientes).toBeGreaterThanOrEqual(0)
+    expect(idxVendas).toBeLessThan(idxClientes)
   })
 })
 
