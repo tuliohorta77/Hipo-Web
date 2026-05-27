@@ -19,10 +19,11 @@
 // daquele recorte (fase + faixa). O drawer tem filtro por responsável
 // (recalcula a soma de valor) e um link para abrir a OP no CROmie.
 //
-// Link do CROmie: a OP é acessível em
-//   https://app.crm.omie.com.br/business-opportunity/44/{op_id}
-// onde 44 é o funil (fixo para estas oportunidades) e op_id é o
-// identificador da oportunidade — confirmado igual ao id da URL.
+// Link do CROmie: a oportunidade de VENDAS vive no funil 44 do CROmie,
+//   acessível em https://app.crm.omie.com.br/business-opportunity/44/{op_id}
+//   onde op_id é o identificador da oportunidade — confirmado igual ao
+//   id da URL. Tanto a tabela da aba Conformidade quanto a do drawer
+//   da aba Funil expõem o ícone de abrir no CROmie.
 //
 // Acesso: mesmo módulo 'clientes' (quem vê Clientes vê Vendas).
 
@@ -78,12 +79,31 @@ function toneDoPct(pct) {
   return 'danger';
 }
 
-// Base da URL de uma oportunidade no CROmie. O "44" é o funil — fixo
-// para estas oportunidades. Basta concatenar o op_id.
+// Base da URL de uma oportunidade de VENDAS no CROmie. O "44" é o
+// funil de Oportunidades de Parcerias — fixo para estas oportunidades.
+// Basta concatenar o op_id.
 const CROMIE_OP_BASE = 'https://app.crm.omie.com.br/business-opportunity/44/';
 
 function linkCromie(opId) {
   return `${CROMIE_OP_BASE}${opId}`;
+}
+
+// Ícone-link para abrir uma oportunidade no CROmie. Reutilizado pela
+// tabela da aba Conformidade e pela tabela do drawer.
+function LinkCromie({ opId, nome }) {
+  return (
+    <a
+      href={linkCromie(opId)}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="inline-flex items-center justify-center p-1
+                 rounded text-hipo-blue hover:bg-hipo-bg"
+      aria-label={`Abrir ${nome || 'oportunidade'} no CROmie`}
+      title="Abrir no CROmie"
+    >
+      <ExternalLink size={16} />
+    </a>
+  );
 }
 
 // Faixas de temperatura do funil — código, rótulo e cor.
@@ -322,6 +342,7 @@ function AbaConformidade() {
                   <Th align="center">Situação</Th>
                   <Th>Pendências</Th>
                   <Th align="right">Atualizada</Th>
+                  <Th align="center">CROmie</Th>
                 </Tr>
               </thead>
               <tbody>
@@ -378,6 +399,9 @@ function AbaConformidade() {
                       <Td align="right" className="whitespace-nowrap text-hipo-slate">
                         {fmtData(o.data_atualizacao)}
                       </Td>
+                      <Td align="center">
+                        <LinkCromie opId={o.op_id} nome={o.razao_social} />
+                      </Td>
                     </Tr>
                   );
                 })}
@@ -426,7 +450,6 @@ function DrawerRecorte({ fase, faixa, onClose }) {
     };
   }, [fase, faixa]);
 
-  // Responsáveis distintos PRESENTES neste recorte — popula o dropdown.
   const responsaveis = useMemo(() => {
     const set = new Set();
     (itens || []).forEach((o) => {
@@ -563,17 +586,7 @@ function DrawerRecorte({ fase, faixa, onClose }) {
                             {fmtValor(Number(o.proposta_nmrr))}
                           </Td>
                           <Td align="center">
-                            <a
-                              href={linkCromie(o.op_id)}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="inline-flex items-center justify-center p-1
-                                         rounded text-hipo-blue hover:bg-hipo-bg"
-                              aria-label={`Abrir ${o.razao_social || 'oportunidade'} no CROmie`}
-                              title="Abrir no CROmie"
-                            >
-                              <ExternalLink size={16} />
-                            </a>
+                            <LinkCromie opId={o.op_id} nome={o.razao_social} />
                           </Td>
                         </Tr>
                       ))}

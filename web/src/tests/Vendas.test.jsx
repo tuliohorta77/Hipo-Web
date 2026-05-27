@@ -22,7 +22,7 @@ function funilCromieMock() {
     data: {
       itens: [
         {
-          op_id: 1,
+          op_id: 700111,
           cnpj: '00000000000001',
           razao_social: 'Empresa Conforme',
           fase: '01. Suspect',
@@ -39,7 +39,7 @@ function funilCromieMock() {
           },
         },
         {
-          op_id: 2,
+          op_id: 700222,
           cnpj: '00000000000002',
           razao_social: 'Empresa Com Problema',
           fase: '03. Qualificação',
@@ -71,8 +71,7 @@ function funilCromieMock() {
 }
 
 // Drawer — três OPs, dois responsáveis. Bruno tem duas (1500 + 200 =
-// 1700), Diego uma (600). Somas distintas dos valores de linha. O
-// op_id 1250930 é usado para checar o link do CROmie.
+// 1700), Diego uma (600). Somas distintas dos valores de linha.
 const drawerMock = {
   data: {
     itens: [
@@ -206,6 +205,19 @@ describe('Vendas — sub-aba Conformidade', () => {
     await waitFor(() => screen.getByText('Empresa Conforme'))
     const tabela = screen.getByRole('table')
     expect(within(tabela).getByText('Carla SDR')).toBeInTheDocument()
+  })
+
+  it('cada linha da Conformidade tem o link para o CROmie com o op_id certo', async () => {
+    setupApi()
+    render(<Vendas />)
+    await waitFor(() => screen.getByText('Empresa Conforme'))
+
+    const link = screen.getByLabelText(/Abrir Empresa Conforme no CROmie/i)
+    expect(link).toHaveAttribute(
+      'href',
+      'https://app.crm.omie.com.br/business-opportunity/44/700111',
+    )
+    expect(link).toHaveAttribute('target', '_blank')
   })
 
   it('mostra o badge de temperatura incoerente quando há caso', async () => {
