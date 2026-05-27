@@ -16,8 +16,13 @@
 //   ativa com 100 é incoerência, fica fora do funil.
 //
 // Clique numa faixa do funil abre um drawer com as oportunidades
-// daquele recorte (fase + faixa de temperatura). O drawer tem um
-// filtro por responsável que recalcula a soma de valor.
+// daquele recorte (fase + faixa). O drawer tem filtro por responsável
+// (recalcula a soma de valor) e um link para abrir a OP no CROmie.
+//
+// Link do CROmie: a OP é acessível em
+//   https://app.crm.omie.com.br/business-opportunity/44/{op_id}
+// onde 44 é o funil (fixo para estas oportunidades) e op_id é o
+// identificador da oportunidade — confirmado igual ao id da URL.
 //
 // Acesso: mesmo módulo 'clientes' (quem vê Clientes vê Vendas).
 
@@ -30,6 +35,7 @@ import {
   BarChart3,
   ClipboardCheck,
   DollarSign,
+  ExternalLink,
   X,
 } from 'lucide-react';
 import api from '../api';
@@ -70,6 +76,14 @@ function toneDoPct(pct) {
   if (pct >= 100) return 'success';
   if (pct >= 80) return 'warning';
   return 'danger';
+}
+
+// Base da URL de uma oportunidade no CROmie. O "44" é o funil — fixo
+// para estas oportunidades. Basta concatenar o op_id.
+const CROMIE_OP_BASE = 'https://app.crm.omie.com.br/business-opportunity/44/';
+
+function linkCromie(opId) {
+  return `${CROMIE_OP_BASE}${opId}`;
 }
 
 // Faixas de temperatura do funil — código, rótulo e cor.
@@ -383,8 +397,6 @@ function DrawerRecorte({ fase, faixa, onClose }) {
   const [itens, setItens] = useState(null);
   const [loading, setLoading] = useState(true);
   const [erro, setErro] = useState(null);
-  // Filtro por responsável — aplicado no frontend sobre a lista do
-  // recorte (que já é pequena). Recalcula a soma de valor.
   const [respFiltro, setRespFiltro] = useState('');
 
   const faixaInfo = FAIXAS.find((f) => f.key === faixa);
@@ -414,8 +426,7 @@ function DrawerRecorte({ fase, faixa, onClose }) {
     };
   }, [fase, faixa]);
 
-  // Lista de responsáveis distintos PRESENTES neste recorte —
-  // popula o dropdown. Só quem realmente tem OP aqui.
+  // Responsáveis distintos PRESENTES neste recorte — popula o dropdown.
   const responsaveis = useMemo(() => {
     const set = new Set();
     (itens || []).forEach((o) => {
@@ -425,7 +436,6 @@ function DrawerRecorte({ fase, faixa, onClose }) {
     return [...set].sort();
   }, [itens]);
 
-  // Lista após o filtro de responsável.
   const itensFiltrados = useMemo(() => {
     if (!respFiltro) return itens || [];
     return (itens || []).filter(
@@ -433,7 +443,6 @@ function DrawerRecorte({ fase, faixa, onClose }) {
     );
   }, [itens, respFiltro]);
 
-  // Soma de valor — recalcula conforme o filtro.
   const valorTotal = useMemo(
     () =>
       itensFiltrados.reduce(
@@ -490,7 +499,6 @@ function DrawerRecorte({ fase, faixa, onClose }) {
             />
           ) : (
             <>
-              {/* Filtro por responsável — recalcula a soma de valor. */}
               <div className="flex flex-wrap items-center gap-2 mb-3">
                 <select
                   value={respFiltro}
@@ -534,6 +542,7 @@ function DrawerRecorte({ fase, faixa, onClose }) {
                         <Th>Razão Social / CNPJ</Th>
                         <Th>Responsável</Th>
                         <Th align="right">Valor (NMRR)</Th>
+                        <Th align="center">CROmie</Th>
                       </Tr>
                     </thead>
                     <tbody>
@@ -552,6 +561,19 @@ function DrawerRecorte({ fase, faixa, onClose }) {
                           </Td>
                           <Td align="right" className="whitespace-nowrap text-hipo-ink">
                             {fmtValor(Number(o.proposta_nmrr))}
+                          </Td>
+                          <Td align="center">
+                            <a
+                              href={linkCromie(o.op_id)}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center justify-center p-1
+                                         rounded text-hipo-blue hover:bg-hipo-bg"
+                              aria-label={`Abrir ${o.razao_social || 'oportunidade'} no CROmie`}
+                              title="Abrir no CROmie"
+                            >
+                              <ExternalLink size={16} />
+                            </a>
                           </Td>
                         </Tr>
                       ))}

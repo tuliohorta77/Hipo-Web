@@ -70,16 +70,14 @@ function funilCromieMock() {
   }
 }
 
-// Resposta do drawer — recorte com TRÊS oportunidades de dois
-// responsáveis. Bruno tem duas (1500 + 200 = 1700) e Diego uma (400).
-// As somas (1700 sem filtro = 2300, com filtro Bruno = 1700) são
-// distintas de qualquer valor de linha individual, evitando que uma
-// busca por texto case com o resumo E com uma célula da tabela.
+// Drawer — três OPs, dois responsáveis. Bruno tem duas (1500 + 200 =
+// 1700), Diego uma (600). Somas distintas dos valores de linha. O
+// op_id 1250930 é usado para checar o link do CROmie.
 const drawerMock = {
   data: {
     itens: [
       {
-        op_id: 9,
+        op_id: 1250930,
         cnpj: '00000000000009',
         razao_social: 'Empresa do Bruno A',
         fase: '05. Negociação',
@@ -92,7 +90,7 @@ const drawerMock = {
         },
       },
       {
-        op_id: 11,
+        op_id: 1250931,
         cnpj: '00000000000011',
         razao_social: 'Empresa do Bruno B',
         fase: '05. Negociação',
@@ -105,7 +103,7 @@ const drawerMock = {
         },
       },
       {
-        op_id: 10,
+        op_id: 1250932,
         cnpj: '00000000000010',
         razao_social: 'Empresa do Diego',
         fase: '05. Negociação',
@@ -265,6 +263,24 @@ describe('Vendas — sub-aba Funil', () => {
     })
   })
 
+  it('o drawer tem o link para abrir a OP no CROmie com o op_id certo', async () => {
+    setupApi()
+    render(<Vendas />)
+    await waitFor(() => screen.getByText('Empresa Conforme'))
+    fireEvent.click(screen.getByText('Funil'))
+    await waitFor(() => screen.getByText('05. Negociação'))
+
+    fireEvent.click(screen.getByLabelText(/05\. Negociação, Fechando/i))
+    await waitFor(() => screen.getByText('Empresa do Bruno A'))
+
+    const link = screen.getByLabelText(/Abrir Empresa do Bruno A no CROmie/i)
+    expect(link).toHaveAttribute(
+      'href',
+      'https://app.crm.omie.com.br/business-opportunity/44/1250930',
+    )
+    expect(link).toHaveAttribute('target', '_blank')
+  })
+
   it('filtra o drawer por responsável e recalcula a soma de valor', async () => {
     setupApi()
     render(<Vendas />)
@@ -275,23 +291,18 @@ describe('Vendas — sub-aba Funil', () => {
     fireEvent.click(screen.getByLabelText(/05\. Negociação, Fechando/i))
     await waitFor(() => screen.getByText('Empresa do Bruno A'))
 
-    // Sem filtro: soma 1500 + 200 + 600 = 2300. É um valor distinto
-    // de qualquer linha individual, então getByText é seguro.
+    // Sem filtro: soma 1500 + 200 + 600 = 2300.
     expect(screen.getByText('R$ 2.300')).toBeInTheDocument()
 
-    // Filtra por Bruno EV — o select do drawer é o último da tela.
     const selects = screen.getAllByRole('combobox')
     const selectDrawer = selects[selects.length - 1]
     fireEvent.change(selectDrawer, { target: { value: 'Bruno EV' } })
 
     await waitFor(() => {
-      // Diego sai da lista.
       expect(screen.queryByText('Empresa do Diego')).not.toBeInTheDocument()
-      // Soma recalcula para 1500 + 200 = 1700 (distinto das linhas
-      // 1500 e 200), então não há colisão de texto.
+      // Soma recalcula para 1500 + 200 = 1700.
       expect(screen.getByText('R$ 1.700')).toBeInTheDocument()
     })
-    // As duas OPs do Bruno continuam.
     expect(screen.getByText('Empresa do Bruno A')).toBeInTheDocument()
     expect(screen.getByText('Empresa do Bruno B')).toBeInTheDocument()
   })
