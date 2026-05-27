@@ -48,6 +48,7 @@ export function getUser() {
 // Módulos visíveis pro cargo do usuário logado (vem do /auth/me).
 //  ADM/Franqueado: tudo
 //  Gerente/EP:     ['carteira', 'clientes']
+//  EV:             ['clientes']
 //  Hunter/Farmer:  ['carteira']
 export function getModulos() {
   const u = getUser();
@@ -58,14 +59,24 @@ export function podeAcessar(modulo) {
   return getModulos().includes(modulo);
 }
 
-// Primeira rota acessível pelo cargo. ADM → /pex, Gerente → /contadores,
-// Hunter → /contadores. (O módulo no backend chama 'carteira', no front
-// vira /contadores. Backend continua respondendo em /api/carteira/*.)
+// Primeira rota acessível pelo cargo, na ordem de prioridade.
+//   ADM/Franqueado    -> /pex      (tem 'pex')
+//   Gerente / EP      -> /contadores (tem 'carteira')
+//   Hunter / Farmer   -> /contadores (tem 'carteira')
+//   EV                -> /vendas    (tem só 'clientes')
+//
+// O EV é o único cargo que tem 'clientes' SEM ter 'carteira', então é o
+// único que chega no if de 'clientes'. Por isso a rota dele aqui é
+// /vendas: o funil de Vendas é a tela do dia-a-dia do EV. Os demais
+// cargos com 'clientes' caem nos ifs anteriores (pex/carteira).
+//
+// O módulo no backend chama 'carteira', no front vira /contadores
+// (renomeação visual). Backend continua respondendo em /api/carteira/*.
 export function primeiraRotaAcessivel() {
   const mods = getModulos();
   if (mods.includes("pex")) return "/pex";
   if (mods.includes("carteira")) return "/contadores";
-  if (mods.includes("clientes")) return "/clientes";
+  if (mods.includes("clientes")) return "/vendas";
   if (mods.includes("po")) return "/pos";
   if (mods.includes("bd")) return "/bd-ativados";
   if (mods.includes("metas")) return "/metas";
