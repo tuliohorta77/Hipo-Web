@@ -44,7 +44,7 @@ class TestModulosDoCargo:
 
     def test_cargos_compat_antigos_ve_so_carteira(self):
         # SDR e EC permanecem como compatibilidade (só carteira).
-        assert modulos_do_cargo("SDR") == {"carteira"}
+        assert modulos_do_cargo("SDR") == {"agendamento"}
         assert modulos_do_cargo("EC") == {"carteira"}
 
     def test_cargo_desconhecido_nada(self):

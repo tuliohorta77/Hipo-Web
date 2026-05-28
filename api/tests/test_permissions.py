@@ -130,9 +130,12 @@ class TestModulosDoCargoRegressao:
         assert "carteira" in m
 
     def test_sdr_sem_clientes(self):
+        # v1.3.1: SDR migrou para o modulo 'agendamento' (Opcao 1).
+        # Nao ve clientes nem carteira.
         m = modulos_do_cargo("SDR")
         assert "clientes" not in m
-        assert "carteira" in m
+        assert "carteira" not in m
+        assert "agendamento" in m
 
     def test_ev_com_clientes_sem_carteira(self):
         m = modulos_do_cargo("EV")
