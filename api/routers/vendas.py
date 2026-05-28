@@ -10,9 +10,14 @@ Duas visualizações sobre as oportunidades ATIVAS do CROmie:
    ATENÇÃO: a régua interna é mais exigente que o indicador PEX
    oficial. O percentual NÃO é o número da consultoria de campo.
 
+   v1.3.2: a classificação agora tem três estados — conforme,
+   atenção (tarefa para hoje) e problema. O SELECT inclui
+   ult_prox_tarefa para o serviço distinguir "tarefa hoje" de
+   "tarefa vencida/ausente".
+
 2. Funil de Vendas (aba "Funil") — visão comercial. Agrega as
    oportunidades ativas por fase x faixa de temperatura, com soma de
-   valor (proposta_nmrr).
+   valor (proposta_nmrr). NÃO mudou na v1.3.2.
 
 O endpoint /funil-cromie aceita um filtro de faixa de temperatura.
 Isso alimenta o drawer da aba Funil: ao clicar numa faixa colorida
@@ -47,10 +52,11 @@ router = APIRouter()
 _STATUS_ATIVO = "ativo"
 
 # Colunas de cliente_oportunidade necessárias para classificar + exibir.
+# v1.3.2: + ult_prox_tarefa (para o estado de atenção/tarefa-hoje).
 _COLUNAS = """
     op_id, cnpj, razao_social, fase, status,
     temperatura, previsao_data, previsao_valor, proposta_nmrr,
-    tarefa_futura, previsao_preenchido, ticket_preenchido,
+    tarefa_futura, ult_prox_tarefa, previsao_preenchido, ticket_preenchido,
     cnpj_contador, razao_contador, executivo_contas,
     sdr_fr, executivo_vendas,
     dias_parado, ultima_tarefa_dias, data_atualizacao
@@ -109,6 +115,10 @@ async def funil_cromie(
     classificação. O 'resumo' é sempre calculado sobre o conjunto
     filtrado por fase/responsável/temperatura (não por so_*).
 
+    so_problema filtra pelo estado 'problema' (não-conforme). As
+    oportunidades em estado 'atenção' (tarefa para hoje) NÃO entram
+    no so_problema — são informativas, não problemas.
+
     Parâmetros SQL são adicionados APENAS quando o filtro está ativo —
     um parâmetro $N declarado mas não usado faz o Postgres falhar com
     IndeterminateDatatypeError.
@@ -156,7 +166,7 @@ async def funil_cromie(
         itens = [
             it for it in itens
             if it["classificacao"]["fase_analisada"]
-            and not it["classificacao"]["conforme"]
+            and it["classificacao"]["estado"] == "problema"
         ]
     if so_incoerente:
         itens = [

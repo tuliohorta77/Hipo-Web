@@ -2,8 +2,9 @@
 HIPO -- Permissões por cargo (controle de acesso aos módulos).
 
 Cargos e seus módulos:
-  ADM, Franqueado:  tudo
-  Gerente, EP:      carteira + clientes
+  ADM, Franqueado:  tudo (+ agendamento)
+  Gerente:          carteira + clientes + agendamento
+  EP:               carteira + clientes
   EV:               clientes              (Vendas + Clientes, SEM Contadores)
   Hunter, Farmer:   só carteira (Contadores)
   SDR:              só agendamento        (módulo Agendamento — v1.3.1)
@@ -18,10 +19,11 @@ Notas:
   - EV (Executivo de Vendas) tem 'clientes' mas NÃO tem 'carteira':
     vê Clientes + Vendas e não vê Contadores.
   - SDR (v1.3.1): cargo dedicado ao módulo 'agendamento'. A v1 do
-    Agendamento replica a régua de conformidade do CROmie (mesma
-    classificação de Vendas), exposta em /agendamento/*. O SDR NÃO
+    Agendamento replica a régua de conformidade do CROmie. O SDR NÃO
     vê Contadores nem Clientes — só Agendamento. EC permanece em
     'carteira' por compat com o schema antigo.
+  - v1.3.2: ADM, Franqueado e Gerente também passam a ver o módulo
+    'agendamento' (acompanhamento). EP NÃO recebe (decisão de produto).
   - Rotas que servem ao drilldown da carteira (ex: /clientes/contador-leads)
     devem usar requer_qualquer_modulo(["clientes", "carteira"]) para
     permitir que Hunter/Farmer (que só têm 'carteira') também acessem.
@@ -56,6 +58,11 @@ CARGOS_OPERACIONAL = {
 # de propósito — SDR não vê Contadores.
 CARGOS_AGENDAMENTO = {"SDR"}
 
+# Cargos de gestão/admin que ACOMPANHAM o Agendamento (v1.3.2).
+# Recebem o módulo 'agendamento' ADICIONALMENTE aos seus módulos.
+# EP fica de fora por decisão de produto.
+CARGOS_VE_AGENDAMENTO = {"ADM", "Franqueado", "Gerente"}
+
 
 def modulos_do_cargo(cargo: str | None) -> set[str]:
     """
@@ -68,24 +75,32 @@ def modulos_do_cargo(cargo: str | None) -> set[str]:
       - 'metas'        : Configuração de metas
       - 'carteira'     : Contadores (Hunter/Farmer/Outros + upload)
       - 'clientes'     : Oportunidades + Tarefas de clientes (cobre Vendas)
-      - 'agendamento'  : Agendamento (régua de conformidade — cargo SDR)
+      - 'agendamento'  : Agendamento (régua de conformidade — SDR + gestão)
       - 'usuarios'     : Gestão de usuários (futuro)
     """
     if not cargo:
         return set()
+
     if cargo in CARGOS_ADMIN:
-        return {"pex", "po", "bd", "metas", "carteira", "clientes", "usuarios"}
-    if cargo in CARGOS_GESTAO:
-        return {"carteira", "clientes"}
-    if cargo in CARGOS_VENDAS:
+        mods = {"pex", "po", "bd", "metas", "carteira", "clientes", "usuarios"}
+    elif cargo in CARGOS_GESTAO:
+        mods = {"carteira", "clientes"}
+    elif cargo in CARGOS_VENDAS:
         # Vendas e Clientes, sem Contadores.
-        return {"clientes"}
-    if cargo in CARGOS_AGENDAMENTO:
+        mods = {"clientes"}
+    elif cargo in CARGOS_AGENDAMENTO:
         # Só Agendamento — não vê Contadores nem Clientes.
-        return {"agendamento"}
-    if cargo in CARGOS_OPERACIONAL:
-        return {"carteira"}
-    return set()
+        mods = {"agendamento"}
+    elif cargo in CARGOS_OPERACIONAL:
+        mods = {"carteira"}
+    else:
+        return set()
+
+    # v1.3.2: ADM/Franqueado/Gerente também acompanham o Agendamento.
+    if cargo in CARGOS_VE_AGENDAMENTO:
+        mods = mods | {"agendamento"}
+
+    return mods
 
 
 def deve_filtrar_por_usuario(cargo: str | None) -> bool:

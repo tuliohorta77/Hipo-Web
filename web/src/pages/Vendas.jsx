@@ -11,6 +11,12 @@
 //   cobra tarefa futura em todas as fases (régua interna, mais
 //   exigente). O percentual tende a ser menor que o da consultoria.
 //
+// v1.3.2 — a aba Conformidade ganhou três estados:
+//   - conforme (verde)
+//   - atenção (amarelo): tarefa para HOJE; fora do percentual.
+//   - problema (vermelho): tarefa vencida/ausente ou outra regra.
+//   A aba Funil NÃO mudou.
+//
 // Funil — 5 faixas de temperatura: sem / fria (10–40) / morna (50–70) /
 //   quente (80) / fechando (90). "Fechando" é separado de "quente"
 //   porque 90 é a venda iminente. Temperatura 100 = conquistado: OP
@@ -33,6 +39,7 @@ import {
   TrendingUp,
   CheckCircle2,
   AlertTriangle,
+  Clock,
   Info,
   BarChart3,
   ClipboardCheck,
@@ -52,7 +59,7 @@ import Badge from '../components/ui/Badge';
 import Table, { Th, Tr, Td } from '../components/ui/Table';
 
 
-// ── Helpers ──────────────────────────────────────────────────────
+// ── Helpers ──────────────────────────────────────────────────────────
 
 function fmtData(d) {
   if (!d) return '—';
@@ -107,6 +114,17 @@ function LinkCromie({ opId, nome }) {
   );
 }
 
+// Badge de situação por estado (v1.3.2: conforme / atenção / problema).
+function BadgeSituacao({ estado }) {
+  if (estado === 'atencao') {
+    return <Badge tone="warning">⏱ Atenção</Badge>;
+  }
+  if (estado === 'conforme') {
+    return <Badge tone="success">✓ Conforme</Badge>;
+  }
+  return <Badge tone="danger">✗ Problema</Badge>;
+}
+
 // Faixas de temperatura do funil — código, rótulo e cor.
 // Mantida em sincronia com services/vendas_cromie.py
 // (FAIXAS_TEMPERATURA / ROTULO_FAIXA). "fechando" usa um laranja
@@ -123,7 +141,7 @@ const FAIXAS = [
 const LARGURA_FASE = [100, 86, 72, 58, 44];
 
 
-// ── Sub-aba Conformidade ─────────────────────────────────────────
+// ── Sub-aba Conformidade ─────────────────────────────────────────────
 
 function AbaConformidade() {
   const [dados, setDados] = useState(null);
@@ -177,6 +195,7 @@ function AbaConformidade() {
   const resumo = dados?.resumo;
   const itens = dados?.itens || [];
   const incoerentes = resumo?.temperatura_incoerente || 0;
+  const atencao = resumo?.atencao_hoje || 0;
   const temFiltro = fase || responsavel || soProblema || soIncoerente;
 
   return (
@@ -187,9 +206,11 @@ function AbaConformidade() {
           <strong className="text-hipo-ink">Régua interna.</strong>{' '}
           Esta tela é mais exigente que o indicador PEX oficial: cobra{' '}
           <strong>tarefa futura em todas as fases</strong>, não só em
-          Suspect/Cadência/Qualificação. O percentual abaixo é uma
-          ferramenta de correção e tende a ser menor que a apuração da
-          consultoria de campo da Omie.
+          Suspect/Cadência/Qualificação. Oportunidades com{' '}
+          <strong>tarefa agendada para hoje</strong> ficam em{' '}
+          <strong>atenção</strong> (amarelo) e não entram no percentual.
+          O percentual abaixo é uma ferramenta de correção e tende a ser
+          menor que a apuração da consultoria de campo da Omie.
         </p>
       </div>
 
@@ -219,21 +240,12 @@ function AbaConformidade() {
             Icon={AlertTriangle}
             tone={resumo.nao_conformes > 0 ? 'danger' : 'success'}
           />
-          {incoerentes > 0 ? (
-            <KpiCard
-              label="A revisar (temp. 100)"
-              value={incoerentes.toLocaleString('pt-BR')}
-              Icon={AlertTriangle}
-              tone="danger"
-            />
-          ) : (
-            <KpiCard
-              label="Oportunidades ativas"
-              value={resumo.total_analisadas.toLocaleString('pt-BR')}
-              Icon={TrendingUp}
-              tone="info"
-            />
-          )}
+          <KpiCard
+            label="Tarefa para hoje"
+            value={atencao.toLocaleString('pt-BR')}
+            Icon={Clock}
+            tone={atencao > 0 ? 'warning' : 'info'}
+          />
         </div>
       )}
 
@@ -366,14 +378,18 @@ function AbaConformidade() {
                         {o.responsavel || '—'}
                       </Td>
                       <Td align="center">
-                        {cls.conforme ? (
-                          <Badge tone="success">✓ Conforme</Badge>
-                        ) : (
-                          <Badge tone="danger">✗ Problema</Badge>
-                        )}
+                        <BadgeSituacao estado={cls.estado} />
                       </Td>
                       <Td>
                         <div className="flex flex-wrap gap-1">
+                          {cls.tarefa_hoje && (
+                            <span
+                              className="text-[11px] font-medium px-1.5 py-0.5 rounded
+                                         bg-hipo-warningSoft text-hipo-warning"
+                            >
+                              ⏱ Tarefa para hoje
+                            </span>
+                          )}
                           {cls.temperatura_incoerente && (
                             <span
                               className="text-[11px] font-medium px-1.5 py-0.5 rounded
@@ -382,19 +398,19 @@ function AbaConformidade() {
                               ⚠ Revisar temperatura
                             </span>
                           )}
-                          {cls.conforme && !cls.temperatura_incoerente ? (
-                            <span className="text-xs text-hipo-muted">—</span>
-                          ) : (
-                            cls.problemas_rotulos.map((p) => (
-                              <span
-                                key={p}
-                                className="text-[11px] font-medium px-1.5 py-0.5 rounded
-                                           bg-hipo-dangerSoft text-hipo-danger"
-                              >
-                                {p}
-                              </span>
-                            ))
-                          )}
+                          {cls.problemas_rotulos.map((p) => (
+                            <span
+                              key={p}
+                              className="text-[11px] font-medium px-1.5 py-0.5 rounded
+                                         bg-hipo-dangerSoft text-hipo-danger"
+                            >
+                              {p}
+                            </span>
+                          ))}
+                          {cls.estado === 'conforme' &&
+                            !cls.temperatura_incoerente && (
+                              <span className="text-xs text-hipo-muted">—</span>
+                            )}
                         </div>
                       </Td>
                       <Td align="right" className="whitespace-nowrap text-hipo-slate">
@@ -604,7 +620,7 @@ function DrawerRecorte({ fase, faixa, onClose }) {
 }
 
 
-// ── Sub-aba Funil ────────────────────────────────────────────────
+// ── Sub-aba Funil ─────────────────────────────────────────────────────
 
 function AbaFunil() {
   const [dados, setDados] = useState(null);
@@ -782,7 +798,7 @@ function AbaFunil() {
 }
 
 
-// ── Componente principal ─────────────────────────────────────────
+// ── Componente principal ─────────────────────────────────────────────
 
 // Ordem: Funil primeiro (abre por padrão), Conformidade depois.
 // Funil é a tela do dia-a-dia do EV; Conformidade é diagnóstico/correção.

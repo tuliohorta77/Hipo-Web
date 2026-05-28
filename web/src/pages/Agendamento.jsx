@@ -1,33 +1,37 @@
 // web/src/pages/Agendamento.jsx
 //
-// Módulo Agendamento (cargo SDR). v1.3.1 — primeira versão.
+// Módulo Agendamento (cargo SDR + gestão). v1.3.1 — primeira versão.
 //
-// Esta v1 REPLICA a aba Conformidade do módulo Vendas: a régua interna
+// Esta tela REPLICA a aba Conformidade do módulo Vendas: a régua interna
 // de utilização correta do CROmie sobre as oportunidades ativas. A
 // diferença em relação a Vendas é a fonte de dados — aqui o front
-// consome /agendamento/conformidade* (router próprio do SDR), e não
+// consome /agendamento/conformidade* (router próprio), e não
 // /vendas/funil-cromie* (que exige o módulo 'clientes', que o SDR não
 // tem).
 //
 // É uma CÓPIA INDEPENDENTE de propósito (estratégia B): nas próximas
-// versões o Agendamento vai divergir da conformidade de Vendas (régua
-// e colunas próprias do SDR). Manter este arquivo separado evita
-// refator no módulo Vendas, que é estável e afeta indicadores PEX.
+// versões o Agendamento vai divergir da conformidade de Vendas.
 //
-// IMPORTANTE — esta tela NÃO é a apuração oficial do PEX: cobra tarefa
-// futura em todas as fases (régua interna, mais exigente). O percentual
-// tende a ser menor que o da consultoria de campo da Omie.
+// v1.3.2 — três estados de conformidade:
+//   - conforme (verde)
+//   - atenção (amarelo): tarefa para HOJE; não é conforme nem problema,
+//     fica fora do percentual. Badge "Tarefa para hoje".
+//   - problema (vermelho): falta tarefa (vencida/ausente) ou outra regra.
+//     Se houver tarefa hoje E outro problema, fica vermelho mas mostra
+//     o badge "Tarefa para hoje" junto.
 //
-// Link do CROmie: a oportunidade vive no funil 44 do CROmie, acessível
-// em https://app.crm.omie.com.br/business-opportunity/44/{op_id}.
+// IMPORTANTE — esta tela NÃO é a apuração oficial do PEX.
 //
-// Acesso: módulo 'agendamento' (cargo SDR).
+// Link do CROmie: https://app.crm.omie.com.br/business-opportunity/44/{op_id}
+//
+// Acesso: módulo 'agendamento' (SDR + ADM/Franqueado/Gerente).
 
 import { useState, useEffect, useCallback } from 'react';
 import {
   TrendingUp,
   CheckCircle2,
   AlertTriangle,
+  Clock,
   Info,
   ExternalLink,
 } from 'lucide-react';
@@ -60,15 +64,12 @@ function toneDoPct(pct) {
   return 'danger';
 }
 
-// Base da URL de uma oportunidade no CROmie. O "44" é o funil de
-// Oportunidades de Parcerias — fixo para estas oportunidades.
 const CROMIE_OP_BASE = 'https://app.crm.omie.com.br/business-opportunity/44/';
 
 function linkCromie(opId) {
   return `${CROMIE_OP_BASE}${opId}`;
 }
 
-// Ícone-link para abrir uma oportunidade no CROmie.
 function LinkCromie({ opId, nome }) {
   return (
     <a
@@ -83,6 +84,17 @@ function LinkCromie({ opId, nome }) {
       <ExternalLink size={16} />
     </a>
   );
+}
+
+// Badge de situação por estado (v1.3.2: conforme / atenção / problema).
+function BadgeSituacao({ estado }) {
+  if (estado === 'atencao') {
+    return <Badge tone="warning">⏱ Atenção</Badge>;
+  }
+  if (estado === 'conforme') {
+    return <Badge tone="success">✓ Conforme</Badge>;
+  }
+  return <Badge tone="danger">✗ Problema</Badge>;
 }
 
 
@@ -140,6 +152,7 @@ export default function Agendamento() {
   const resumo = dados?.resumo;
   const itens = dados?.itens || [];
   const incoerentes = resumo?.temperatura_incoerente || 0;
+  const atencao = resumo?.atencao_hoje || 0;
   const temFiltro = fase || responsavel || soProblema || soIncoerente;
 
   return (
@@ -155,9 +168,11 @@ export default function Agendamento() {
           <strong className="text-hipo-ink">Régua interna.</strong>{' '}
           Esta tela é mais exigente que o indicador PEX oficial: cobra{' '}
           <strong>tarefa futura em todas as fases</strong>, não só em
-          Suspect/Cadência/Qualificação. O percentual abaixo é uma
-          ferramenta de correção e tende a ser menor que a apuração da
-          consultoria de campo da Omie.
+          Suspect/Cadência/Qualificação. Oportunidades com{' '}
+          <strong>tarefa agendada para hoje</strong> ficam em{' '}
+          <strong>atenção</strong> (amarelo) e não entram no percentual.
+          O percentual tende a ser menor que a apuração da consultoria de
+          campo da Omie.
         </p>
       </div>
 
@@ -187,21 +202,12 @@ export default function Agendamento() {
             Icon={AlertTriangle}
             tone={resumo.nao_conformes > 0 ? 'danger' : 'success'}
           />
-          {incoerentes > 0 ? (
-            <KpiCard
-              label="A revisar (temp. 100)"
-              value={incoerentes.toLocaleString('pt-BR')}
-              Icon={AlertTriangle}
-              tone="danger"
-            />
-          ) : (
-            <KpiCard
-              label="Oportunidades ativas"
-              value={resumo.total_analisadas.toLocaleString('pt-BR')}
-              Icon={TrendingUp}
-              tone="info"
-            />
-          )}
+          <KpiCard
+            label="Tarefa para hoje"
+            value={atencao.toLocaleString('pt-BR')}
+            Icon={Clock}
+            tone={atencao > 0 ? 'warning' : 'info'}
+          />
         </div>
       )}
 
@@ -334,14 +340,18 @@ export default function Agendamento() {
                         {o.responsavel || '—'}
                       </Td>
                       <Td align="center">
-                        {cls.conforme ? (
-                          <Badge tone="success">✓ Conforme</Badge>
-                        ) : (
-                          <Badge tone="danger">✗ Problema</Badge>
-                        )}
+                        <BadgeSituacao estado={cls.estado} />
                       </Td>
                       <Td>
                         <div className="flex flex-wrap gap-1">
+                          {cls.tarefa_hoje && (
+                            <span
+                              className="text-[11px] font-medium px-1.5 py-0.5 rounded
+                                         bg-hipo-warningSoft text-hipo-warning"
+                            >
+                              ⏱ Tarefa para hoje
+                            </span>
+                          )}
                           {cls.temperatura_incoerente && (
                             <span
                               className="text-[11px] font-medium px-1.5 py-0.5 rounded
@@ -350,19 +360,19 @@ export default function Agendamento() {
                               ⚠ Revisar temperatura
                             </span>
                           )}
-                          {cls.conforme && !cls.temperatura_incoerente ? (
-                            <span className="text-xs text-hipo-muted">—</span>
-                          ) : (
-                            cls.problemas_rotulos.map((p) => (
-                              <span
-                                key={p}
-                                className="text-[11px] font-medium px-1.5 py-0.5 rounded
-                                           bg-hipo-dangerSoft text-hipo-danger"
-                              >
-                                {p}
-                              </span>
-                            ))
-                          )}
+                          {cls.problemas_rotulos.map((p) => (
+                            <span
+                              key={p}
+                              className="text-[11px] font-medium px-1.5 py-0.5 rounded
+                                         bg-hipo-dangerSoft text-hipo-danger"
+                            >
+                              {p}
+                            </span>
+                          ))}
+                          {cls.estado === 'conforme' &&
+                            !cls.temperatura_incoerente && (
+                              <span className="text-xs text-hipo-muted">—</span>
+                            )}
                         </div>
                       </Td>
                       <Td align="right" className="whitespace-nowrap text-hipo-slate">

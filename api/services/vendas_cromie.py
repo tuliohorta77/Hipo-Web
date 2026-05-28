@@ -29,6 +29,33 @@ Regras por fase:
 Responsável: SDR (sdr_fr) em Suspect/Cadência; executivo
 (executivo_vendas) nas demais fases.
 
+── Regra de tarefa: três estados (v1.3.2) ──
+A regra de tarefa deixou de ser binária. Com base nos dados de produção
+do CROmie:
+  - tarefa_futura = 1  <=>  próxima tarefa é estritamente futura (data > hoje);
+  - tarefa_futura = 0 com ult_prox_tarefa = HOJE  ->  tarefa para hoje;
+  - tarefa_futura = 0 com data passada ou sem data ->  sem tarefa futura.
+
+Estados resultantes (campo 'estado' da classificação):
+  - 'conforme'  : cumpre todas as regras aplicáveis (verde).
+  - 'atencao'   : o ÚNICO pendente seria a tarefa, mas há tarefa para
+                  HOJE — não conta como problema nem como conforme
+                  (amarelo). SAI do cálculo de pct_conforme.
+  - 'problema'  : falta tarefa (vencida/ausente) OU falta outra regra
+                  (temperatura/previsão/ticket) — vermelho. Se houver
+                  tarefa para hoje E outro problema, o estado é
+                  'problema' mas a flag tarefa_hoje fica True (badge
+                  informativo).
+
+Resumo (resumir_funil) ganha 'atencao_hoje': contagem de OPs em estado
+'atencao'. O pct_conforme = conformes / (conformes + nao_conformes)
+exclui as de atenção naturalmente.
+
+"Hoje" é injetável (parâmetro 'hoje') para testes determinísticos;
+default é date.today() do servidor. O servidor roda em UTC e o CROmie é
+horário de SP — a comparação é por DATA e o upload é diário de manhã,
+então a borda de fuso é aceitável para v1.
+
 ── Funil de Vendas ──
 Faixas de temperatura (escala 0..100, valores de 10 em 10):
   - sem      : temperatura nula / 0
@@ -49,6 +76,7 @@ Tipos das colunas em cliente_oportunidade (conferidos no schema/dados):
   - previsao_preenchido : VARCHAR(10) — "Sim" / "Não"
   - ticket_preenchido   : VARCHAR(10) — "Sim" / "Não"
   - tarefa_futura       : INT          — 0 / 1
+  - ult_prox_tarefa     : TIMESTAMPTZ  — última/próxima tarefa (data)
   - temperatura         : NUMERIC      — 0..100, de 10 em 10
   - proposta_nmrr       : NUMERIC      — valor recorrente da proposta
 ATENÇÃO: bool() direto numa string NÃO serve — bool("Não") é True em
@@ -56,6 +84,7 @@ Python. Por isso as flags de texto passam por _flag_texto().
 """
 from __future__ import annotations
 
+from datetime import date, datetime
 from typing import Any
 
 # Códigos de regra — usados na lista de problemas de cada oportunidade.
@@ -70,6 +99,11 @@ ROTULO_REGRA = {
     REGRA_PREVISAO: "Falta previsão de fechamento",
     REGRA_TICKET: "Falta valor do ticket",
 }
+
+# Estados de conformidade de uma oportunidade analisada (v1.3.2).
+ESTADO_CONFORME = "conforme"
+ESTADO_ATENCAO = "atencao"
+ESTADO_PROBLEMA = "problema"
 
 REGRAS_POR_FASE: dict[str, list[str]] = {
     "01. Suspect":      [REGRA_TAREFA_FUTURA],
@@ -92,7 +126,7 @@ FASES_ANALISADAS = [
 # Fases iniciais em que o responsável é o SDR (e não o executivo).
 FASES_DO_SDR = {"01. Suspect", "02. Cadência"}
 
-# ── Faixas de temperatura (funil de vendas) ──────────────────────
+# ── Faixas de temperatura (funil de vendas) ──────────────────────────
 FAIXA_SEM = "sem"
 FAIXA_FRIA = "fria"
 FAIXA_MORNA = "morna"
@@ -147,6 +181,38 @@ def _flag_inteira(valor: Any) -> bool:
         return int(valor) > 0
     except (TypeError, ValueError):
         return False
+
+
+def _data_de(valor: Any) -> date | None:
+    """
+    Extrai a parte DATA de um campo que pode vir como datetime, date ou
+    string ISO. Devolve None se ausente/inválido.
+    """
+    if valor is None:
+        return None
+    if isinstance(valor, datetime):
+        return valor.date()
+    if isinstance(valor, date):
+        return valor
+    # String: tenta ISO (YYYY-MM-DD...) pegando os 10 primeiros chars.
+    s = str(valor).strip()
+    if not s:
+        return None
+    try:
+        return date.fromisoformat(s[:10])
+    except ValueError:
+        return None
+
+
+def _proxima_tarefa_eh_hoje(op: dict, hoje: date) -> bool:
+    """
+    True quando a próxima/última tarefa registrada (ult_prox_tarefa) cai
+    exatamente em 'hoje'. Usado para distinguir o estado de ATENÇÃO
+    (tarefa para hoje) do estado de PROBLEMA (tarefa vencida/ausente)
+    quando tarefa_futura = 0.
+    """
+    d = _data_de(op.get("ult_prox_tarefa"))
+    return d is not None and d == hoje
 
 
 def _temperatura_num(op: dict) -> float | None:
@@ -251,13 +317,38 @@ def _regra_cumprida(op: dict, regra: str) -> bool:
     return False
 
 
-def classificar_oportunidade(op: dict) -> dict[str, Any]:
+def classificar_oportunidade(op: dict, hoje: date | None = None) -> dict[str, Any]:
     """
     Classifica UMA oportunidade pela régua interna do funil CROmie.
 
-    Returns dict com: fase_analisada, conforme, problemas,
-    problemas_rotulos, regras_aplicaveis, temperatura_incoerente.
+    v1.3.2: introduz três estados (campo 'estado'):
+      - ESTADO_CONFORME : cumpre todas as regras aplicáveis.
+      - ESTADO_ATENCAO  : o único pendente seria a tarefa, mas há tarefa
+                          para HOJE. Não é conforme nem problema. Sai do
+                          pct_conforme.
+      - ESTADO_PROBLEMA : falta tarefa (vencida/ausente) ou outra regra.
+
+    Mecânica da tarefa-hoje:
+      Quando a regra de tarefa NÃO está cumprida (tarefa_futura=0) mas a
+      próxima tarefa é HOJE, a regra de tarefa é "neutralizada": sai da
+      lista de problemas e a flag tarefa_hoje vira True. Se, removida a
+      tarefa, não sobrar nenhum outro problema -> ESTADO_ATENCAO. Se
+      sobrar outro problema (temperatura/previsão/ticket) -> ESTADO_PROBLEMA
+      com tarefa_hoje=True (badge informativo).
+
+    Args:
+      op: dict da oportunidade (linha de cliente_oportunidade).
+      hoje: data de referência (default date.today()). Injetável p/ testes.
+
+    Returns dict com: fase_analisada, estado, conforme, problemas,
+    problemas_rotulos, regras_aplicaveis, temperatura_incoerente,
+    tarefa_hoje.
+
+    Compat: 'conforme' (bool) é mantido — True apenas no ESTADO_CONFORME.
     """
+    if hoje is None:
+        hoje = date.today()
+
     fase = op.get("fase")
     regras = REGRAS_POR_FASE.get(fase)
     incoerente = temperatura_incoerente(op)
@@ -265,46 +356,75 @@ def classificar_oportunidade(op: dict) -> dict[str, Any]:
     if regras is None:
         return {
             "fase_analisada": False,
+            "estado": ESTADO_PROBLEMA,
             "conforme": False,
             "problemas": [],
             "problemas_rotulos": [],
             "regras_aplicaveis": [],
             "temperatura_incoerente": incoerente,
+            "tarefa_hoje": False,
         }
 
     problemas = [r for r in regras if not _regra_cumprida(op, r)]
 
+    # Regra de tarefa não cumprida + próxima tarefa é hoje => neutraliza
+    # a regra de tarefa (vira "atenção"), removendo-a dos problemas.
+    tarefa_hoje = False
+    if (
+        REGRA_TAREFA_FUTURA in problemas
+        and _proxima_tarefa_eh_hoje(op, hoje)
+    ):
+        tarefa_hoje = True
+        problemas = [p for p in problemas if p != REGRA_TAREFA_FUTURA]
+
+    if problemas:
+        estado = ESTADO_PROBLEMA
+    elif tarefa_hoje:
+        estado = ESTADO_ATENCAO
+    else:
+        estado = ESTADO_CONFORME
+
     return {
         "fase_analisada": True,
-        "conforme": len(problemas) == 0,
+        "estado": estado,
+        "conforme": estado == ESTADO_CONFORME,
         "problemas": problemas,
         "problemas_rotulos": [ROTULO_REGRA[r] for r in problemas],
         "regras_aplicaveis": list(regras),
         "temperatura_incoerente": incoerente,
+        "tarefa_hoje": tarefa_hoje,
     }
 
 
-def resumir_funil(oportunidades: list[dict]) -> dict[str, Any]:
+def resumir_funil(oportunidades: list[dict], hoje: date | None = None) -> dict[str, Any]:
     """
     Classifica uma lista de oportunidades (régua de conformidade) e
     devolve cada uma anotada + um resumo agregado.
 
-    Cada item ganha 'classificacao' e 'responsavel'. O 'resumo' inclui
-    'temperatura_incoerente' (contagem de OPs com temp 100 em fase
-    ativa).
+    Cada item ganha 'classificacao' e 'responsavel'. O 'resumo' inclui:
+      - total_analisadas : conformes + nao_conformes (NÃO inclui atenção)
+      - conformes        : estado 'conforme'
+      - nao_conformes    : estado 'problema'
+      - atencao_hoje     : estado 'atencao' (tarefa para hoje, v1.3.2)
+      - pct_conforme     : conformes / total_analisadas (atenção fora)
+      - fora_da_analise  : fases não analisadas (ex.: Conquistado)
+      - temperatura_incoerente : OPs com temp 100 em fase ativa
+
+    'hoje' é repassado a classificar_oportunidade (injetável p/ testes).
     """
     itens: list[dict] = []
     conformes = 0
     nao_conformes = 0
+    atencao = 0
     fora = 0
     incoerentes = 0
     por_fase: dict[str, dict[str, int]] = {
-        f: {"total": 0, "conformes": 0, "nao_conformes": 0}
+        f: {"total": 0, "conformes": 0, "nao_conformes": 0, "atencao": 0}
         for f in FASES_ANALISADAS
     }
 
     for op in oportunidades:
-        cls = classificar_oportunidade(op)
+        cls = classificar_oportunidade(op, hoje=hoje)
         item = dict(op)
         item["classificacao"] = cls
         item["responsavel"] = responsavel_da_op(op)
@@ -319,12 +439,18 @@ def resumir_funil(oportunidades: list[dict]) -> dict[str, Any]:
 
         fase = op.get("fase")
         bucket = por_fase.get(fase)
-        if cls["conforme"]:
+        estado = cls["estado"]
+        if estado == ESTADO_CONFORME:
             conformes += 1
             if bucket:
                 bucket["total"] += 1
                 bucket["conformes"] += 1
-        else:
+        elif estado == ESTADO_ATENCAO:
+            atencao += 1
+            if bucket:
+                bucket["total"] += 1
+                bucket["atencao"] += 1
+        else:  # ESTADO_PROBLEMA
             nao_conformes += 1
             if bucket:
                 bucket["total"] += 1
@@ -339,6 +465,7 @@ def resumir_funil(oportunidades: list[dict]) -> dict[str, Any]:
             "total_analisadas": total_analisadas,
             "conformes": conformes,
             "nao_conformes": nao_conformes,
+            "atencao_hoje": atencao,
             "pct_conforme": pct,
             "fora_da_analise": fora,
             "temperatura_incoerente": incoerentes,
@@ -351,6 +478,9 @@ def montar_funil(oportunidades: list[dict]) -> dict[str, Any]:
     """
     Funil de Vendas — agrega as oportunidades ATIVAS por fase x faixa
     de temperatura.
+
+    NÃO MUDOU na v1.3.2 — a aba Funil é a visão comercial e ignora a
+    régua de conformidade (e portanto o estado de atenção/tarefa-hoje).
 
     Considera apenas as 5 fases ativas (Conquistado fora).
     Oportunidades com temperatura 100 não entram nas faixas — são

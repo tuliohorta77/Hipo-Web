@@ -31,11 +31,13 @@ function funilCromieMock() {
           data_atualizacao: '2026-05-20T10:00:00Z',
           classificacao: {
             fase_analisada: true,
+            estado: 'conforme',
             conforme: true,
             problemas: [],
             problemas_rotulos: [],
             regras_aplicaveis: ['tarefa_futura'],
             temperatura_incoerente: false,
+            tarefa_hoje: false,
           },
         },
         {
@@ -48,6 +50,7 @@ function funilCromieMock() {
           data_atualizacao: '2026-05-21T10:00:00Z',
           classificacao: {
             fase_analisada: true,
+            estado: 'problema',
             conforme: false,
             problemas: ['temperatura', 'previsao'],
             problemas_rotulos: ['Falta temperatura', 'Falta previsão de fechamento'],
@@ -60,6 +63,7 @@ function funilCromieMock() {
         total_analisadas: 2,
         conformes: 1,
         nao_conformes: 1,
+        atencao_hoje: 0,
         pct_conforme: 50.0,
         fora_da_analise: 0,
         temperatura_incoerente: 0,
@@ -83,9 +87,9 @@ const drawerMock = {
         responsavel: 'Bruno EV',
         proposta_nmrr: 1500,
         classificacao: {
-          fase_analisada: true, conforme: true, problemas: [],
+          fase_analisada: true, estado: 'conforme', conforme: true, problemas: [],
           problemas_rotulos: [], regras_aplicaveis: [],
-          temperatura_incoerente: false,
+          temperatura_incoerente: false, tarefa_hoje: false,
         },
       },
       {
@@ -96,9 +100,9 @@ const drawerMock = {
         responsavel: 'Bruno EV',
         proposta_nmrr: 200,
         classificacao: {
-          fase_analisada: true, conforme: true, problemas: [],
+          fase_analisada: true, estado: 'conforme', conforme: true, problemas: [],
           problemas_rotulos: [], regras_aplicaveis: [],
-          temperatura_incoerente: false,
+          temperatura_incoerente: false, tarefa_hoje: false,
         },
       },
       {
@@ -109,9 +113,9 @@ const drawerMock = {
         responsavel: 'Diego EV',
         proposta_nmrr: 600,
         classificacao: {
-          fase_analisada: true, conforme: true, problemas: [],
+          fase_analisada: true, estado: 'conforme', conforme: true, problemas: [],
           problemas_rotulos: [], regras_aplicaveis: [],
-          temperatura_incoerente: false,
+          temperatura_incoerente: false, tarefa_hoje: false,
         },
       },
     ],

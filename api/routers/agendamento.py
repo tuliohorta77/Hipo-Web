@@ -1,9 +1,15 @@
 """
-HIPO — Router do módulo Agendamento (cargo SDR).
+HIPO — Router do módulo Agendamento (cargo SDR + gestão).
 
 v1.3.1 — primeira versão. Replica a régua de CONFORMIDADE do funil
 CROmie já usada no módulo Vendas (services/vendas_cromie.py), exposta
-agora sob /agendamento/* e liberada para o cargo SDR.
+agora sob /agendamento/* e liberada para o módulo 'agendamento'.
+
+v1.3.2 — a classificação ganhou três estados (conforme / atenção
+[tarefa para hoje] / problema). O SELECT inclui ult_prox_tarefa para o
+serviço distinguir "tarefa hoje" de "tarefa vencida/ausente". A regra
+é compartilhada com Vendas (mesmo serviço) — os dois módulos exibem o
+estado de atenção.
 
 Por que um router próprio (e não reuso de /vendas/funil-cromie):
   - /vendas/* é protegido por requer_modulo("clientes"); o SDR NÃO tem
@@ -12,17 +18,12 @@ Por que um router próprio (e não reuso de /vendas/funil-cromie):
     versões (régua/colunas próprias do SDR). Ter URL e router próprios
     desde já evita refator quando essa divergência chegar.
 
-Nesta v1 a lógica de classificação é exatamente a mesma de Vendas —
-delega para resumir_funil() do serviço compartilhado. A divergência
-futura entra AQUI, sem tocar no módulo Vendas (que afeta indicadores
-PEX e já está estável).
+ATENÇÃO: a régua interna é mais exigente que o indicador PEX oficial.
+O percentual NÃO é o número da consultoria de campo da Omie.
 
 Endpoints:
   GET /agendamento/conformidade          — oportunidades ativas classificadas
   GET /agendamento/conformidade/filtros  — valores distintos p/ os dropdowns
-
-ATENÇÃO: a régua interna é mais exigente que o indicador PEX oficial.
-O percentual NÃO é o número da consultoria de campo da Omie.
 """
 from __future__ import annotations
 
@@ -35,6 +36,7 @@ from routers.auth import usuario_atual
 from services.vendas_cromie import (
     resumir_funil,
     FASES_ANALISADAS,
+    FASES_DO_SDR,
     FAIXA_SEM,
     INTERVALO_FAIXA,
 )
@@ -45,20 +47,17 @@ router = APIRouter()
 _STATUS_ATIVO = "ativo"
 
 # Colunas de cliente_oportunidade necessárias para classificar + exibir.
-# Mesmo conjunto usado pelo módulo Vendas — a tela do Agendamento v1 é
-# a réplica da aba Conformidade.
+# v1.3.2: + ult_prox_tarefa (estado de atenção/tarefa-hoje).
 _COLUNAS = """
     op_id, cnpj, razao_social, fase, status,
     temperatura, previsao_data, previsao_valor, proposta_nmrr,
-    tarefa_futura, previsao_preenchido, ticket_preenchido,
+    tarefa_futura, ult_prox_tarefa, previsao_preenchido, ticket_preenchido,
     cnpj_contador, razao_contador, executivo_contas,
     sdr_fr, executivo_vendas,
     dias_parado, ultima_tarefa_dias, data_atualizacao
 """
 
 # Lista de fases do SDR como literal SQL.
-from services.vendas_cromie import FASES_DO_SDR  # noqa: E402
-
 _FASES_SDR_SQL = ", ".join(
     "'" + f.replace("'", "''") + "'" for f in sorted(FASES_DO_SDR)
 )
@@ -87,7 +86,8 @@ async def agendamento_conformidade(
                     "quente, fechando.",
     ),
     so_problema: bool = Query(
-        False, description="Se true, devolve apenas oportunidades não conformes."
+        False, description="Se true, devolve apenas oportunidades não conformes "
+                           "(estado 'problema'; atenção/tarefa-hoje fica fora)."
     ),
     so_incoerente: bool = Query(
         False,
@@ -105,6 +105,9 @@ async def agendamento_conformidade(
     temperatura são aplicados no SQL; so_problema e so_incoerente são
     aplicados DEPOIS da classificação. O 'resumo' é sempre calculado
     sobre o conjunto filtrado por fase/responsável/temperatura.
+
+    so_problema filtra pelo estado 'problema'. As oportunidades em
+    estado 'atenção' (tarefa para hoje) NÃO entram no so_problema.
 
     Parâmetros SQL são adicionados APENAS quando o filtro está ativo —
     um parâmetro $N declarado mas não usado faz o Postgres falhar com
@@ -151,7 +154,7 @@ async def agendamento_conformidade(
         itens = [
             it for it in itens
             if it["classificacao"]["fase_analisada"]
-            and not it["classificacao"]["conforme"]
+            and it["classificacao"]["estado"] == "problema"
         ]
     if so_incoerente:
         itens = [

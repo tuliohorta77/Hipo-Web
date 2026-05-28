@@ -20,11 +20,13 @@ from routers.permissions import modulos_do_cargo
 class TestModulosDoCargo:
     def test_adm_ve_tudo(self):
         m = modulos_do_cargo("ADM")
-        assert m == {"pex", "po", "bd", "metas", "carteira", "clientes", "usuarios"}
+        # v1.3.2: ADM tambem ve Agendamento.
+        assert m == {"pex", "po", "bd", "metas", "carteira", "clientes", "usuarios", "agendamento"}
 
     def test_franqueado_ve_tudo(self):
         m = modulos_do_cargo("Franqueado")
-        assert m == {"pex", "po", "bd", "metas", "carteira", "clientes", "usuarios"}
+        # v1.3.2: Franqueado tambem ve Agendamento.
+        assert m == {"pex", "po", "bd", "metas", "carteira", "clientes", "usuarios", "agendamento"}
 
     def test_hunter_ve_so_carteira(self):
         assert modulos_do_cargo("Hunter") == {"carteira"}
@@ -36,7 +38,7 @@ class TestModulosDoCargo:
         assert modulos_do_cargo("EP") == {"carteira", "clientes"}
 
     def test_gerente_ve_carteira_e_clientes(self):
-        assert modulos_do_cargo("Gerente") == {"carteira", "clientes"}
+        assert modulos_do_cargo("Gerente") == {"carteira", "clientes", "agendamento"}
 
     def test_ev_ve_so_clientes(self):
         # EV (Executivo de Vendas): Clientes + Vendas, SEM Contadores.
@@ -98,7 +100,7 @@ class TestAuthMe:
     async def test_me_adm_ve_todos_modulos(self, db_conn, client, usuario_adm):
         resp = await client.get("/auth/me", headers=usuario_adm["headers"])
         body = resp.json()
-        assert set(body["modulos"]) == {"pex", "po", "bd", "metas", "carteira", "clientes", "usuarios"}
+        assert set(body["modulos"]) == {"pex", "po", "bd", "metas", "carteira", "clientes", "usuarios", "agendamento"}
 
     async def test_me_ev_ve_so_clientes(self, db_conn, client):
         u = await _seed_user(db_conn, client, "EV", "ev1@teste.com")
