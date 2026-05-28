@@ -6,7 +6,8 @@ Cargos e seus módulos:
   Gerente, EP:      carteira + clientes
   EV:               clientes              (Vendas + Clientes, SEM Contadores)
   Hunter, Farmer:   só carteira (Contadores)
-  SDR, EC:          só carteira (compat)
+  SDR:              só agendamento        (módulo Agendamento — v1.3.1)
+  EC:               só carteira (compat)
 
 Notas:
   - O módulo é chamado 'carteira' no backend mas o frontend o chama
@@ -16,6 +17,11 @@ Notas:
     "quem vê Clientes vê Vendas").
   - EV (Executivo de Vendas) tem 'clientes' mas NÃO tem 'carteira':
     vê Clientes + Vendas e não vê Contadores.
+  - SDR (v1.3.1): cargo dedicado ao módulo 'agendamento'. A v1 do
+    Agendamento replica a régua de conformidade do CROmie (mesma
+    classificação de Vendas), exposta em /agendamento/*. O SDR NÃO
+    vê Contadores nem Clientes — só Agendamento. EC permanece em
+    'carteira' por compat com o schema antigo.
   - Rotas que servem ao drilldown da carteira (ex: /clientes/contador-leads)
     devem usar requer_qualquer_modulo(["clientes", "carteira"]) para
     permitir que Hunter/Farmer (que só têm 'carteira') também acessem.
@@ -39,11 +45,16 @@ CARGOS_GESTAO = {"Gerente", "EP"}
 CARGOS_VENDAS = {"EV"}
 
 # Cargos que veem só Contadores (acesso a leads é via drilldown).
-# Mantemos SDR e EC por compat com o schema antigo.
+# EC permanece aqui por compat com o schema antigo.
 CARGOS_OPERACIONAL = {
     "Hunter", "Farmer",
-    "SDR", "EC",
+    "EC",
 }
+
+# Cargo de pré-vendas (agendamento). v1.3.1: módulo Agendamento, que
+# replica a régua de conformidade do CROmie. Separado de CARGOS_OPERACIONAL
+# de propósito — SDR não vê Contadores.
+CARGOS_AGENDAMENTO = {"SDR"}
 
 
 def modulos_do_cargo(cargo: str | None) -> set[str]:
@@ -51,13 +62,14 @@ def modulos_do_cargo(cargo: str | None) -> set[str]:
     Devolve o conjunto de módulos visíveis para o cargo informado.
 
     Módulos:
-      - 'pex'        : PEX, Compliance Gaps
-      - 'po'         : POs, reconciliação
-      - 'bd'         : BD Ativados
-      - 'metas'      : Configuração de metas
-      - 'carteira'   : Contadores (Hunter/Farmer/Outros + upload)
-      - 'clientes'   : Oportunidades + Tarefas de clientes (cobre Vendas)
-      - 'usuarios'   : Gestão de usuários (futuro)
+      - 'pex'          : PEX, Compliance Gaps
+      - 'po'           : POs, reconciliação
+      - 'bd'           : BD Ativados
+      - 'metas'        : Configuração de metas
+      - 'carteira'     : Contadores (Hunter/Farmer/Outros + upload)
+      - 'clientes'     : Oportunidades + Tarefas de clientes (cobre Vendas)
+      - 'agendamento'  : Agendamento (régua de conformidade — cargo SDR)
+      - 'usuarios'     : Gestão de usuários (futuro)
     """
     if not cargo:
         return set()
@@ -68,6 +80,9 @@ def modulos_do_cargo(cargo: str | None) -> set[str]:
     if cargo in CARGOS_VENDAS:
         # Vendas e Clientes, sem Contadores.
         return {"clientes"}
+    if cargo in CARGOS_AGENDAMENTO:
+        # Só Agendamento — não vê Contadores nem Clientes.
+        return {"agendamento"}
     if cargo in CARGOS_OPERACIONAL:
         return {"carteira"}
     return set()
@@ -81,8 +96,11 @@ def deve_filtrar_por_usuario(cargo: str | None) -> bool:
     Regra:
       - Cargos ADMIN (ADM, Franqueado), GESTÃO (Gerente, EP) e VENDAS
         (EV) veem o conjunto inteiro -> retorna False (sem filtro).
-      - Cargos OPERACIONAIS (Hunter, Farmer, SDR, EC) veem apenas a
-        própria fatia -> retorna True (filtra por usuario_id).
+      - Cargos OPERACIONAIS (Hunter, Farmer, EC) veem apenas a própria
+        fatia -> retorna True (filtra por usuario_id).
+      - SDR não tem 'carteira', então na prática essa função nem é
+        consultada para ele nos endpoints de Carteira. Por segurança,
+        cai no ramo final e retorna True (filtra).
       - Cargo desconhecido ou ausente: por segurança, retorna True
         (filtra). Um cargo não mapeado não deve ver tudo por acidente.
 
@@ -97,7 +115,7 @@ def deve_filtrar_por_usuario(cargo: str | None) -> bool:
         return True
     if cargo in CARGOS_ADMIN or cargo in CARGOS_GESTAO or cargo in CARGOS_VENDAS:
         return False
-    # Operacionais e quaisquer cargos não mapeados: filtra.
+    # Operacionais, SDR e quaisquer cargos não mapeados: filtra.
     return True
 
 

@@ -15,7 +15,8 @@
 //   - ADM/Franqueado → tudo, exceto "Bastões" que é só Gerente+Franqueado
 //   - Gerente/EP → Contadores + Clientes + Vendas + Bastões (Gerente) + Perfil
 //   - EV → Clientes + Vendas + Perfil (NÃO vê Contadores)
-//   - Hunter/Farmer/SDR/EC → Contadores + Perfil
+//   - Hunter/Farmer/EC → Contadores + Perfil
+//   - SDR → Agendamento + Perfil (v1.3.1)
 //
 // Ordem dos itens (UX): Vendas aparece ANTES de Clientes, porque o
 // dia-a-dia do EV gira em torno do funil de Vendas. Mantém Clientes
@@ -48,6 +49,7 @@ const NAV_ITEMS = [
   { to: '/contadores',  label: 'Contadores',  modulo: 'carteira' },
   { to: '/vendas',      label: 'Vendas',      modulo: 'clientes' },
   { to: '/clientes',    label: 'Clientes',    modulo: 'clientes' },
+  { to: '/agendamento', label: 'Agendamento', modulo: 'agendamento' },
   { to: '/bastoes',     label: 'Bastões',     modulo: 'carteira', cargos: ['Gerente', 'Franqueado'] },
   { to: '/metas',       label: 'Metas',       modulo: 'metas' },
 ];
@@ -58,7 +60,7 @@ const USER_MENU_ITEMS = [
   { to: '/perfil', label: 'Perfil', Icon: UserIcon, modulo: '__sempre' },
 ];
 
-// ── Helpers ──────────────────────────────────────────────────────
+// ── Helpers ──────────────────────────────────────────────────────────
 
 function itemVisivel(item, modulos, cargo) {
   if (!modulos.includes(item.modulo)) return false;
@@ -66,7 +68,7 @@ function itemVisivel(item, modulos, cargo) {
   return true;
 }
 
-// ── Subcomponentes ───────────────────────────────────────────────
+// ── Subcomponentes ───────────────────────────────────────────────────
 
 function NavItemDesktop({ to, label }) {
   return (
@@ -198,7 +200,7 @@ function UserDropdown({ user }) {
   );
 }
 
-// ── Componente principal ─────────────────────────────────────────
+// ── Componente principal ─────────────────────────────────────────────
 
 export default function Layout() {
   const user = getUser();

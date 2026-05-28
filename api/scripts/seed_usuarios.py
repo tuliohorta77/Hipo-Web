@@ -1,5 +1,5 @@
 """
-HIPO — Seed dos usuários iniciais (11 usuários da equipe).
+HIPO — Seed dos usuários iniciais (13 usuários da equipe).
 
 Idempotente: pode rodar várias vezes sem duplicar. Usuários existentes
 têm o cargo atualizado pro valor canônico; usuários novos são criados
@@ -18,7 +18,10 @@ A senha padrão é '123456' — todos devem trocar pela página /perfil
 após o primeiro login.
 
 ATENÇÃO: este script NUNCA atualiza a senha de um usuário existente.
-Se um dos 11 já existe (ex: o ADM Tulio), a senha dele não é mexida.
+Se um dos usuários já existe (ex: o ADM Tulio), a senha dele não é mexida.
+
+v1.3.1: adicionados Alice Santos e Ilene Lucena como SDR (módulo
+Agendamento). Aline Martins permanece Farmer — não confundir.
 """
 from __future__ import annotations
 
@@ -44,6 +47,9 @@ USUARIOS = [
     ("Tulio Horta",          "tulio.horta@omie.com.vc",        "Franqueado"),
     ("Vinícius Trivinho",    "vinicius.trivinho@omie.com.vc",  "Gerente"),
     ("Wellington Souza",     "wellington.souza@omie.com.vc",   "Franqueado"),
+    # v1.3.1 — SDRs do módulo Agendamento.
+    ("Alice Santos",         "alice.santos@omie.com.vc",       "SDR"),
+    ("Ilene Lucena",         "ilene.lucena@omie.com.vc",       "SDR"),
 ]
 
 SENHA_PADRAO = "123456"

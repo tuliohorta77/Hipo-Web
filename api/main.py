@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from routers import (
     po, pex, auth, bd_ativados, metas, carteira, clientes, clientes_drilldown,
-    bastao, vendas,
+    bastao, vendas, agendamento,
 )
 from routers.permissions import requer_modulo
 
@@ -77,6 +77,15 @@ app.include_router(
     vendas.router,
     prefix="/vendas", tags=["Vendas"],
     dependencies=[Depends(requer_modulo("clientes"))],
+)
+# Agendamento (cargo SDR): v1 replica a régua de conformidade do CROmie.
+# Router próprio (não reusa /vendas) porque o SDR não tem o módulo
+# 'clientes' e porque o Agendamento vai divergir de Vendas nas próximas
+# versões. Protegido pelo módulo 'agendamento'.
+app.include_router(
+    agendamento.router,
+    prefix="/agendamento", tags=["Agendamento"],
+    dependencies=[Depends(requer_modulo("agendamento"))],
 )
 
 
