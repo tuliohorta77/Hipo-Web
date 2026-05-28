@@ -88,11 +88,11 @@ class TestAgendamentoPermissao:
         resp = await client.get("/agendamento/conformidade/filtros")
         assert resp.status_code == 401
 
-    async def test_adm_sem_modulo_agendamento_403(self, db_conn, client):
+    async def test_adm_acessa_agendamento_200(self, db_conn, client):
         # ADM vÃª tudo MENOS 'agendamento' (mÃ³dulo Ã© exclusivo do SDR).
         headers = await _criar_usuario(db_conn, client, "adm@teste.com", "ADM")
         resp = await client.get("/agendamento/conformidade", headers=headers)
-        assert resp.status_code == 403
+        assert resp.status_code == 200
 
     async def test_farmer_sem_modulo_agendamento_403(self, db_conn, client):
         headers = await _criar_usuario(db_conn, client, "farmer@teste.com", "Farmer")
@@ -203,8 +203,10 @@ class TestAgendamentoFiltros:
         assert "Carla SDR" in data["responsaveis"]
         assert "Bruno EV" in data["responsaveis"]
 
-    async def test_filtros_403_para_nao_sdr(self, db_conn, client):
-        headers = await _criar_usuario(db_conn, client, "adm@teste.com", "ADM")
+    async def test_filtros_403_para_cargo_sem_agendamento(self, db_conn, client):
+        # v1.3.2: ADM/Franqueado/Gerente acessam Agendamento. Quem NÃO tem
+        # o módulo (ex.: Farmer, que só tem carteira) recebe 403.
+        headers = await _criar_usuario(db_conn, client, "farmer@teste.com", "Farmer")
         resp = await client.get(
             "/agendamento/conformidade/filtros", headers=headers
         )
