@@ -25,11 +25,11 @@ class TestPermissoesClientes:
 
     def test_gerente_ve_clientes(self):
         m = modulos_do_cargo("Gerente")
-        assert m == {"carteira", "clientes", "agendamento"}
+        assert m == {"carteira", "clientes", "agendamento", "painel"}
 
     def test_ep_ve_clientes(self):
         m = modulos_do_cargo("EP")
-        assert m == {"carteira", "clientes"}
+        assert m == {"carteira", "clientes", "painel"}
 
     def test_hunter_NAO_ve_clientes(self):
         m = modulos_do_cargo("Hunter")

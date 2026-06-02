@@ -84,21 +84,21 @@ def modulos_do_cargo(cargo: str | None) -> set[str]:
     if cargo in CARGOS_ADMIN:
         mods = {"pex", "po", "bd", "metas", "carteira", "clientes", "usuarios"}
     elif cargo in CARGOS_GESTAO:
-        mods = {"carteira", "clientes"}
+        mods = {"carteira", "clientes", "painel"}
     elif cargo in CARGOS_VENDAS:
         # Vendas e Clientes, sem Contadores.
-        mods = {"clientes"}
+        mods = {"clientes", "painel"}
     elif cargo in CARGOS_AGENDAMENTO:
         # Só Agendamento — não vê Contadores nem Clientes.
-        mods = {"agendamento"}
+        mods = {"agendamento", "painel"}
     elif cargo in CARGOS_OPERACIONAL:
-        mods = {"carteira"}
+        mods = {"carteira", "painel"}
     else:
         return set()
 
     # v1.3.2: ADM/Franqueado/Gerente também acompanham o Agendamento.
     if cargo in CARGOS_VE_AGENDAMENTO:
-        mods = mods | {"agendamento"}
+        mods = mods | {"agendamento", "painel"}
 
     return mods
 

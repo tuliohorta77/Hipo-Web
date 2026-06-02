@@ -21,33 +21,33 @@ class TestModulosDoCargo:
     def test_adm_ve_tudo(self):
         m = modulos_do_cargo("ADM")
         # v1.3.2: ADM tambem ve Agendamento.
-        assert m == {"pex", "po", "bd", "metas", "carteira", "clientes", "usuarios", "agendamento"}
+        assert m == {"pex", "po", "bd", "metas", "carteira", "clientes", "usuarios", "agendamento", "painel"}
 
     def test_franqueado_ve_tudo(self):
         m = modulos_do_cargo("Franqueado")
         # v1.3.2: Franqueado tambem ve Agendamento.
-        assert m == {"pex", "po", "bd", "metas", "carteira", "clientes", "usuarios", "agendamento"}
+        assert m == {"pex", "po", "bd", "metas", "carteira", "clientes", "usuarios", "agendamento", "painel"}
 
     def test_hunter_ve_so_carteira(self):
-        assert modulos_do_cargo("Hunter") == {"carteira"}
+        assert modulos_do_cargo("Hunter") == {"carteira", "painel"}
 
     def test_farmer_ve_so_carteira(self):
-        assert modulos_do_cargo("Farmer") == {"carteira"}
+        assert modulos_do_cargo("Farmer") == {"carteira", "painel"}
 
     def test_ep_ve_carteira_e_clientes(self):
         assert modulos_do_cargo("EP") == {"carteira", "clientes"}
 
     def test_gerente_ve_carteira_e_clientes(self):
-        assert modulos_do_cargo("Gerente") == {"carteira", "clientes", "agendamento"}
+        assert modulos_do_cargo("Gerente") == {"carteira", "clientes", "agendamento", "painel"}
 
     def test_ev_ve_so_clientes(self):
         # EV (Executivo de Vendas): Clientes + Vendas, SEM Contadores.
-        assert modulos_do_cargo("EV") == {"clientes"}
+        assert modulos_do_cargo("EV") == {"clientes", "painel"}
 
     def test_cargos_compat_antigos_ve_so_carteira(self):
         # SDR e EC permanecem como compatibilidade (só carteira).
-        assert modulos_do_cargo("SDR") == {"agendamento"}
-        assert modulos_do_cargo("EC") == {"carteira"}
+        assert modulos_do_cargo("SDR") == {"agendamento", "painel"}
+        assert modulos_do_cargo("EC") == {"carteira", "painel"}
 
     def test_cargo_desconhecido_nada(self):
         assert modulos_do_cargo("DesconhecidoXYZ") == set()
@@ -95,19 +95,19 @@ class TestAuthMe:
         body = resp.json()
         assert body["email"] == "f1@teste.com"
         assert body["cargo"] == "Farmer"
-        assert body["modulos"] == ["carteira"]
+        assert sorted(body["modulos"]) == ["carteira", "painel"]
 
     async def test_me_adm_ve_todos_modulos(self, db_conn, client, usuario_adm):
         resp = await client.get("/auth/me", headers=usuario_adm["headers"])
         body = resp.json()
-        assert set(body["modulos"]) == {"pex", "po", "bd", "metas", "carteira", "clientes", "usuarios", "agendamento"}
+        assert set(body["modulos"]) == {"pex", "po", "bd", "metas", "carteira", "clientes", "usuarios", "agendamento", "painel"}
 
     async def test_me_ev_ve_so_clientes(self, db_conn, client):
         u = await _seed_user(db_conn, client, "EV", "ev1@teste.com")
         resp = await client.get("/auth/me", headers=u["headers"])
         body = resp.json()
         assert body["cargo"] == "EV"
-        assert body["modulos"] == ["clientes"]
+        assert sorted(body["modulos"]) == ["clientes", "painel"]
 
     async def test_me_sem_token_retorna_401(self, client):
         resp = await client.get("/auth/me")

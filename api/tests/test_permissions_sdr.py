@@ -13,7 +13,7 @@ from routers.permissions import modulos_do_cargo, deve_filtrar_por_usuario
 
 class TestModulosDoCargoSDR:
     def test_sdr_ve_somente_agendamento(self):
-        assert modulos_do_cargo("SDR") == {"agendamento"}
+        assert modulos_do_cargo("SDR") == {"agendamento", "painel"}
 
     def test_sdr_nao_ve_carteira(self):
         assert "carteira" not in modulos_do_cargo("SDR")
@@ -39,12 +39,12 @@ class TestAgendamentoParaGestao:
 
     def test_gerente_mantem_carteira_e_clientes(self):
         # Agendamento é ADICIONAL, não substitui.
-        assert modulos_do_cargo("Gerente") == {"carteira", "clientes", "agendamento"}
+        assert modulos_do_cargo("Gerente") == {"carteira", "clientes", "agendamento", "painel"}
 
     def test_ep_NAO_ve_agendamento(self):
         # Decisão de produto: EP fica de fora.
         assert "agendamento" not in modulos_do_cargo("EP")
-        assert modulos_do_cargo("EP") == {"carteira", "clientes"}
+        assert modulos_do_cargo("EP") == {"carteira", "clientes", "painel"}
 
     def test_adm_mantem_modulos_de_sempre(self):
         mods = modulos_do_cargo("ADM")
@@ -53,16 +53,16 @@ class TestAgendamentoParaGestao:
 
 class TestModulosDosDemaisCargosInalterados:
     def test_hunter_continua_carteira(self):
-        assert modulos_do_cargo("Hunter") == {"carteira"}
+        assert modulos_do_cargo("Hunter") == {"carteira", "painel"}
 
     def test_farmer_continua_carteira(self):
-        assert modulos_do_cargo("Farmer") == {"carteira"}
+        assert modulos_do_cargo("Farmer") == {"carteira", "painel"}
 
     def test_ec_continua_carteira(self):
-        assert modulos_do_cargo("EC") == {"carteira"}
+        assert modulos_do_cargo("EC") == {"carteira", "painel"}
 
     def test_ev_continua_clientes(self):
-        assert modulos_do_cargo("EV") == {"clientes"}
+        assert modulos_do_cargo("EV") == {"clientes", "painel"}
 
     def test_cargo_desconhecido_vazio(self):
         assert modulos_do_cargo("Inexistente") == set()
