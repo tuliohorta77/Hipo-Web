@@ -35,7 +35,7 @@ class TestModulosDoCargo:
         assert modulos_do_cargo("Farmer") == {"carteira", "painel"}
 
     def test_ep_ve_carteira_e_clientes(self):
-        assert modulos_do_cargo("EP") == {"carteira", "clientes"}
+        assert modulos_do_cargo("EP") == {"carteira", "clientes", "painel"}
 
     def test_gerente_ve_carteira_e_clientes(self):
         assert modulos_do_cargo("Gerente") == {"carteira", "clientes", "agendamento", "painel"}

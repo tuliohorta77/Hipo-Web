@@ -34,7 +34,7 @@ class TestPermissoesClientes:
     def test_hunter_NAO_ve_clientes(self):
         m = modulos_do_cargo("Hunter")
         assert "clientes" not in m
-        assert m == {"carteira"}
+        assert m == {"carteira", "painel"}
 
     def test_farmer_NAO_ve_clientes(self):
         m = modulos_do_cargo("Farmer")
