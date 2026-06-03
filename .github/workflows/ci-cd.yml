@@ -51,6 +51,7 @@ jobs:
           PGPASSWORD: hipo_test
         run: |
           psql -h localhost -U hipo_test -d hipo_test -f api/schema.sql
+          psql -h localhost -U hipo_test -d hipo_test -f api/scripts/painel.sql
 
       - name: Executar testes com cobertura
         env:
