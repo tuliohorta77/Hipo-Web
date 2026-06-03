@@ -7,6 +7,7 @@ class Settings(BaseSettings):
     UPLOAD_DIR: str = "/home/hipo/app/uploads"
     MAX_UPLOAD_MB: int = 50
     ENVIRONMENT: str = "production"
+    BRIDGE_TOKEN: str = ""
 
     class Config:
         env_file = ".env"
