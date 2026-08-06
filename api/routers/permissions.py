@@ -1,30 +1,29 @@
 """
 HIPO — Permissões por cargo (controle de acesso aos módulos).
 
-Sprint 0: o legado saiu e o CRM ainda não entrou, então o único módulo
-funcional é 'perfil' (troca de senha, dados do próprio usuário). Cargos
-de gestão recebem também 'usuarios'.
-
 Cargos canônicos:
-  Franqueado  — gestão / master. Vê tudo. (renomear é backlog)
+  Franqueado  — gestão / master. (renomear é backlog)
   ADM         — administração da operação
   EC          — Executivo de Contas (fusão de Hunter + Farmer)
   SDR         — pré-vendas
   EV          — Executivo de Vendas
   EP          — Especialista de Produto
 
-Removidos na Sprint 0:
-  Gerente     — cargo extinto; usuários com esse cargo foram desativados
-  Hunter      — fundido em EC
-  Farmer      — fundido em EC
+Cargos extintos na Sprint 0: Gerente (removido), Hunter e Farmer (fundidos
+em EC). Um usuário que ainda tenha um desses cargos loga mas não recebe
+módulo nenhum — proposital, para não herdar acesso por acidente.
 
 Módulos:
   'perfil'    — dados do próprio usuário e troca de senha (todo cargo válido)
+  'crm'       — contas, contatos e oportunidades (todo cargo válido)
   'usuarios'  — gestão de usuários (Franqueado, ADM)
-  'crm'       — contas, contatos e oportunidades (entra na Sprint 1)
 
-Um cargo desconhecido ou ausente recebe conjunto vazio — nunca herda
-acesso por acidente.
+Por que 'crm' é de todo mundo: contas e contatos são base compartilhada.
+Se cada um enxergasse só a própria fatia, um usuário bateria no erro de CNPJ
+duplicado sem conseguir ver o registro que causou o conflito — e cadastraria
+a mesma empresa de novo com outro documento. O recorte por dono existe, mas
+dentro de oportunidades (via oportunidade_envolvidos), aplicado no
+repositório, não no guard de módulo.
 """
 from __future__ import annotations
 
@@ -38,11 +37,14 @@ from routers.auth import usuario_atual
 # Cargos com visão de gestão: também administram usuários.
 CARGOS_GESTAO = {"Franqueado", "ADM"}
 
-# Cargos operacionais: uma tela por função (Sprint 1 em diante).
+# Cargos operacionais: uma tela por função.
 CARGOS_OPERACIONAIS = {"EC", "SDR", "EV", "EP"}
 
 # Todos os cargos válidos do sistema.
 CARGOS_VALIDOS = CARGOS_GESTAO | CARGOS_OPERACIONAIS
+
+# Módulos que todo cargo válido enxerga.
+MODULOS_BASE = {"perfil", "crm"}
 
 
 def modulos_do_cargo(cargo: str | None) -> set[str]:
@@ -51,10 +53,10 @@ def modulos_do_cargo(cargo: str | None) -> set[str]:
         return set()
 
     if cargo in CARGOS_GESTAO:
-        return {"perfil", "usuarios"}
+        return MODULOS_BASE | {"usuarios"}
 
     if cargo in CARGOS_OPERACIONAIS:
-        return {"perfil"}
+        return set(MODULOS_BASE)
 
     return set()
 

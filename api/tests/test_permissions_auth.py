@@ -1,9 +1,6 @@
 """
 HIPO — Testes de permissões por cargo e endpoints de auth.
 
-Consolida o que antes estava espalhado em test_permissions.py,
-test_permissions_auth.py e test_permissions_sdr.py.
-
 Cobertura:
   - modulos_do_cargo devolve o conjunto certo para cada cargo canônico
   - cargos extintos (Gerente, Hunter, Farmer) não recebem módulo nenhum
@@ -19,6 +16,7 @@ from routers.permissions import (
     CARGOS_GESTAO,
     CARGOS_OPERACIONAIS,
     CARGOS_VALIDOS,
+    MODULOS_BASE,
     modulos_do_cargo,
     requer_modulo,
     requer_qualquer_modulo,
@@ -29,20 +27,30 @@ from tests.conftest import criar_usuario
 # ── Função pura ──────────────────────────────────────────────────
 
 class TestModulosDoCargo:
-    def test_franqueado_tem_perfil_e_usuarios(self):
-        assert modulos_do_cargo("Franqueado") == {"perfil", "usuarios"}
-
-    def test_adm_tem_perfil_e_usuarios(self):
-        assert modulos_do_cargo("ADM") == {"perfil", "usuarios"}
+    @pytest.mark.parametrize("cargo", sorted(CARGOS_GESTAO))
+    def test_gestao_tem_base_mais_usuarios(self, cargo):
+        assert modulos_do_cargo(cargo) == {"perfil", "crm", "usuarios"}
 
     @pytest.mark.parametrize("cargo", sorted(CARGOS_OPERACIONAIS))
-    def test_operacional_tem_so_perfil(self, cargo):
-        assert modulos_do_cargo(cargo) == {"perfil"}
+    def test_operacional_tem_so_a_base(self, cargo):
+        assert modulos_do_cargo(cargo) == {"perfil", "crm"}
 
     @pytest.mark.parametrize("cargo", sorted(CARGOS_VALIDOS))
-    def test_todo_cargo_valido_tem_perfil(self, cargo):
-        """Nenhum cargo válido pode ficar sem módulo — senão não usa o sistema."""
-        assert "perfil" in modulos_do_cargo(cargo)
+    def test_todo_cargo_valido_recebe_a_base(self, cargo):
+        """Nenhum cargo válido pode ficar sem perfil e sem crm."""
+        assert MODULOS_BASE <= modulos_do_cargo(cargo)
+
+    @pytest.mark.parametrize("cargo", sorted(CARGOS_VALIDOS))
+    def test_todo_cargo_valido_ve_o_crm(self, cargo):
+        """
+        Base compartilhada: se um cargo não visse contas, bateria em CNPJ
+        duplicado sem conseguir enxergar o registro que causou o conflito.
+        """
+        assert "crm" in modulos_do_cargo(cargo)
+
+    @pytest.mark.parametrize("cargo", sorted(CARGOS_OPERACIONAIS))
+    def test_operacional_nao_administra_usuarios(self, cargo):
+        assert "usuarios" not in modulos_do_cargo(cargo)
 
     @pytest.mark.parametrize("cargo", ["Gerente", "Hunter", "Farmer"])
     def test_cargos_extintos_nao_tem_modulo(self, cargo):
@@ -61,6 +69,17 @@ class TestModulosDoCargo:
     def test_gestao_e_operacional_nao_se_sobrepoem(self):
         assert CARGOS_GESTAO & CARGOS_OPERACIONAIS == set()
 
+    def test_retorno_e_copia_independente(self):
+        """
+        modulos_do_cargo devolve conjuntos derivados de MODULOS_BASE; se
+        devolvesse a própria constante, um caller que fizesse .add()
+        contaminaria as permissões de todos os cargos do processo.
+        """
+        m = modulos_do_cargo("EC")
+        m.add("invadido")
+        assert "invadido" not in MODULOS_BASE
+        assert "invadido" not in modulos_do_cargo("EC")
+
 
 # ── /auth/me ─────────────────────────────────────────────────────
 
@@ -72,12 +91,12 @@ class TestAuthMe:
         body = resp.json()
         assert body["email"] == "ec1@teste.com"
         assert body["cargo"] == "EC"
-        assert body["modulos"] == ["perfil"]
+        assert sorted(body["modulos"]) == ["crm", "perfil"]
 
     async def test_me_franqueado_ve_usuarios(self, db_conn, client, usuario_franqueado):
         resp = await client.get("/auth/me", headers=usuario_franqueado["headers"])
         assert resp.status_code == 200
-        assert sorted(resp.json()["modulos"]) == ["perfil", "usuarios"]
+        assert sorted(resp.json()["modulos"]) == ["crm", "perfil", "usuarios"]
 
     async def test_me_cargo_extinto_sem_modulos(self, db_conn, client):
         """Usuário que sobrou com cargo Gerente loga mas não vê nada."""
@@ -154,9 +173,9 @@ class TestTrocarSenha:
 
 # ── Guards de módulo ─────────────────────────────────────────────
 #
-# Nenhum router protegido existe na Sprint 0, então os guards são
-# exercitados contra um app descartável. Assim a cobertura de
-# requer_modulo / requer_qualquer_modulo não fica órfã até a Sprint 1.
+# Exercitados contra um app descartável, com um módulo que ninguém tem
+# ('financeiro', que só existe na Etapa 4). Assim os guards continuam
+# cobertos independentemente de quais routers reais existem hoje.
 
 def _app_com_guards() -> FastAPI:
     app_teste = FastAPI()
@@ -169,52 +188,66 @@ def _app_com_guards() -> FastAPI:
     async def so_crm():
         return {"ok": True}
 
+    @app_teste.get("/inexistente", dependencies=[Depends(requer_modulo("financeiro"))])
+    async def inexistente():
+        return {"ok": True}
+
     @app_teste.get(
-        "/perfil-ou-usuarios",
-        dependencies=[Depends(requer_qualquer_modulo(["perfil", "usuarios"]))],
+        "/crm-ou-usuarios",
+        dependencies=[Depends(requer_qualquer_modulo(["crm", "usuarios"]))],
     )
-    async def perfil_ou_usuarios():
+    async def crm_ou_usuarios():
         return {"ok": True}
 
     return app_teste
 
 
+async def _get(rota: str, headers: dict):
+    async with AsyncClient(
+        transport=ASGITransport(app=_app_com_guards(), raise_app_exceptions=True),
+        base_url="http://guards",
+    ) as c:
+        return await c.get(rota, headers=headers)
+
+
 class TestGuards:
     async def test_operacional_bloqueado_em_modulo_de_gestao(self, db_conn, client):
         u = await criar_usuario(db_conn, client, "SDR", "sdr-guard@teste.com")
-        async with AsyncClient(
-            transport=ASGITransport(app=_app_com_guards(), raise_app_exceptions=True),
-            base_url="http://guards",
-        ) as c:
-            resp = await c.get("/so-usuarios", headers=u["headers"])
+        resp = await _get("/so-usuarios", u["headers"])
         assert resp.status_code == 403
         assert "usuarios" in resp.text
 
     async def test_gestao_passa_em_modulo_de_gestao(self, db_conn, client, usuario_adm):
-        async with AsyncClient(
-            transport=ASGITransport(app=_app_com_guards(), raise_app_exceptions=True),
-            base_url="http://guards",
-        ) as c:
-            resp = await c.get("/so-usuarios", headers=usuario_adm["headers"])
+        resp = await _get("/so-usuarios", usuario_adm["headers"])
         assert resp.status_code == 200
 
-    async def test_modulo_inexistente_bloqueia_todo_mundo(self, db_conn, client, usuario_adm):
-        """'crm' só entra na Sprint 1 — até lá ninguém passa."""
-        async with AsyncClient(
-            transport=ASGITransport(app=_app_com_guards(), raise_app_exceptions=True),
-            base_url="http://guards",
-        ) as c:
-            resp = await c.get("/so-crm", headers=usuario_adm["headers"])
+    @pytest.mark.parametrize("cargo", ["Franqueado", "ADM", "EC", "SDR", "EV", "EP"])
+    async def test_todo_cargo_valido_passa_no_crm(self, db_conn, client, cargo):
+        u = await criar_usuario(db_conn, client, cargo, f"{cargo.lower()}-g@teste.com")
+        resp = await _get("/so-crm", u["headers"])
+        assert resp.status_code == 200
+
+    async def test_cargo_extinto_bloqueado_no_crm(self, db_conn, client):
+        u = await criar_usuario(db_conn, client, "Hunter", "hunter-g@teste.com")
+        resp = await _get("/so-crm", u["headers"])
+        assert resp.status_code == 403
+
+    async def test_modulo_inexistente_bloqueia_ate_a_gestao(
+        self, db_conn, client, usuario_adm
+    ):
+        """'financeiro' só entra na Etapa 4 — até lá ninguém passa."""
+        resp = await _get("/inexistente", usuario_adm["headers"])
         assert resp.status_code == 403
 
     async def test_requer_qualquer_modulo_libera_com_um_deles(self, db_conn, client):
         u = await criar_usuario(db_conn, client, "EV", "ev-guard@teste.com")
-        async with AsyncClient(
-            transport=ASGITransport(app=_app_com_guards(), raise_app_exceptions=True),
-            base_url="http://guards",
-        ) as c:
-            resp = await c.get("/perfil-ou-usuarios", headers=u["headers"])
+        resp = await _get("/crm-ou-usuarios", u["headers"])
         assert resp.status_code == 200
+
+    async def test_requer_qualquer_modulo_bloqueia_sem_nenhum(self, db_conn, client):
+        u = await criar_usuario(db_conn, client, "Farmer", "farmer-guard@teste.com")
+        resp = await _get("/crm-ou-usuarios", u["headers"])
+        assert resp.status_code == 403
 
     async def test_requer_qualquer_modulo_lista_vazia_erra(self):
         with pytest.raises(ValueError):

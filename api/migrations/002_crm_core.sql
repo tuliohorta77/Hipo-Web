@@ -1,61 +1,18 @@
 -- ============================================================================
--- HIPO — Schema do banco
+-- HIPO — 002_crm_core.sql
+-- Sprint 1: fundacao do CRM nativo de medicina ocupacional.
 --
--- Estado apos a Sprint 1 (CRM nativo de medicina ocupacional).
+-- Cria as 11 tabelas do dominio (contas, contatos, oportunidades e listas de
+-- dominio) + a sequence de numeracao das oportunidades.
 --
--- Historico:
---   001_drop_legado.sql  removeu PEX, CROmie, BD Ativados, POs e Carteira
---   002_crm_core.sql     criou as 11 tabelas do CRM
+-- A Sprint 1 usa apenas contas + verticais. As demais tabelas ja nascem aqui
+-- para que as Sprints 2 a 4 escrevam somente codigo, sem novas migrations
+-- estruturais.
 --
--- Este arquivo e a fonte usada para criar o banco de teste no CI e deve
--- refletir o estado acumulado das migrations.
+-- Idempotente: pode rodar mais de uma vez sem erro.
 -- ============================================================================
 
--- ---------------------------------------------------------------------------
--- usuarios
--- ---------------------------------------------------------------------------
--- Autenticacao e cargo. 'cargo' e VARCHAR livre; as permissoes por cargo
--- vivem em api/routers/permissions.py (modulos_do_cargo), nao no banco.
---
--- Cargos canonicos: Franqueado | ADM (gestao) e EC | SDR | EV | EP (operacao).
--- Cargos extintos: Gerente (removido), Hunter e Farmer (fundidos em EC).
--- ---------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS usuarios (
-    id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    nome                  VARCHAR(150) NOT NULL,
-    email                 VARCHAR(150) UNIQUE NOT NULL,
-    senha_hash            TEXT NOT NULL,
-    cargo                 VARCHAR(80),
-    ativo                 BOOLEAN DEFAULT TRUE,
-    precisa_trocar_senha  BOOLEAN DEFAULT FALSE,
-    created_at            TIMESTAMPTZ DEFAULT NOW()
-);
-
-
--- ---------------------------------------------------------------------------
--- dia_nao_util
--- ---------------------------------------------------------------------------
--- Calendario de feriados e dias sem expediente. Sobreviveu a limpeza da
--- Sprint 0 por ser agnostico ao negocio antigo: sera reaproveitado no calculo
--- de previsao de fechamento e de SLA (api/services/dias_uteis.py).
---
--- CONSEQUENCIA NOS TESTES: por causa da FK para usuarios, um
--- TRUNCATE usuarios CASCADE tambem esvazia dia_nao_util.
--- ---------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS dia_nao_util (
-    id                     SERIAL PRIMARY KEY,
-    data                   DATE NOT NULL UNIQUE,
-    motivo                 TEXT NOT NULL,
-    criado_por_usuario_id  UUID REFERENCES usuarios(id) ON DELETE SET NULL,
-    criado_em              TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
-CREATE INDEX IF NOT EXISTS idx_dia_nao_util_ano ON dia_nao_util (EXTRACT(YEAR FROM data));
-
-
--- ============================================================================
--- CRM  (espelha api/migrations/002_crm_core.sql)
--- ============================================================================
+BEGIN;
 
 -- Busca por trecho de razao social usa ILIKE '%x%'; sem trigram isso vira
 -- seq scan. pg_trgm esta disponivel no RDS e na imagem postgres:15 do CI.
@@ -340,3 +297,4 @@ CREATE TABLE IF NOT EXISTS usuarios_preferencias (
     PRIMARY KEY (usuario_id, chave)
 );
 
+COMMIT;

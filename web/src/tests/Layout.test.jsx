@@ -1,8 +1,8 @@
 // web/src/tests/Layout.test.jsx
 //
-// Sprint 0: a nav principal está vazia (NAV_ITEMS = []). Os testes cobrem
-// o estado sem nav — hamburger e <nav> não renderizam — e o dropdown do
-// usuário, que continua sendo o único caminho para Perfil e Sair.
+// Sprint 1: a nav tem um item (Contas), visível para todo cargo com o módulo
+// 'crm'. Os testes cobrem os três estados: com nav, sem nav (cargo extinto)
+// e o dropdown do usuário.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, cleanup } from '@testing-library/react';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
@@ -25,6 +25,7 @@ function renderLayout(rotaInicial = '/perfil') {
       <Routes>
         <Route path="/" element={<Layout />}>
           <Route path="perfil" element={<div>conteudo-perfil</div>} />
+          <Route path="crm/contas" element={<div>conteudo-contas</div>} />
         </Route>
       </Routes>
     </MemoryRouter>
@@ -38,32 +39,63 @@ beforeEach(() => {
     email: 'tulio@teste.com',
     cargo: 'Franqueado',
   });
-  mockGetModulos.mockReturnValue(['perfil', 'usuarios']);
+  mockGetModulos.mockReturnValue(['perfil', 'crm', 'usuarios']);
 });
 
 afterEach(cleanup);
 
-describe('Layout — nav vazia (Sprint 0)', () => {
+describe('Layout — nav com o módulo crm', () => {
   it('renderiza o conteúdo da rota filha', () => {
     renderLayout();
     expect(screen.getByText('conteudo-perfil')).toBeInTheDocument();
   });
 
-  it('não renderiza a nav principal quando não há itens visíveis', () => {
+  it('mostra o item Contas na nav', () => {
+    renderLayout();
+    expect(screen.getByLabelText('Navegação principal')).toBeInTheDocument();
+    expect(screen.getAllByText('Contas').length).toBeGreaterThan(0);
+  });
+
+  it('o link de Contas aponta para /crm/contas', () => {
+    renderLayout();
+    const nav = screen.getByLabelText('Navegação principal');
+    expect(nav.querySelector('a[href="/crm/contas"]')).toBeTruthy();
+  });
+
+  it('renderiza o botão hamburger quando há itens', () => {
+    renderLayout();
+    expect(screen.getByLabelText('Abrir menu')).toBeInTheDocument();
+  });
+
+  it('não mostra nenhum link de tela removida na Sprint 0', () => {
+    renderLayout();
+    for (const label of ['PEX', 'POs', 'BD Ativados', 'Contadores', 'Vendas', 'Agendamento', 'Bastões', 'Metas']) {
+      expect(screen.queryByText(label)).not.toBeInTheDocument();
+    }
+  });
+});
+
+describe('Layout — cargo sem o módulo crm', () => {
+  beforeEach(() => {
+    mockGetUser.mockReturnValue({ nome: 'Ex Gerente', email: 'ex@teste.com', cargo: 'Gerente' });
+    mockGetModulos.mockReturnValue([]);
+  });
+
+  it('não renderiza a nav principal', () => {
     renderLayout();
     expect(screen.queryByLabelText('Navegação principal')).not.toBeInTheDocument();
   });
 
-  it('não renderiza o botão hamburger quando não há itens visíveis', () => {
+  it('não renderiza o hamburger', () => {
     renderLayout();
     expect(screen.queryByLabelText('Abrir menu')).not.toBeInTheDocument();
   });
 
-  it('não mostra nenhum link de tela removida', () => {
+  it('ainda alcança Perfil e Sair pelo dropdown', () => {
     renderLayout();
-    for (const label of ['PEX', 'POs', 'BD Ativados', 'Contadores', 'Clientes', 'Vendas', 'Agendamento', 'Bastões', 'Metas']) {
-      expect(screen.queryByText(label)).not.toBeInTheDocument();
-    }
+    fireEvent.click(screen.getByLabelText('Menu do usuário'));
+    expect(screen.getByText('Perfil')).toBeInTheDocument();
+    expect(screen.getByText('Sair')).toBeInTheDocument();
   });
 });
 
@@ -102,16 +134,5 @@ describe('Layout — dropdown do usuário', () => {
     mockGetModulos.mockReturnValue([]);
     renderLayout();
     expect(screen.queryByLabelText('Menu do usuário')).not.toBeInTheDocument();
-  });
-});
-
-describe('Layout — cargo sem módulos', () => {
-  it('não quebra e mantém o dropdown para cargo extinto', () => {
-    mockGetUser.mockReturnValue({ nome: 'Ex Gerente', email: 'ex@teste.com', cargo: 'Gerente' });
-    mockGetModulos.mockReturnValue([]);
-    renderLayout();
-    expect(screen.getByText('conteudo-perfil')).toBeInTheDocument();
-    expect(screen.getByLabelText('Menu do usuário')).toBeInTheDocument();
-    expect(screen.queryByLabelText('Navegação principal')).not.toBeInTheDocument();
   });
 });

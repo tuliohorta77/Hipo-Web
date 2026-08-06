@@ -10,10 +10,9 @@
 //   - Mobile (< lg): nav vira hamburger, menu desce do topbar.
 //   - Conteúdo principal ocupa 100% da largura.
 //
-// Sprint 0: NAV_ITEMS está vazio — todas as telas do legado saíram e o CRM
-// entra na Sprint 1. Com a lista vazia, a nav desktop e o botão hamburger
-// não são renderizados; o usuário chega direto em /perfil e acessa Perfil e
-// Sair pelo dropdown do avatar.
+// Quando NAV_ITEMS fica vazio para o cargo (ex.: cargo extinto, sem módulo
+// nenhum), a nav desktop e o hamburger não são renderizados — o usuário
+// ainda alcança Perfil e Sair pelo dropdown do avatar.
 //
 // Items podem ter:
 //   - modulo: string  → checa modulos.includes(modulo)
@@ -28,9 +27,10 @@ import { Menu, X, LogOut, User as UserIcon, ChevronDown } from 'lucide-react';
 import { getUser, getModulos, logout } from '../api';
 import Logo, { LogoWordmark } from './Logo';
 
-// Nav principal. Sprint 1 acrescenta:
-//   { to: '/crm/contas', label: 'Contas', modulo: 'crm' }
-const NAV_ITEMS = [];
+// Nav principal. Sprint 2 acrescenta Contatos; Sprint 4, Oportunidades.
+const NAV_ITEMS = [
+  { to: '/crm/contas', label: 'Contas', modulo: 'crm' },
+];
 
 // Itens do dropdown do usuário (não da nav principal).
 // '__sempre' é especial: visível para qualquer usuário autenticado.

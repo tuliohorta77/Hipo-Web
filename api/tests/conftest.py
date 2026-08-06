@@ -1,10 +1,12 @@
 """
 Fixtures para testes do HIPO.
 
-Sprint 0: o banco tem apenas 'usuarios' e 'dia_nao_util'. A fixture db_conn
-trunca 'usuarios' com CASCADE — o que também esvazia 'dia_nao_util', que tem
-FK para usuarios. Isso é intencional: cada teste começa com o banco limpo.
-Testes que precisem de feriados devem inseri-los eles mesmos.
+A fixture db_conn trunca 'usuarios' com CASCADE. Como toda tabela do CRM
+tem FK para usuarios (criado_por), o CASCADE varre o banco inteiro numa
+tacada: contas, contatos, oportunidades, listas de domínio e dia_nao_util.
+
+Isso é intencional — cada teste começa do zero. Testes que precisem de
+feriados, verticais ou qualquer dado de apoio devem criá-los eles mesmos.
 
 Usa anyio_backend + loop por função para evitar conflito de event loop
 com asyncpg no pytest-asyncio 0.23.
@@ -54,7 +56,8 @@ def _abortar_se_producao(db_url: str) -> None:
             f" Marcador(es) detectado(s): {', '.join(encontrados)}\n"
             "\n"
             " A suite executa TRUNCATE CASCADE em 'usuarios'. Rodar contra\n"
-            " producao apagaria todos os logins do HIPO.\n"
+            " producao apagaria TODOS os dados: logins, contas, contatos\n"
+            " e oportunidades.\n"
             "\n"
             " Use um banco de teste local ou o container do CI.\n"
             " DATABASE_URL de teste esperada aponta para 'localhost'.\n"
@@ -83,7 +86,9 @@ async def db_conn():
     """
     Conexão direta por teste, com event loop próprio.
 
-    O CASCADE puxa dia_nao_util junto (FK criado_por_usuario_id → usuarios).
+    O CASCADE puxa todo o CRM junto: contas, contatos, conta_contatos,
+    oportunidades e derivados, listas de domínio e dia_nao_util — todas têm
+    FK para usuarios.
     """
     conn = await asyncpg.connect(_DB_URL)
     await conn.execute("TRUNCATE TABLE usuarios CASCADE")

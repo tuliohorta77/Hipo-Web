@@ -48,9 +48,8 @@ export function getUser() {
 // Módulos visíveis pro cargo do usuário logado (vêm do /auth/me e ficam
 // gravados no localStorage no login).
 //
-// Sprint 0:
-//   Franqueado / ADM        -> ['perfil', 'usuarios']
-//   EC / SDR / EV / EP      -> ['perfil']
+//   Franqueado / ADM        -> ['perfil', 'crm', 'usuarios']
+//   EC / SDR / EV / EP      -> ['perfil', 'crm']
 //   cargo extinto ou vazio  -> []
 //
 // ATENÇÃO: mudança de permissão no backend só reflete depois de relogin.
@@ -66,12 +65,13 @@ export function podeAcessar(modulo) {
 }
 
 // Rotas candidatas para o redirect inicial, em ordem de prioridade.
-// Cada entrada é [módulo, rota]. A Sprint 1 acrescenta ['crm', '/crm/contas']
-// no topo da lista.
-const ROTAS_INICIAIS = [];
+// Cada entrada é [módulo, rota].
+const ROTAS_INICIAIS = [
+  ["crm", "/crm/contas"],
+];
 
-// Primeira rota acessível pelo cargo. Sem nenhum módulo operacional
-// disponível (estado da Sprint 0), todo cargo cai em /perfil — que é
+// Primeira rota acessível pelo cargo. Todo cargo válido tem 'crm', então cai
+// em /crm/contas; cargo extinto ou sem módulo nenhum cai em /perfil, que é
 // visível para qualquer usuário autenticado.
 export function primeiraRotaAcessivel() {
   const mods = getModulos();
