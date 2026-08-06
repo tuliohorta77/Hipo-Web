@@ -1,33 +1,26 @@
 // web/src/components/Layout.jsx
 //
-// Layout do Hipo — Fase 3: topbar horizontal (substitui sidebar lateral).
+// Layout do HIPO — topbar horizontal.
 //
 // Estrutura:
-//   - Topbar branca (64px desktop, 56px mobile) com:
-//     . Logo Hipo à esquerda
+//   - Topbar (64px desktop, 56px mobile) com:
+//     . Logo à esquerda
 //     . Nav central (só texto, item ativo com underline azul)
 //     . Avatar à direita com dropdown (Perfil + Sair)
-//   - Mobile (< lg): nav some, vira hamburger. Click abre menu vertical
-//     descendo do topbar.
+//   - Mobile (< lg): nav vira hamburger, menu desce do topbar.
 //   - Conteúdo principal ocupa 100% da largura.
 //
-// Permissão por módulo + cargo (v1.2.0 etapa 3):
-//   - ADM/Franqueado → tudo, exceto "Bastões" que é só Gerente+Franqueado
-//   - Gerente/EP → Contadores + Clientes + Vendas + Bastões (Gerente) + Perfil
-//   - EV → Clientes + Vendas + Perfil (NÃO vê Contadores)
-//   - Hunter/Farmer/EC → Contadores + Perfil
-//   - SDR → Agendamento + Perfil (v1.3.1)
-//
-// Ordem dos itens (UX): Vendas aparece ANTES de Clientes, porque o
-// dia-a-dia do EV gira em torno do funil de Vendas. Mantém Clientes
-// acessível em segundo plano sem virar a primeira coisa que aparece.
+// Sprint 0: NAV_ITEMS está vazio — todas as telas do legado saíram e o CRM
+// entra na Sprint 1. Com a lista vazia, a nav desktop e o botão hamburger
+// não são renderizados; o usuário chega direto em /perfil e acessa Perfil e
+// Sair pelo dropdown do avatar.
 //
 // Items podem ter:
 //   - modulo: string  → checa modulos.includes(modulo)
-//   - cargos: array   → checa user.cargo in cargos (opcional, restringe ainda mais)
+//   - cargos: array   → checa user.cargo in cargos (opcional, restringe mais)
 //
-// Acessibilidade: NavLink renderiza <a>, dropdown e hamburger fecham
-// ao clicar fora ou pressionar Esc.
+// Acessibilidade: NavLink renderiza <a>, dropdown e hamburger fecham ao
+// clicar fora ou pressionar Esc.
 
 import { useEffect, useRef, useState } from 'react';
 import { Outlet, NavLink, useNavigate } from 'react-router-dom';
@@ -35,27 +28,12 @@ import { Menu, X, LogOut, User as UserIcon, ChevronDown } from 'lucide-react';
 import { getUser, getModulos, logout } from '../api';
 import Logo, { LogoWordmark } from './Logo';
 
-// Cada item declara o módulo que precisa pra aparecer.
-// Pode ter 'cargos' opcional pra restringir além do módulo.
-// 'perfil' não aparece na nav principal — está no dropdown do usuário.
-// '__sempre' é especial: visível pra qualquer logado.
-//
-// Ordem: Vendas aparece antes de Clientes (decisão de UX — funil de
-// vendas é a tela do dia-a-dia do EV).
-const NAV_ITEMS = [
-  { to: '/pex',         label: 'PEX',         modulo: 'pex' },
-  { to: '/pos',         label: 'POs',         modulo: 'po' },
-  { to: '/bd-ativados', label: 'BD Ativados', modulo: 'bd' },
-  { to: '/contadores',  label: 'Contadores',  modulo: 'carteira' },
-  { to: '/vendas',      label: 'Vendas',      modulo: 'clientes' },
-  { to: '/clientes',    label: 'Clientes',    modulo: 'clientes' },
-  { to: '/agendamento', label: 'Agendamento', modulo: 'agendamento' },
-  { to: '/bastoes',     label: 'Bastões',     modulo: 'carteira', cargos: ['Gerente', 'Franqueado'] },
-  { to: '/metas',       label: 'Metas',       modulo: 'metas' },
-];
+// Nav principal. Sprint 1 acrescenta:
+//   { to: '/crm/contas', label: 'Contas', modulo: 'crm' }
+const NAV_ITEMS = [];
 
-// Itens que vivem no dropdown do usuário (não na nav principal).
-// Perfil entra aqui porque é "do usuário", não uma feature.
+// Itens do dropdown do usuário (não da nav principal).
+// '__sempre' é especial: visível para qualquer usuário autenticado.
 const USER_MENU_ITEMS = [
   { to: '/perfil', label: 'Perfil', Icon: UserIcon, modulo: '__sempre' },
 ];
@@ -63,7 +41,7 @@ const USER_MENU_ITEMS = [
 // ── Helpers ──────────────────────────────────────────────────────────
 
 function itemVisivel(item, modulos, cargo) {
-  if (!modulos.includes(item.modulo)) return false;
+  if (item.modulo !== '__sempre' && !modulos.includes(item.modulo)) return false;
   if (item.cargos && !item.cargos.includes(cargo)) return false;
   return true;
 }
@@ -114,7 +92,6 @@ function UserDropdown({ user }) {
     .map((p) => p.charAt(0).toUpperCase())
     .join('');
 
-  // Fecha ao clicar fora
   useEffect(() => {
     if (!open) return;
     function handleClickFora(e) {
@@ -209,8 +186,8 @@ export default function Layout() {
   const [mobileOpen, setMobileOpen] = useState(false);
 
   const itensVisiveis = NAV_ITEMS.filter((item) => itemVisivel(item, modulos, cargo));
+  const temNav = itensVisiveis.length > 0;
 
-  // Fecha menu mobile ao apertar Esc
   useEffect(() => {
     if (!mobileOpen) return;
     function handleEsc(e) {
@@ -220,46 +197,49 @@ export default function Layout() {
     return () => document.removeEventListener('keydown', handleEsc);
   }, [mobileOpen]);
 
+  // Se a nav esvaziar (Sprint 0, ou cargo sem módulo), fecha o menu mobile
+  // para não deixar um painel vazio aberto.
+  useEffect(() => {
+    if (!temNav && mobileOpen) setMobileOpen(false);
+  }, [temNav, mobileOpen]);
+
   return (
     <div className="min-h-screen flex flex-col bg-hipo-bg">
-      {/* Topbar */}
       <header className="bg-hipo-card border-b border-hipo-border sticky top-0 z-30">
         <div className="h-14 lg:h-16 flex items-center px-4 lg:px-6 gap-3 lg:gap-6">
-          {/* Mobile: hamburger */}
-          <button
-            onClick={() => setMobileOpen((v) => !v)}
-            className="lg:hidden p-2 -ml-2 rounded-lg text-hipo-slate hover:bg-hipo-bg transition-colors"
-            aria-label={mobileOpen ? 'Fechar menu' : 'Abrir menu'}
-            aria-expanded={mobileOpen}
-          >
-            {mobileOpen ? <X size={20} className="text-hipo-blue" /> : <Menu size={20} />}
-          </button>
+          {temNav && (
+            <button
+              onClick={() => setMobileOpen((v) => !v)}
+              className="lg:hidden p-2 -ml-2 rounded-lg text-hipo-slate hover:bg-hipo-bg transition-colors"
+              aria-label={mobileOpen ? 'Fechar menu' : 'Abrir menu'}
+              aria-expanded={mobileOpen}
+            >
+              {mobileOpen ? <X size={20} className="text-hipo-blue" /> : <Menu size={20} />}
+            </button>
+          )}
 
-          {/* Logo */}
           <NavLink to="/" className="flex items-center gap-2 shrink-0">
             <Logo size={28} />
             <LogoWordmark />
           </NavLink>
 
-          {/* Nav desktop — fica no meio, encostada à esquerda */}
-          <nav
-            className="hidden lg:flex items-center h-full ml-4"
-            aria-label="Navegação principal"
-          >
-            {itensVisiveis.map((item) => (
-              <NavItemDesktop key={item.to} {...item} />
-            ))}
-          </nav>
+          {temNav && (
+            <nav
+              className="hidden lg:flex items-center h-full ml-4"
+              aria-label="Navegação principal"
+            >
+              {itensVisiveis.map((item) => (
+                <NavItemDesktop key={item.to} {...item} />
+              ))}
+            </nav>
+          )}
 
-          {/* Spacer */}
           <div className="flex-1" />
 
-          {/* User dropdown (sempre visível) */}
           {user && <UserDropdown user={user} />}
         </div>
 
-        {/* Menu mobile — desce do topbar */}
-        {mobileOpen && (
+        {temNav && mobileOpen && (
           <div className="lg:hidden border-t border-hipo-border bg-hipo-card">
             <nav className="py-1" aria-label="Navegação mobile">
               {itensVisiveis.map((item) => (
@@ -274,8 +254,7 @@ export default function Layout() {
         )}
       </header>
 
-      {/* Overlay mobile que escurece o conteúdo (clicável pra fechar) */}
-      {mobileOpen && (
+      {temNav && mobileOpen && (
         <div
           className="lg:hidden fixed inset-0 top-14 bg-hipo-ink/30 z-20"
           onClick={() => setMobileOpen(false)}
@@ -283,7 +262,6 @@ export default function Layout() {
         />
       )}
 
-      {/* Conteúdo principal */}
       <main className="flex-1">
         <div className="p-6 lg:p-8 max-w-7xl mx-auto">
           <Outlet />

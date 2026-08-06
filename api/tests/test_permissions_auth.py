@@ -1,53 +1,53 @@
 """
 HIPO — Testes de permissões por cargo e endpoints de auth.
 
+Consolida o que antes estava espalhado em test_permissions.py,
+test_permissions_auth.py e test_permissions_sdr.py.
+
 Cobertura:
-  - Cargo ADM/Franqueado acessa todos os módulos
-  - Cargo Hunter/Farmer/EP/Gerente acessa SÓ Carteira; outros endpoints → 403
-  - Cargo EV acessa 'clientes' (Vendas + Clientes), NÃO acessa Carteira
-  - GET /auth/me retorna o cargo + lista de módulos
-  - PUT /auth/senha troca a senha; senha errada retorna 400
-  - Helper modulos_do_cargo retorna conjuntos corretos
+  - modulos_do_cargo devolve o conjunto certo para cada cargo canônico
+  - cargos extintos (Gerente, Hunter, Farmer) não recebem módulo nenhum
+  - GET /auth/me devolve cargo + módulos
+  - PUT /auth/senha troca a senha; erros retornam 400/422
+  - requer_modulo e requer_qualquer_modulo bloqueiam e liberam corretamente
 """
-import bcrypt
 import pytest
+from fastapi import Depends, FastAPI
+from httpx import AsyncClient, ASGITransport
 
-from routers.permissions import modulos_do_cargo
+from routers.permissions import (
+    CARGOS_GESTAO,
+    CARGOS_OPERACIONAIS,
+    CARGOS_VALIDOS,
+    modulos_do_cargo,
+    requer_modulo,
+    requer_qualquer_modulo,
+)
+from tests.conftest import criar_usuario
 
 
-# ── Testes unitários da função pura ──────────────────────────────
+# ── Função pura ──────────────────────────────────────────────────
 
 class TestModulosDoCargo:
-    def test_adm_ve_tudo(self):
-        m = modulos_do_cargo("ADM")
-        # v1.3.2: ADM tambem ve Agendamento.
-        assert m == {"pex", "po", "bd", "metas", "carteira", "clientes", "usuarios", "agendamento", "painel"}
+    def test_franqueado_tem_perfil_e_usuarios(self):
+        assert modulos_do_cargo("Franqueado") == {"perfil", "usuarios"}
 
-    def test_franqueado_ve_tudo(self):
-        m = modulos_do_cargo("Franqueado")
-        # v1.3.2: Franqueado tambem ve Agendamento.
-        assert m == {"pex", "po", "bd", "metas", "carteira", "clientes", "usuarios", "agendamento", "painel"}
+    def test_adm_tem_perfil_e_usuarios(self):
+        assert modulos_do_cargo("ADM") == {"perfil", "usuarios"}
 
-    def test_hunter_ve_so_carteira(self):
-        assert modulos_do_cargo("Hunter") == {"carteira", "painel"}
+    @pytest.mark.parametrize("cargo", sorted(CARGOS_OPERACIONAIS))
+    def test_operacional_tem_so_perfil(self, cargo):
+        assert modulos_do_cargo(cargo) == {"perfil"}
 
-    def test_farmer_ve_so_carteira(self):
-        assert modulos_do_cargo("Farmer") == {"carteira", "painel"}
+    @pytest.mark.parametrize("cargo", sorted(CARGOS_VALIDOS))
+    def test_todo_cargo_valido_tem_perfil(self, cargo):
+        """Nenhum cargo válido pode ficar sem módulo — senão não usa o sistema."""
+        assert "perfil" in modulos_do_cargo(cargo)
 
-    def test_ep_ve_carteira_e_clientes(self):
-        assert modulos_do_cargo("EP") == {"carteira", "clientes", "painel"}
-
-    def test_gerente_ve_carteira_e_clientes(self):
-        assert modulos_do_cargo("Gerente") == {"carteira", "clientes", "agendamento", "painel"}
-
-    def test_ev_ve_so_clientes(self):
-        # EV (Executivo de Vendas): Clientes + Vendas, SEM Contadores.
-        assert modulos_do_cargo("EV") == {"clientes", "painel"}
-
-    def test_cargos_compat_antigos_ve_so_carteira(self):
-        # SDR e EC permanecem como compatibilidade (só carteira).
-        assert modulos_do_cargo("SDR") == {"agendamento", "painel"}
-        assert modulos_do_cargo("EC") == {"carteira", "painel"}
+    @pytest.mark.parametrize("cargo", ["Gerente", "Hunter", "Farmer"])
+    def test_cargos_extintos_nao_tem_modulo(self, cargo):
+        """Gerente saiu; Hunter e Farmer foram fundidos em EC."""
+        assert modulos_do_cargo(cargo) == set()
 
     def test_cargo_desconhecido_nada(self):
         assert modulos_do_cargo("DesconhecidoXYZ") == set()
@@ -58,160 +58,66 @@ class TestModulosDoCargo:
     def test_cargo_vazio_nada(self):
         assert modulos_do_cargo("") == set()
 
-
-# ── Fixtures: usuários com cargos variados ───────────────────────
-
-_SENHA = "test123"
-
-
-async def _seed_user(db_conn, client, cargo: str, email: str = None):
-    """Cria usuário com o cargo, retorna token + headers."""
-    email = email or f"user-{cargo.lower()}@teste.com"
-    pwd_hash = bcrypt.hashpw(_SENHA.encode(), bcrypt.gensalt()).decode()
-    await db_conn.execute(
-        """
-        INSERT INTO usuarios (nome, email, senha_hash, cargo)
-        VALUES ($1, $2, $3, $4)
-        """,
-        f"Test {cargo}", email, pwd_hash, cargo,
-    )
-    resp = await client.post(
-        "/auth/login",
-        data={"username": email, "password": _SENHA},
-    )
-    assert resp.status_code == 200, f"Login falhou: {resp.text}"
-    token = resp.json()["access_token"]
-    return {"email": email, "cargo": cargo, "token": token,
-            "headers": {"Authorization": f"Bearer {token}"}}
+    def test_gestao_e_operacional_nao_se_sobrepoem(self):
+        assert CARGOS_GESTAO & CARGOS_OPERACIONAIS == set()
 
 
 # ── /auth/me ─────────────────────────────────────────────────────
 
 class TestAuthMe:
     async def test_me_retorna_cargo_e_modulos(self, db_conn, client):
-        u = await _seed_user(db_conn, client, "Farmer", "f1@teste.com")
+        u = await criar_usuario(db_conn, client, "EC", "ec1@teste.com")
         resp = await client.get("/auth/me", headers=u["headers"])
         assert resp.status_code == 200
         body = resp.json()
-        assert body["email"] == "f1@teste.com"
-        assert body["cargo"] == "Farmer"
-        assert sorted(body["modulos"]) == ["carteira", "painel"]
+        assert body["email"] == "ec1@teste.com"
+        assert body["cargo"] == "EC"
+        assert body["modulos"] == ["perfil"]
 
-    async def test_me_adm_ve_todos_modulos(self, db_conn, client, usuario_adm):
-        resp = await client.get("/auth/me", headers=usuario_adm["headers"])
-        body = resp.json()
-        assert set(body["modulos"]) == {"pex", "po", "bd", "metas", "carteira", "clientes", "usuarios", "agendamento", "painel"}
+    async def test_me_franqueado_ve_usuarios(self, db_conn, client, usuario_franqueado):
+        resp = await client.get("/auth/me", headers=usuario_franqueado["headers"])
+        assert resp.status_code == 200
+        assert sorted(resp.json()["modulos"]) == ["perfil", "usuarios"]
 
-    async def test_me_ev_ve_so_clientes(self, db_conn, client):
-        u = await _seed_user(db_conn, client, "EV", "ev1@teste.com")
+    async def test_me_cargo_extinto_sem_modulos(self, db_conn, client):
+        """Usuário que sobrou com cargo Gerente loga mas não vê nada."""
+        u = await criar_usuario(db_conn, client, "Gerente", "ex-gerente@teste.com")
         resp = await client.get("/auth/me", headers=u["headers"])
-        body = resp.json()
-        assert body["cargo"] == "EV"
-        assert sorted(body["modulos"]) == ["clientes", "painel"]
+        assert resp.status_code == 200
+        assert resp.json()["modulos"] == []
 
     async def test_me_sem_token_retorna_401(self, client):
         resp = await client.get("/auth/me")
         assert resp.status_code == 401
 
 
-# ── Bloqueio de módulos ──────────────────────────────────────────
-
-class TestBloqueioPorModulo:
-    async def test_hunter_no_pex_recebe_403(self, db_conn, client):
-        u = await _seed_user(db_conn, client, "Hunter", "h@teste.com")
-        resp = await client.get("/pex/painel", headers=u["headers"])
-        assert resp.status_code == 403
-        assert "carteira" in resp.text.lower() or "hunter" in resp.text.lower() or "modulo" in resp.text.lower() or "módulo" in resp.text.lower()
-
-    async def test_farmer_no_po_recebe_403(self, db_conn, client):
-        u = await _seed_user(db_conn, client, "Farmer", "ff@teste.com")
-        resp = await client.get("/po/reconciliacao/ultima", headers=u["headers"])
-        assert resp.status_code == 403
-
-    async def test_ep_no_bd_recebe_403(self, db_conn, client):
-        u = await _seed_user(db_conn, client, "EP", "ep@teste.com")
-        resp = await client.get("/bd-ativados/resumo", headers=u["headers"])
-        assert resp.status_code == 403
-
-    async def test_gerente_no_metas_recebe_403(self, db_conn, client):
-        u = await _seed_user(db_conn, client, "Gerente", "g@teste.com")
-        resp = await client.get("/metas/catalogo", headers=u["headers"])
-        assert resp.status_code == 403
-
-    async def test_ev_no_carteira_recebe_403(self, db_conn, client):
-        """EV NÃO tem módulo 'carteira' — tem que bloquear."""
-        u = await _seed_user(db_conn, client, "EV", "ev-block@teste.com")
-        resp = await client.get(
-            "/carteira/dashboard/hunter", headers=u["headers"]
-        )
-        assert resp.status_code == 403
-
-    async def test_ev_no_pex_recebe_403(self, db_conn, client):
-        """EV NÃO tem módulo 'pex'."""
-        u = await _seed_user(db_conn, client, "EV", "ev-pex@teste.com")
-        resp = await client.get("/pex/painel", headers=u["headers"])
-        assert resp.status_code == 403
-
-    async def test_ev_acessa_vendas_e_clientes(self, db_conn, client):
-        """EV tem módulo 'clientes' — vendas e clientes liberados."""
-        u = await _seed_user(db_conn, client, "EV", "ev-ok@teste.com")
-        # Vendas é protegida por requer_modulo('clientes').
-        resp = await client.get(
-            "/vendas/funil-cromie/filtros", headers=u["headers"]
-        )
-        assert resp.status_code != 403, "EV foi bloqueado de Vendas"
-        resp = await client.get("/vendas/funil", headers=u["headers"])
-        assert resp.status_code != 403, "EV foi bloqueado de /vendas/funil"
-
-    async def test_adm_passa_em_todos_modulos(self, client, usuario_adm):
-        for rota in ["/pex/painel", "/po/reconciliacao/ultima", "/bd-ativados/resumo"]:
-            resp = await client.get(rota, headers=usuario_adm["headers"])
-            assert resp.status_code != 403, f"{rota} retornou 403 pro ADM!"
-
-    async def test_franqueado_passa_em_todos_modulos(self, db_conn, client):
-        u = await _seed_user(db_conn, client, "Franqueado", "fq@teste.com")
-        for rota in ["/pex/painel", "/po/reconciliacao/ultima", "/bd-ativados/resumo"]:
-            resp = await client.get(rota, headers=u["headers"])
-            assert resp.status_code != 403, f"{rota} retornou 403 pro Franqueado!"
-
-    async def test_todos_cargos_com_carteira_acessam_carteira(self, db_conn, client):
-        # Cargos que TÊM 'carteira' devem passar. EV NÃO entra nesta lista:
-        # EV não tem 'carteira' (testado em test_ev_no_carteira_recebe_403).
-        for cargo in ["Hunter", "Farmer", "EP", "Gerente", "Franqueado"]:
-            u = await _seed_user(db_conn, client, cargo, f"u-{cargo.lower()}@teste.com")
-            resp = await client.get("/carteira/dashboard/hunter", headers=u["headers"])
-            assert resp.status_code != 403, f"Cargo {cargo} bloqueado da Carteira!"
-
-
 # ── PUT /auth/senha ──────────────────────────────────────────────
 
 class TestTrocarSenha:
     async def test_troca_senha_com_sucesso(self, db_conn, client):
-        u = await _seed_user(db_conn, client, "Farmer", "ts1@teste.com")
+        u = await criar_usuario(db_conn, client, "EC", "ts1@teste.com")
         resp = await client.put(
             "/auth/senha",
             headers=u["headers"],
-            json={"senha_atual": _SENHA, "nova_senha": "novasenha999"},
+            json={"senha_atual": u["senha"], "nova_senha": "novasenha999"},
         )
         assert resp.status_code == 200
         assert "sucesso" in resp.json()["message"].lower()
 
-        # Login com a nova senha funciona
         resp = await client.post(
             "/auth/login",
             data={"username": u["email"], "password": "novasenha999"},
         )
         assert resp.status_code == 200
 
-        # Login com a senha antiga falha
         resp = await client.post(
             "/auth/login",
-            data={"username": u["email"], "password": _SENHA},
+            data={"username": u["email"], "password": u["senha"]},
         )
         assert resp.status_code == 401
 
     async def test_senha_atual_errada_retorna_400(self, db_conn, client):
-        u = await _seed_user(db_conn, client, "Farmer", "ts2@teste.com")
+        u = await criar_usuario(db_conn, client, "EC", "ts2@teste.com")
         resp = await client.put(
             "/auth/senha",
             headers=u["headers"],
@@ -221,20 +127,20 @@ class TestTrocarSenha:
         assert "incorreta" in resp.json()["detail"].lower()
 
     async def test_nova_senha_igual_atual_retorna_400(self, db_conn, client):
-        u = await _seed_user(db_conn, client, "Farmer", "ts3@teste.com")
+        u = await criar_usuario(db_conn, client, "EC", "ts3@teste.com")
         resp = await client.put(
             "/auth/senha",
             headers=u["headers"],
-            json={"senha_atual": _SENHA, "nova_senha": _SENHA},
+            json={"senha_atual": u["senha"], "nova_senha": u["senha"]},
         )
         assert resp.status_code == 400
 
     async def test_nova_senha_muito_curta_retorna_422(self, db_conn, client):
-        u = await _seed_user(db_conn, client, "Farmer", "ts4@teste.com")
+        u = await criar_usuario(db_conn, client, "EC", "ts4@teste.com")
         resp = await client.put(
             "/auth/senha",
             headers=u["headers"],
-            json={"senha_atual": _SENHA, "nova_senha": "abc"},
+            json={"senha_atual": u["senha"], "nova_senha": "abc"},
         )
         assert resp.status_code == 422  # Pydantic min_length=6
 
@@ -244,3 +150,72 @@ class TestTrocarSenha:
             json={"senha_atual": "x", "nova_senha": "yyyyyy"},
         )
         assert resp.status_code == 401
+
+
+# ── Guards de módulo ─────────────────────────────────────────────
+#
+# Nenhum router protegido existe na Sprint 0, então os guards são
+# exercitados contra um app descartável. Assim a cobertura de
+# requer_modulo / requer_qualquer_modulo não fica órfã até a Sprint 1.
+
+def _app_com_guards() -> FastAPI:
+    app_teste = FastAPI()
+
+    @app_teste.get("/so-usuarios", dependencies=[Depends(requer_modulo("usuarios"))])
+    async def so_usuarios():
+        return {"ok": True}
+
+    @app_teste.get("/so-crm", dependencies=[Depends(requer_modulo("crm"))])
+    async def so_crm():
+        return {"ok": True}
+
+    @app_teste.get(
+        "/perfil-ou-usuarios",
+        dependencies=[Depends(requer_qualquer_modulo(["perfil", "usuarios"]))],
+    )
+    async def perfil_ou_usuarios():
+        return {"ok": True}
+
+    return app_teste
+
+
+class TestGuards:
+    async def test_operacional_bloqueado_em_modulo_de_gestao(self, db_conn, client):
+        u = await criar_usuario(db_conn, client, "SDR", "sdr-guard@teste.com")
+        async with AsyncClient(
+            transport=ASGITransport(app=_app_com_guards(), raise_app_exceptions=True),
+            base_url="http://guards",
+        ) as c:
+            resp = await c.get("/so-usuarios", headers=u["headers"])
+        assert resp.status_code == 403
+        assert "usuarios" in resp.text
+
+    async def test_gestao_passa_em_modulo_de_gestao(self, db_conn, client, usuario_adm):
+        async with AsyncClient(
+            transport=ASGITransport(app=_app_com_guards(), raise_app_exceptions=True),
+            base_url="http://guards",
+        ) as c:
+            resp = await c.get("/so-usuarios", headers=usuario_adm["headers"])
+        assert resp.status_code == 200
+
+    async def test_modulo_inexistente_bloqueia_todo_mundo(self, db_conn, client, usuario_adm):
+        """'crm' só entra na Sprint 1 — até lá ninguém passa."""
+        async with AsyncClient(
+            transport=ASGITransport(app=_app_com_guards(), raise_app_exceptions=True),
+            base_url="http://guards",
+        ) as c:
+            resp = await c.get("/so-crm", headers=usuario_adm["headers"])
+        assert resp.status_code == 403
+
+    async def test_requer_qualquer_modulo_libera_com_um_deles(self, db_conn, client):
+        u = await criar_usuario(db_conn, client, "EV", "ev-guard@teste.com")
+        async with AsyncClient(
+            transport=ASGITransport(app=_app_com_guards(), raise_app_exceptions=True),
+            base_url="http://guards",
+        ) as c:
+            resp = await c.get("/perfil-ou-usuarios", headers=u["headers"])
+        assert resp.status_code == 200
+
+    async def test_requer_qualquer_modulo_lista_vazia_erra(self):
+        with pytest.raises(ValueError):
+            requer_qualquer_modulo([])

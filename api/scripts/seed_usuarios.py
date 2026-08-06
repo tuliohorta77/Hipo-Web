@@ -1,27 +1,31 @@
 """
-HIPO — Seed dos usuários iniciais (13 usuários da equipe).
+HIPO — Seed de usuários.
 
-Idempotente: pode rodar várias vezes sem duplicar. Usuários existentes
-têm o cargo atualizado pro valor canônico; usuários novos são criados
-com senha padrão '123456'.
+Sprint 0: a equipe da operação Omie deixou de existir. Este script garante
+que o banco tenha um usuário master (Franqueado) capaz de logar, e — quando
+explicitamente autorizado — remove todos os demais.
 
-USO:
+USO NORMAL (idempotente, não apaga nada):
   cd api
   python -m scripts.seed_usuarios
 
-Ou via SSH:
-  cd /home/hipo/app
-  source venv/bin/activate
-  python -m scripts.seed_usuarios
+RESET COMPLETO (apaga todos os usuários exceto o master):
+  HIPO_RESET_USUARIOS=1 python -m scripts.seed_usuarios
 
-A senha padrão é '123456' — todos devem trocar pela página /perfil
-após o primeiro login.
+Configuração por ambiente:
+  HIPO_MASTER_NOME    default 'Tulio Horta'
+  HIPO_MASTER_EMAIL   default 'tuliohortaribas@gmail.com'
+  HIPO_MASTER_SENHA   default '123456'
 
-ATENÇÃO: este script NUNCA atualiza a senha de um usuário existente.
-Se um dos usuários já existe (ex: o ADM Tulio), a senha dele não é mexida.
+O master é criado com precisa_trocar_senha=TRUE e deve trocar a senha na
+página /perfil no primeiro login.
 
-v1.3.1: adicionados Alice Santos e Ilene Lucena como SDR (módulo
-Agendamento). Aline Martins permanece Farmer — não confundir.
+ATENÇÃO: este script NUNCA sobrescreve a senha de um usuário existente.
+Se o master já existe, apenas o nome, o cargo e o flag ativo são ajustados.
+
+ATENÇÃO 2: DATABASE_URL não tem safeguard anti-produção como o conftest.
+Confira o host antes de rodar:
+  echo "$DATABASE_URL" | sed 's/:[^:@]*@/:****@/'
 """
 from __future__ import annotations
 
@@ -33,26 +37,12 @@ import asyncpg
 import bcrypt
 
 
-# CSV dos usuários a seedar. Format: (nome, email, cargo).
-# Cargos canônicos: ADM | Franqueado | Gerente | Hunter | Farmer | EP | SDR | EV
-USUARIOS = [
-    ("Aline Martins",        "aline.martins@omie.com.vc",      "Farmer"),
-    ("Beatriz Silva",        "beatriz.teixeira@omie.com.vc",   "Hunter"),
-    ("Flavio Souza",         "flavio.souza@omie.com.vc",       "Hunter"),
-    ("Jheison Silva",        "jheison.silva@omie.com.vc",      "Farmer"),
-    ("Kethlleen Santos",     "kethlleen.santos@omie.com.vc",   "EP"),
-    ("Marta Santos",         "marta.santos@omie.com.vc",       "Hunter"),
-    ("Patrick Santos",       "patrick.faria@omie.com.vc",      "Farmer"),
-    ("Rodrigo Teruel",       "rodrigo.teruel@omie.com.vc",     "Farmer"),
-    ("Tulio Horta",          "tulio.horta@omie.com.vc",        "Franqueado"),
-    ("Vinícius Trivinho",    "vinicius.trivinho@omie.com.vc",  "Gerente"),
-    ("Wellington Souza",     "wellington.souza@omie.com.vc",   "Franqueado"),
-    # v1.3.1 — SDRs do módulo Agendamento.
-    ("Alice Santos",         "alice.santos@omie.com.vc",       "SDR"),
-    ("Ilene Lucena",         "ilene.lucena@omie.com.vc",       "SDR"),
-]
+MASTER_NOME = os.environ.get("HIPO_MASTER_NOME", "Tulio Horta")
+MASTER_EMAIL = os.environ.get("HIPO_MASTER_EMAIL", "tuliohortaribas@gmail.com")
+MASTER_SENHA = os.environ.get("HIPO_MASTER_SENHA", "123456")
+MASTER_CARGO = "Franqueado"
 
-SENHA_PADRAO = "123456"
+RESET = os.environ.get("HIPO_RESET_USUARIOS") == "1"
 
 
 def _hash(senha: str) -> str:
@@ -62,36 +52,47 @@ def _hash(senha: str) -> str:
 async def seed(db_url: str) -> None:
     conn = await asyncpg.connect(db_url)
     try:
-        criados = 0
-        atualizados = 0
-        for nome, email, cargo in USUARIOS:
+        async with conn.transaction():
             existente = await conn.fetchrow(
-                "SELECT id, cargo FROM usuarios WHERE email = $1", email
+                "SELECT id, cargo, ativo FROM usuarios WHERE email = $1",
+                MASTER_EMAIL,
             )
+
             if existente:
-                # Atualiza só cargo + nome se mudou. Nunca toca em senha.
-                if existente["cargo"] != cargo:
-                    await conn.execute(
-                        "UPDATE usuarios SET cargo = $1, nome = $2, ativo = TRUE WHERE id = $3",
-                        cargo, nome, existente["id"],
-                    )
-                    print(f"  atualizado: {email} (cargo: {existente['cargo']} → {cargo})")
-                    atualizados += 1
-                else:
-                    print(f"  ok (já existe): {email}")
+                await conn.execute(
+                    """
+                    UPDATE usuarios
+                       SET nome = $1, cargo = $2, ativo = TRUE
+                     WHERE id = $3
+                    """,
+                    MASTER_NOME, MASTER_CARGO, existente["id"],
+                )
+                print(f"  master ok (senha preservada): {MASTER_EMAIL}")
             else:
                 await conn.execute(
                     """
-                    INSERT INTO usuarios (nome, email, senha_hash, cargo, ativo)
-                    VALUES ($1, $2, $3, $4, TRUE)
+                    INSERT INTO usuarios
+                        (nome, email, senha_hash, cargo, ativo, precisa_trocar_senha)
+                    VALUES ($1, $2, $3, $4, TRUE, TRUE)
                     """,
-                    nome, email, _hash(SENHA_PADRAO), cargo,
+                    MASTER_NOME, MASTER_EMAIL, _hash(MASTER_SENHA), MASTER_CARGO,
                 )
-                print(f"  CRIADO: {email}  (cargo={cargo}, senha=123456)")
-                criados += 1
-        print()
-        print(f"Resumo: {criados} criado(s), {atualizados} atualizado(s), "
-              f"{len(USUARIOS) - criados - atualizados} sem mudança.")
+                print(f"  master CRIADO: {MASTER_EMAIL} (senha='{MASTER_SENHA}', trocar no 1o login)")
+
+            if RESET:
+                removidos = await conn.fetch(
+                    "DELETE FROM usuarios WHERE email <> $1 RETURNING email, cargo",
+                    MASTER_EMAIL,
+                )
+                for r in removidos:
+                    print(f"  removido: {r['email']} (cargo={r['cargo']})")
+                print(f"\n  RESET: {len(removidos)} usuario(s) removido(s).")
+
+            total = await conn.fetchval("SELECT count(*) FROM usuarios")
+            if total == 0:
+                # A transação inteira volta atrás — nunca deixar o banco sem login.
+                raise RuntimeError("Nenhum usuario restante. Abortando (rollback).")
+            print(f"\nTotal de usuarios no banco: {total}")
     finally:
         await conn.close()
 
@@ -99,13 +100,16 @@ async def seed(db_url: str) -> None:
 def main() -> int:
     db_url = os.environ.get("DATABASE_URL")
     if not db_url:
-        print("ERRO: variável de ambiente DATABASE_URL não definida.", file=sys.stderr)
-        print("Rode com:  DATABASE_URL='postgresql://...' python -m scripts.seed_usuarios", file=sys.stderr)
+        print("ERRO: variavel de ambiente DATABASE_URL nao definida.", file=sys.stderr)
+        print(
+            "Rode com:  DATABASE_URL='postgresql://...' python -m scripts.seed_usuarios",
+            file=sys.stderr,
+        )
         return 1
 
-    print("HIPO — Seed de usuários")
-    print(f"  Total no CSV: {len(USUARIOS)}")
-    print(f"  Senha padrão dos novos: '{SENHA_PADRAO}'")
+    print("HIPO — Seed de usuarios")
+    print(f"  Master : {MASTER_NOME} <{MASTER_EMAIL}> ({MASTER_CARGO})")
+    print(f"  Modo   : {'RESET (apaga os demais)' if RESET else 'normal (nao apaga nada)'}")
     print()
     asyncio.run(seed(db_url))
     return 0

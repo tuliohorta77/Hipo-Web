@@ -1,17 +1,14 @@
 // web/src/App.jsx
+//
+// Sprint 0 (limpeza do legado): as telas de PEX, POs, BD Ativados,
+// Contadores, Clientes, Vendas, Agendamento, Bastões e Metas saíram junto
+// com as tabelas que consumiam. Restam Login e Perfil.
+//
+// A Sprint 1 adiciona /crm/contas; a Sprint 4, /crm/oportunidades.
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import Layout from './components/Layout';
 import ProtectedRoute from './components/ProtectedRoute';
 import Login from './pages/Login';
-import POsDashboard from './pages/POs';
-import PEXDashboard from './pages/PEX';
-import BDAtivadosDashboard from './pages/BDAtivados';
-import Metas from './pages/Metas';
-import Contadores from './pages/Contadores';
-import Clientes from './pages/Clientes';
-import Bastoes from './pages/Bastoes';
-import Vendas from './pages/Vendas';
-import Agendamento from './pages/Agendamento';
 import Perfil from './pages/Perfil';
 import { primeiraRotaAcessivel } from './api';
 
@@ -34,19 +31,7 @@ export default function App() {
           }
         >
           <Route index element={<RedirectPrimeiraRota />} />
-          <Route path="pex"          element={<PEXDashboard />} />
-          <Route path="pos"          element={<POsDashboard />} />
-          <Route path="bd-ativados"  element={<BDAtivadosDashboard />} />
-          <Route path="contadores"   element={<Contadores />} />
-          <Route path="clientes"     element={<Clientes />} />
-          <Route path="vendas"       element={<Vendas />} />
-          <Route path="agendamento"  element={<Agendamento />} />
-          <Route path="bastoes"      element={<Bastoes />} />
-          <Route path="metas"        element={<Metas />} />
-          <Route path="perfil"       element={<Perfil />} />
-
-          {/* Compat: /carteira redireciona pra /contadores */}
-          <Route path="carteira" element={<Navigate to="/contadores" replace />} />
+          <Route path="perfil" element={<Perfil />} />
         </Route>
 
         <Route path="*" element={<Navigate to="/" replace />} />
