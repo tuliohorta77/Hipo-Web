@@ -360,9 +360,9 @@ export default function ContaDetalhe({
   };
 
   return (
-    <div className="flex flex-col h-full">
-      {/* ── Bloco fixo: identificação ── */}
-      <div className="px-5 pt-4 pb-4 border-b border-hipo-border bg-hipo-bg/40">
+    <div className="flex flex-col h-full min-h-0">
+      {/* ── Bloco fixo: identificação (não rola) ── */}
+      <div className="shrink-0 px-5 pt-4 pb-4 border-b border-hipo-border bg-hipo-bg/40">
         {erro && <div className="mb-3"><AlertMessage tipo="erro">{erro}</AlertMessage></div>}
 
         <div className="grid grid-cols-1 md:grid-cols-12 gap-3">
@@ -467,9 +467,17 @@ export default function ContaDetalhe({
       </div>
 
       {/* ── Abas ── */}
-      <Tabs items={abas} value={aba} onChange={setAba} className="px-5 bg-hipo-bg/40" />
+      <Tabs
+        items={abas}
+        value={aba}
+        onChange={setAba}
+        className="shrink-0 px-5 bg-hipo-bg/40"
+      />
 
-      <div className="px-5 py-5 flex-1">
+      {/* Só esta área rola. A altura do modal é fixa, então trocar de aba
+          não muda o tamanho da janela — o conteúdo curto deixa espaço vazio
+          e o longo ganha barra de rolagem própria. */}
+      <div className="px-5 py-5 flex-1 min-h-0 overflow-y-auto">
         {aba === 'oportunidades' && (
           <AbaOportunidades oportunidades={conta.oportunidades} />
         )}

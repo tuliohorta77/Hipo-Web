@@ -18,6 +18,15 @@
 //   size="lg"   (max-w-2xl) — 672px  — formulários complexos / listas
 //   size="xl"   (max-w-5xl) — 1024px — telas com abas
 //   size="full" (max-w-7xl) — 1280px — visão 360 de um registro
+//
+// ALTURA ESTÁVEL: xl e full têm altura FIXA, não máxima. Um modal que cresce
+// e encolhe conforme a aba selecionada passa sensação de instabilidade — o
+// rodapé pula, o fundo reflui e o usuário perde a referência visual. Com
+// altura fixa, só o conteúdo interno rola.
+//
+// Para os tamanhos menores a altura continua sendo máxima: um modal de
+// confirmação com 90vh de altura seria pior que o problema que resolve. Use
+// alturaFixa para forçar em casos específicos.
 
 import { useEffect, useRef } from "react";
 import { X } from "lucide-react";
@@ -30,10 +39,11 @@ const TAMANHOS = {
   full: "max-w-7xl",
 };
 
-// Telas com abas precisam de mais altura útil que um formulário curto.
-const ALTURAS = {
-  xl: "max-h-[92vh]",
-  full: "max-h-[95vh]",
+// Telas com abas precisam de mais altura útil que um formulário curto — e
+// fixa, não máxima (ver nota acima).
+const ALTURAS_FIXAS = {
+  xl: "h-[92vh]",
+  full: "h-[92vh]",
 };
 
 export default function Modal({
@@ -45,6 +55,7 @@ export default function Modal({
   children,
   footer,
   bodySemPadding = false,
+  alturaFixa = false,
 }) {
   const containerRef = useRef(null);
 
@@ -95,7 +106,12 @@ export default function Modal({
       <div
         ref={containerRef}
         tabIndex={-1}
-        className={`relative bg-hipo-card border border-hipo-border rounded-xl shadow-xl w-full ${TAMANHOS[size] || TAMANHOS.md} ${ALTURAS[size] || "max-h-[90vh]"} flex flex-col outline-none`}
+        className={
+          "relative bg-hipo-card border border-hipo-border rounded-xl shadow-xl " +
+          "w-full flex flex-col outline-none " +
+          `${TAMANHOS[size] || TAMANHOS.md} ` +
+          (ALTURAS_FIXAS[size] || (alturaFixa ? "h-[90vh]" : "max-h-[90vh]"))
+        }
         onMouseDown={(e) => e.stopPropagation()}
       >
         {/* Header */}
@@ -125,7 +141,12 @@ export default function Modal({
         {/* Body */}
         <div
           className={
-            (bodySemPadding ? "" : "px-5 py-4 ") + "overflow-y-auto flex-1"
+            (bodySemPadding ? "" : "px-5 py-4 ") +
+            "flex-1 min-h-0 " +
+            // min-h-0 é o que permite ao filho flex encolher e rolar dentro
+            // de um container flex — sem isso o conteúdo empurra o rodapé
+            // para fora da tela.
+            (bodySemPadding ? "overflow-hidden" : "overflow-y-auto")
           }
         >
           {children}
