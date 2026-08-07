@@ -13,9 +13,11 @@
 //   </Modal>
 //
 // Tamanhos:
-//   size="sm" (max-w-md)  — 448px — confirmações
-//   size="md" (max-w-lg)  — 512px — formulários simples (padrão)
-//   size="lg" (max-w-2xl) — 672px — formulários complexos / listas
+//   size="sm"   (max-w-md)  — 448px  — confirmações
+//   size="md"   (max-w-lg)  — 512px  — formulários simples (padrão)
+//   size="lg"   (max-w-2xl) — 672px  — formulários complexos / listas
+//   size="xl"   (max-w-5xl) — 1024px — telas com abas
+//   size="full" (max-w-7xl) — 1280px — visão 360 de um registro
 
 import { useEffect, useRef } from "react";
 import { X } from "lucide-react";
@@ -24,6 +26,14 @@ const TAMANHOS = {
   sm: "max-w-md",
   md: "max-w-lg",
   lg: "max-w-2xl",
+  xl: "max-w-5xl",
+  full: "max-w-7xl",
+};
+
+// Telas com abas precisam de mais altura útil que um formulário curto.
+const ALTURAS = {
+  xl: "max-h-[92vh]",
+  full: "max-h-[95vh]",
 };
 
 export default function Modal({
@@ -34,6 +44,7 @@ export default function Modal({
   size = "md",
   children,
   footer,
+  bodySemPadding = false,
 }) {
   const containerRef = useRef(null);
 
@@ -84,7 +95,7 @@ export default function Modal({
       <div
         ref={containerRef}
         tabIndex={-1}
-        className={`relative bg-hipo-card border border-hipo-border rounded-xl shadow-xl w-full ${TAMANHOS[size]} max-h-[90vh] flex flex-col outline-none`}
+        className={`relative bg-hipo-card border border-hipo-border rounded-xl shadow-xl w-full ${TAMANHOS[size] || TAMANHOS.md} ${ALTURAS[size] || "max-h-[90vh]"} flex flex-col outline-none`}
         onMouseDown={(e) => e.stopPropagation()}
       >
         {/* Header */}
@@ -112,7 +123,13 @@ export default function Modal({
         )}
 
         {/* Body */}
-        <div className="px-5 py-4 overflow-y-auto flex-1">{children}</div>
+        <div
+          className={
+            (bodySemPadding ? "" : "px-5 py-4 ") + "overflow-y-auto flex-1"
+          }
+        >
+          {children}
+        </div>
 
         {/* Footer */}
         {footer && (

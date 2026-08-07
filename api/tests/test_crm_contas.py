@@ -516,6 +516,101 @@ class TestEditar:
         assert resp.status_code == 404
 
 
+# ── Histórico (timeline da visão 360) ────────────────────────────────
+
+class TestHistorico:
+    async def test_conta_nova_tem_o_evento_de_criacao(self, db_conn, client, usuario_adm):
+        conta = await criar_conta(client, usuario_adm["headers"])
+        eventos = (await client.get(
+            f"/crm/contas/{conta['id']}/historico", headers=usuario_adm["headers"]
+        )).json()
+        assert len(eventos) == 1
+        assert eventos[0]["tipo"] == "conta_criada"
+        assert eventos[0]["usuario"] == "Test ADM"
+
+    async def test_vinculo_de_contato_entra_na_timeline(self, db_conn, client, usuario_adm):
+        conta = await criar_conta(client, usuario_adm["headers"])
+        await client.post(
+            "/crm/contatos",
+            json={"nome": "Maria", "conta_id": conta["id"], "cargo": "RH"},
+            headers=usuario_adm["headers"],
+        )
+        eventos = (await client.get(
+            f"/crm/contas/{conta['id']}/historico", headers=usuario_adm["headers"]
+        )).json()
+        tipos = [e["tipo"] for e in eventos]
+        assert "contato_vinculado" in tipos
+        vinculo = next(e for e in eventos if e["tipo"] == "contato_vinculado")
+        assert vinculo["titulo"] == "Maria"
+        assert vinculo["detalhe"] == "RH"
+
+    async def test_desvincular_muda_o_tipo_do_evento(self, db_conn, client, usuario_adm):
+        conta = await criar_conta(client, usuario_adm["headers"])
+        contato = (await client.post(
+            "/crm/contatos",
+            json={"nome": "Maria", "conta_id": conta["id"]},
+            headers=usuario_adm["headers"],
+        )).json()
+        await client.delete(
+            f"/crm/contatos/{contato['id']}/vinculos/{conta['id']}",
+            headers=usuario_adm["headers"],
+        )
+        eventos = (await client.get(
+            f"/crm/contas/{conta['id']}/historico", headers=usuario_adm["headers"]
+        )).json()
+        assert "contato_desvinculado" in [e["tipo"] for e in eventos]
+
+    async def test_evento_de_oportunidade_entra_na_timeline(self, db_conn, client, usuario_adm):
+        conta = await criar_conta(client, usuario_adm["headers"])
+        opp_id = await criar_oportunidade(db_conn, conta["id"])
+        await db_conn.execute(
+            """
+            INSERT INTO oportunidade_eventos (oportunidade_id, tipo, de, para)
+            VALUES ($1, 'fase', 'lead', 'qualificacao')
+            """,
+            opp_id,
+        )
+        eventos = (await client.get(
+            f"/crm/contas/{conta['id']}/historico", headers=usuario_adm["headers"]
+        )).json()
+        fase = next(e for e in eventos if e["tipo"] == "oportunidade_fase")
+        assert fase["detalhe"] == "lead -> qualificacao"
+
+    async def test_ordenado_do_mais_recente_para_o_mais_antigo(
+        self, db_conn, client, usuario_adm
+    ):
+        conta = await criar_conta(client, usuario_adm["headers"])
+        await client.post(
+            "/crm/contatos",
+            json={"nome": "Maria", "conta_id": conta["id"]},
+            headers=usuario_adm["headers"],
+        )
+        eventos = (await client.get(
+            f"/crm/contas/{conta['id']}/historico", headers=usuario_adm["headers"]
+        )).json()
+        quandos = [e["quando"] for e in eventos]
+        assert quandos == sorted(quandos, reverse=True)
+
+    async def test_conta_inexistente_404(self, db_conn, client, usuario_adm):
+        resp = await client.get(
+            f"/crm/contas/{uuid.uuid4()}/historico", headers=usuario_adm["headers"]
+        )
+        assert resp.status_code == 404
+
+    async def test_respeita_o_limit(self, db_conn, client, usuario_adm):
+        conta = await criar_conta(client, usuario_adm["headers"])
+        for n in ["A", "B", "C"]:
+            await client.post(
+                "/crm/contatos",
+                json={"nome": n, "conta_id": conta["id"]},
+                headers=usuario_adm["headers"],
+            )
+        eventos = (await client.get(
+            f"/crm/contas/{conta['id']}/historico?limit=2", headers=usuario_adm["headers"]
+        )).json()
+        assert len(eventos) == 2
+
+
 # ── Permissões ───────────────────────────────────────────────────────
 
 class TestPermissoes:

@@ -232,6 +232,15 @@ class ContaBusca(BaseModel):
     ativo: bool
 
 
+class EventoHistorico(BaseModel):
+    """Uma linha da timeline da conta."""
+    tipo: str
+    quando: datetime
+    usuario: str | None
+    titulo: str
+    detalhe: str | None
+
+
 class ResumoContas(BaseModel):
     total: int
     ativas: int
@@ -487,6 +496,72 @@ async def obter(conta_id: UUID, conn=Depends(get_conn), user=Depends(usuario_atu
     detalhe["contatos"] = [dict(c) for c in contatos]
     detalhe["oportunidades"] = [dict(o) for o in oportunidades]
     return detalhe
+
+
+@router.get("/{conta_id}/historico", response_model=list[EventoHistorico])
+async def historico(
+    conta_id: UUID,
+    limit: int = Query(100, ge=1, le=500),
+    conn=Depends(get_conn),
+    user=Depends(usuario_atual),
+):
+    """
+    Linha do tempo da conta, montada por UNION das fontes que já registram
+    autoria e data: a criação da conta, os vínculos de contato e os eventos
+    de oportunidade.
+
+    Enquanto o router de oportunidades não existe (Sprint 3), a timeline
+    mostra apenas os dois primeiros — e é assim mesmo: histórico que inventa
+    evento é pior que histórico curto.
+    """
+    if not await conn.fetchval("SELECT 1 FROM contas WHERE id = $1", conta_id):
+        raise HTTPException(404, "Conta não encontrada.")
+
+    rows = await conn.fetch(
+        """
+        SELECT * FROM (
+            SELECT 'conta_criada'                AS tipo,
+                   c.criado_em                   AS quando,
+                   u.nome                        AS usuario,
+                   'Conta cadastrada'            AS titulo,
+                   NULL::text                    AS detalhe
+              FROM contas c
+              LEFT JOIN usuarios u ON u.id = c.criado_por
+             WHERE c.id = $1
+
+            UNION ALL
+
+            SELECT CASE WHEN cc.ativo THEN 'contato_vinculado' ELSE 'contato_desvinculado' END,
+                   cc.criado_em,
+                   NULL,
+                   ct.nome,
+                   cc.cargo
+              FROM conta_contatos cc
+              JOIN contatos ct ON ct.id = cc.contato_id
+             WHERE cc.conta_id = $1
+
+            UNION ALL
+
+            SELECT 'oportunidade_' || oe.tipo,
+                   oe.criado_em,
+                   u.nome,
+                   o.numero,
+                   CASE
+                       WHEN oe.de IS NOT NULL AND oe.para IS NOT NULL
+                           THEN oe.de || ' -> ' || oe.para
+                       ELSE oe.para
+                   END
+              FROM oportunidade_eventos oe
+              JOIN oportunidades o ON o.id = oe.oportunidade_id
+              LEFT JOIN usuarios u ON u.id = oe.usuario_id
+             WHERE o.conta_id = $1
+        ) t
+        ORDER BY quando DESC
+        LIMIT $2
+        """,
+        conta_id, limit,
+    )
+    return [dict(r) for r in rows]
 
 
 @router.post("", response_model=ContaDetalhe, status_code=status.HTTP_201_CREATED)

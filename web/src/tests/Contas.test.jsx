@@ -38,7 +38,15 @@ const CONTA = {
   criado_em: '2026-08-01T12:00:00Z',
 };
 
-const DETALHE = { ...CONTA, contatos: [], oportunidades: [], observacoes: null };
+const DETALHE = {
+  ...CONTA,
+  contatos: [],
+  oportunidades: [],
+  observacoes: null,
+  cep: null, logradouro: null, numero: null, complemento: null, bairro: null,
+  telefone: null, telefone_2: null, email: null,
+  atualizado_em: '2026-08-01T12:00:00Z',
+};
 
 function respostaPadrao(url) {
   if (url === '/crm/contas') return Promise.resolve({ data: { total: 1, limit: 50, offset: 0, itens: [CONTA] } });
@@ -46,6 +54,7 @@ function respostaPadrao(url) {
   if (url === '/crm/dominio/verticais') return Promise.resolve({ data: [{ id: 1, nome: 'Metalúrgica', slug: 'metalurgica' }] });
   if (url === '/crm/contas/c1') return Promise.resolve({ data: DETALHE });
   if (url === '/crm/contatos/busca') return Promise.resolve({ data: [] });
+  if (url === '/crm/contas/c1/historico') return Promise.resolve({ data: [] });
   return Promise.resolve({ data: {} });
 }
 
@@ -236,7 +245,7 @@ describe('Contas — formulário', () => {
   async function abrirForm() {
     renderContas();
     await screen.findByText('Metalurgica Alfa LTDA');
-    fireEvent.click(screen.getByText('Nova conta'));
+    fireEvent.click(screen.getAllByText('Nova conta')[0]);
     return screen.findByLabelText('CNPJ *');
   }
 
@@ -302,42 +311,51 @@ describe('Contas — formulário', () => {
     expect(screen.getByText(/já está cadastrado/)).toBeInTheDocument();
   });
 
-  it('cria vertical pelo próprio formulário', async () => {
-    mockPost.mockResolvedValue({ data: { id: 9, nome: 'Saúde', slug: 'saude' } });
+  it('o formulário de criação escolhe entre verticais existentes', async () => {
+    // Criar vertical nova mudou de lugar: agora acontece na visão 360, onde
+    // o cadastro se completa. Aqui só se escolhe entre as que já existem.
     await abrirForm();
-    fireEvent.change(screen.getByLabelText('Criar nova'), { target: { value: 'Saúde' } });
-    fireEvent.click(screen.getByText('Adicionar'));
-
-    await waitFor(() => {
-      expect(mockPost).toHaveBeenCalledWith('/crm/dominio/verticais', { nome: 'Saúde' });
-    });
+    expect(screen.getByLabelText('Vertical')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Criar nova')).not.toBeInTheDocument();
   });
 
-  it('bloqueia edição do CNPJ ao abrir uma conta existente', async () => {
-    renderContas();
-    fireEvent.click(await screen.findByText('Metalurgica Alfa LTDA'));
-    const campo = await screen.findByLabelText('CNPJ *');
-    expect(campo).toBeDisabled();
+  it('o formulário de criação é enxuto — endereço fica para a visão 360', async () => {
+    await abrirForm();
+    expect(screen.queryByLabelText('Logradouro')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Bairro')).not.toBeInTheDocument();
   });
+});
 
-  it('busca o detalhe da conta ao abrir, não usa o resumo da lista', async () => {
+describe('Contas — visão 360', () => {
+  it('clicar na linha busca o detalhe e abre a tela da conta', async () => {
     renderContas();
     fireEvent.click(await screen.findByText('Metalurgica Alfa LTDA'));
     await waitFor(() =>
       expect(mockGet.mock.calls.some(([url]) => url === '/crm/contas/c1')).toBe(true)
     );
+    expect(await screen.findByText('Oportunidades')).toBeInTheDocument();
   });
 
-  it('mostra a seção de contatos só na edição', async () => {
+  it('a tela da conta mostra as abas, começando por Oportunidades', async () => {
     renderContas();
-    await screen.findByText('Metalurgica Alfa LTDA');
+    fireEvent.click(await screen.findByText('Metalurgica Alfa LTDA'));
+    expect(await screen.findByTestId('tab-oportunidades')).toBeInTheDocument();
+    for (const aba of ['contatos', 'endereco', 'telefones', 'observacoes', 'historico']) {
+      expect(screen.getByTestId(`tab-${aba}`)).toBeInTheDocument();
+    }
+  });
 
-    fireEvent.click(screen.getByText('Nova conta'));
-    await screen.findByLabelText('CNPJ *');
-    expect(screen.queryByText('Contatos')).not.toBeInTheDocument();
+  it('o rodapé indica quando não há nada para salvar', async () => {
+    renderContas();
+    fireEvent.click(await screen.findByText('Metalurgica Alfa LTDA'));
+    expect(await screen.findByText('Tudo salvo')).toBeInTheDocument();
+  });
 
-    fireEvent.click(screen.getByText('Cancelar'));
-    fireEvent.click(screen.getByText('Metalurgica Alfa LTDA'));
-    expect(await screen.findByText('Contatos')).toBeInTheDocument();
+  it('editar um campo habilita o Salvar do rodapé', async () => {
+    renderContas();
+    fireEvent.click(await screen.findByText('Metalurgica Alfa LTDA'));
+    const campo = await screen.findByLabelText('Razão social');
+    fireEvent.change(campo, { target: { value: 'Outro Nome' } });
+    expect(await screen.findByText('Alterações não salvas')).toBeInTheDocument();
   });
 });

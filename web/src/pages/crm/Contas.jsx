@@ -1,15 +1,20 @@
 // web/src/pages/crm/Contas.jsx
 //
-// Tela de Contas — dashboard operacional (diretriz pétrea 2): os KPIs do topo
-// não são decoração. Cada um é clicável e aplica na tabela abaixo exatamente
-// o filtro que o compõe, então o usuário vê o número, clica e age sobre os
-// registros dali mesmo.
+// Lista de Contas — dashboard operacional (diretriz pétrea 2): os KPIs do topo
+// não são decoração. Cada um é toggle e aplica na tabela abaixo exatamente o
+// filtro que o compõe.
+//
+// Dois modais, de propósito:
+//
+//   * NOVA CONTA (md) — só o essencial para o registro existir: razão social,
+//     CNPJ e mais dois campos. Cadastro rápido não é hora de pedir endereço.
+//
+//   * VISÃO 360 (full) — abre ao clicar na linha. Identificação fixa em cima,
+//     resto em abas, começando por Oportunidades. É onde o cadastro se
+//     completa.
 //
 // O "vendedor" da conta é derivado no backend a partir dos EVs das
-// oportunidades ativas — não existe campo de vendedor no formulário.
-//
-// Os contatos da conta vivem dentro deste formulário (Sprint 2): contato não
-// tem tela própria porque a pessoa só faz sentido no contexto da empresa.
+// oportunidades ativas — não existe campo de vendedor em lugar nenhum.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -27,7 +32,7 @@ import Modal from '../../components/ui/Modal';
 import Badge from '../../components/ui/Badge';
 import Empty from '../../components/ui/Empty';
 import AlertMessage from '../../components/ui/AlertMessage';
-import ContatosDaConta from '../../components/crm/ContatosDaConta';
+import ContaDetalhe from '../../components/crm/ContaDetalhe';
 
 const POR_PAGINA = 50;
 
@@ -87,8 +92,6 @@ function mensagemDeErro(err, padrao) {
   return padrao;
 }
 
-// ── KPI clicável ─────────────────────────────────────────────────────
-
 function KpiBotao({ onClick, ativo, children }) {
   return (
     <button
@@ -106,105 +109,57 @@ function KpiBotao({ onClick, ativo, children }) {
   );
 }
 
-// ── Formulário ───────────────────────────────────────────────────────
+// ── Modal de criação ─────────────────────────────────────────────────
 
-const FORM_VAZIO = {
+const FORM_NOVO = {
   razao_social: '', nome_fantasia: '', cnpj: '', vertical_id: '',
-  num_funcionarios: '', cep: '', logradouro: '', numero: '', complemento: '',
-  bairro: '', cidade: '', uf: '', telefone: '', telefone_2: '', email: '',
-  observacoes: '', eh_finder: false,
+  num_funcionarios: '',
 };
 
-function FormConta({ aberto, onFechar, onSalvo, verticais, onCriarVertical, conta, onContatosMudaram }) {
-  const editando = Boolean(conta);
-  const [form, setForm] = useState(FORM_VAZIO);
+function FormNovaConta({ aberto, onFechar, onCriada, onAbrirExistente, verticais }) {
+  const [form, setForm] = useState(FORM_NOVO);
   const [erros, setErros] = useState({});
   const [erroGeral, setErroGeral] = useState(null);
   const [conflito, setConflito] = useState(null);
   const [salvando, setSalvando] = useState(false);
-  const [novaVertical, setNovaVertical] = useState('');
-  const [criandoVertical, setCriandoVertical] = useState(false);
 
   useEffect(() => {
     if (!aberto) return;
+    setForm(FORM_NOVO);
     setErros({});
     setErroGeral(null);
     setConflito(null);
-    setNovaVertical('');
-    setCriandoVertical(false);
-    setForm(
-      conta
-        ? {
-            ...FORM_VAZIO,
-            ...Object.fromEntries(
-              Object.keys(FORM_VAZIO).map((k) => [k, conta[k] ?? FORM_VAZIO[k]])
-            ),
-            cnpj: conta.cnpj_formatado || '',
-          }
-        : FORM_VAZIO
-    );
-  }, [aberto, conta]);
+  }, [aberto]);
 
   function set(campo, valor) {
     setForm((f) => ({ ...f, [campo]: valor }));
     setErros((e) => ({ ...e, [campo]: undefined }));
   }
 
-  function validar() {
+  async function salvar() {
     const e = {};
     if (!form.razao_social.trim()) e.razao_social = 'Informe a razão social.';
-    if (!editando && !cnpjValido(form.cnpj)) e.cnpj = 'CNPJ inválido.';
+    if (!cnpjValido(form.cnpj)) e.cnpj = 'CNPJ inválido.';
     setErros(e);
-    return Object.keys(e).length === 0;
-  }
+    if (Object.keys(e).length) return;
 
-  async function criarVertical() {
-    const nome = novaVertical.trim();
-    if (!nome) return;
-    setCriandoVertical(true);
-    try {
-      const nova = await onCriarVertical(nome);
-      set('vertical_id', String(nova.id));
-      setNovaVertical('');
-    } catch (err) {
-      setErroGeral(mensagemDeErro(err, 'Não foi possível criar a vertical.'));
-    } finally {
-      setCriandoVertical(false);
-    }
-  }
-
-  async function salvar() {
-    if (!validar()) return;
     setSalvando(true);
     setErroGeral(null);
     setConflito(null);
-
-    const corpo = { ...form };
-    corpo.vertical_id = form.vertical_id ? Number(form.vertical_id) : null;
-    corpo.num_funcionarios = form.num_funcionarios === ''
-      ? null
-      : Number(form.num_funcionarios);
-    Object.keys(corpo).forEach((k) => {
-      if (corpo[k] === '') corpo[k] = null;
-    });
-
     try {
-      if (editando) {
-        delete corpo.cnpj;
-        await api.patch(`/crm/contas/${conta.id}`, corpo);
-      } else {
-        corpo.cnpj = form.cnpj.replace(/\D/g, '');
-        await api.post('/crm/contas', corpo);
-      }
-      onSalvo();
+      const { data } = await api.post('/crm/contas', {
+        razao_social: form.razao_social,
+        nome_fantasia: form.nome_fantasia || null,
+        cnpj: form.cnpj.replace(/\D/g, ''),
+        vertical_id: form.vertical_id ? Number(form.vertical_id) : null,
+        num_funcionarios: form.num_funcionarios === '' ? null : Number(form.num_funcionarios),
+      });
+      onCriada(data);
     } catch (err) {
       const d = err?.response?.data?.detail;
       // 409 traz a conta existente: em vez de só barrar, oferecemos abrir.
-      if (err?.response?.status === 409 && d?.conta_id) {
-        setConflito(d);
-      } else {
-        setErroGeral(mensagemDeErro(err, 'Não foi possível salvar a conta.'));
-      }
+      if (err?.response?.status === 409 && d?.conta_id) setConflito(d);
+      else setErroGeral(mensagemDeErro(err, 'Não foi possível criar a conta.'));
     } finally {
       setSalvando(false);
     }
@@ -214,15 +169,13 @@ function FormConta({ aberto, onFechar, onSalvo, verticais, onCriarVertical, cont
     <Modal
       aberto={aberto}
       onFechar={onFechar}
-      titulo={editando ? 'Editar conta' : 'Nova conta'}
-      subtitulo={editando ? conta?.razao_social : 'Cadastro de empresa-cliente'}
-      size="lg"
+      titulo="Nova conta"
+      subtitulo="O restante do cadastro você completa na tela da conta"
+      size="md"
       footer={
         <div className="flex justify-end gap-2">
           <Button variant="ghost" onClick={onFechar}>Cancelar</Button>
-          <Button onClick={salvar} loading={salvando}>
-            {editando ? 'Salvar' : 'Criar conta'}
-          </Button>
+          <Button onClick={salvar} loading={salvando}>Criar conta</Button>
         </div>
       }
     >
@@ -240,7 +193,7 @@ function FormConta({ aberto, onFechar, onSalvo, verticais, onCriarVertical, cont
               <Button
                 size="sm"
                 variant="secondary"
-                onClick={() => onSalvo(conflito.conta_id)}
+                onClick={() => onAbrirExistente(conflito.conta_id)}
               >
                 Abrir a conta existente
               </Button>
@@ -248,27 +201,33 @@ function FormConta({ aberto, onFechar, onSalvo, verticais, onCriarVertical, cont
           </AlertMessage>
         )}
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <Input
-            label="Razão social *"
-            value={form.razao_social}
-            error={erros.razao_social}
-            onChange={(e) => set('razao_social', e.target.value)}
-          />
-          <Input
-            label="Nome fantasia"
-            value={form.nome_fantasia}
-            onChange={(e) => set('nome_fantasia', e.target.value)}
-          />
-          <Input
-            label="CNPJ *"
-            value={form.cnpj}
-            error={erros.cnpj}
-            disabled={editando}
-            hint={editando ? 'O CNPJ não pode ser alterado.' : undefined}
-            placeholder="00.000.000/0000-00"
-            onChange={(e) => set('cnpj', mascararCnpj(e.target.value))}
-          />
+        <Input
+          label="Razão social *"
+          value={form.razao_social}
+          error={erros.razao_social}
+          onChange={(e) => set('razao_social', e.target.value)}
+        />
+        <Input
+          label="CNPJ *"
+          value={form.cnpj}
+          error={erros.cnpj}
+          placeholder="00.000.000/0000-00"
+          onChange={(e) => set('cnpj', mascararCnpj(e.target.value))}
+        />
+        <Input
+          label="Nome fantasia"
+          value={form.nome_fantasia}
+          onChange={(e) => set('nome_fantasia', e.target.value)}
+        />
+        <div className="grid grid-cols-2 gap-4">
+          <Select
+            label="Vertical"
+            value={form.vertical_id}
+            onChange={(e) => set('vertical_id', e.target.value)}
+          >
+            <option value="">— sem vertical —</option>
+            {verticais.map((v) => <option key={v.id} value={v.id}>{v.nome}</option>)}
+          </Select>
           <Input
             label="Nº de funcionários"
             type="number"
@@ -277,130 +236,6 @@ function FormConta({ aberto, onFechar, onSalvo, verticais, onCriarVertical, cont
             onChange={(e) => set('num_funcionarios', e.target.value)}
           />
         </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-2 items-end">
-          <Select
-            label="Vertical"
-            value={form.vertical_id}
-            onChange={(e) => set('vertical_id', e.target.value)}
-          >
-            <option value="">— sem vertical —</option>
-            {verticais.map((v) => (
-              <option key={v.id} value={v.id}>{v.nome}</option>
-            ))}
-          </Select>
-          <div className="flex gap-2 items-end">
-            <Input
-              label="Criar nova"
-              placeholder="ex.: Metalúrgica"
-              value={novaVertical}
-              onChange={(e) => setNovaVertical(e.target.value)}
-            />
-            <Button
-              variant="secondary"
-              icon={Plus}
-              loading={criandoVertical}
-              disabled={!novaVertical.trim()}
-              onClick={criarVertical}
-            >
-              Adicionar
-            </Button>
-          </div>
-        </div>
-
-        <CardHeader title="Endereço" className="pt-2" />
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <Input
-            label="CEP"
-            value={form.cep}
-            placeholder="00000-000"
-            onChange={(e) => set('cep', e.target.value.replace(/\D/g, '').slice(0, 8))}
-          />
-          <Input
-            label="Logradouro"
-            className="md:col-span-2"
-            value={form.logradouro}
-            onChange={(e) => set('logradouro', e.target.value)}
-          />
-          <Input
-            label="Número"
-            value={form.numero}
-            onChange={(e) => set('numero', e.target.value)}
-          />
-          <Input
-            label="Complemento"
-            value={form.complemento}
-            onChange={(e) => set('complemento', e.target.value)}
-          />
-          <Input
-            label="Bairro"
-            value={form.bairro}
-            onChange={(e) => set('bairro', e.target.value)}
-          />
-          <Input
-            label="Cidade"
-            className="md:col-span-2"
-            value={form.cidade}
-            onChange={(e) => set('cidade', e.target.value)}
-          />
-          <Select label="UF" value={form.uf} onChange={(e) => set('uf', e.target.value)}>
-            <option value="">—</option>
-            {UFS.map((uf) => <option key={uf} value={uf}>{uf}</option>)}
-          </Select>
-        </div>
-
-        <CardHeader title="Contato" className="pt-2" />
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <Input
-            label="Telefone"
-            value={form.telefone}
-            onChange={(e) => set('telefone', e.target.value)}
-          />
-          <Input
-            label="Telefone 2"
-            value={form.telefone_2}
-            onChange={(e) => set('telefone_2', e.target.value)}
-          />
-          <Input
-            label="E-mail"
-            type="email"
-            value={form.email}
-            onChange={(e) => set('email', e.target.value)}
-          />
-        </div>
-
-        <Input
-          label="Observações"
-          value={form.observacoes}
-          onChange={(e) => set('observacoes', e.target.value)}
-        />
-
-        <label className="flex items-center gap-2 text-sm text-hipo-ink">
-          <input
-            type="checkbox"
-            checked={form.eh_finder}
-            onChange={(e) => set('eh_finder', e.target.checked)}
-            className="rounded border-hipo-border"
-          />
-          É parceiro indicador (finder)
-        </label>
-
-        {/* Contatos só existem depois que a conta existe: sem id, não há a
-            que vincular. Por isso a seção só aparece na edição. */}
-        {editando && (
-          <>
-            <CardHeader
-              title="Contatos"
-              hint={`${(conta?.contatos || []).length} vinculado(s)`}
-              className="pt-2"
-            />
-            <ContatosDaConta
-              contaId={conta.id}
-              contatos={conta.contatos || []}
-              onMudou={onContatosMudaram}
-            />
-          </>
-        )}
       </div>
     </Modal>
   );
@@ -417,10 +252,11 @@ export default function Contas() {
   const [pagina, setPagina] = useState(0);
   const [carregando, setCarregando] = useState(true);
   const [erro, setErro] = useState(null);
-  const [formAberto, setFormAberto] = useState(false);
-  const [emEdicao, setEmEdicao] = useState(null);
-  const [kpiAtivo, setKpiAtivo] = useState(null);
+  const [novaAberta, setNovaAberta] = useState(false);
+  const [detalhe, setDetalhe] = useState(null);
   const [abrindo, setAbrindo] = useState(false);
+  const [kpiAtivo, setKpiAtivo] = useState(null);
+  const [acaoSalvar, setAcaoSalvar] = useState(null);
   const debounce = useRef(null);
 
   // Busca com debounce: sem isso, cada tecla vira uma request.
@@ -466,25 +302,19 @@ export default function Contas() {
 
   useEffect(() => { carregar(); }, [carregar]);
 
-  async function criarVertical(nome) {
-    const { data } = await api.post('/crm/dominio/verticais', { nome });
-    setVerticais((vs) => (vs.some((v) => v.id === data.id) ? vs : [...vs, data]));
-    return data;
-  }
-
-  // A listagem devolve o resumo da conta; o formulário precisa do detalhe
-  // (com contatos e oportunidades). Por isso abrir busca o registro completo.
   const carregarDetalhe = useCallback(async (id) => {
     const { data } = await api.get(`/crm/contas/${id}`);
     return data;
   }, []);
 
+  // A listagem devolve o resumo da conta; a visão 360 precisa do detalhe
+  // (com contatos e oportunidades). Por isso abrir busca o registro completo.
   async function abrirConta(id) {
     setAbrindo(true);
     setErro(null);
     try {
-      setEmEdicao(await carregarDetalhe(id));
-      setFormAberto(true);
+      setDetalhe(await carregarDetalhe(id));
+      setNovaAberta(false);
     } catch (err) {
       setErro(mensagemDeErro(err, 'Não foi possível abrir a conta.'));
     } finally {
@@ -492,14 +322,29 @@ export default function Contas() {
     }
   }
 
-  async function recarregarContatos() {
-    if (!emEdicao) return;
+  // Estas três são passadas como prop para o ContaDetalhe. Mantê-las
+  // estáveis não é otimização: prop nova a cada render do pai realimenta os
+  // efeitos do filho e já produziu loop de renderização aqui.
+  const recarregarDetalhe = useCallback(async () => {
+    if (!detalhe) return;
     try {
-      setEmEdicao(await carregarDetalhe(emEdicao.id));
+      setDetalhe(await carregarDetalhe(detalhe.id));
+      carregar();
     } catch (err) {
-      setErro(mensagemDeErro(err, 'Não foi possível recarregar os contatos.'));
+      setErro(mensagemDeErro(err, 'Não foi possível recarregar a conta.'));
     }
-  }
+  }, [detalhe, carregarDetalhe, carregar]);
+
+  const criarVertical = useCallback(async (nome) => {
+    const { data } = await api.post('/crm/dominio/verticais', { nome });
+    setVerticais((vs) => (vs.some((v) => v.id === data.id) ? vs : [...vs, data]));
+    return data;
+  }, []);
+
+  const aoSalvarConta = useCallback((atualizada) => {
+    setDetalhe(atualizada);
+    carregar();
+  }, [carregar]);
 
   function aplicar(parciais) {
     setFiltros((f) => ({ ...f, ...parciais }));
@@ -545,9 +390,7 @@ export default function Contas() {
         title="Contas"
         subtitle="Empresas-cliente da operação"
         actions={
-          <Button icon={Plus} onClick={() => { setEmEdicao(null); setFormAberto(true); }}>
-            Nova conta
-          </Button>
+          <Button icon={Plus} onClick={() => setNovaAberta(true)}>Nova conta</Button>
         }
       />
 
@@ -664,9 +507,7 @@ export default function Contas() {
               temFiltro ? (
                 <Button variant="secondary" onClick={limpar}>Limpar filtros</Button>
               ) : (
-                <Button icon={Plus} onClick={() => { setEmEdicao(null); setFormAberto(true); }}>
-                  Nova conta
-                </Button>
+                <Button icon={Plus} onClick={() => setNovaAberta(true)}>Nova conta</Button>
               )
             }
           />
@@ -747,19 +588,52 @@ export default function Contas() {
         )}
       </Card>
 
-      <FormConta
-        aberto={formAberto}
-        conta={emEdicao}
+      <FormNovaConta
+        aberto={novaAberta}
         verticais={verticais}
-        onCriarVertical={criarVertical}
-        onFechar={() => setFormAberto(false)}
-        onSalvo={(idExistente) => {
-          setFormAberto(false);
-          if (idExistente) abrirConta(idExistente);
-          carregar();
-        }}
-        onContatosMudaram={recarregarContatos}
+        onFechar={() => setNovaAberta(false)}
+        onCriada={(conta) => { setNovaAberta(false); setDetalhe(conta); carregar(); }}
+        onAbrirExistente={(id) => { setNovaAberta(false); abrirConta(id); }}
       />
+
+      <Modal
+        aberto={Boolean(detalhe)}
+        onFechar={() => { setDetalhe(null); setAcaoSalvar(null); }}
+        titulo={detalhe?.razao_social}
+        subtitulo={detalhe ? `CNPJ ${detalhe.cnpj_formatado}` : undefined}
+        size="full"
+        bodySemPadding
+        footer={
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-xs text-hipo-slate">
+              {acaoSalvar?.sujo ? 'Alterações não salvas' : 'Tudo salvo'}
+            </span>
+            <div className="flex gap-2">
+              <Button variant="ghost" onClick={() => { setDetalhe(null); setAcaoSalvar(null); }}>
+                Fechar
+              </Button>
+              <Button
+                onClick={() => acaoSalvar?.salvar()}
+                disabled={!acaoSalvar?.sujo}
+                loading={acaoSalvar?.salvando}
+              >
+                Salvar
+              </Button>
+            </div>
+          </div>
+        }
+      >
+        {detalhe && (
+          <ContaDetalhe
+            conta={detalhe}
+            verticais={verticais}
+            onCriarVertical={criarVertical}
+            onRecarregar={recarregarDetalhe}
+            onSalvo={aoSalvarConta}
+            registrarSalvar={setAcaoSalvar}
+          />
+        )}
+      </Modal>
     </div>
   );
 }
