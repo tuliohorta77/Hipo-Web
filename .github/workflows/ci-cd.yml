@@ -1,5 +1,9 @@
 ﻿name: HIPO CI/CD
 
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: true
+
 on:
   workflow_dispatch:
   push:
