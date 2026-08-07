@@ -29,6 +29,7 @@ import Logo, { LogoWordmark } from './Logo';
 
 // Nav principal. Sprint 2 acrescenta Contatos; Sprint 4, Oportunidades.
 const NAV_ITEMS = [
+  { to: '/crm/oportunidades', label: 'Oportunidades', modulo: 'crm' },
   { to: '/crm/contas', label: 'Contas', modulo: 'crm' },
 ];
 

@@ -67,11 +67,11 @@ export function podeAcessar(modulo) {
 // Rotas candidatas para o redirect inicial, em ordem de prioridade.
 // Cada entrada é [módulo, rota].
 const ROTAS_INICIAIS = [
-  ["crm", "/crm/contas"],
+  ["crm", "/crm/oportunidades"],
 ];
 
 // Primeira rota acessível pelo cargo. Todo cargo válido tem 'crm', então cai
-// em /crm/contas; cargo extinto ou sem módulo nenhum cai em /perfil, que é
+// em /crm/oportunidades; cargo extinto ou sem módulo nenhum cai em /perfil, que é
 // visível para qualquer usuário autenticado.
 export function primeiraRotaAcessivel() {
   const mods = getModulos();

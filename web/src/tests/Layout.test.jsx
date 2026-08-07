@@ -26,6 +26,7 @@ function renderLayout(rotaInicial = '/perfil') {
         <Route path="/" element={<Layout />}>
           <Route path="perfil" element={<div>conteudo-perfil</div>} />
           <Route path="crm/contas" element={<div>conteudo-contas</div>} />
+          <Route path="crm/oportunidades" element={<div>conteudo-oportunidades</div>} />
         </Route>
       </Routes>
     </MemoryRouter>
@@ -50,16 +51,18 @@ describe('Layout — nav com o módulo crm', () => {
     expect(screen.getByText('conteudo-perfil')).toBeInTheDocument();
   });
 
-  it('mostra o item Contas na nav', () => {
+  it('mostra Oportunidades e Contas na nav', () => {
     renderLayout();
     expect(screen.getByLabelText('Navegação principal')).toBeInTheDocument();
+    expect(screen.getAllByText('Oportunidades').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Contas').length).toBeGreaterThan(0);
   });
 
-  it('o link de Contas aponta para /crm/contas', () => {
+  it('Oportunidades vem antes de Contas — o funil é a tela do dia a dia', () => {
     renderLayout();
     const nav = screen.getByLabelText('Navegação principal');
-    expect(nav.querySelector('a[href="/crm/contas"]')).toBeTruthy();
+    const hrefs = [...nav.querySelectorAll('a')].map((a) => a.getAttribute('href'));
+    expect(hrefs).toEqual(['/crm/oportunidades', '/crm/contas']);
   });
 
   it('renderiza o botão hamburger quando há itens', () => {

@@ -1,5 +1,8 @@
 """
-HIPO — Listas de domínio do CRM (verticais, origens, concorrentes, motivos).
+HIPO — Dados de apoio dos formulários do CRM.
+
+Listas de domínio (verticais, origens, concorrentes, motivos) e a lista de
+usuários que alimenta o seletor de envolvidos das oportunidades.
 
 As listas nascem vazias e qualquer usuário com o módulo 'crm' cria entradas
 direto do combobox. Para não virar lixo ("Metalúrgica" vs "metalurgica"), a
@@ -44,10 +47,102 @@ class MotivoOut(ItemDominioOut):
     tipo: str
 
 
+class UsuarioOut(BaseModel):
+    id: str
+    nome: str
+    cargo: str | None
+
+
+class PreferenciaIn(BaseModel):
+    valor: str = Field(..., max_length=500)
+
+
+class PreferenciaOut(BaseModel):
+    chave: str
+    valor: str
+
+
 def _validar_tabela(tabela: str) -> str:
     if tabela not in TABELAS_SIMPLES:
         raise HTTPException(404, f"Lista de domínio desconhecida: '{tabela}'.")
     return tabela
+
+
+@router.get("/preferencias", response_model=list[PreferenciaOut])
+async def listar_preferencias(conn=Depends(get_conn), user=Depends(usuario_atual)):
+    """
+    Preferências de UI do usuário logado (ex.: crm_oportunidades_visao).
+
+    Ficam no banco, não no localStorage: o HIPO é a fonte primária, e a
+    escolha de ver o funil em tabela ou kanban deve acompanhar a pessoa entre
+    máquinas.
+    """
+    rows = await conn.fetch(
+        "SELECT chave, valor FROM usuarios_preferencias WHERE usuario_id = $1 ORDER BY chave",
+        user["id"],
+    )
+    return [dict(r) for r in rows]
+
+
+@router.put("/preferencias/{chave}", response_model=PreferenciaOut)
+async def definir_preferencia(
+    chave: str,
+    payload: PreferenciaIn,
+    conn=Depends(get_conn),
+    user=Depends(usuario_atual),
+):
+    """Grava (ou sobrescreve) uma preferência do usuário logado."""
+    if not chave.strip() or len(chave) > 60:
+        raise HTTPException(422, "Chave de preferência inválida.")
+    row = await conn.fetchrow(
+        """
+        INSERT INTO usuarios_preferencias (usuario_id, chave, valor)
+        VALUES ($1, $2, $3)
+        ON CONFLICT (usuario_id, chave)
+        DO UPDATE SET valor = EXCLUDED.valor, atualizado_em = NOW()
+        RETURNING chave, valor
+        """,
+        user["id"], chave.strip(), payload.valor,
+    )
+    return dict(row)
+
+
+# ATENÇÃO À ORDEM: esta rota precisa vir ANTES de /{tabela}. O FastAPI casa
+# por ordem de declaração, então com /{tabela} na frente o caminho
+# /crm/dominio/usuarios seria interpretado como a tabela "usuarios" — que não
+# está na whitelist — e devolveria 404.
+@router.get("/usuarios", response_model=list[UsuarioOut])
+async def listar_usuarios(
+    q: str | None = Query(None, max_length=150),
+    cargo: str | None = Query(None, max_length=80),
+    conn=Depends(get_conn),
+    user=Depends(usuario_atual),
+):
+    """
+    Usuários ativos, para o seletor de envolvidos (EC/SDR/EV) das
+    oportunidades.
+
+    Vive aqui e não sob o módulo 'usuarios' de propósito: escolher quem está
+    envolvido num negócio é parte de operar o CRM, não de administrar contas
+    de acesso. Exigir o módulo de gestão travaria o vendedor no meio do
+    formulário.
+
+    Devolve só id, nome e cargo — nada de e-mail nem hash de senha.
+    """
+    rows = await conn.fetch(
+        """
+        SELECT id::text, nome, cargo
+          FROM usuarios
+         WHERE ativo
+           AND ($1::text IS NULL OR nome ILIKE $1)
+           AND ($2::text IS NULL OR cargo = $2)
+         ORDER BY nome
+         LIMIT 200
+        """,
+        f"%{q.strip()}%" if q else None,
+        cargo,
+    )
+    return [dict(r) for r in rows]
 
 
 @router.get("/{tabela}", response_model=list[ItemDominioOut])
