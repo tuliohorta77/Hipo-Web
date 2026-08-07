@@ -24,7 +24,7 @@ import Oportunidades from '../pages/crm/Oportunidades';
 
 const RESUMO = {
   abertas: 3, ticket_aberto: 7500, previsto_no_mes: 2500,
-  sem_proxima_acao: 1, paradas: 0, ganhas_mes: 2, perdidas_mes: 1,
+  paradas: 0, ganhas_mes: 2, perdidas_mes: 1,
   por_fase: [], perda_por_fase: [],
 };
 
@@ -38,11 +38,20 @@ const OPP = {
   criado_em: '2026-08-01T12:00:00Z', atualizado_em: '2026-08-01T12:00:00Z',
 };
 
+const vazia = (fase, rotulo, extra = {}) => ({
+  fase, rotulo, quantidade: 0, ticket_total: 0, itens: [],
+  somente_leitura: false, ...extra,
+});
+
 const COLUNAS = [
-  { fase: 'lead', rotulo: 'Lead', quantidade: 0, ticket_total: 0, itens: [] },
-  { fase: 'qualificacao', rotulo: 'Qualificação', quantidade: 0, ticket_total: 0, itens: [] },
-  { fase: 'apresentacao', rotulo: 'Apresentação', quantidade: 0, ticket_total: 0, itens: [] },
-  { fase: 'negociacao', rotulo: 'Negociação', quantidade: 1, ticket_total: 2500, itens: [OPP] },
+  vazia('suspect', 'Suspect'),
+  vazia('lead', 'Lead'),
+  vazia('qualificacao', 'Qualificação'),
+  vazia('apresentacao', 'Apresentação'),
+  vazia('negociacao', 'Negociação', {
+    quantidade: 1, ticket_total: 2500, itens: [OPP],
+  }),
+  vazia('finalizado', 'Finalizado', { somente_leitura: true }),
 ];
 
 function respostas(visaoSalva) {
@@ -81,14 +90,44 @@ afterEach(cleanup);
 describe('Oportunidades — visão padrão e preferência', () => {
   it('abre no kanban quando não há preferência salva', async () => {
     montar();
-    expect(await screen.findByRole('region', { name: 'Fase Lead' })).toBeInTheDocument();
+    expect(await screen.findByRole('region', { name: 'Fase Suspect' })).toBeInTheDocument();
+  });
+
+  it('não recarrega o funil sozinho depois do debounce da busca', async () => {
+    /*
+      Regressao real: o timer da busca dispara uma vez na montagem, com a
+      busca vazia. Ele criava um `filtros` novo por identidade, `params`
+      recalculava, `carregar` trocava e a tela buscava tudo de novo — piscando
+      o "Carregando funil…" e desmontando o que ja estava renderizado. O
+      sintoma era o kanban sumir do DOM entre o findByRole e o assert, so em
+      maquina lenta o suficiente para os dois cairem em lados diferentes do
+      timer.
+    */
+    montar();
+    await screen.findByRole('region', { name: 'Fase Suspect' });
+    await new Promise((r) => setTimeout(r, 700));
+    const chamadas = mockGet.mock.calls.filter(
+      ([u]) => u === '/crm/oportunidades/kanban'
+    );
+    expect(chamadas).toHaveLength(1);
+  });
+
+  it('a tela tem altura fixa e não rola', async () => {
+    /*
+      O scroll vive nas colunas do kanban. Se a raiz voltar a crescer, o
+      arrasto entre a primeira e a última coluna volta a exigir rolagem.
+    */
+    const { container } = montar();
+    await screen.findByRole('region', { name: 'Fase Suspect' });
+    expect(container.firstChild.className).toContain('h-full');
+    expect(container.firstChild.className).not.toContain('space-y-6');
   });
 
   it('respeita a preferência de tabela vinda do banco', async () => {
     mockGet.mockImplementation(respostas('tabela'));
     montar();
     expect(await screen.findByText('OPP-2026-00001')).toBeInTheDocument();
-    expect(screen.queryByRole('region', { name: 'Fase Lead' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Fase Suspect' })).not.toBeInTheDocument();
   });
 
   it('trocar de visão grava a preferência no banco', async () => {
@@ -97,7 +136,7 @@ describe('Oportunidades — visão padrão e preferência', () => {
       deve acompanhar a pessoa entre máquinas.
     */
     montar();
-    await screen.findByRole('region', { name: 'Fase Lead' });
+    await screen.findByRole('region', { name: 'Fase Suspect' });
     fireEvent.click(screen.getByLabelText('Ver como tabela'));
     await waitFor(() =>
       expect(mockPut).toHaveBeenCalledWith(
@@ -110,36 +149,43 @@ describe('Oportunidades — visão padrão e preferência', () => {
   it('falha ao gravar a preferência não trava a troca de visão', async () => {
     mockPut.mockRejectedValue(new Error('offline'));
     montar();
-    await screen.findByRole('region', { name: 'Fase Lead' });
+    await screen.findByRole('region', { name: 'Fase Suspect' });
     fireEvent.click(screen.getByLabelText('Ver como tabela'));
     expect(await screen.findByText('OPP-2026-00001')).toBeInTheDocument();
   });
 });
 
 describe('Oportunidades — KPIs', () => {
-  it('mostra os quatro indicadores', async () => {
+  it('mostra os três indicadores', async () => {
     montar();
     expect(await screen.findByText('Em aberto')).toBeInTheDocument();
     expect(screen.getByText('Previsto no mês')).toBeInTheDocument();
-    expect(screen.getByText('Sem próxima ação')).toBeInTheDocument();
     expect(screen.getByText('Ganhas no mês')).toBeInTheDocument();
   });
 
-  it('clicar em "Sem próxima ação" filtra', async () => {
+  it('não existe mais o KPI "Sem próxima ação"', async () => {
+    /*
+      Saiu do produto: concluir uma tarefa vai obrigar o vendedor a criar a
+      próxima, então o indicador nasceria zerado para sempre — e um KPI que
+      nunca sai de zero só ocupa a altura que as colunas precisam.
+    */
     montar();
-    await screen.findByText('Sem próxima ação');
-    mockGet.mockClear();
-    fireEvent.click(screen.getByText('Sem próxima ação').closest('button'));
-    await waitFor(() => {
-      const chamada = mockGet.mock.calls.find(([u]) => u === '/crm/oportunidades/kanban');
-      expect(chamada[1].params.sem_proxima_acao).toBe(true);
-    });
+    await screen.findByText('Em aberto');
+    expect(screen.queryByText('Sem próxima ação')).not.toBeInTheDocument();
+  });
+
+  it('clicar em "Em aberto" filtra', async () => {
+    montar();
+    await screen.findByText('Em aberto');
+    const kpi = screen.getByText('Em aberto').closest('button');
+    fireEvent.click(kpi);
+    await waitFor(() => expect(kpi).toHaveAttribute('aria-pressed', 'true'));
   });
 
   it('clicar de novo desfaz o filtro', async () => {
     montar();
-    await screen.findByText('Sem próxima ação');
-    const kpi = screen.getByText('Sem próxima ação').closest('button');
+    await screen.findByText('Em aberto');
+    const kpi = screen.getByText('Em aberto').closest('button');
     fireEvent.click(kpi);
     await waitFor(() => expect(kpi).toHaveAttribute('aria-pressed', 'true'));
     fireEvent.click(kpi);
@@ -162,6 +208,17 @@ describe('Oportunidades — tabela', () => {
     expect(screen.getByLabelText('Fase')).toBeInTheDocument();
   });
 
+  it('as seis fases aparecem no filtro', async () => {
+    montar();
+    await screen.findByText('OPP-2026-00001');
+    const opcoes = [...screen.getByLabelText('Fase').querySelectorAll('option')]
+      .map((o) => o.value)
+      .filter(Boolean);
+    expect(opcoes).toEqual([
+      'suspect', 'lead', 'qualificacao', 'apresentacao', 'negociacao', 'finalizado',
+    ]);
+  });
+
   it('estado vazio quando não há oportunidades', async () => {
     mockGet.mockImplementation((url) => {
       if (url === '/crm/oportunidades') {
@@ -177,7 +234,7 @@ describe('Oportunidades — tabela', () => {
 describe('Oportunidades — kanban', () => {
   it('mover cartão chama o endpoint de fase', async () => {
     montar();
-    await screen.findByRole('region', { name: 'Fase Lead' });
+    await screen.findByRole('region', { name: 'Fase Suspect' });
     const seletor = screen.getByLabelText('Mover OPP-2026-00001 para outra fase');
     fireEvent.change(seletor, { target: { value: 'lead' } });
     await waitFor(() =>
@@ -190,7 +247,7 @@ describe('Oportunidades — kanban', () => {
   it('erro ao mover é exibido', async () => {
     mockPatch.mockRejectedValue({ response: { data: { detail: 'Reabra antes.' } } });
     montar();
-    await screen.findByRole('region', { name: 'Fase Lead' });
+    await screen.findByRole('region', { name: 'Fase Suspect' });
     fireEvent.change(
       screen.getByLabelText('Mover OPP-2026-00001 para outra fase'),
       { target: { value: 'lead' } }
@@ -200,7 +257,7 @@ describe('Oportunidades — kanban', () => {
 
   it('botão Finalizar do cartão abre o modal de desfecho', async () => {
     montar();
-    await screen.findByRole('region', { name: 'Fase Lead' });
+    await screen.findByRole('region', { name: 'Fase Suspect' });
     fireEvent.click(screen.getByLabelText('Finalizar OPP-2026-00001'));
     expect(await screen.findByText('Finalizar oportunidade')).toBeInTheDocument();
   });

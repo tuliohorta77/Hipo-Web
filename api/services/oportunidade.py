@@ -22,7 +22,12 @@ from dataclasses import dataclass
 
 # Ordem importa: é ela que define "avançar" e "retroceder" no funil, e a
 # sequência das colunas do kanban.
-FASES = ("lead", "qualificacao", "apresentacao", "negociacao", "finalizado")
+#
+# 'suspect' é a boca do funil: empresa que entrou na base mas que ninguém
+# ainda tocou. Vira 'lead' quando existe contato e interesse demonstrado.
+FASES = (
+    "suspect", "lead", "qualificacao", "apresentacao", "negociacao", "finalizado",
+)
 
 FASES_ABERTAS = tuple(f for f in FASES if f != "finalizado")
 
@@ -43,6 +48,7 @@ STATUS_CONTA_CONVERSAO = ("perdido", "conquistado")
 TEMPERATURAS = tuple(range(0, 100, 10))   # 0, 10, ..., 90
 
 ROTULOS_FASE = {
+    "suspect": "Suspect",
     "lead": "Lead",
     "qualificacao": "Qualificação",
     "apresentacao": "Apresentação",

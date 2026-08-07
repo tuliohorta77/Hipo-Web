@@ -46,10 +46,11 @@ async def novo_motivo(client, headers, tipo="perda", nome="Preço"):
 # ── Criação e numeração ──────────────────────────────────────────────
 
 class TestCriar:
-    async def test_nasce_ativa_em_lead(self, db_conn, client, usuario_adm):
+    async def test_nasce_ativa_em_suspect(self, db_conn, client, usuario_adm):
+        """Sem fase informada, a oportunidade nasce na boca do funil."""
         conta = await nova_conta(client, usuario_adm["headers"])
         o = await nova_oportunidade(client, usuario_adm["headers"], conta["id"])
-        assert o["fase"] == "lead"
+        assert o["fase"] == "suspect"
         assert o["status"] == "ativa"
         assert o["temperatura"] == 50
         assert o["fase_desfecho"] is None
@@ -88,7 +89,7 @@ class TestCriar:
         )).json()
         assert len(eventos) == 1
         assert eventos[0]["tipo"] == "criacao"
-        assert eventos[0]["para"] == "lead"
+        assert eventos[0]["para"] == "suspect"
         assert eventos[0]["usuario"] == "Test ADM"
 
     async def test_pode_nascer_em_outra_fase_aberta(self, db_conn, client, usuario_adm):
@@ -225,7 +226,7 @@ class TestMoverFase:
             f"/crm/oportunidades/{o['id']}/eventos", headers=usuario_adm["headers"]
         )).json()
         fase = next(e for e in eventos if e["tipo"] == "fase")
-        assert (fase["de"], fase["para"]) == ("lead", "qualificacao")
+        assert (fase["de"], fase["para"]) == ("suspect", "qualificacao")
 
     async def test_arrastar_para_finalizado_e_recusado(self, db_conn, client, usuario_adm):
         """O kanban precisa abrir o modal de desfecho."""
@@ -592,14 +593,25 @@ class TestConcorrentes:
 # ── Kanban ───────────────────────────────────────────────────────────
 
 class TestKanban:
-    async def test_quatro_colunas_abertas(self, db_conn, client, usuario_adm):
+    async def test_seis_colunas_na_ordem_do_funil(self, db_conn, client, usuario_adm):
         colunas = (await client.get(
             "/crm/oportunidades/kanban", headers=usuario_adm["headers"]
         )).json()
         assert [c["fase"] for c in colunas] == [
-            "lead", "qualificacao", "apresentacao", "negociacao"
+            "suspect", "lead", "qualificacao", "apresentacao",
+            "negociacao", "finalizado",
         ]
-        assert "finalizado" not in [c["fase"] for c in colunas]
+
+    async def test_so_finalizado_e_somente_leitura(self, db_conn, client, usuario_adm):
+        """
+        Fechar exige status e motivo. A flag e o que faz o front recusar o
+        cartao solto na coluna e abrir o modal de desfecho no lugar.
+        """
+        colunas = (await client.get(
+            "/crm/oportunidades/kanban", headers=usuario_adm["headers"]
+        )).json()
+        leitura = [c["fase"] for c in colunas if c["somente_leitura"]]
+        assert leitura == ["finalizado"]
 
     async def test_soma_ticket_por_coluna(self, db_conn, client, usuario_adm):
         conta = await nova_conta(client, usuario_adm["headers"])
@@ -615,7 +627,9 @@ class TestKanban:
         assert negociacao["quantidade"] == 2
         assert float(negociacao["ticket_total"]) == 3500.0
 
-    async def test_finalizadas_ficam_fora(self, db_conn, client, usuario_adm):
+    async def test_finalizada_sai_das_abertas_e_entra_na_coluna_final(
+        self, db_conn, client, usuario_adm
+    ):
         conta = await nova_conta(client, usuario_adm["headers"])
         o = await nova_oportunidade(client, usuario_adm["headers"], conta["id"])
         await client.post(
@@ -626,7 +640,72 @@ class TestKanban:
         colunas = (await client.get(
             "/crm/oportunidades/kanban", headers=usuario_adm["headers"]
         )).json()
-        assert sum(c["quantidade"] for c in colunas) == 0
+        abertas = [c for c in colunas if not c["somente_leitura"]]
+        final = next(c for c in colunas if c["fase"] == "finalizado")
+        assert sum(c["quantidade"] for c in abertas) == 0
+        assert final["quantidade"] == 1
+        assert [i["numero"] for i in final["itens"]] == [o["numero"]]
+
+    async def test_ticket_da_coluna_final_conta_so_conquistadas(
+        self, db_conn, client, usuario_adm
+    ):
+        """
+        Somar mensalidade de perdida com ganha produz um numero que nao
+        significa nada. A coluna soma so o que entrou de fato.
+        """
+        conta = await nova_conta(client, usuario_adm["headers"])
+        ganha = await nova_oportunidade(
+            client, usuario_adm["headers"], conta["id"], valor_mensalidade=1000
+        )
+        perdida = await nova_oportunidade(
+            client, usuario_adm["headers"], conta["id"], valor_mensalidade=9000
+        )
+        motivo = (await client.post(
+            "/crm/dominio/motivos/perda", json={"nome": "Preco"},
+            headers=usuario_adm["headers"],
+        )).json()
+        await client.post(
+            f"/crm/oportunidades/{ganha['id']}/desfecho",
+            json={"status": "conquistado"}, headers=usuario_adm["headers"],
+        )
+        await client.post(
+            f"/crm/oportunidades/{perdida['id']}/desfecho",
+            json={"status": "perdido", "motivo_desfecho_id": motivo["id"]},
+            headers=usuario_adm["headers"],
+        )
+        colunas = (await client.get(
+            "/crm/oportunidades/kanban", headers=usuario_adm["headers"]
+        )).json()
+        final = next(c for c in colunas if c["fase"] == "finalizado")
+        assert final["quantidade"] == 2
+        assert float(final["ticket_total"]) == 1000.0
+
+    async def test_coluna_final_so_traz_o_mes_corrente(
+        self, db_conn, client, usuario_adm
+    ):
+        """
+        O funil aberto e estoque e cresce devagar; o finalizado e fluxo e
+        cresce para sempre. Sem recorte a coluna viraria arquivo morto.
+        """
+        conta = await nova_conta(client, usuario_adm["headers"])
+        o = await nova_oportunidade(client, usuario_adm["headers"], conta["id"])
+        await client.post(
+            f"/crm/oportunidades/{o['id']}/desfecho",
+            json={"status": "conquistado"}, headers=usuario_adm["headers"],
+        )
+        # Empurra o fechamento para o mes passado direto no banco: nao existe
+        # endpoint para reescrever atualizado_em, e a regra e do SELECT.
+        await db_conn.execute(
+            "UPDATE oportunidades SET atualizado_em = NOW() - interval '45 days'"
+            " WHERE id = $1",
+            uuid.UUID(o["id"]),
+        )
+        colunas = (await client.get(
+            "/crm/oportunidades/kanban", headers=usuario_adm["headers"]
+        )).json()
+        final = next(c for c in colunas if c["fase"] == "finalizado")
+        assert final["quantidade"] == 0
+        assert final["itens"] == []
 
     async def test_total_da_coluna_independe_do_limite_de_cartoes(
         self, db_conn, client, usuario_adm
@@ -641,9 +720,9 @@ class TestKanban:
         colunas = (await client.get(
             "/crm/oportunidades/kanban?por_coluna=1", headers=usuario_adm["headers"]
         )).json()
-        lead = next(c for c in colunas if c["fase"] == "lead")
-        assert lead["quantidade"] == 3
-        assert len(lead["itens"]) == 1
+        suspect = next(c for c in colunas if c["fase"] == "suspect")
+        assert suspect["quantidade"] == 3
+        assert len(suspect["itens"]) == 1
 
     async def test_filtra_por_conta(self, db_conn, client, usuario_adm):
         a = await nova_conta(client, usuario_adm["headers"], CNPJ_A, "Alfa")
@@ -665,7 +744,7 @@ class TestResumo:
         )).json()
         assert body["abertas"] == 0
         assert float(body["ticket_aberto"]) == 0.0
-        assert len(body["por_fase"]) == 4
+        assert len(body["por_fase"]) == 5
 
     async def test_conta_abertas_e_ticket(self, db_conn, client, usuario_adm):
         conta = await nova_conta(client, usuario_adm["headers"])
@@ -681,17 +760,19 @@ class TestResumo:
         assert body["abertas"] == 2
         assert float(body["ticket_aberto"]) == 2000.0
 
-    async def test_sem_proxima_acao(self, db_conn, client, usuario_adm):
+    async def test_resumo_nao_tem_sem_proxima_acao(self, db_conn, client, usuario_adm):
+        """
+        O indicador saiu do produto: concluir uma tarefa vai obrigar o
+        vendedor a criar a proxima, entao ele nasceria zerado para sempre.
+        Este teste existe para o campo nao voltar por engano junto com algum
+        merge antigo.
+        """
         conta = await nova_conta(client, usuario_adm["headers"])
         await nova_oportunidade(client, usuario_adm["headers"], conta["id"])
-        await nova_oportunidade(
-            client, usuario_adm["headers"], conta["id"],
-            proxima_acao_em="2026-09-01T10:00:00Z", proxima_acao_tipo="ligar",
-        )
         body = (await client.get(
             "/crm/oportunidades/resumo", headers=usuario_adm["headers"]
         )).json()
-        assert body["sem_proxima_acao"] == 1
+        assert "sem_proxima_acao" not in body
 
     async def test_perda_por_fase_ignora_cancelados(self, db_conn, client, usuario_adm):
         """
@@ -864,7 +945,7 @@ class TestEditar:
             json={"fase": "negociacao", "status": "perdido", "descricao": "X"},
             headers=usuario_adm["headers"],
         )).json()
-        assert body["fase"] == "lead"
+        assert body["fase"] == "suspect"
         assert body["status"] == "ativa"
         assert body["descricao"] == "X"
 

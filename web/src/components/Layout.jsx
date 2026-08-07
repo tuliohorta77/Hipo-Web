@@ -27,7 +27,8 @@ import { Menu, X, LogOut, User as UserIcon, ChevronDown } from 'lucide-react';
 import { getUser, getModulos, logout } from '../api';
 import Logo, { LogoWordmark } from './Logo';
 
-// Nav principal. Sprint 2 acrescenta Contatos; Sprint 4, Oportunidades.
+// Nav principal. Oportunidades vem antes de Contas de propósito: o funil é a
+// tela do dia a dia, Contas é cadastro de apoio.
 const NAV_ITEMS = [
   { to: '/crm/oportunidades', label: 'Oportunidades', modulo: 'crm' },
   { to: '/crm/contas', label: 'Contas', modulo: 'crm' },
@@ -205,8 +206,8 @@ export default function Layout() {
   }, [temNav, mobileOpen]);
 
   return (
-    <div className="min-h-screen flex flex-col bg-hipo-bg">
-      <header className="bg-hipo-card border-b border-hipo-border sticky top-0 z-30">
+    <div className="h-screen flex flex-col bg-hipo-bg overflow-hidden">
+      <header className="bg-hipo-card border-b border-hipo-border shrink-0 z-30">
         <div className="h-14 lg:h-16 flex items-center px-4 lg:px-6 gap-3 lg:gap-6">
           {temNav && (
             <button
@@ -263,8 +264,20 @@ export default function Layout() {
         />
       )}
 
-      <main className="flex-1">
-        <div className="p-6 lg:p-8 max-w-7xl mx-auto">
+      {/*
+        O shell tem a altura exata da viewport e o scroll vive aqui, no <main>,
+        não no <body>. Duas consequências, ambas intencionais:
+
+          - Página comum (Contas, Perfil) continua rolando normalmente: o
+            conteúdo passa da altura do container e o <main> rola.
+          - Página que quer altura fixa (o funil de Oportunidades) se declara
+            `h-full` e nunca ultrapassa o container, então o <main> não rola e
+            o scroll fica onde a tela quiser — nas colunas do kanban, por
+            exemplo. Sem isso não dá para ter "scroll por coluna": o
+            navegador não sabe qual é a altura disponível.
+      */}
+      <main className="flex-1 min-h-0 overflow-y-auto">
+        <div className="p-6 lg:p-8 max-w-7xl mx-auto h-full">
           <Outlet />
         </div>
       </main>

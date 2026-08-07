@@ -260,11 +260,17 @@ export default function Contas() {
   const debounce = useRef(null);
 
   // Busca com debounce: sem isso, cada tecla vira uma request.
+  // O `f.q === busca ? f : ...` nao e microtuning: devolver o MESMO objeto faz
+  // o React abortar o re-render. Sem isso, o timer dispara uma vez na montagem
+  // com a busca vazia, cria um `filtros` novo por identidade, o useMemo de
+  // `params` recalcula, o useCallback de `carregar` troca e a tela busca tudo
+  // de novo — piscando o estado de carregando e desmontando o conteudo que ja
+  // estava na tela.
   useEffect(() => {
     clearTimeout(debounce.current);
     debounce.current = setTimeout(() => {
-      setFiltros((f) => ({ ...f, q: busca }));
-      setPagina(0);
+      setFiltros((f) => (f.q === busca ? f : { ...f, q: busca }));
+      setPagina((p) => (p === 0 ? p : 0));
     }, 350);
     return () => clearTimeout(debounce.current);
   }, [busca]);

@@ -48,12 +48,24 @@ def finalizada(status="perdido", fase_desfecho="negociacao", motivo=1):
 # ── Vocabulário ──────────────────────────────────────────────────────
 
 class TestVocabulario:
-    def test_as_cinco_fases_na_ordem(self):
-        assert FASES == ("lead", "qualificacao", "apresentacao", "negociacao", "finalizado")
+    def test_as_seis_fases_na_ordem(self):
+        """
+        A ordem não é decorativa: define avançar e retroceder no funil e a
+        sequência das colunas do kanban.
+        """
+        assert FASES == (
+            "suspect", "lead", "qualificacao", "apresentacao",
+            "negociacao", "finalizado",
+        )
+
+    def test_suspect_e_a_boca_do_funil(self):
+        """Empresa na base que ninguém ainda tocou entra por aqui."""
+        assert FASES[0] == "suspect"
+        assert "suspect" in FASES_ABERTAS
 
     def test_finalizado_nao_e_fase_aberta(self):
         assert "finalizado" not in FASES_ABERTAS
-        assert len(FASES_ABERTAS) == 4
+        assert len(FASES_ABERTAS) == 5
 
     def test_status_abertos_e_desfechos_nao_se_misturam(self):
         assert set(STATUS_ABERTOS) & set(STATUS_DESFECHO) == set()

@@ -124,6 +124,21 @@ describe('cnpjValido', () => {
 
 // ── Renderização ─────────────────────────────────────────────────────
 
+describe('Contas — carga', () => {
+  it('não recarrega a lista sozinha depois do debounce da busca', async () => {
+    /*
+      Mesma regressao da tela de Oportunidades: o timer da busca disparava na
+      montagem com a busca vazia e trocava a identidade de `filtros`,
+      provocando uma segunda carga completa da tela.
+    */
+    renderContas();
+    await screen.findByText('Metalurgica Alfa LTDA');
+    await new Promise((r) => setTimeout(r, 700));
+    const chamadas = mockGet.mock.calls.filter(([u]) => u === '/crm/contas');
+    expect(chamadas).toHaveLength(1);
+  });
+});
+
 describe('Contas — carga inicial', () => {
   it('mostra os KPIs vindos do resumo', async () => {
     renderContas();

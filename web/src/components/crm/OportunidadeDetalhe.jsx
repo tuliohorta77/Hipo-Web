@@ -10,7 +10,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  FileText, Users, Swords, History, ThermometerSun, RotateCcw,
+  Users, Swords, History, RotateCcw,
   PauseCircle, PlayCircle, Flag, Plus, X,
 } from 'lucide-react';
 
@@ -29,7 +29,10 @@ const CAMPOS = [
   'proxima_acao_em', 'proxima_acao_tipo',
 ];
 
+// Só as fases abertas: Finalizado não é escolha de seletor, é desfecho com
+// status e motivo.
 const FASES = [
+  { valor: 'suspect', rotulo: 'Suspect' },
   { valor: 'lead', rotulo: 'Lead' },
   { valor: 'qualificacao', rotulo: 'Qualificação' },
   { valor: 'apresentacao', rotulo: 'Apresentação' },

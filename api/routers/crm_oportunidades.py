@@ -77,7 +77,10 @@ class Envolvido(BaseModel):
 class OportunidadeCriar(BaseModel):
     conta_id: UUID
     contato_id: UUID | None = None
-    fase: str = "lead"
+    # Nasce na boca do funil. O formulário deixa escolher outra — quem cadastra
+    # uma oportunidade que já veio de indicação com reunião marcada não deveria
+    # ter que arrastá-la duas colunas depois de criar.
+    fase: str = "suspect"
     temperatura: int = 50
     valor_mensalidade: Decimal | None = Field(None, ge=0)
     previsao_fechamento: date | None = None
@@ -197,13 +200,16 @@ class ColunaKanban(BaseModel):
     quantidade: int
     ticket_total: Decimal
     itens: list[OportunidadeResumo]
+    # A coluna Finalizado existe para dar visibilidade do que fechou, não para
+    # operar: ela não recebe cartão arrastado (soltar ali abre o modal de
+    # desfecho) e seus cartões não têm seletor de fase.
+    somente_leitura: bool = False
 
 
 class ResumoFunil(BaseModel):
     abertas: int
     ticket_aberto: Decimal
     previsto_no_mes: Decimal
-    sem_proxima_acao: int
     paradas: int
     ganhas_mes: int
     perdidas_mes: int
@@ -444,9 +450,6 @@ async def resumo(
                   AND date_trunc('month', previsao_fechamento)
                       = date_trunc('month', CURRENT_DATE)), 0)              AS previsto_no_mes,
             count(*) FILTER (
-                WHERE status IN ('ativa','suspensa')
-                  AND proxima_acao_em IS NULL)                              AS sem_proxima_acao,
-            count(*) FILTER (
                 WHERE status = 'conquistado'
                   AND date_trunc('month', atualizado_em)
                       = date_trunc('month', CURRENT_DATE))                  AS ganhas_mes,
@@ -518,7 +521,7 @@ async def resumo(
 
 def _montar_filtros(
     q, fase, status, conta_id, envolvido_id, finder_conta_id, origem_id,
-    temperatura_min, previsao_ate, sem_proxima_acao, apenas_abertas,
+    temperatura_min, previsao_ate, apenas_abertas,
 ) -> tuple[list[str], list]:
     where: list[str] = []
     params: list = []
@@ -550,8 +553,6 @@ def _montar_filtros(
         add("o.temperatura >= ${n}", temperatura_min)
     if previsao_ate is not None:
         add("o.previsao_fechamento <= ${n}", previsao_ate)
-    if sem_proxima_acao:
-        where.append("o.proxima_acao_em IS NULL")
     if apenas_abertas:
         where.append("o.status IN ('ativa','suspensa')")
 
@@ -567,22 +568,33 @@ async def kanban(
     origem_id: int | None = None,
     temperatura_min: int | None = Query(None, ge=0, le=90),
     previsao_ate: date | None = None,
-    sem_proxima_acao: bool = False,
     por_coluna: int = Query(50, ge=1, le=200),
     conn=Depends(get_conn),
     user=Depends(usuario_atual),
 ):
     """
-    As 4 colunas abertas do funil, cada uma com contagem, ticket somado e os
-    primeiros N cartões.
+    As 5 colunas abertas do funil mais a coluna Finalizado, cada uma com
+    contagem, ticket somado e os primeiros N cartões.
 
     A contagem e o ticket são do total da coluna, não dos cartões devolvidos:
     o topo precisa mostrar o pipeline inteiro mesmo quando a coluna tem mais
     itens do que cabe na tela.
+
+    A coluna Finalizado é diferente das outras em três pontos, e cada um tem
+    motivo:
+
+      * Só o mês corrente. O funil aberto é um estoque e cresce devagar; o
+        finalizado é um fluxo e cresce para sempre. Sem recorte a coluna
+        viraria um arquivo morto que ninguém lê e que custa uma varredura da
+        tabela inteira a cada carga da tela.
+      * O ticket somado conta só as conquistadas. Somar mensalidade de
+        perdida com ganha produz um número que não significa nada.
+      * `somente_leitura=True`. Fechar exige status e motivo, então o front
+        não deixa soltar cartão ali — abre o modal de desfecho.
     """
     where, params = _montar_filtros(
         q, None, None, conta_id, envolvido_id, finder_conta_id, origem_id,
-        temperatura_min, previsao_ate, sem_proxima_acao, True,
+        temperatura_min, previsao_ate, True,
     )
     clausula = f"WHERE {' AND '.join(where)}" if where else ""
 
@@ -617,7 +629,66 @@ async def kanban(
             "ticket_total": mapa.get(fase, {}).get("ticket_total", 0),
             "itens": [_linha(r) for r in rows],
         })
+
+    colunas.append(await _coluna_finalizado(
+        conn, q, conta_id, envolvido_id, finder_conta_id, origem_id,
+        temperatura_min, previsao_ate, por_coluna,
+    ))
     return colunas
+
+
+async def _coluna_finalizado(
+    conn, q, conta_id, envolvido_id, finder_conta_id, origem_id,
+    temperatura_min, previsao_ate, por_coluna,
+) -> dict:
+    """
+    A sexta coluna: o que fechou no mês corrente, em qualquer dos três
+    desfechos. Só leitura.
+
+    O recorte é por `atualizado_em` e não por `criado_em`: o que interessa é
+    quando fechou, não quando nasceu. Uma oportunidade aberta em maio e ganha
+    em agosto pertence a agosto.
+    """
+    where, params = _montar_filtros(
+        q, None, None, conta_id, envolvido_id, finder_conta_id, origem_id,
+        temperatura_min, previsao_ate, False,
+    )
+    where = where + [
+        "o.fase = 'finalizado'",
+        "date_trunc('month', o.atualizado_em) = date_trunc('month', CURRENT_DATE)",
+    ]
+    clausula = f"WHERE {' AND '.join(where)}"
+
+    totais = await conn.fetchrow(
+        f"""
+        SELECT count(*) AS quantidade,
+               COALESCE(sum(o.valor_mensalidade) FILTER (
+                   WHERE o.status = 'conquistado'), 0) AS ticket_total
+          FROM oportunidades o
+          JOIN contas c ON c.id = o.conta_id
+          {clausula}
+        """,
+        *params,
+    )
+
+    rows = await conn.fetch(
+        f"""
+        {_SELECT_BASE}
+        {clausula}
+        ORDER BY o.atualizado_em DESC
+        LIMIT ${len(params) + 1}
+        """,
+        *params, por_coluna,
+    )
+
+    return {
+        "fase": "finalizado",
+        "rotulo": regras.ROTULOS_FASE["finalizado"],
+        "quantidade": totais["quantidade"],
+        "ticket_total": totais["ticket_total"],
+        "itens": [_linha(r) for r in rows],
+        "somente_leitura": True,
+    }
 
 
 @router.get("", response_model=OportunidadeLista)
@@ -631,7 +702,6 @@ async def listar(
     origem_id: int | None = None,
     temperatura_min: int | None = Query(None, ge=0, le=90),
     previsao_ate: date | None = None,
-    sem_proxima_acao: bool = False,
     apenas_abertas: bool = False,
     ordenar_por: str = Query("criado_em"),
     desc: bool = True,
@@ -651,7 +721,7 @@ async def listar(
 
     where, params = _montar_filtros(
         q, fase, status, conta_id, envolvido_id, finder_conta_id, origem_id,
-        temperatura_min, previsao_ate, sem_proxima_acao, apenas_abertas,
+        temperatura_min, previsao_ate, apenas_abertas,
     )
     clausula = f"WHERE {' AND '.join(where)}" if where else ""
 

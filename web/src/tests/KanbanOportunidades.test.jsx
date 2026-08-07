@@ -1,9 +1,11 @@
 // web/src/tests/KanbanOportunidades.test.jsx
 //
-// O kanban tem duas promessas que os testes precisam segurar:
-//   1. a coluna Finalizado NÃO existe — fechar exige status e motivo
-//   2. os totais do topo são da coluna inteira, não dos cartões visíveis
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+// O kanban tem quatro promessas que os testes precisam segurar:
+//   1. seis colunas, na ordem do funil, com Suspect na boca
+//   2. Finalizado é só leitura — soltar ali abre o desfecho, não move a fase
+//   3. os totais do topo são da coluna inteira, não dos cartões visíveis
+//   4. a altura é fixa e quem rola é cada coluna, por dentro
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, fireEvent, cleanup } from '@testing-library/react';
 
 import KanbanOportunidades from '../components/crm/KanbanOportunidades';
@@ -23,12 +25,23 @@ function item(id, extra = {}) {
   };
 }
 
+function coluna(fase, rotulo, extra = {}) {
+  return {
+    fase, rotulo, quantidade: 0, ticket_total: 0, itens: [],
+    somente_leitura: false, ...extra,
+  };
+}
+
 const COLUNAS = [
-  { fase: 'lead', rotulo: 'Lead', quantidade: 2, ticket_total: 2000, itens: [item('1'), item('2')] },
-  { fase: 'qualificacao', rotulo: 'Qualificação', quantidade: 0, ticket_total: 0, itens: [] },
-  { fase: 'apresentacao', rotulo: 'Apresentação', quantidade: 0, ticket_total: 0, itens: [] },
-  { fase: 'negociacao', rotulo: 'Negociação', quantidade: 0, ticket_total: 0, itens: [] },
+  coluna('suspect', 'Suspect'),
+  coluna('lead', 'Lead', { quantidade: 2, ticket_total: 2000, itens: [item('1'), item('2')] }),
+  coluna('qualificacao', 'Qualificação'),
+  coluna('apresentacao', 'Apresentação'),
+  coluna('negociacao', 'Negociação'),
+  coluna('finalizado', 'Finalizado', { somente_leitura: true }),
 ];
+
+const ROTULOS_ABERTOS = ['Suspect', 'Lead', 'Qualificação', 'Apresentação', 'Negociação'];
 
 function montar(props = {}) {
   const onAbrir = vi.fn();
@@ -48,7 +61,7 @@ function montar(props = {}) {
 }
 
 /** Simula um drag-and-drop nativo entre colunas. */
-function arrastar(cartao, colunaAlvo, id) {
+function arrastar(cartao, colunaAlvo) {
   const dados = new Map();
   const dataTransfer = {
     setData: (k, v) => dados.set(k, v),
@@ -60,51 +73,74 @@ function arrastar(cartao, colunaAlvo, id) {
   fireEvent.drop(colunaAlvo, { dataTransfer });
 }
 
+const regiao = (rotulo) => screen.getByRole('region', { name: `Fase ${rotulo}` });
+
 afterEach(cleanup);
 
 describe('Kanban — estrutura', () => {
-  it('mostra as quatro colunas abertas', () => {
+  it('mostra as seis colunas do funil', () => {
     montar();
-    for (const r of ['Lead', 'Qualificação', 'Apresentação', 'Negociação']) {
-      expect(screen.getByRole('region', { name: `Fase ${r}` })).toBeInTheDocument();
+    for (const r of [...ROTULOS_ABERTOS, 'Finalizado']) {
+      expect(regiao(r)).toBeInTheDocument();
     }
   });
 
-  it('não tem coluna Finalizado', () => {
-    /*
-      Fechar exige status e motivo. Uma coluna Finalizado permitiria soltar um
-      cartão lá e criar registro sem desfecho — o backend recusa isso com 422.
-    */
+  it('Suspect é a primeira coluna e Finalizado a última', () => {
     montar();
-    expect(screen.queryByRole('region', { name: /Finalizado/ })).not.toBeInTheDocument();
+    const rotulos = screen.getAllByRole('region').map(
+      (s) => s.getAttribute('aria-label')
+    );
+    expect(rotulos[0]).toBe('Fase Suspect');
+    expect(rotulos[rotulos.length - 1]).toBe('Fase Finalizado');
   });
 
   it('mostra contagem e ticket somado da coluna', () => {
     montar();
-    const lead = screen.getByRole('region', { name: 'Fase Lead' });
+    const lead = regiao('Lead');
     expect(lead).toHaveTextContent('2');
     expect(lead.textContent).toMatch(/R\$\s*2\.000,00/);
   });
 
   it('avisa quando há mais itens do que cartões exibidos', () => {
     montar({
-      colunas: [
-        { ...COLUNAS[0], quantidade: 10, itens: [item('1')] },
-        ...COLUNAS.slice(1),
-      ],
+      colunas: COLUNAS.map((c) =>
+        c.fase === 'lead' ? { ...c, quantidade: 10, itens: [item('1')] } : c
+      ),
     });
     expect(screen.getByText('+9 não exibidas')).toBeInTheDocument();
   });
 
   it('coluna vazia mostra o estado vazio', () => {
     montar();
-    const vazia = screen.getByRole('region', { name: 'Fase Negociação' });
-    expect(vazia).toHaveTextContent('Vazio');
+    expect(regiao('Negociação')).toHaveTextContent('Vazio');
   });
 
   it('mostra o indicador de carregando', () => {
     montar({ carregando: true });
     expect(screen.getByText('Carregando funil…')).toBeInTheDocument();
+  });
+});
+
+describe('Kanban — altura fixa', () => {
+  /*
+    Requisito de produto: a tela não rola. Com a página inteira rolando,
+    arrastar da primeira para a última coluna exigia rolar durante o arrasto,
+    e o auto-scroll do DnD nativo é irregular.
+  */
+  it('cada coluna ocupa a altura toda e rola por dentro', () => {
+    montar();
+    for (const r of [...ROTULOS_ABERTOS, 'Finalizado']) {
+      const secao = regiao(r);
+      expect(secao.className).toContain('h-full');
+      expect(secao.querySelector('ul').className).toContain('overflow-y-auto');
+    }
+  });
+
+  it('a faixa de colunas rola na horizontal, não empilha em duas linhas', () => {
+    montar();
+    const faixa = regiao('Suspect').parentElement;
+    expect(faixa.className).toContain('overflow-x-auto');
+    expect(faixa.className).not.toContain('flex-wrap');
   });
 });
 
@@ -117,25 +153,28 @@ describe('Kanban — cartão', () => {
 
   it('marca oportunidade suspensa', () => {
     montar({
-      colunas: [{ ...COLUNAS[0], itens: [item('1', { status: 'suspensa' })] }, ...COLUNAS.slice(1)],
+      colunas: COLUNAS.map((c) =>
+        c.fase === 'lead' ? { ...c, itens: [item('1', { status: 'suspensa' })] } : c
+      ),
     });
     expect(screen.getByText('Suspensa')).toBeInTheDocument();
   });
 
   it('mostra os EVs envolvidos', () => {
     montar({
-      colunas: [
-        {
-          ...COLUNAS[0],
-          itens: [item('1', {
-            envolvidos: [
-              { usuario_id: 'u1', nome: 'Ana', papel: 'EV' },
-              { usuario_id: 'u2', nome: 'Bruno', papel: 'SDR' },
-            ],
-          })],
-        },
-        ...COLUNAS.slice(1),
-      ],
+      colunas: COLUNAS.map((c) =>
+        c.fase === 'lead'
+          ? {
+              ...c,
+              itens: [item('1', {
+                envolvidos: [
+                  { usuario_id: 'u1', nome: 'Ana', papel: 'EV' },
+                  { usuario_id: 'u2', nome: 'Bruno', papel: 'SDR' },
+                ],
+              })],
+            }
+          : c
+      ),
     });
     // Só EV aparece no cartão — é quem responde pelo negócio.
     expect(screen.getByText('Ana')).toBeInTheDocument();
@@ -148,7 +187,7 @@ describe('Kanban — cartão', () => {
     expect(onAbrir).toHaveBeenCalledWith('1');
   });
 
-  it('botão Finalizar chama o desfecho, não move de fase', () => {
+  it('botão Fechar chama o desfecho, não move de fase', () => {
     const { onDesfecho, onMover } = montar();
     fireEvent.click(screen.getByLabelText('Finalizar OPP-2026-00001'));
     expect(onDesfecho).toHaveBeenCalled();
@@ -156,13 +195,65 @@ describe('Kanban — cartão', () => {
   });
 });
 
+describe('Kanban — coluna Finalizado', () => {
+  const comFinalizada = COLUNAS.map((c) =>
+    c.fase === 'finalizado'
+      ? {
+          ...c,
+          quantidade: 1,
+          ticket_total: 4000,
+          itens: [item('9', { fase: 'finalizado', status: 'conquistado' })],
+        }
+      : c
+  );
+
+  it('mostra o status do cartão fechado', () => {
+    montar({ colunas: comFinalizada });
+    expect(screen.getByText('conquistado')).toBeInTheDocument();
+  });
+
+  it('cartão fechado não é arrastável nem tem seletor de fase', () => {
+    /*
+      Mover de fase exige reabrir, e reabrir é decisão consciente, feita na
+      tela da oportunidade.
+    */
+    montar({ colunas: comFinalizada });
+    const cartao = screen.getByText('Empresa 9').closest('li');
+    expect(cartao).not.toHaveAttribute('draggable', 'true');
+    expect(
+      screen.queryByLabelText('Mover OPP-2026-00009 para outra fase')
+    ).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Finalizar OPP-2026-00009')).not.toBeInTheDocument();
+  });
+
+  it('o ticket dela é rotulado como ganho do mês', () => {
+    montar({ colunas: comFinalizada });
+    expect(regiao('Finalizado')).toHaveTextContent('ganho no mês');
+  });
+
+  it('soltar um cartão nela abre o desfecho e NÃO move a fase', () => {
+    /*
+      Fechar exige status e motivo. Mover para 'finalizado' direto criaria
+      registro sem desfecho, e o backend recusa com 422.
+    */
+    const { onDesfecho, onMover } = montar();
+    arrastar(screen.getByText('Empresa 1').closest('li'), regiao('Finalizado'));
+    expect(onMover).not.toHaveBeenCalled();
+    expect(onDesfecho).toHaveBeenCalledWith(expect.objectContaining({ id: '1' }));
+  });
+});
+
 describe('Kanban — drag and drop', () => {
   it('arrastar para outra coluna move a oportunidade', () => {
     const { onMover } = montar();
-    const cartao = screen.getByText('Empresa 1').closest('li');
-    const alvo = screen.getByRole('region', { name: 'Fase Negociação' });
-    arrastar(cartao, alvo, '1');
+    arrastar(screen.getByText('Empresa 1').closest('li'), regiao('Negociação'));
     expect(onMover).toHaveBeenCalledWith('1', 'negociacao');
+  });
+
+  it('arrastar para trás também move — o funil anda nos dois sentidos', () => {
+    const { onMover } = montar();
+    arrastar(screen.getByText('Empresa 1').closest('li'), regiao('Suspect'));
+    expect(onMover).toHaveBeenCalledWith('1', 'suspect');
   });
 
   it('soltar na coluna de origem não faz nada', () => {
@@ -171,9 +262,7 @@ describe('Kanban — drag and drop', () => {
       nem chamar do que mostrar erro para um gesto sem efeito.
     */
     const { onMover } = montar();
-    const cartao = screen.getByText('Empresa 1').closest('li');
-    const mesma = screen.getByRole('region', { name: 'Fase Lead' });
-    arrastar(cartao, mesma, '1');
+    arrastar(screen.getByText('Empresa 1').closest('li'), regiao('Lead'));
     expect(onMover).not.toHaveBeenCalled();
   });
 });
@@ -190,10 +279,12 @@ describe('Kanban — acessibilidade', () => {
     expect(onMover).toHaveBeenCalledWith('1', 'apresentacao');
   });
 
-  it('o seletor não oferece a fase Finalizado', () => {
+  it('o seletor oferece as cinco fases abertas e não Finalizado', () => {
     montar();
     const seletor = screen.getByLabelText('Mover OPP-2026-00001 para outra fase');
     const opcoes = [...seletor.querySelectorAll('option')].map((o) => o.value);
-    expect(opcoes).toEqual(['lead', 'qualificacao', 'apresentacao', 'negociacao']);
+    expect(opcoes).toEqual([
+      'suspect', 'lead', 'qualificacao', 'apresentacao', 'negociacao',
+    ]);
   });
 });
