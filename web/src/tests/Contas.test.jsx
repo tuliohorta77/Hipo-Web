@@ -11,12 +11,14 @@ import { MemoryRouter } from 'react-router-dom';
 const mockGet = vi.fn();
 const mockPost = vi.fn();
 const mockPatch = vi.fn();
+const mockDelete = vi.fn();
 
 vi.mock('../api', () => ({
   default: {
     get: (...a) => mockGet(...a),
     post: (...a) => mockPost(...a),
     patch: (...a) => mockPatch(...a),
+    delete: (...a) => mockDelete(...a),
   },
 }));
 
@@ -36,10 +38,14 @@ const CONTA = {
   criado_em: '2026-08-01T12:00:00Z',
 };
 
+const DETALHE = { ...CONTA, contatos: [], oportunidades: [], observacoes: null };
+
 function respostaPadrao(url) {
   if (url === '/crm/contas') return Promise.resolve({ data: { total: 1, limit: 50, offset: 0, itens: [CONTA] } });
   if (url === '/crm/contas/resumo') return Promise.resolve({ data: RESUMO });
   if (url === '/crm/dominio/verticais') return Promise.resolve({ data: [{ id: 1, nome: 'Metalúrgica', slug: 'metalurgica' }] });
+  if (url === '/crm/contas/c1') return Promise.resolve({ data: DETALHE });
+  if (url === '/crm/contatos/busca') return Promise.resolve({ data: [] });
   return Promise.resolve({ data: {} });
 }
 
@@ -51,6 +57,7 @@ beforeEach(() => {
   mockGet.mockReset();
   mockPost.mockReset();
   mockPatch.mockReset();
+  mockDelete.mockReset();
   mockGet.mockImplementation((url) => respostaPadrao(url));
 });
 
@@ -176,6 +183,50 @@ describe('Contas — drilldown pelos KPIs', () => {
     fireEvent.click(screen.getByText('Parceiros indicadores').closest('button'));
     expect(await screen.findByText('Limpar filtros')).toBeInTheDocument();
   });
+
+  it('clicar duas vezes no mesmo KPI desfaz o filtro', async () => {
+    renderContas();
+    await screen.findByText('Metalurgica Alfa LTDA');
+    const kpi = screen.getByText('Parceiros indicadores').closest('button');
+
+    fireEvent.click(kpi);
+    await waitFor(() => expect(kpi).toHaveAttribute('aria-pressed', 'true'));
+
+    mockGet.mockClear();
+    fireEvent.click(kpi);
+    await waitFor(() => expect(kpi).toHaveAttribute('aria-pressed', 'false'));
+    await waitFor(() => {
+      const chamada = mockGet.mock.calls.find(([url]) => url === '/crm/contas');
+      expect(chamada[1].params.eh_finder).toBeUndefined();
+    });
+  });
+
+  it('só um KPI fica ativo por vez', async () => {
+    renderContas();
+    await screen.findByText('Metalurgica Alfa LTDA');
+    const finders = screen.getByText('Parceiros indicadores').closest('button');
+    const semOp = screen.getByText('Sem oportunidade aberta').closest('button');
+
+    fireEvent.click(finders);
+    await waitFor(() => expect(finders).toHaveAttribute('aria-pressed', 'true'));
+
+    fireEvent.click(semOp);
+    await waitFor(() => expect(semOp).toHaveAttribute('aria-pressed', 'true'));
+    expect(finders).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  it('clicar em "Sem vertical" filtra por sem_vertical', async () => {
+    renderContas();
+    await screen.findByText('Metalurgica Alfa LTDA');
+    mockGet.mockClear();
+
+    fireEvent.click(screen.getByText('Sem vertical').closest('button'));
+
+    await waitFor(() => {
+      const chamada = mockGet.mock.calls.find(([url]) => url === '/crm/contas');
+      expect(chamada[1].params.sem_vertical).toBe(true);
+    });
+  });
 });
 
 
@@ -267,5 +318,26 @@ describe('Contas — formulário', () => {
     fireEvent.click(await screen.findByText('Metalurgica Alfa LTDA'));
     const campo = await screen.findByLabelText('CNPJ *');
     expect(campo).toBeDisabled();
+  });
+
+  it('busca o detalhe da conta ao abrir, não usa o resumo da lista', async () => {
+    renderContas();
+    fireEvent.click(await screen.findByText('Metalurgica Alfa LTDA'));
+    await waitFor(() =>
+      expect(mockGet.mock.calls.some(([url]) => url === '/crm/contas/c1')).toBe(true)
+    );
+  });
+
+  it('mostra a seção de contatos só na edição', async () => {
+    renderContas();
+    await screen.findByText('Metalurgica Alfa LTDA');
+
+    fireEvent.click(screen.getByText('Nova conta'));
+    await screen.findByLabelText('CNPJ *');
+    expect(screen.queryByText('Contatos')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByText('Cancelar'));
+    fireEvent.click(screen.getByText('Metalurgica Alfa LTDA'));
+    expect(await screen.findByText('Contatos')).toBeInTheDocument();
   });
 });

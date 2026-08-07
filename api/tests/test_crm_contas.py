@@ -364,6 +364,39 @@ class TestListagem:
         )
         assert resp.json()["total"] == 1
 
+    async def test_filtra_sem_vertical(self, db_conn, client, usuario_adm):
+        """Filtro que o KPI 'Sem vertical' aciona por drilldown."""
+        vertical = (await client.post(
+            "/crm/dominio/verticais", json={"nome": "Metalúrgica"},
+            headers=usuario_adm["headers"],
+        )).json()
+        await criar_conta(client, usuario_adm["headers"], cnpj=CNPJ_A,
+                          vertical_id=vertical["id"])
+        await criar_conta(client, usuario_adm["headers"], cnpj=CNPJ_B)
+
+        resp = await client.get(
+            "/crm/contas?sem_vertical=true", headers=usuario_adm["headers"]
+        )
+        assert resp.json()["total"] == 1
+
+    async def test_sem_vertical_bate_com_o_resumo(self, db_conn, client, usuario_adm):
+        vertical = (await client.post(
+            "/crm/dominio/verticais", json={"nome": "Saúde"},
+            headers=usuario_adm["headers"],
+        )).json()
+        await criar_conta(client, usuario_adm["headers"], cnpj=CNPJ_A,
+                          vertical_id=vertical["id"])
+        await criar_conta(client, usuario_adm["headers"], cnpj=CNPJ_B)
+        await criar_conta(client, usuario_adm["headers"], cnpj=CNPJ_C)
+
+        resumo = (await client.get(
+            "/crm/contas/resumo", headers=usuario_adm["headers"]
+        )).json()
+        lista = (await client.get(
+            "/crm/contas?sem_vertical=true", headers=usuario_adm["headers"]
+        )).json()
+        assert resumo["sem_vertical"] == lista["total"] == 2
+
     async def test_busca_textual_na_listagem(self, db_conn, client, usuario_adm):
         await criar_conta(client, usuario_adm["headers"], cnpj=CNPJ_A)
         await criar_conta(

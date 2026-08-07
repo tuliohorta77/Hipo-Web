@@ -7,6 +7,9 @@
 //
 // O "vendedor" da conta é derivado no backend a partir dos EVs das
 // oportunidades ativas — não existe campo de vendedor no formulário.
+//
+// Os contatos da conta vivem dentro deste formulário (Sprint 2): contato não
+// tem tela própria porque a pessoa só faz sentido no contexto da empresa.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -24,6 +27,7 @@ import Modal from '../../components/ui/Modal';
 import Badge from '../../components/ui/Badge';
 import Empty from '../../components/ui/Empty';
 import AlertMessage from '../../components/ui/AlertMessage';
+import ContatosDaConta from '../../components/crm/ContatosDaConta';
 
 const POR_PAGINA = 50;
 
@@ -40,6 +44,7 @@ const FILTROS_VAZIOS = {
   eh_finder: '',
   ativo: '',
   sem_oportunidade_ativa: false,
+  sem_vertical: false,
 };
 
 // ── Helpers ──────────────────────────────────────────────────────────
@@ -110,7 +115,7 @@ const FORM_VAZIO = {
   observacoes: '', eh_finder: false,
 };
 
-function FormConta({ aberto, onFechar, onSalvo, verticais, onCriarVertical, conta }) {
+function FormConta({ aberto, onFechar, onSalvo, verticais, onCriarVertical, conta, onContatosMudaram }) {
   const editando = Boolean(conta);
   const [form, setForm] = useState(FORM_VAZIO);
   const [erros, setErros] = useState({});
@@ -379,6 +384,23 @@ function FormConta({ aberto, onFechar, onSalvo, verticais, onCriarVertical, cont
           />
           É parceiro indicador (finder)
         </label>
+
+        {/* Contatos só existem depois que a conta existe: sem id, não há a
+            que vincular. Por isso a seção só aparece na edição. */}
+        {editando && (
+          <>
+            <CardHeader
+              title="Contatos"
+              hint={`${(conta?.contatos || []).length} vinculado(s)`}
+              className="pt-2"
+            />
+            <ContatosDaConta
+              contaId={conta.id}
+              contatos={conta.contatos || []}
+              onMudou={onContatosMudaram}
+            />
+          </>
+        )}
       </div>
     </Modal>
   );
@@ -397,6 +419,8 @@ export default function Contas() {
   const [erro, setErro] = useState(null);
   const [formAberto, setFormAberto] = useState(false);
   const [emEdicao, setEmEdicao] = useState(null);
+  const [kpiAtivo, setKpiAtivo] = useState(null);
+  const [abrindo, setAbrindo] = useState(false);
   const debounce = useRef(null);
 
   // Busca com debounce: sem isso, cada tecla vira uma request.
@@ -417,6 +441,7 @@ export default function Contas() {
     if (filtros.eh_finder !== '') p.eh_finder = filtros.eh_finder;
     if (filtros.ativo !== '') p.ativo = filtros.ativo;
     if (filtros.sem_oportunidade_ativa) p.sem_oportunidade_ativa = true;
+    if (filtros.sem_vertical) p.sem_vertical = true;
     return p;
   }, [filtros, pagina]);
 
@@ -447,14 +472,64 @@ export default function Contas() {
     return data;
   }
 
+  // A listagem devolve o resumo da conta; o formulário precisa do detalhe
+  // (com contatos e oportunidades). Por isso abrir busca o registro completo.
+  const carregarDetalhe = useCallback(async (id) => {
+    const { data } = await api.get(`/crm/contas/${id}`);
+    return data;
+  }, []);
+
+  async function abrirConta(id) {
+    setAbrindo(true);
+    setErro(null);
+    try {
+      setEmEdicao(await carregarDetalhe(id));
+      setFormAberto(true);
+    } catch (err) {
+      setErro(mensagemDeErro(err, 'Não foi possível abrir a conta.'));
+    } finally {
+      setAbrindo(false);
+    }
+  }
+
+  async function recarregarContatos() {
+    if (!emEdicao) return;
+    try {
+      setEmEdicao(await carregarDetalhe(emEdicao.id));
+    } catch (err) {
+      setErro(mensagemDeErro(err, 'Não foi possível recarregar os contatos.'));
+    }
+  }
+
   function aplicar(parciais) {
     setFiltros((f) => ({ ...f, ...parciais }));
+    setPagina(0);
+  }
+
+  // KPI é toggle: clicar de novo no mesmo cartão desfaz o filtro. Sem isso, a
+  // única forma de voltar seria o "Limpar filtros", que também apaga a busca
+  // e os selects — mais do que o usuário pediu.
+  function alternarKpi(chave, parciais) {
+    const base = {
+      ...FILTROS_VAZIOS,
+      q: filtros.q,
+      vertical_id: filtros.vertical_id,
+      uf: filtros.uf,
+    };
+    if (kpiAtivo === chave) {
+      setKpiAtivo(null);
+      setFiltros(base);
+    } else {
+      setKpiAtivo(chave);
+      setFiltros({ ...base, ...parciais });
+    }
     setPagina(0);
   }
 
   function limpar() {
     setFiltros(FILTROS_VAZIOS);
     setBusca('');
+    setKpiAtivo(null);
     setPagina(0);
   }
 
@@ -481,8 +556,8 @@ export default function Contas() {
       {/* KPIs clicáveis: cada um aplica o filtro que o compõe. */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <KpiBotao
-          ativo={filtros.ativo === 'true' && !filtros.sem_oportunidade_ativa}
-          onClick={() => aplicar({ ativo: 'true', eh_finder: '', sem_oportunidade_ativa: false })}
+          ativo={kpiAtivo === 'ativas'}
+          onClick={() => alternarKpi('ativas', { ativo: 'true' })}
         >
           <KpiCard
             label="Contas ativas"
@@ -494,8 +569,8 @@ export default function Contas() {
         </KpiBotao>
 
         <KpiBotao
-          ativo={filtros.sem_oportunidade_ativa}
-          onClick={() => aplicar({ sem_oportunidade_ativa: true, ativo: '', eh_finder: '' })}
+          ativo={kpiAtivo === 'sem-oportunidade'}
+          onClick={() => alternarKpi('sem-oportunidade', { sem_oportunidade_ativa: true })}
         >
           <KpiCard
             label="Sem oportunidade aberta"
@@ -507,8 +582,8 @@ export default function Contas() {
         </KpiBotao>
 
         <KpiBotao
-          ativo={filtros.eh_finder === 'true'}
-          onClick={() => aplicar({ eh_finder: 'true', ativo: '', sem_oportunidade_ativa: false })}
+          ativo={kpiAtivo === 'finders'}
+          onClick={() => alternarKpi('finders', { eh_finder: 'true' })}
         >
           <KpiCard
             label="Parceiros indicadores"
@@ -520,8 +595,8 @@ export default function Contas() {
         </KpiBotao>
 
         <KpiBotao
-          ativo={false}
-          onClick={() => aplicar({ vertical_id: '' })}
+          ativo={kpiAtivo === 'sem-vertical'}
+          onClick={() => alternarKpi('sem-vertical', { sem_vertical: true })}
         >
           <KpiCard
             label="Sem vertical"
@@ -574,7 +649,7 @@ export default function Contas() {
           </Select>
         </div>
 
-        {carregando ? (
+        {carregando || abrindo ? (
           <p className="px-5 py-10 text-center text-sm text-hipo-slate">Carregando…</p>
         ) : dados.itens.length === 0 ? (
           <Empty
@@ -611,10 +686,7 @@ export default function Contas() {
               </thead>
               <tbody>
                 {dados.itens.map((c) => (
-                  <Tr
-                    key={c.id}
-                    onClick={() => { setEmEdicao(c); setFormAberto(true); }}
-                  >
+                  <Tr key={c.id} onClick={() => abrirConta(c.id)}>
                     <Td>
                       <div className="font-medium text-hipo-ink">{c.razao_social}</div>
                       {c.nome_fantasia && (
@@ -681,7 +753,12 @@ export default function Contas() {
         verticais={verticais}
         onCriarVertical={criarVertical}
         onFechar={() => setFormAberto(false)}
-        onSalvo={() => { setFormAberto(false); carregar(); }}
+        onSalvo={(idExistente) => {
+          setFormAberto(false);
+          if (idExistente) abrirConta(idExistente);
+          carregar();
+        }}
+        onContatosMudaram={recarregarContatos}
       />
     </div>
   );

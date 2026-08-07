@@ -370,6 +370,7 @@ async def listar(
     eh_finder: bool | None = None,
     ativo: bool | None = None,
     sem_oportunidade_ativa: bool = False,
+    sem_vertical: bool = False,
     ordenar_por: str = Query("razao_social"),
     desc: bool = False,
     limit: int = Query(50, ge=1, le=200),
@@ -413,6 +414,8 @@ async def listar(
             "NOT EXISTS (SELECT 1 FROM oportunidades o"
             " WHERE o.conta_id = c.id AND o.status = 'ativa')"
         )
+    if sem_vertical:
+        where.append("c.vertical_id IS NULL")
 
     clausula = f"WHERE {' AND '.join(where)}" if where else ""
     total = await conn.fetchval(f"SELECT count(*) FROM contas c {clausula}", *params)

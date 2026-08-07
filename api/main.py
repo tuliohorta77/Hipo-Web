@@ -1,21 +1,20 @@
 """
 HIPO — Entry point da API.
 
-Sprint 1: entra o CRM nativo. O módulo 'crm' é compartilhado — todo cargo
-válido enxerga contas e contatos, o que é o que impede cadastro duplicado de
-CNPJ. O filtro por envolvimento vale para oportunidades, e é aplicado no
-repositório, não aqui.
+O módulo 'crm' é compartilhado — todo cargo válido enxerga contas e
+contatos, o que é o que impede cadastro duplicado de CNPJ. O filtro por
+envolvimento vale para oportunidades, e é aplicado no repositório, não aqui.
 """
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from routers import auth, crm_contas, crm_dominio
+from routers import auth, crm_contas, crm_contatos, crm_dominio
 from routers.permissions import requer_modulo
 
 app = FastAPI(
     title="HIPO API",
     description="Hipotálamo Inteligente de Processos e Operações",
-    version="2.1.0",
+    version="2.2.0",
 )
 
 app.add_middleware(
@@ -32,6 +31,12 @@ app.include_router(auth.router, prefix="/auth", tags=["auth"])
 app.include_router(
     crm_contas.router,
     prefix="/crm/contas", tags=["CRM - Contas"],
+    dependencies=[Depends(requer_modulo("crm"))],
+)
+
+app.include_router(
+    crm_contatos.router,
+    prefix="/crm/contatos", tags=["CRM - Contatos"],
     dependencies=[Depends(requer_modulo("crm"))],
 )
 
