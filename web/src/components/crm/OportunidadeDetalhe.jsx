@@ -10,7 +10,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Users, Swords, History, RotateCcw,
+  Users, Swords, History, RotateCcw, FileText,
   PauseCircle, PlayCircle, Flag, Plus, X,
 } from 'lucide-react';
 
@@ -445,51 +445,62 @@ export default function OportunidadeDetalhe({
     // vem do detalhe, não de uma segunda chamada — precisa estar certo antes
     // de alguém clicar.
     { key: 'tarefas', label: 'Tarefas', badge: oportunidade.tarefas_abertas || undefined },
+    { key: 'proposta', label: 'Proposta' },
     { key: 'envolvidos', label: 'Envolvidos', badge: oportunidade.envolvidos?.length || undefined },
     { key: 'concorrentes', label: 'Concorrentes', badge: oportunidade.concorrentes?.length || undefined },
     { key: 'historico', label: 'Histórico' },
   ];
 
   return (
-    <div className="flex flex-col h-full min-h-0">
-      {/* ── Identificação e ações de estado (não rola) ── */}
-      <div className="shrink-0 px-5 pt-4 pb-4 border-b border-hipo-border bg-hipo-bg/40 space-y-3">
-        {erro && <AlertMessage tipo="erro">{erro}</AlertMessage>}
+    /*
+      ── Trilho à esquerda, conteúdo à direita ──
+      A faixa de abas horizontal comia ~44px da altura do modal, mais os
+      ~110px do bloco de fase/temperatura/mensalidade que ficava acima dela.
+      Altura é o recurso escasso aqui — largura sobra. Movendo estado e
+      navegação para uma coluna de 13rem, o conteúdo da aba passa a ter a
+      altura inteira do modal.
+    */
+    <div className="flex h-full min-h-0">
 
-        <div className="flex flex-wrap items-center gap-2">
-          <Badge tone={TOM_STATUS[oportunidade.status] || 'neutral'}>
-            {oportunidade.status}
-          </Badge>
-          {oportunidade.fase_desfecho && (
-            <span className="text-xs text-hipo-slate">
-              saiu de {oportunidade.fase_desfecho}
-              {oportunidade.motivo_desfecho && ` · ${oportunidade.motivo_desfecho}`}
-            </span>
-          )}
-        </div>
+      {/* ── Trilho: estado, navegação e ações ── */}
+      <aside className="shrink-0 w-52 border-r border-hipo-border bg-hipo-bg/40 flex flex-col min-h-0">
+        <div className="px-3 pt-3 pb-2 space-y-2.5">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <Badge tone={TOM_STATUS[oportunidade.status] || 'neutral'}>
+              {oportunidade.status}
+            </Badge>
+            {oportunidade.fase_desfecho && (
+              <span className="text-[11px] text-hipo-slate">
+                de {oportunidade.fase_desfecho}
+              </span>
+            )}
+          </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-12 gap-3">
           {/*
             Fase é ação, não campo: mudar dispara regra e grava evento. Por
             isso o select chama o endpoint na hora, sem passar pelo Salvar.
           */}
-          <div className="md:col-span-3">
-            <Select
-              label="Fase"
-              value={oportunidade.fase}
-              disabled={finalizada || Boolean(acaoEmCurso)}
-              onChange={(e) => acao('fase', () =>
-                api.patch(`/crm/oportunidades/${oportunidade.id}/fase`, { fase: e.target.value })
-              )}
-            >
-              {FASES.map((f) => <option key={f.valor} value={f.valor}>{f.rotulo}</option>)}
-              {finalizada && <option value="finalizado">Finalizado</option>}
-            </Select>
-          </div>
+          <Select
+            label="Fase"
+            value={oportunidade.fase}
+            disabled={finalizada || Boolean(acaoEmCurso)}
+            onChange={(e) => acao('fase', () =>
+              api.patch(`/crm/oportunidades/${oportunidade.id}/fase`, { fase: e.target.value })
+            )}
+          >
+            {FASES.map((f) => <option key={f.valor} value={f.valor}>{f.rotulo}</option>)}
+            {finalizada && <option value="finalizado">Finalizado</option>}
+          </Select>
 
-          <div className="md:col-span-2">
+          {/*
+            Temperatura e mensalidade lado a lado. Empilhadas, as três caixas
+            do topo empurravam a navegação para além da altura do trilho e
+            ela ganhava barra de rolagem por 3px — feio e frágil: a sétima
+            aba quebraria de novo.
+          */}
+          <div className="grid grid-cols-2 gap-2">
             <Select
-              label="Temperatura"
+              label="Temp."
               value={form.temperatura ?? ''}
               disabled={oportunidade.status !== 'ativa'}
               onChange={(e) => set('temperatura', e.target.value)}
@@ -497,11 +508,9 @@ export default function OportunidadeDetalhe({
               {oportunidade.status !== 'ativa' && <option value="">—</option>}
               {TEMPERATURAS.map((t) => <option key={t} value={t}>{t}</option>)}
             </Select>
-          </div>
 
-          <div className="md:col-span-3">
             <Input
-              label="Mensalidade (R$)"
+              label="Mensal. R$"
               type="number"
               min="0"
               step="0.01"
@@ -509,44 +518,58 @@ export default function OportunidadeDetalhe({
               onChange={(e) => set('valor_mensalidade', e.target.value)}
             />
           </div>
+        </div>
 
-          <div className="md:col-span-4 flex items-end gap-2">
-            {finalizada ? (
+        {/* Navegação. Rola sozinha se um dia houver abas demais. */}
+        <div className="flex-1 min-h-0 overflow-y-auto px-2 py-2 border-t border-hipo-border">
+          <Tabs items={abas} value={aba} onChange={setAba} orientacao="vertical" />
+        </div>
+
+        {/* Ações de estado no rodapé do trilho: são saída, não navegação. */}
+        <div className="shrink-0 px-3 py-3 border-t border-hipo-border space-y-2">
+          {finalizada ? (
+            <Button
+              variant="secondary"
+              icon={RotateCcw}
+              className="w-full"
+              loading={acaoEmCurso === 'reabrir'}
+              onClick={() => acao('reabrir', () =>
+                api.post(`/crm/oportunidades/${oportunidade.id}/reabrir`, {})
+              )}
+            >
+              Reabrir
+            </Button>
+          ) : (
+            <>
               <Button
                 variant="secondary"
-                icon={RotateCcw}
-                loading={acaoEmCurso === 'reabrir'}
-                onClick={() => acao('reabrir', () =>
-                  api.post(`/crm/oportunidades/${oportunidade.id}/reabrir`, {})
+                className="w-full"
+                icon={oportunidade.status === 'ativa' ? PauseCircle : PlayCircle}
+                loading={acaoEmCurso === 'status'}
+                onClick={() => acao('status', () =>
+                  api.patch(`/crm/oportunidades/${oportunidade.id}/status`, {
+                    status: oportunidade.status === 'ativa' ? 'suspensa' : 'ativa',
+                    temperatura: oportunidade.temperatura ?? 50,
+                  })
                 )}
               >
-                Reabrir
+                {oportunidade.status === 'ativa' ? 'Suspender' : 'Reativar'}
               </Button>
-            ) : (
-              <>
-                <Button
-                  variant="secondary"
-                  icon={oportunidade.status === 'ativa' ? PauseCircle : PlayCircle}
-                  loading={acaoEmCurso === 'status'}
-                  onClick={() => acao('status', () =>
-                    api.patch(`/crm/oportunidades/${oportunidade.id}/status`, {
-                      status: oportunidade.status === 'ativa' ? 'suspensa' : 'ativa',
-                      temperatura: oportunidade.temperatura ?? 50,
-                    })
-                  )}
-                >
-                  {oportunidade.status === 'ativa' ? 'Suspender' : 'Reativar'}
-                </Button>
-                <Button icon={Flag} onClick={() => onDesfecho(oportunidade)}>
-                  Finalizar
-                </Button>
-              </>
-            )}
-          </div>
+              <Button icon={Flag} className="w-full" onClick={() => onDesfecho(oportunidade)}>
+                Finalizar
+              </Button>
+            </>
+          )}
         </div>
-      </div>
+      </aside>
 
-      <Tabs items={abas} value={aba} onChange={setAba} className="shrink-0 px-5 bg-hipo-bg/40" />
+      {/* ── Conteúdo da aba ── */}
+      <div className="flex-1 min-w-0 flex flex-col min-h-0">
+        {erro && (
+          <div className="shrink-0 px-5 pt-4">
+            <AlertMessage tipo="erro">{erro}</AlertMessage>
+          </div>
+        )}
 
       <div className="px-5 py-5 flex-1 min-h-0 overflow-y-auto">
         {aba === 'dados' && (
@@ -643,7 +666,22 @@ export default function OportunidadeDetalhe({
           <AbaTarefas oportunidade={oportunidade} onMudou={onRecarregar} />
         )}
 
+        {/*
+          Proposta ainda não existe como modelo. Vidas, valor por vida e o
+          versionamento (v1, v2, v3) dependem do catálogo e da precificação,
+          que estão em aberto. Aba criada vazia de propósito: reservar o lugar
+          é barato, adivinhar o modelo de dados é caro.
+        */}
+        {aba === 'proposta' && (
+          <Empty
+            title="Proposta ainda não implementada"
+            description="Aqui vão as vidas, o valor por vida, a mensalidade calculada e o histórico de versões da proposta. Depende de fechar o catálogo de serviços."
+            icon={FileText}
+          />
+        )}
+
         {aba === 'historico' && <AbaHistorico oportunidadeId={oportunidade.id} />}
+        </div>
       </div>
     </div>
   );
