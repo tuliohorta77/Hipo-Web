@@ -6,6 +6,7 @@
 -- Historico:
 --   001_drop_legado.sql  removeu PEX, CROmie, BD Ativados, POs e Carteira
 --   002_crm_core.sql     criou as 11 tabelas do CRM
+--   003_fase_suspect.sql acrescentou a fase 'suspect' na boca do funil
 --
 -- Este arquivo e a fonte usada para criar o banco de teste no CI e deve
 -- refletir o estado acumulado das migrations.
@@ -224,7 +225,7 @@ CREATE TABLE IF NOT EXISTS oportunidades (
     numero              VARCHAR(20) NOT NULL UNIQUE,
     conta_id            UUID NOT NULL REFERENCES contas(id)   ON DELETE RESTRICT,
     contato_id          UUID REFERENCES contatos(id)          ON DELETE SET NULL,
-    fase                VARCHAR(20) NOT NULL DEFAULT 'lead',
+    fase                VARCHAR(20) NOT NULL DEFAULT 'suspect',
     status              VARCHAR(20) NOT NULL DEFAULT 'ativa',
     fase_desfecho       VARCHAR(20),
     motivo_desfecho_id  INTEGER REFERENCES motivos_desfecho(id) ON DELETE SET NULL,
@@ -242,7 +243,8 @@ CREATE TABLE IF NOT EXISTS oportunidades (
     atualizado_em       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 
     CONSTRAINT ck_opp_fase CHECK (
-        fase IN ('lead', 'qualificacao', 'apresentacao', 'negociacao', 'finalizado')
+        fase IN ('suspect', 'lead', 'qualificacao', 'apresentacao',
+                 'negociacao', 'finalizado')
     ),
     CONSTRAINT ck_opp_status CHECK (
         status IN ('ativa', 'suspensa', 'perdido', 'cancelado', 'conquistado')
@@ -254,7 +256,8 @@ CREATE TABLE IF NOT EXISTS oportunidades (
     ),
     -- Finalizado sempre sabe de onde veio; nao-finalizado nunca tem desfecho.
     CONSTRAINT ck_opp_fase_desfecho CHECK (
-        (fase = 'finalizado' AND fase_desfecho IN ('lead','qualificacao','apresentacao','negociacao'))
+        (fase = 'finalizado' AND fase_desfecho IN (
+            'suspect','lead','qualificacao','apresentacao','negociacao'))
         OR
         (fase <> 'finalizado' AND fase_desfecho IS NULL)
     ),

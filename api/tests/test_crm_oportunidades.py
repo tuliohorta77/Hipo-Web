@@ -11,6 +11,7 @@ import uuid
 
 import pytest
 
+from services import oportunidade as regras
 from tests.conftest import criar_usuario
 
 CNPJ_A = "11.222.333/0001-81"
@@ -41,6 +42,44 @@ async def novo_motivo(client, headers, tipo="perda", nome="Preço"):
         f"/crm/dominio/motivos/{tipo}", json={"nome": nome}, headers=headers
     )
     return resp.json()
+
+
+# ── Schema x codigo ──────────────────────────────────────────────────
+
+class TestSchemaBateComOCodigo:
+    """
+    O CI cria o banco de teste a partir de api/schema.sql, NAO das migrations.
+    Quando uma migration muda um CHECK e o schema.sql nao acompanha, a suite
+    passa na maquina de quem aplicou a migration a mao e quebra no CI com
+    CheckViolationError em dezenas de testes de uma vez. Aconteceu com a fase
+    'suspect'. Estes dois testes comparam as duas fontes direto no catalogo do
+    Postgres e falham com mensagem que diz o que fazer.
+    """
+
+    async def _definicao(self, conn, nome):
+        return await conn.fetchval(
+            "SELECT pg_get_constraintdef(oid) FROM pg_constraint"
+            " WHERE conrelid = 'oportunidades'::regclass AND conname = $1",
+            nome,
+        )
+
+    async def test_o_banco_aceita_todas_as_fases_do_codigo(self, db_conn):
+        definicao = await self._definicao(db_conn, "ck_opp_fase")
+        assert definicao, "constraint ck_opp_fase nao existe no banco de teste"
+        faltando = [f for f in regras.FASES if f"'{f}'" not in definicao]
+        assert faltando == [], (
+            f"ck_opp_fase nao aceita {faltando}. "
+            "Atualize api/schema.sql junto com a migration."
+        )
+
+    async def test_o_banco_aceita_todas_as_fases_de_desfecho(self, db_conn):
+        definicao = await self._definicao(db_conn, "ck_opp_fase_desfecho")
+        assert definicao, "constraint ck_opp_fase_desfecho nao existe no banco de teste"
+        faltando = [f for f in regras.FASES_ABERTAS if f"'{f}'" not in definicao]
+        assert faltando == [], (
+            f"ck_opp_fase_desfecho nao aceita {faltando}. "
+            "Atualize api/schema.sql junto com a migration."
+        )
 
 
 # ── Criação e numeração ──────────────────────────────────────────────
