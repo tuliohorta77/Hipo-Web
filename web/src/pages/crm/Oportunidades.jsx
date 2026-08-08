@@ -84,7 +84,7 @@ const CLASSE_CAMPO =
  * `aria-pressed` e aplica filtro — a diretriz do dashboard operacional é que
  * o número leve à ação, não que ele more num card grande.
  */
-function KpiInline({ label, valor, detalhe, icone: Icone, tom, ativo, onClick }) {
+function KpiInline({ label, valor, detalhe, titulo, icone: Icone, tom, ativo, onClick }) {
   const conteudo = (
     <>
       <span className={`shrink-0 w-6 h-6 rounded-md grid place-items-center ${tom}`}>
@@ -104,16 +104,17 @@ function KpiInline({ label, valor, detalhe, icone: Icone, tom, ativo, onClick })
 
   const base =
     'h-10 px-2 flex items-center gap-1.5 rounded-lg border bg-hipo-card ' +
-    'max-w-[12rem] transition-colors ';
+    'max-w-[10.5rem] transition-colors ';
 
   if (!onClick) {
-    return <div className={`${base} border-hipo-border`}>{conteudo}</div>;
+    return <div title={titulo} className={`${base} border-hipo-border`}>{conteudo}</div>;
   }
   return (
     <button
       type="button"
       onClick={onClick}
       aria-pressed={ativo}
+      title={titulo}
       className={
         base + 'text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-hipo-blue ' +
         (ativo ? 'border-hipo-blue ring-1 ring-hipo-blue' : 'border-hipo-border hover:bg-hipo-bg')
@@ -420,12 +421,13 @@ export default function Oportunidades() {
 
       {/* ── Barra única: título, KPIs, filtros, visão e ação ── */}
       <div className="shrink-0 flex flex-wrap items-center gap-x-2 gap-y-2">
-        <div className="shrink-0">
-          <h1 className="text-lg font-semibold text-hipo-ink leading-none">
-            Oportunidades
-          </h1>
-          <p className="text-[11px] text-hipo-slate leading-none mt-1">Funil de vendas</p>
-        </div>
+        {/*
+          Sem título visível. A nav do topo já marca "Oportunidades" como item
+          ativo — repetir a palavra logo abaixo custa ~150px de largura e faz
+          a barra quebrar em duas linhas na visão de tabela, que tem um filtro
+          a mais. O h1 continua existindo para leitor de tela.
+        */}
+        <h1 className="sr-only">Oportunidades — funil de vendas</h1>
 
         {/*
           KPI na barra, não em card de 110px de altura. O número continua
@@ -445,7 +447,7 @@ export default function Oportunidades() {
           <KpiInline
             label="Previsto no mês"
             valor={resumo ? formatarMoeda(resumo.previsto_no_mes) : '—'}
-            detalhe="ativas"
+            titulo="Soma da mensalidade das oportunidades ativas com previsão para este mês"
             icone={TrendingUp}
             tom="text-hipo-success bg-hipo-successSoft"
           />
