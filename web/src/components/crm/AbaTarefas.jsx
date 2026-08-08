@@ -1,26 +1,38 @@
 // web/src/components/crm/AbaTarefas.jsx
 //
-// Tarefas da oportunidade: o que passou, o que está aberto e o que vem.
+// Tarefas da oportunidade como LINHA DO TEMPO: o que passou, o que está
+// aberto e o que vem, num fluxo vertical único.
 //
-// ── Por que tudo na mesma lista ──────────────────────────────────────
-// Separar "histórico" de "agenda" em duas telas obrigaria o vendedor a
-// cruzar as duas para responder a única pergunta que importa antes de
-// ligar: o que já tentei e o que combinei. Aqui é uma lista só, agrupada
-// por urgência — atrasada, hoje, futura, e o fechado embaixo.
+// ── Por que linha do tempo e não lista de cartões ────────────────────
+// Cartão com borda cria uma unidade visual fechada, e o olho lê cada um
+// como um item isolado. A pergunta que essa aba responde não é "quais são
+// os itens", é "como essa negociação andou" — e história se lê em fluxo. O
+// ponto com o ícone do tipo mais o traço ligando dão a sequência de graça:
+// dá para ver de longe que foram três ligações e um WhatsApp, sem ler.
+//
+// ── Ordem cronológica decrescente ────────────────────────────────────
+// Futuro no topo, passado embaixo. O que está por vir é o que exige
+// decisão; o histórico é consulta. A ordem vem do servidor
+// (`ordenar=cronologico`) para não existir uma segunda regra de ordenação
+// no navegador.
+//
+// ── Drilldown em vez de tudo na linha ────────────────────────────────
+// A linha mostra data, tipo, título e responsável. Descrição completa,
+// resultado, motivo de cancelamento e as AÇÕES ficam no drilldown, que abre
+// ao clicar. Botões em toda linha devolveriam o peso visual que a caixa
+// tinha — e a maioria das linhas é histórico, onde não há o que fazer.
 //
 // ── Por que nada abre modal ──────────────────────────────────────────
 // Esta aba vive DENTRO do modal da oportunidade. Modal sobre modal empilha
 // z-index, rouba foco e faz o Esc fechar os dois, perdendo o formulário em
-// edição — a mesma razão que fez o EntityPicker virar popover. Criar e
-// concluir acontecem em painéis que expandem no lugar.
+// edição — a mesma razão que fez o EntityPicker virar popover.
 //
 // ── A regra que dá nome à tela ───────────────────────────────────────
 // Concluir exige agendar a próxima enquanto a oportunidade está viva. O
 // backend recusa com 422, e aqui o formulário da próxima já vem aberto e
-// obrigatório — não adianta o servidor barrar se a tela deixa o usuário
-// chegar até o botão achando que vai passar.
+// obrigatório.
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   Plus, Check, X, Pencil, Phone, Users, MapPin, FileText,
   Mail, MessageCircle, CircleDot, AlertTriangle,
@@ -45,16 +57,42 @@ const TIPOS = [
 
 const ICONE_TIPO = Object.fromEntries(TIPOS.map((t) => [t.valor, t.Icone]));
 
-// A ordem aqui é a ordem dos blocos na tela. Atrasada em cima porque é
-// dívida; cancelada por último porque é ruído.
-const GRUPOS = [
-  { situacao: 'atrasada', titulo: 'Atrasadas', tom: 'danger' },
-  { situacao: 'hoje', titulo: 'Hoje', tom: 'warning' },
-  { situacao: 'futura', titulo: 'Futuras', tom: 'info' },
-  { situacao: 'concluida', titulo: 'Concluídas', tom: 'success' },
-  { situacao: 'cancelada', titulo: 'Canceladas', tom: 'neutral' },
-];
+// Cada situação tem um tom e uma palavra. A palavra fica sob a linha porque
+// 'Atrasado' precisa saltar sem depender só de cor — daltônico não vê tom.
+const SITUACAO = {
+  atrasada: {
+    palavra: 'Atrasado',
+    ponto: 'border-hipo-danger bg-hipo-card',
+    texto: 'text-hipo-danger',
+    icone: 'text-hipo-danger',
+  },
+  hoje: {
+    palavra: 'Hoje',
+    ponto: 'border-hipo-warning bg-hipo-warningSoft',
+    texto: 'text-hipo-warning',
+    icone: 'text-hipo-warning',
+  },
+  futura: {
+    palavra: 'Agendado',
+    ponto: 'border-hipo-blue bg-hipo-blueSoft',
+    texto: 'text-hipo-blue',
+    icone: 'text-hipo-blue',
+  },
+  concluida: {
+    palavra: 'concluído',
+    ponto: 'border-hipo-success bg-hipo-success',
+    texto: 'text-hipo-success',
+    icone: 'text-white',
+  },
+  cancelada: {
+    palavra: 'cancelado',
+    ponto: 'border-hipo-border bg-hipo-bg',
+    texto: 'text-hipo-muted',
+    icone: 'text-hipo-muted',
+  },
+};
 
+const ABERTAS = ['atrasada', 'hoje', 'futura'];
 const STATUS_ABERTOS = ['ativa', 'suspensa'];
 
 function mensagemDeErro(err, padrao) {
@@ -84,7 +122,21 @@ function paraIso(valorDoCampo) {
   return valorDoCampo ? new Date(valorDoCampo).toISOString() : null;
 }
 
-function formatarPrazo(iso) {
+/**
+ * '15/mar' — a coluna da esquerda da linha do tempo.
+ *
+ * Montado à mão porque `toLocaleDateString('pt-BR', {month:'short'})` devolve
+ * "15 de mar." — o "de" quebra a coluna em duas linhas e desalinha os pontos.
+ */
+const MESES = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun',
+               'jul', 'ago', 'set', 'out', 'nov', 'dez'];
+
+function dataCurta(iso) {
+  const d = new Date(iso);
+  return `${String(d.getDate()).padStart(2, '0')}/${MESES[d.getMonth()]}`;
+}
+
+function dataCompleta(iso) {
   if (!iso) return '—';
   return new Date(iso).toLocaleString('pt-BR', {
     day: '2-digit', month: '2-digit', year: 'numeric',
@@ -125,9 +177,7 @@ function CamposTarefa({ valor, onChange, usuarios, prefixo }) {
         onChange={set('responsavel_id')}
       >
         <option value="">— selecione —</option>
-        {usuarios.map((u) => (
-          <option key={u.id} value={u.id}>{u.nome}</option>
-        ))}
+        {usuarios.map((u) => <option key={u.id} value={u.id}>{u.nome}</option>)}
       </Select>
 
       <Input
@@ -163,10 +213,11 @@ function formIncompleto(form) {
   return !form.titulo.trim() || !form.responsavel_id || !form.prazo;
 }
 
-// ── Linha da tarefa ──────────────────────────────────────────────────
+// ── Um evento da linha do tempo ──────────────────────────────────────
 
-function LinhaTarefa({
-  tarefa, usuarios, exigeProxima, onConcluir, onCancelar, onEditar, ocupado,
+function Evento({
+  tarefa, ultima, aberta, expandida, usuarios, exigeProxima, ocupado,
+  onAlternar, onConcluir, onCancelar, onEditar,
 }) {
   const [painel, setPainel] = useState(null);   // 'concluir' | 'cancelar' | 'editar'
   const [resultado, setResultado] = useState('');
@@ -175,7 +226,7 @@ function LinhaTarefa({
   const [edicao, setEdicao] = useState(null);
 
   const Icone = ICONE_TIPO[tarefa.tipo] || CircleDot;
-  const aberta = ['atrasada', 'hoje', 'futura'].includes(tarefa.situacao);
+  const tom = SITUACAO[tarefa.situacao] || SITUACAO.cancelada;
 
   function abrirConcluir() {
     setResultado('');
@@ -195,155 +246,218 @@ function LinhaTarefa({
   }
 
   return (
-    <li className="border border-hipo-border rounded-lg bg-hipo-card">
-      <div className="p-3 flex items-start gap-3">
-        <span className="shrink-0 w-7 h-7 rounded-md grid place-items-center bg-hipo-bg text-hipo-slate">
-          <Icone size={14} />
+    <li className="relative flex gap-3">
+      {/* Data à esquerda, fora do fluxo do texto — é eixo, não conteúdo. */}
+      <span className="shrink-0 w-12 pt-1 text-right text-xs text-hipo-slate tabular-nums">
+        {dataCurta(tarefa.prazo)}
+      </span>
+
+      {/* Ponto + traço. O traço não desce na última: linha do tempo termina. */}
+      <div className="shrink-0 flex flex-col items-center">
+        <span
+          aria-hidden="true"
+          className={`w-6 h-6 rounded-full border-2 grid place-items-center ${tom.ponto}`}
+        >
+          <Icone size={12} className={tom.icone} />
         </span>
+        {!ultima && <span className="w-px flex-1 bg-hipo-border" />}
+      </div>
 
-        <div className="min-w-0 flex-1">
-          <p className={
-            'text-sm font-medium truncate ' +
-            (aberta ? 'text-hipo-ink' : 'text-hipo-slate line-through')
-          }>
-            {tarefa.titulo}
-          </p>
-          <p className="text-xs text-hipo-slate">
-            {tarefa.tipo_rotulo} · {formatarPrazo(tarefa.prazo)}
-            {tarefa.responsavel_nome && ` · ${tarefa.responsavel_nome}`}
-          </p>
-          {tarefa.descricao && (
-            <p className="text-xs text-hipo-muted mt-1">{tarefa.descricao}</p>
-          )}
-          {tarefa.resultado && (
-            <p className="text-xs text-hipo-slate mt-1">
-              <span className="font-medium">Resultado:</span> {tarefa.resultado}
-            </p>
-          )}
-          {tarefa.motivo_cancelamento && (
-            <p className="text-xs text-hipo-muted mt-1">
-              Cancelada: {tarefa.motivo_cancelamento}
-            </p>
-          )}
-        </div>
+      <div className="min-w-0 flex-1 pb-4">
+        <button
+          type="button"
+          onClick={onAlternar}
+          aria-expanded={expandida}
+          className="w-full text-left group"
+        >
+          <span className="flex items-baseline gap-2">
+            <span className={`text-sm font-medium ${tom.texto}`}>
+              {tarefa.tipo_rotulo}
+            </span>
+            <span className={
+              'text-sm truncate group-hover:underline ' +
+              (aberta ? 'text-hipo-ink' : 'text-hipo-slate')
+            }>
+              {tarefa.titulo}
+            </span>
+            {tarefa.responsavel_nome && (
+              <span className="ml-auto shrink-0 text-xs text-hipo-slate">
+                {tarefa.responsavel_nome}
+              </span>
+            )}
+          </span>
+          <span className={`block text-xs ${tom.texto}`}>{tom.palavra}</span>
+        </button>
 
-        {aberta && (
-          <div className="shrink-0 flex items-center gap-1">
-            <Button
-              size="sm" variant="ghost" icon={Pencil}
-              aria-label={`Editar ${tarefa.titulo}`}
-              onClick={abrirEditar}
-            />
-            <Button
-              size="sm" variant="ghost" icon={X}
-              aria-label={`Cancelar ${tarefa.titulo}`}
-              onClick={() => setPainel(painel === 'cancelar' ? null : 'cancelar')}
-            />
-            <Button
-              size="sm" icon={Check}
-              aria-label={`Concluir ${tarefa.titulo}`}
-              onClick={abrirConcluir}
-            >
-              Concluir
-            </Button>
+        {/* ── Drilldown ── */}
+        {expandida && (
+          <div className="mt-2 space-y-3 text-sm">
+            <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1 text-xs">
+              <div>
+                <dt className="inline text-hipo-slate">Prazo: </dt>
+                <dd className="inline text-hipo-ink">{dataCompleta(tarefa.prazo)}</dd>
+              </div>
+              {tarefa.concluida_em && (
+                <div>
+                  <dt className="inline text-hipo-slate">Concluída em: </dt>
+                  <dd className="inline text-hipo-ink">{dataCompleta(tarefa.concluida_em)}</dd>
+                </div>
+              )}
+              {tarefa.cancelada_em && (
+                <div>
+                  <dt className="inline text-hipo-slate">Cancelada em: </dt>
+                  <dd className="inline text-hipo-ink">{dataCompleta(tarefa.cancelada_em)}</dd>
+                </div>
+              )}
+            </dl>
+
+            {tarefa.descricao && (
+              <p className="text-hipo-slate">{tarefa.descricao}</p>
+            )}
+            {tarefa.resultado && (
+              <p className="text-hipo-ink">
+                <span className="text-hipo-slate">Resultado: </span>
+                {tarefa.resultado}
+              </p>
+            )}
+            {tarefa.motivo_cancelamento && (
+              <p className="text-hipo-muted">
+                Cancelada: {tarefa.motivo_cancelamento}
+              </p>
+            )}
+            {tarefa.tarefa_anterior_id && (
+              <p className="text-xs text-hipo-muted">
+                Veio da conclusão da tarefa anterior.
+              </p>
+            )}
+
+            {/*
+              Ações só em tarefa aberta. Tarefa fechada é histórico, e o
+              backend recusa edição — mostrar o botão seria mentira.
+            */}
+            {aberta && !painel && (
+              <div className="flex flex-wrap items-center gap-2 pt-1">
+                <Button
+                  size="sm" icon={Check}
+                  aria-label={`Concluir ${tarefa.titulo}`}
+                  onClick={abrirConcluir}
+                >
+                  Concluir
+                </Button>
+                <Button
+                  size="sm" variant="ghost" icon={Pencil}
+                  aria-label={`Editar ${tarefa.titulo}`}
+                  onClick={abrirEditar}
+                >
+                  Editar
+                </Button>
+                <Button
+                  size="sm" variant="ghost" icon={X}
+                  aria-label={`Cancelar ${tarefa.titulo}`}
+                  onClick={() => setPainel('cancelar')}
+                >
+                  Cancelar
+                </Button>
+              </div>
+            )}
+
+            {painel === 'concluir' && (
+              <div className="space-y-3 border-l-2 border-hipo-border pl-3">
+                <Input
+                  label="O que aconteceu (opcional)"
+                  placeholder="Atendeu, pediu proposta para 15 vidas"
+                  value={resultado}
+                  onChange={(e) => setResultado(e.target.value)}
+                />
+
+                {exigeProxima ? (
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2 text-xs text-hipo-slate">
+                      <AlertTriangle size={13} className="text-hipo-warning" />
+                      <span>
+                        Toda tarefa concluída exige a próxima. Se não há próximo
+                        passo, finalize a oportunidade.
+                      </span>
+                    </div>
+                    <CamposTarefa
+                      valor={proxima}
+                      onChange={setProxima}
+                      usuarios={usuarios}
+                      prefixo="Próxima: "
+                    />
+                  </div>
+                ) : (
+                  <p className="text-xs text-hipo-slate">
+                    Oportunidade finalizada — não é preciso agendar a próxima.
+                  </p>
+                )}
+
+                <div className="flex justify-end gap-2">
+                  <Button size="sm" variant="ghost" onClick={() => setPainel(null)}>
+                    Voltar
+                  </Button>
+                  <Button
+                    size="sm"
+                    loading={ocupado}
+                    disabled={exigeProxima && formIncompleto(proxima)}
+                    onClick={() =>
+                      onConcluir(tarefa, resultado, exigeProxima ? proxima : null)
+                        .then((ok) => ok && setPainel(null))}
+                  >
+                    Concluir tarefa
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {painel === 'cancelar' && (
+              <div className="space-y-3 border-l-2 border-hipo-border pl-3">
+                <Input
+                  label="Motivo do cancelamento (opcional)"
+                  placeholder="Agendei duplicado"
+                  value={motivo}
+                  onChange={(e) => setMotivo(e.target.value)}
+                />
+                <div className="flex justify-end gap-2">
+                  <Button size="sm" variant="ghost" onClick={() => setPainel(null)}>
+                    Voltar
+                  </Button>
+                  <Button
+                    size="sm" variant="secondary" loading={ocupado}
+                    onClick={() =>
+                      onCancelar(tarefa, motivo).then((ok) => ok && setPainel(null))}
+                  >
+                    Cancelar tarefa
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {painel === 'editar' && edicao && (
+              <div className="space-y-3 border-l-2 border-hipo-border pl-3">
+                <CamposTarefa
+                  valor={edicao}
+                  onChange={setEdicao}
+                  usuarios={usuarios}
+                  prefixo=""
+                />
+                <div className="flex justify-end gap-2">
+                  <Button size="sm" variant="ghost" onClick={() => setPainel(null)}>
+                    Voltar
+                  </Button>
+                  <Button
+                    size="sm" loading={ocupado} disabled={formIncompleto(edicao)}
+                    onClick={() =>
+                      onEditar(tarefa, edicao).then((ok) => ok && setPainel(null))}
+                  >
+                    Salvar tarefa
+                  </Button>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>
-
-      {/* ── Painel de conclusão ── */}
-      {painel === 'concluir' && (
-        <div className="border-t border-hipo-border p-3 space-y-3 bg-hipo-bg/40">
-          <Input
-            label="O que aconteceu (opcional)"
-            placeholder="Atendeu, pediu proposta para 15 vidas"
-            value={resultado}
-            onChange={(e) => setResultado(e.target.value)}
-          />
-
-          {exigeProxima ? (
-            <div className="space-y-2">
-              <div className="flex items-center gap-2 text-xs text-hipo-slate">
-                <AlertTriangle size={13} className="text-hipo-warning" />
-                <span>
-                  Toda tarefa concluída exige a próxima. Se não há próximo
-                  passo, finalize a oportunidade.
-                </span>
-              </div>
-              <CamposTarefa
-                valor={proxima}
-                onChange={setProxima}
-                usuarios={usuarios}
-                prefixo="Próxima: "
-              />
-            </div>
-          ) : (
-            <p className="text-xs text-hipo-slate">
-              Oportunidade finalizada — não é preciso agendar a próxima.
-            </p>
-          )}
-
-          <div className="flex justify-end gap-2">
-            <Button size="sm" variant="ghost" onClick={() => setPainel(null)}>
-              Voltar
-            </Button>
-            <Button
-              size="sm"
-              loading={ocupado}
-              disabled={exigeProxima && formIncompleto(proxima)}
-              onClick={() => onConcluir(tarefa, resultado, exigeProxima ? proxima : null)
-                .then((ok) => ok && setPainel(null))}
-            >
-              Concluir tarefa
-            </Button>
-          </div>
-        </div>
-      )}
-
-      {/* ── Painel de cancelamento ── */}
-      {painel === 'cancelar' && (
-        <div className="border-t border-hipo-border p-3 space-y-3 bg-hipo-bg/40">
-          <Input
-            label="Motivo do cancelamento (opcional)"
-            placeholder="Agendei duplicado"
-            value={motivo}
-            onChange={(e) => setMotivo(e.target.value)}
-          />
-          <div className="flex justify-end gap-2">
-            <Button size="sm" variant="ghost" onClick={() => setPainel(null)}>
-              Voltar
-            </Button>
-            <Button
-              size="sm" variant="secondary" loading={ocupado}
-              onClick={() => onCancelar(tarefa, motivo).then((ok) => ok && setPainel(null))}
-            >
-              Cancelar tarefa
-            </Button>
-          </div>
-        </div>
-      )}
-
-      {/* ── Painel de edição ── */}
-      {painel === 'editar' && edicao && (
-        <div className="border-t border-hipo-border p-3 space-y-3 bg-hipo-bg/40">
-          <CamposTarefa
-            valor={edicao}
-            onChange={setEdicao}
-            usuarios={usuarios}
-            prefixo=""
-          />
-          <div className="flex justify-end gap-2">
-            <Button size="sm" variant="ghost" onClick={() => setPainel(null)}>
-              Voltar
-            </Button>
-            <Button
-              size="sm" loading={ocupado} disabled={formIncompleto(edicao)}
-              onClick={() => onEditar(tarefa, edicao).then((ok) => ok && setPainel(null))}
-            >
-              Salvar tarefa
-            </Button>
-          </div>
-        </div>
-      )}
     </li>
   );
 }
@@ -358,6 +472,7 @@ export default function AbaTarefas({ oportunidade, onMudou }) {
   const [ocupado, setOcupado] = useState(false);
   const [criando, setCriando] = useState(false);
   const [nova, setNova] = useState(() => tarefaVazia());
+  const [expandida, setExpandida] = useState(null);
 
   const oportunidadeId = oportunidade.id;
   const exigeProxima = STATUS_ABERTOS.includes(oportunidade.status);
@@ -367,7 +482,7 @@ export default function AbaTarefas({ oportunidade, onMudou }) {
     setErro(null);
     try {
       const { data } = await api.get('/crm/tarefas', {
-        params: { oportunidade_id: oportunidadeId },
+        params: { oportunidade_id: oportunidadeId, ordenar: 'cronologico' },
       });
       setDados(data);
     } catch (err) {
@@ -436,13 +551,6 @@ export default function AbaTarefas({ oportunidade, onMudou }) {
     'Não foi possível salvar a tarefa.',
   );
 
-  const grupos = useMemo(
-    () => GRUPOS
-      .map((g) => ({ ...g, itens: dados.itens.filter((t) => t.situacao === g.situacao) }))
-      .filter((g) => g.itens.length > 0),
-    [dados.itens],
-  );
-
   return (
     <div className="space-y-4">
       {erro && <AlertMessage tipo="erro">{erro}</AlertMessage>}
@@ -504,30 +612,24 @@ export default function AbaTarefas({ oportunidade, onMudou }) {
           }
         />
       ) : (
-        grupos.map((grupo) => (
-          <section key={grupo.situacao} aria-label={grupo.titulo} className="space-y-2">
-            <div className="flex items-center gap-2">
-              <h4 className="text-xs font-semibold uppercase tracking-wide text-hipo-slate">
-                {grupo.titulo}
-              </h4>
-              <Badge tone={grupo.tom}>{grupo.itens.length}</Badge>
-            </div>
-            <ul className="space-y-2">
-              {grupo.itens.map((t) => (
-                <LinhaTarefa
-                  key={t.id}
-                  tarefa={t}
-                  usuarios={usuarios}
-                  exigeProxima={exigeProxima}
-                  onConcluir={concluir}
-                  onCancelar={cancelar}
-                  onEditar={editar}
-                  ocupado={ocupado}
-                />
-              ))}
-            </ul>
-          </section>
-        ))
+        <ol aria-label="Linha do tempo das tarefas" className="pt-1">
+          {dados.itens.map((t, i) => (
+            <Evento
+              key={t.id}
+              tarefa={t}
+              ultima={i === dados.itens.length - 1}
+              aberta={ABERTAS.includes(t.situacao)}
+              expandida={expandida === t.id}
+              onAlternar={() => setExpandida((atual) => (atual === t.id ? null : t.id))}
+              usuarios={usuarios}
+              exigeProxima={exigeProxima}
+              ocupado={ocupado}
+              onConcluir={concluir}
+              onCancelar={cancelar}
+              onEditar={editar}
+            />
+          ))}
+        </ol>
       )}
     </div>
   );

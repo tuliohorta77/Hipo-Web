@@ -202,6 +202,39 @@ class TestListagem:
         assert situacoes[0] == "atrasada"
         assert situacoes[-1] == "concluida"
 
+    async def test_ordem_cronologica_poe_o_futuro_no_topo(
+        self, db_conn, client, cenario
+    ):
+        """
+        Duas ordens porque sao duas perguntas: 'urgencia' e de quem vai
+        TRABALHAR a lista, 'cronologico' e de quem vai LER a historia. A
+        linha do tempo usa a segunda.
+        """
+        h, o, u = cenario["headers"], cenario["opp"]["id"], cenario["usuario_id"]
+        await nova_tarefa(client, h, o, u, prazo=em(-10), titulo="Mais antiga")
+        await nova_tarefa(client, h, o, u, prazo=em(20), titulo="Mais futura")
+        await nova_tarefa(client, h, o, u, prazo=em(-1), titulo="Do meio")
+
+        body = (await client.get(
+            f"/crm/tarefas?oportunidade_id={o}&ordenar=cronologico", headers=h
+        )).json()
+        assert [i["titulo"] for i in body["itens"]] == [
+            "Mais futura", "Do meio", "Mais antiga",
+        ]
+
+    async def test_urgencia_continua_sendo_o_padrao(self, db_conn, client, cenario):
+        h, o, u = cenario["headers"], cenario["opp"]["id"], cenario["usuario_id"]
+        await nova_tarefa(client, h, o, u, prazo=em(20), titulo="Futura")
+        await nova_tarefa(client, h, o, u, prazo=em(-10), titulo="Atrasada")
+        body = (await client.get(f"/crm/tarefas?oportunidade_id={o}", headers=h)).json()
+        assert body["itens"][0]["titulo"] == "Atrasada"
+
+    async def test_ordenar_invalido_e_422(self, db_conn, client, cenario):
+        resp = await client.get(
+            "/crm/tarefas?ordenar=alfabetica", headers=cenario["headers"]
+        )
+        assert resp.status_code == 422
+
     async def test_contadores_ignoram_fechadas(self, db_conn, client, cenario):
         h, o, u = cenario["headers"], cenario["opp"]["id"], cenario["usuario_id"]
         await nova_tarefa(client, h, o, u, prazo=em(-3), titulo="Atrasada")

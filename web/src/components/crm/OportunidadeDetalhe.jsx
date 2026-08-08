@@ -24,10 +24,13 @@ import Empty from '../ui/Empty';
 import AlertMessage from '../ui/AlertMessage';
 import EntityPicker from '../EntityPicker';
 
+// proxima_acao_em / proxima_acao_tipo saíram: quem responde "qual o próximo
+// passo" agora é a aba Tarefas. Os campos continuavam na tela depois de o
+// backend tirá-los de CAMPOS_EDITAVEIS — o usuário digitava, salvava, e o
+// PATCH ignorava em silêncio.
 const CAMPOS = [
   'contato_id', 'valor_mensalidade', 'temperatura', 'previsao_fechamento',
   'descricao', 'observacoes', 'origem_id', 'finder_conta_id',
-  'proxima_acao_em', 'proxima_acao_tipo',
 ];
 
 // Só as fases abertas: Finalizado não é escolha de seletor, é desfecho com
@@ -64,10 +67,6 @@ function mensagemDeErro(err, padrao) {
 
 function paraInputData(iso) {
   return iso ? String(iso).slice(0, 10) : '';
-}
-
-function paraInputDataHora(iso) {
-  return iso ? String(iso).slice(0, 16) : '';
 }
 
 function formatarDataHora(iso) {
@@ -362,8 +361,6 @@ export default function OportunidadeDetalhe({
       observacoes: oportunidade.observacoes || '',
       origem_id: oportunidade.origem_id ?? '',
       finder_conta_id: oportunidade.finder_conta_id || '',
-      proxima_acao_em: paraInputDataHora(oportunidade.proxima_acao_em),
-      proxima_acao_tipo: oportunidade.proxima_acao_tipo || '',
     });
     setAba('dados');
     setErro(null);
@@ -391,8 +388,6 @@ export default function OportunidadeDetalhe({
       observacoes: oportunidade.observacoes || '',
       origem_id: oportunidade.origem_id ?? '',
       finder_conta_id: oportunidade.finder_conta_id || '',
-      proxima_acao_em: paraInputDataHora(oportunidade.proxima_acao_em),
-      proxima_acao_tipo: oportunidade.proxima_acao_tipo || '',
     };
     return CAMPOS.some((c) => String(form[c] ?? '') !== String(original[c] ?? ''));
   }, [form, oportunidade]);
@@ -555,7 +550,9 @@ export default function OportunidadeDetalhe({
 
       <div className="px-5 py-5 flex-1 min-h-0 overflow-y-auto">
         {aba === 'dados' && (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-w-4xl">
+          // Três colunas e sem max-w: com dois campos a menos (a próxima ação
+          // virou a tabela `tarefas`), tudo cabe na altura do modal sem rolar.
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-x-4 gap-y-3">
             <Select
               label="Contato"
               value={form.contato_id || ''}
@@ -603,25 +600,12 @@ export default function OportunidadeDetalhe({
             </div>
 
             <Input
-              label="Próxima ação em"
-              type="datetime-local"
-              value={form.proxima_acao_em || ''}
-              onChange={(e) => set('proxima_acao_em', e.target.value)}
-            />
-            <Input
-              label="Tipo da próxima ação"
-              placeholder="ligar, visitar, enviar proposta…"
-              value={form.proxima_acao_tipo || ''}
-              onChange={(e) => set('proxima_acao_tipo', e.target.value)}
-            />
-
-            <Input
               label="Descrição"
-              className="md:col-span-2"
+              className="md:col-span-3"
               value={form.descricao || ''}
               onChange={(e) => set('descricao', e.target.value)}
             />
-            <div className="md:col-span-2">
+            <div className="md:col-span-3">
               <label
                 htmlFor="opp-observacoes"
                 className="block text-sm font-medium text-hipo-ink mb-1.5"
@@ -630,7 +614,7 @@ export default function OportunidadeDetalhe({
               </label>
               <textarea
                 id="opp-observacoes"
-                rows={5}
+                rows={3}
                 value={form.observacoes || ''}
                 onChange={(e) => set('observacoes', e.target.value)}
                 className="w-full px-3 py-2 rounded-lg border border-hipo-border bg-hipo-card text-sm text-hipo-ink focus:outline-none focus:ring-2 focus:ring-hipo-blue resize-y"

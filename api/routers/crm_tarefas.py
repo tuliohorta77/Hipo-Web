@@ -235,6 +235,7 @@ async def listar(
     oportunidade_id: UUID | None = None,
     responsavel_id: UUID | None = None,
     situacao: list[str] | None = Query(None),
+    ordenar: str = Query("urgencia"),
     limit: int = Query(200, ge=1, le=500),
     offset: int = Query(0, ge=0),
     conn=Depends(get_conn),
@@ -249,7 +250,23 @@ async def listar(
     essa lógica em SQL criaria duas fontes de verdade que divergem no primeiro
     ajuste. O recorte por oportunidade já limita o conjunto a dezenas de
     linhas, então não há custo real.
+
+    Duas ordens, porque são duas perguntas diferentes:
+
+      * 'urgencia'    — atrasada, hoje, futura, concluída, cancelada. É a
+                        ordem de quem vai TRABALHAR a lista. Será a da agenda
+                        por pessoa.
+      * 'cronologico' — prazo decrescente, futuro no topo. É a ordem de quem
+                        vai LER a história da negociação, e é a que a linha do
+                        tempo da aba usa.
+
+    A ordem vem do servidor nas duas para não existir uma segunda regra de
+    ordenação no navegador.
     """
+    if ordenar not in ("urgencia", "cronologico"):
+        raise HTTPException(
+            422, "ordenar inválido. Use: urgencia, cronologico."
+        )
     for s in situacao or []:
         if s not in regras.SITUACOES:
             raise HTTPException(
@@ -280,7 +297,10 @@ async def listar(
     if situacao:
         itens = [i for i in itens if i["situacao"] in situacao]
 
-    itens.sort(key=lambda i: regras.chave_ordenacao(i["situacao"], i["prazo"]))
+    if ordenar == "cronologico":
+        itens.sort(key=lambda i: i["prazo"], reverse=True)
+    else:
+        itens.sort(key=lambda i: regras.chave_ordenacao(i["situacao"], i["prazo"]))
 
     return {
         "total": total,
