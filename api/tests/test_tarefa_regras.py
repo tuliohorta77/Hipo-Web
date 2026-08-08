@@ -87,9 +87,31 @@ class TestSituacao:
         manha = AGORA.replace(hour=9, minute=0)
         assert situacao(aberta(manha), AGORA) == "hoje"
 
+    def test_o_dia_e_o_do_fuso_da_operacao_nao_o_de_utc(self):
+        """
+        Regressao real: uma tarefa marcada para 21h de Brasilia e 00h do dia
+        SEGUINTE em UTC. Comparando em UTC ela virava 'futura' e sumia da
+        coluna de hoje as 18h, justamente quando o vendedor mais olha.
+        """
+        # 08/08 as 21h em Brasilia = 09/08 00:00 UTC.
+        prazo = datetime(2026, 8, 9, 0, 0, tzinfo=timezone.utc)
+        # 08/08 as 15h em Brasilia = 18:00 UTC.
+        agora = datetime(2026, 8, 8, 18, 0, tzinfo=timezone.utc)
+        assert situacao(aberta(prazo), agora) == "hoje"
+
+    def test_madrugada_em_utc_ainda_e_o_dia_anterior_aqui(self):
+        """
+        02h UTC do dia 9 = 23h do dia 8 em Brasilia. Uma tarefa do dia 8
+        continua sendo de hoje.
+        """
+        prazo = datetime(2026, 8, 8, 18, 0, tzinfo=timezone.utc)   # 15h BRT dia 8
+        agora = datetime(2026, 8, 9, 2, 0, tzinfo=timezone.utc)    # 23h BRT dia 8
+        assert situacao(aberta(prazo), agora) == "hoje"
+
     def test_um_minuto_depois_da_meia_noite_vira_atrasada(self):
+        # 00:01 de Brasilia = 03:01 UTC.
         ontem_tarde = AGORA - timedelta(days=1)
-        logo_depois = AGORA.replace(hour=0, minute=1)
+        logo_depois = AGORA.replace(hour=3, minute=1)
         assert situacao(aberta(ontem_tarde), logo_depois) == "atrasada"
 
     def test_concluida_ignora_o_prazo(self):

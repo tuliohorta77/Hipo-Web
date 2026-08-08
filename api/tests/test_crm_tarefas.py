@@ -286,6 +286,179 @@ class TestListagem:
         assert [i["titulo"] for i in body["itens"]] == ["Da segunda"]
 
 
+# ── Kanban de gestao ─────────────────────────────────────────────────
+
+class TestKanban:
+    async def test_quatro_colunas_na_ordem(self, db_conn, client, cenario):
+        colunas = (await client.get(
+            "/crm/tarefas/kanban", headers=cenario["headers"]
+        )).json()
+        assert [c["situacao"] for c in colunas] == [
+            "atrasada", "hoje", "futura", "concluida",
+        ]
+        assert [c["rotulo"] for c in colunas] == [
+            "Atrasadas", "Para hoje", "Futuras", "Concluídas",
+        ]
+
+    async def test_rota_kanban_nao_e_lida_como_id(self, db_conn, client, cenario):
+        """
+        Regressao: com /{tarefa_id} declarado antes, 'kanban' virava id e a
+        resposta era 422. Ja custou um 404 em /crm/dominio/usuarios.
+        """
+        resp = await client.get("/crm/tarefas/kanban", headers=cenario["headers"])
+        assert resp.status_code == 200
+        assert isinstance(resp.json(), list)
+
+    async def test_distribui_por_situacao(self, db_conn, client, cenario):
+        h, o, u = cenario["headers"], cenario["opp"]["id"], cenario["usuario_id"]
+        await nova_tarefa(client, h, o, u, prazo=em(-3), titulo="Atrasada")
+        await nova_tarefa(client, h, o, u, prazo=em(0), titulo="De hoje")
+        await nova_tarefa(client, h, o, u, prazo=em(4), titulo="Futura")
+
+        colunas = (await client.get("/crm/tarefas/kanban", headers=h)).json()
+        por = {c["situacao"]: c for c in colunas}
+        assert por["atrasada"]["quantidade"] == 1
+        assert por["hoje"]["quantidade"] == 1
+        assert por["futura"]["quantidade"] == 1
+        assert por["concluida"]["quantidade"] == 0
+
+    async def test_junta_tarefas_de_oportunidades_diferentes(
+        self, db_conn, client, cenario
+    ):
+        """O ponto da tela: gestao olha a carga, nao uma negociacao."""
+        h, u = cenario["headers"], cenario["usuario_id"]
+        outra = await nova_oportunidade(client, h, cenario["conta"]["id"])
+        await nova_tarefa(client, h, cenario["opp"]["id"], u, prazo=em(-1), titulo="Da primeira")
+        await nova_tarefa(client, h, outra["id"], u, prazo=em(-1), titulo="Da segunda")
+
+        colunas = (await client.get("/crm/tarefas/kanban", headers=h)).json()
+        atrasadas = next(c for c in colunas if c["situacao"] == "atrasada")
+        assert atrasadas["quantidade"] == 2
+        # E cada cartao carrega o contexto de qual negocio veio.
+        assert {i["oportunidade_numero"] for i in atrasadas["itens"]} == {
+            cenario["opp"]["numero"], outra["numero"],
+        }
+
+    async def test_cancelada_nao_tem_coluna(self, db_conn, client, cenario):
+        """Ruido para quem esta gerindo carga; segue na linha do tempo."""
+        h, o, u = cenario["headers"], cenario["opp"]["id"], cenario["usuario_id"]
+        t = await nova_tarefa(client, h, o, u, prazo=em(-2))
+        await client.post(f"/crm/tarefas/{t['id']}/cancelar", json={}, headers=h)
+
+        colunas = (await client.get("/crm/tarefas/kanban", headers=h)).json()
+        assert "cancelada" not in [c["situacao"] for c in colunas]
+        assert sum(c["quantidade"] for c in colunas) == 0
+
+    async def test_concluidas_e_janela_nao_historico_inteiro(
+        self, db_conn, client, cenario
+    ):
+        """
+        Aberto e estoque e cresce devagar; concluido e fluxo e cresce para
+        sempre. Sem recorte a coluna vira arquivo morto.
+        """
+        h, o, u = cenario["headers"], cenario["opp"]["id"], cenario["usuario_id"]
+        t = await nova_tarefa(client, h, o, u)
+        await client.post(
+            f"/crm/tarefas/{t['id']}/concluir",
+            json={"proxima": proxima(u)}, headers=h,
+        )
+        colunas = (await client.get("/crm/tarefas/kanban", headers=h)).json()
+        assert next(c for c in colunas if c["situacao"] == "concluida")["quantidade"] == 1
+
+        # Empurra a conclusao para 30 dias atras: sai da janela de 7 dias.
+        await db_conn.execute(
+            "UPDATE tarefas SET concluida_em = NOW() - interval '30 days'"
+            " WHERE id = $1",
+            uuid.UUID(t["id"]),
+        )
+        colunas = (await client.get("/crm/tarefas/kanban", headers=h)).json()
+        assert next(c for c in colunas if c["situacao"] == "concluida")["quantidade"] == 0
+
+        # Mas continua visivel se a janela for maior.
+        colunas = (await client.get(
+            "/crm/tarefas/kanban?dias_concluidas=60", headers=h
+        )).json()
+        assert next(c for c in colunas if c["situacao"] == "concluida")["quantidade"] == 1
+
+    async def test_so_a_coluna_de_concluidas_e_somente_leitura(
+        self, db_conn, client, cenario
+    ):
+        colunas = (await client.get(
+            "/crm/tarefas/kanban", headers=cenario["headers"]
+        )).json()
+        leitura = [c["situacao"] for c in colunas if c["somente_leitura"]]
+        assert leitura == ["concluida"]
+
+    async def test_filtra_por_responsavel(self, db_conn, client, cenario):
+        h, o, u = cenario["headers"], cenario["opp"]["id"], cenario["usuario_id"]
+        await criar_usuario(db_conn, client, "EV", "outro@teste.com")
+        outro_id = await id_do_usuario(db_conn, "outro@teste.com")
+        await nova_tarefa(client, h, o, u, prazo=em(-1), titulo="Minha")
+        await nova_tarefa(client, h, o, outro_id, prazo=em(-1), titulo="Do outro")
+
+        colunas = (await client.get(
+            f"/crm/tarefas/kanban?responsavel_id={outro_id}", headers=h
+        )).json()
+        atrasadas = next(c for c in colunas if c["situacao"] == "atrasada")
+        assert [i["titulo"] for i in atrasadas["itens"]] == ["Do outro"]
+
+    async def test_busca_por_empresa_numero_ou_titulo(self, db_conn, client, cenario):
+        h, o, u = cenario["headers"], cenario["opp"]["id"], cenario["usuario_id"]
+        await nova_tarefa(client, h, o, u, prazo=em(-1), titulo="Cobrar proposta")
+        await nova_tarefa(client, h, o, u, prazo=em(-1), titulo="Mandar contrato")
+
+        colunas = (await client.get(
+            "/crm/tarefas/kanban?q=cobrar", headers=h
+        )).json()
+        atrasadas = next(c for c in colunas if c["situacao"] == "atrasada")
+        assert [i["titulo"] for i in atrasadas["itens"]] == ["Cobrar proposta"]
+
+        # A busca tambem pega pela empresa, que e como o gestor pensa.
+        colunas = (await client.get(
+            "/crm/tarefas/kanban?q=Metalurgica", headers=h
+        )).json()
+        assert next(c for c in colunas if c["situacao"] == "atrasada")["quantidade"] == 2
+
+    async def test_atrasadas_vem_da_mais_antiga_para_a_mais_nova(
+        self, db_conn, client, cenario
+    ):
+        """A ordem de atacar: quem esta parado ha mais tempo primeiro."""
+        h, o, u = cenario["headers"], cenario["opp"]["id"], cenario["usuario_id"]
+        await nova_tarefa(client, h, o, u, prazo=em(-2), titulo="Menos velha")
+        await nova_tarefa(client, h, o, u, prazo=em(-20), titulo="Mais velha")
+
+        colunas = (await client.get("/crm/tarefas/kanban", headers=h)).json()
+        atrasadas = next(c for c in colunas if c["situacao"] == "atrasada")
+        assert [i["titulo"] for i in atrasadas["itens"]] == ["Mais velha", "Menos velha"]
+
+    async def test_concluidas_vem_da_mais_recente(self, db_conn, client, cenario):
+        """Ali a pergunta e 'o que acabou de andar'."""
+        h, o, u = cenario["headers"], cenario["opp"]["id"], cenario["usuario_id"]
+        a = await nova_tarefa(client, h, o, u, prazo=em(-6), titulo="Velha")
+        b = await nova_tarefa(client, h, o, u, prazo=em(-1), titulo="Recente")
+        for t in (a, b):
+            await client.post(
+                f"/crm/tarefas/{t['id']}/concluir",
+                json={"proxima": proxima(u)}, headers=h,
+            )
+        colunas = (await client.get("/crm/tarefas/kanban", headers=h)).json()
+        concluidas = next(c for c in colunas if c["situacao"] == "concluida")
+        assert [i["titulo"] for i in concluidas["itens"]] == ["Recente", "Velha"]
+
+    async def test_quantidade_independe_do_limite_de_cartoes(
+        self, db_conn, client, cenario
+    ):
+        h, o, u = cenario["headers"], cenario["opp"]["id"], cenario["usuario_id"]
+        for i in range(3):
+            await nova_tarefa(client, h, o, u, prazo=em(-1 - i), titulo=f"T{i}")
+        colunas = (await client.get(
+            "/crm/tarefas/kanban?por_coluna=1", headers=h
+        )).json()
+        atrasadas = next(c for c in colunas if c["situacao"] == "atrasada")
+        assert atrasadas["quantidade"] == 3
+        assert len(atrasadas["itens"]) == 1
+
+
 # ── Conclusão e a corrente ───────────────────────────────────────────
 
 class TestConcluir:

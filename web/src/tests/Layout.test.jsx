@@ -51,18 +51,19 @@ describe('Layout — nav com o módulo crm', () => {
     expect(screen.getByText('conteudo-perfil')).toBeInTheDocument();
   });
 
-  it('mostra Oportunidades e Contas na nav', () => {
+  it('mostra Oportunidades, Tarefas e Contas na nav', () => {
     renderLayout();
     expect(screen.getByLabelText('Navegação principal')).toBeInTheDocument();
-    expect(screen.getAllByText('Oportunidades').length).toBeGreaterThan(0);
-    expect(screen.getAllByText('Contas').length).toBeGreaterThan(0);
+    for (const item of ['Oportunidades', 'Tarefas', 'Contas']) {
+      expect(screen.getAllByText(item).length).toBeGreaterThan(0);
+    }
   });
 
-  it('Oportunidades vem antes de Contas — o funil é a tela do dia a dia', () => {
+  it('a nav segue a ordem do dia: funil, pendências, cadastro', () => {
     renderLayout();
     const nav = screen.getByLabelText('Navegação principal');
     const hrefs = [...nav.querySelectorAll('a')].map((a) => a.getAttribute('href'));
-    expect(hrefs).toEqual(['/crm/oportunidades', '/crm/contas']);
+    expect(hrefs).toEqual(['/crm/oportunidades', '/crm/tarefas', '/crm/contas']);
   });
 
   it('renderiza o botão hamburger quando há itens', () => {

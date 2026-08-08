@@ -22,6 +22,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
+
+# O dia de calendário que interessa é o do escritório, não o de Greenwich.
+# Sem isto, uma tarefa marcada para 21h de Brasília cai no dia SEGUINTE em
+# UTC e aparece como 'futura' em vez de 'hoje' — some da coluna do dia
+# justamente no fim da tarde, quando o vendedor mais olha para ela.
+FUSO_OPERACAO = ZoneInfo("America/Sao_Paulo")
 
 # Tipos de tarefa. Lista fechada de propósito: diferente de vertical e
 # origem, aqui não interessa cada um inventar o seu — a comparação entre
@@ -74,14 +81,18 @@ def esta_aberta(estado: EstadoTarefa) -> bool:
     return estado.concluida_em is None and estado.cancelada_em is None
 
 
-def situacao(estado: EstadoTarefa, agora: datetime) -> str:
+def situacao(
+    estado: EstadoTarefa,
+    agora: datetime,
+    fuso: ZoneInfo = FUSO_OPERACAO,
+) -> str:
     """
     Situação derivada da tarefa.
 
         cancelada_em preenchido        -> 'cancelada'
         concluida_em preenchido        -> 'concluida'
-        prazo antes de agora           -> 'atrasada'
         prazo no mesmo dia que agora   -> 'hoje'
+        prazo antes de agora           -> 'atrasada'
         senão                          -> 'futura'
 
     'hoje' é dia de calendário, não janela de 24h: uma tarefa marcada para as
@@ -89,14 +100,18 @@ def situacao(estado: EstadoTarefa, agora: datetime) -> str:
     Só vira 'atrasada' na virada do dia. Vendedor não trata as duas coisas do
     mesmo jeito — o que passou da hora ainda dá para fazer hoje; o que passou
     do dia é dívida.
+
+    E o dia é o do FUSO DA OPERAÇÃO, não o de UTC. Comparando em UTC, uma
+    tarefa das 21h de Brasília já está no dia seguinte e vira 'futura' — ela
+    sumia da coluna de hoje exatamente no fim da tarde.
     """
     if estado.cancelada_em is not None:
         return "cancelada"
     if estado.concluida_em is not None:
         return "concluida"
 
-    prazo = _com_fuso(estado.prazo)
-    agora = _com_fuso(agora)
+    prazo = _com_fuso(estado.prazo).astimezone(fuso)
+    agora = _com_fuso(agora).astimezone(fuso)
 
     if prazo.date() == agora.date():
         return "hoje"

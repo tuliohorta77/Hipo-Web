@@ -27,10 +27,11 @@ import { Menu, X, LogOut, User as UserIcon, ChevronDown } from 'lucide-react';
 import { getUser, getModulos, logout } from '../api';
 import Logo, { LogoWordmark } from './Logo';
 
-// Nav principal. Oportunidades vem antes de Contas de propósito: o funil é a
-// tela do dia a dia, Contas é cadastro de apoio.
+// Nav principal, na ordem em que o dia acontece: o funil é onde se trabalha,
+// Tarefas é o que está pendente nele, e Contas é o cadastro de apoio.
 const NAV_ITEMS = [
   { to: '/crm/oportunidades', label: 'Oportunidades', modulo: 'crm' },
+  { to: '/crm/tarefas', label: 'Tarefas', modulo: 'crm' },
   { to: '/crm/contas', label: 'Contas', modulo: 'crm' },
 ];
 

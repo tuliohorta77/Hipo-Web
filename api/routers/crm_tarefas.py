@@ -111,6 +111,10 @@ class TarefaOut(BaseModel):
     id: UUID
     oportunidade_id: UUID
     oportunidade_numero: str
+    # O status da oportunidade vem junto porque a tela de gestão precisa
+    # saber, ANTES de abrir o formulário, se aquela conclusão vai exigir a
+    # próxima tarefa. Buscar por tarefa seria N+1; o JOIN já existe.
+    status_oportunidade: str
     conta_razao_social: str
     tipo: str
     tipo_rotulo: str
@@ -135,10 +139,21 @@ class TarefaLista(BaseModel):
     itens: list[TarefaOut]
 
 
+class ColunaTarefas(BaseModel):
+    situacao: str
+    rotulo: str
+    quantidade: int
+    itens: list[TarefaOut]
+    # Concluídas é retrato, não fila de trabalho: a coluna existe para o
+    # gestor ver o que andou, e nela não há nada a fazer.
+    somente_leitura: bool = False
+
+
 # ── SQL compartilhado ────────────────────────────────────────────────
 
 _SELECT_BASE = """
     SELECT t.id, t.oportunidade_id, o.numero AS oportunidade_numero,
+           o.status AS status_oportunidade,
            c.razao_social AS conta_razao_social,
            t.tipo, t.titulo, t.descricao,
            t.responsavel_id, u.nome AS responsavel_nome,
@@ -308,6 +323,86 @@ async def listar(
         "atrasadas": atrasadas,
         "itens": itens,
     }
+
+
+COLUNAS_KANBAN = [
+    ("atrasada", "Atrasadas"),
+    ("hoje", "Para hoje"),
+    ("futura", "Futuras"),
+    ("concluida", "Concluídas"),
+]
+
+
+@router.get("/kanban", response_model=list[ColunaTarefas])
+async def kanban(
+    responsavel_id: UUID | None = None,
+    q: str | None = Query(None, max_length=200),
+    por_coluna: int = Query(100, ge=1, le=300),
+    dias_concluidas: int = Query(7, ge=1, le=90),
+    conn=Depends(get_conn),
+    user=Depends(usuario_atual),
+):
+    """
+    As tarefas de TODAS as oportunidades em quatro colunas, para gestão.
+
+    Três decisões que este endpoint materializa:
+
+      * A coluna Concluídas é uma JANELA (7 dias por padrão), não o histórico
+        inteiro. Aberto é estoque e cresce devagar; concluído é fluxo e cresce
+        para sempre. Sem recorte a coluna vira arquivo morto que ninguém lê e
+        que custa uma varredura da tabela a cada carga.
+
+      * Canceladas não têm coluna. São ruído para quem está gerindo carga de
+        trabalho — continuam visíveis na linha do tempo da oportunidade, que
+        é onde o histórico completo mora.
+
+      * A situação sai de services/tarefa.py, no fuso da operação. Fazer o
+        recorte em SQL exigiria repetir a regra de 'hoje' lá, e duas fontes
+        de verdade divergem no primeiro ajuste.
+
+    Este endpoint precisa vir declarado ANTES de /{tarefa_id}: com o wildcard
+    primeiro, "kanban" é lido como id e a resposta vira 422. Mesma armadilha
+    que já custou um 404 em /crm/dominio/usuarios.
+    """
+    where = [
+        "(t.concluida_em IS NULL AND t.cancelada_em IS NULL"
+        " OR t.concluida_em >= NOW() - ($1 || ' days')::interval)"
+    ]
+    params: list = [str(dias_concluidas)]
+
+    if responsavel_id is not None:
+        params.append(responsavel_id)
+        where.append(f"t.responsavel_id = ${len(params)}")
+    if q:
+        params.append(f"%{q.strip()}%")
+        n = len(params)
+        where.append(
+            f"(t.titulo ILIKE ${n} OR c.razao_social ILIKE ${n} OR o.numero ILIKE ${n})"
+        )
+
+    rows = await conn.fetch(
+        f"{_SELECT_BASE} WHERE {' AND '.join(where)} ORDER BY t.prazo",
+        *params,
+    )
+
+    agora = _agora()
+    itens = [_linha(r, agora) for r in rows]
+
+    colunas = []
+    for chave, rotulo in COLUNAS_KANBAN:
+        # Atrasada e hoje: mais antiga primeiro, que é a ordem de atacar.
+        # Futura: a mais próxima primeiro. Concluída: a mais recente primeiro,
+        # porque ali a pergunta é "o que acabou de andar".
+        da_coluna = [i for i in itens if i["situacao"] == chave]
+        da_coluna.sort(key=lambda i: i["prazo"], reverse=(chave == "concluida"))
+        colunas.append({
+            "situacao": chave,
+            "rotulo": rotulo,
+            "quantidade": len(da_coluna),
+            "itens": da_coluna[:por_coluna],
+            "somente_leitura": chave == "concluida",
+        })
+    return colunas
 
 
 @router.get("/{tarefa_id}", response_model=TarefaOut)

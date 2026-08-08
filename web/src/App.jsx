@@ -10,6 +10,7 @@ import Login from './pages/Login';
 import Perfil from './pages/Perfil';
 import Contas from './pages/crm/Contas';
 import Oportunidades from './pages/crm/Oportunidades';
+import Tarefas from './pages/crm/Tarefas';
 import { primeiraRotaAcessivel } from './api';
 
 function RedirectPrimeiraRota() {
@@ -32,6 +33,7 @@ export default function App() {
         >
           <Route index element={<RedirectPrimeiraRota />} />
           <Route path="crm/oportunidades" element={<Oportunidades />} />
+          <Route path="crm/tarefas" element={<Tarefas />} />
           <Route path="crm/contas" element={<Contas />} />
           <Route path="perfil" element={<Perfil />} />
         </Route>
