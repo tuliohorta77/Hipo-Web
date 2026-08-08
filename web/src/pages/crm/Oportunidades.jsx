@@ -18,7 +18,6 @@ import {
 } from 'lucide-react';
 
 import api from '../../api';
-import KpiCard from '../../components/ui/KpiCard';
 import Table, { Th, Tr, Td } from '../../components/ui/Table';
 import Button from '../../components/ui/Button';
 import Input, { Select } from '../../components/ui/Input';
@@ -73,22 +72,54 @@ function formatarData(iso) {
 // de <label> acima. O bloco de filtros antigo custava ~90px de altura, e cada
 // pixel aqui sai da altura das colunas do kanban.
 const CLASSE_CAMPO =
-  'h-9 text-sm rounded-lg border border-hipo-border bg-hipo-card text-hipo-ink ' +
+  'h-8 text-xs rounded-lg border border-hipo-border bg-hipo-card text-hipo-ink ' +
   'focus:outline-none focus:ring-2 focus:ring-hipo-blue';
 
-function KpiBotao({ onClick, ativo, children }) {
+/**
+ * KPI na barra de topo, não em card.
+ *
+ * O KpiCard padrão tem ~110px de altura. Três deles empurravam o kanban para
+ * baixo da dobra numa tela de notebook. Aqui o mesmo dado cabe em 40px, e o
+ * que importa continua de pé: quando tem `onClick`, o KPI é botão com
+ * `aria-pressed` e aplica filtro — a diretriz do dashboard operacional é que
+ * o número leve à ação, não que ele more num card grande.
+ */
+function KpiInline({ label, valor, detalhe, icone: Icone, tom, ativo, onClick }) {
+  const conteudo = (
+    <>
+      <span className={`shrink-0 w-6 h-6 rounded-md grid place-items-center ${tom}`}>
+        <Icone size={13} />
+      </span>
+      <span className="min-w-0 leading-none">
+        <span className="block text-[10px] text-hipo-slate truncate">{label}</span>
+        <span className="block text-sm font-semibold text-hipo-ink truncate mt-0.5">
+          {valor}
+          {detalhe && (
+            <span className="ml-1 text-[10px] font-normal text-hipo-slate">{detalhe}</span>
+          )}
+        </span>
+      </span>
+    </>
+  );
+
+  const base =
+    'h-10 px-2 flex items-center gap-1.5 rounded-lg border bg-hipo-card ' +
+    'max-w-[12rem] transition-colors ';
+
+  if (!onClick) {
+    return <div className={`${base} border-hipo-border`}>{conteudo}</div>;
+  }
   return (
     <button
       type="button"
       onClick={onClick}
       aria-pressed={ativo}
       className={
-        'text-left w-full rounded-xl transition-shadow focus:outline-none ' +
-        'focus-visible:ring-2 focus-visible:ring-hipo-blue ' +
-        (ativo ? 'ring-2 ring-hipo-blue' : 'hover:shadow-md')
+        base + 'text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-hipo-blue ' +
+        (ativo ? 'border-hipo-blue ring-1 ring-hipo-blue' : 'border-hipo-border hover:bg-hipo-bg')
       }
     >
-      {children}
+      {conteudo}
     </button>
   );
 }
@@ -381,21 +412,56 @@ export default function Oportunidades() {
     // h-full + min-h-0: a tela ocupa a altura da viewport e NÃO rola. Quem
     // rola é cada coluna do kanban (ou o corpo da tabela). O container que
     // torna isso possível é o <main> do Layout — ver o comentário lá.
-    <div className="h-full min-h-0 flex flex-col gap-3">
+    //
+    // Orçamento de altura: topbar (52px) + esta barra (~48px) + gap. Tudo o
+    // que não for o funil tem que caber em ~20% da tela; o resto é dos
+    // cartões, que é o que o vendedor veio ver.
+    <div className="h-full min-h-0 flex flex-col gap-2">
 
-      {/* ── Barra: título, filtros, visão e ação, tudo em uma linha ── */}
-      <div className="shrink-0 flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-semibold text-hipo-ink leading-tight">
+      {/* ── Barra única: título, KPIs, filtros, visão e ação ── */}
+      <div className="shrink-0 flex flex-wrap items-center gap-x-2 gap-y-2">
+        <div className="shrink-0">
+          <h1 className="text-lg font-semibold text-hipo-ink leading-none">
             Oportunidades
           </h1>
-          <p className="text-sm text-hipo-slate">Funil de vendas</p>
+          <p className="text-[11px] text-hipo-slate leading-none mt-1">Funil de vendas</p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
+        {/*
+          KPI na barra, não em card de 110px de altura. O número continua
+          clicável — o drilldown é o que faz a diretriz "dashboard
+          operacional" valer — mas custa 44px em vez de 110.
+        */}
+        <div className="flex items-center gap-2">
+          <KpiInline
+            label="Em aberto"
+            valor={resumo?.abertas ?? '—'}
+            detalhe={resumo ? formatarMoeda(resumo.ticket_aberto) : null}
+            icone={Briefcase}
+            tom="text-hipo-blue bg-hipo-blueSoft"
+            ativo={kpiAtivo === 'abertas'}
+            onClick={() => alternarKpi('abertas', { apenas_abertas: true })}
+          />
+          <KpiInline
+            label="Previsto no mês"
+            valor={resumo ? formatarMoeda(resumo.previsto_no_mes) : '—'}
+            detalhe="ativas"
+            icone={TrendingUp}
+            tom="text-hipo-success bg-hipo-successSoft"
+          />
+          <KpiInline
+            label="Ganhas no mês"
+            valor={resumo?.ganhas_mes ?? '—'}
+            detalhe={resumo ? `${resumo.perdidas_mes} perdidas` : null}
+            icone={Trophy}
+            tom="text-hipo-blue bg-hipo-blueSoft"
+          />
+        </div>
+
+        <div className="ml-auto flex flex-wrap items-center gap-2">
           <div className="relative">
             <Search
-              size={15}
+              size={14}
               className="absolute left-2.5 top-1/2 -translate-y-1/2 text-hipo-muted pointer-events-none"
               aria-hidden="true"
             />
@@ -404,7 +470,7 @@ export default function Oportunidades() {
               placeholder="Número, empresa ou descrição"
               value={busca}
               onChange={(e) => setBusca(e.target.value)}
-              className={`${CLASSE_CAMPO} w-60 pl-8 pr-2 placeholder:text-hipo-muted`}
+              className={`${CLASSE_CAMPO} w-44 pl-7 pr-2 placeholder:text-hipo-muted`}
             />
           </div>
 
@@ -415,7 +481,7 @@ export default function Oportunidades() {
               setFiltros((f) => ({ ...f, envolvido_id: e.target.value }));
               setPagina(0);
             }}
-            className={`${CLASSE_CAMPO} px-2`}
+            className={`${CLASSE_CAMPO} px-1 w-28`}
           >
             <option value="">Todos</option>
             {usuarios.map((u) => <option key={u.id} value={u.id}>{u.nome}</option>)}
@@ -433,7 +499,7 @@ export default function Oportunidades() {
                 setFiltros((f) => ({ ...f, fase: e.target.value }));
                 setPagina(0);
               }}
-              className={`${CLASSE_CAMPO} px-2`}
+              className={`${CLASSE_CAMPO} px-1.5`}
             >
               <option value="">Todas as fases</option>
               {Object.entries(FASES).map(([v, r]) => <option key={v} value={v}>{r}</option>)}
@@ -446,9 +512,9 @@ export default function Oportunidades() {
               onClick={limpar}
               aria-label="Limpar filtros"
               title="Limpar filtros"
-              className="h-9 w-9 inline-flex items-center justify-center rounded-lg border border-hipo-border text-hipo-slate hover:bg-hipo-bg transition-colors"
+              className="h-8 w-8 inline-flex items-center justify-center rounded-lg border border-hipo-border text-hipo-slate hover:bg-hipo-bg transition-colors"
             >
-              <X size={15} />
+              <X size={14} />
             </button>
           )}
 
@@ -459,13 +525,13 @@ export default function Oportunidades() {
               aria-pressed={visao === 'kanban'}
               aria-label="Ver como kanban"
               className={
-                'h-9 px-3 text-sm inline-flex items-center gap-1.5 transition-colors ' +
+                'h-8 px-2.5 text-xs inline-flex items-center gap-1 transition-colors ' +
                 (visao === 'kanban'
                   ? 'bg-hipo-blue text-white'
                   : 'bg-hipo-card text-hipo-slate hover:bg-hipo-bg')
               }
             >
-              <LayoutGrid size={15} />Kanban
+              <LayoutGrid size={14} />Kanban
             </button>
             <button
               type="button"
@@ -473,17 +539,19 @@ export default function Oportunidades() {
               aria-pressed={visao === 'tabela'}
               aria-label="Ver como tabela"
               className={
-                'h-9 px-3 text-sm inline-flex items-center gap-1.5 transition-colors ' +
+                'h-8 px-2.5 text-xs inline-flex items-center gap-1 transition-colors ' +
                 (visao === 'tabela'
                   ? 'bg-hipo-blue text-white'
                   : 'bg-hipo-card text-hipo-slate hover:bg-hipo-bg')
               }
             >
-              <TableIcon size={15} />Tabela
+              <TableIcon size={14} />Tabela
             </button>
           </div>
 
-          <Button icon={Plus} onClick={() => setNovaAberta(true)}>Nova oportunidade</Button>
+          <Button size="sm" icon={Plus} onClick={() => setNovaAberta(true)}>
+            Nova oportunidade
+          </Button>
         </div>
       </div>
 
@@ -492,158 +560,124 @@ export default function Oportunidades() {
       )}
 
       {/*
-        Três KPIs, não quatro. "Sem próxima ação" saiu: concluir uma tarefa vai
-        obrigar o vendedor a criar a próxima, então o indicador nasce zerado
-        para sempre — e um KPI que nunca sai de zero só ocupa altura.
+        O funil come toda a altura restante. No kanban não há card em volta:
+        cada coluna já tem sua própria borda, e um card externo custaria ~60px
+        de cabeçalho e padding sem informar nada.
       */}
-      <div className="shrink-0 grid grid-cols-1 sm:grid-cols-3 gap-3">
-        <KpiBotao
-          ativo={kpiAtivo === 'abertas'}
-          onClick={() => alternarKpi('abertas', { apenas_abertas: true })}
-        >
-          <KpiCard
-            label="Em aberto"
-            value={resumo?.abertas ?? '—'}
-            hint={resumo ? formatarMoeda(resumo.ticket_aberto) : undefined}
-            icon={Briefcase}
-            tone="blue"
+      <div className="flex-1 min-h-0">
+        {visao === 'kanban' ? (
+          <KanbanOportunidades
+            colunas={colunas}
+            carregando={carregando || !visao}
+            onAbrir={abrir}
+            onMover={mover}
+            onDesfecho={setDesfechoDe}
           />
-        </KpiBotao>
+        ) : (
+          <div className="h-full min-h-0 flex flex-col rounded-xl border border-hipo-border bg-hipo-card">
+            <div className="shrink-0 flex items-baseline justify-between gap-2 px-3 py-1.5 border-b border-hipo-border">
+              <h2 className="text-xs font-semibold text-hipo-ink">
+                {lista.total} oportunidade{lista.total === 1 ? '' : 's'}
+              </h2>
+              {temFiltro && <span className="text-[11px] text-hipo-slate">resultado filtrado</span>}
+            </div>
 
-        <KpiBotao ativo={false} onClick={() => {}}>
-          <KpiCard
-            label="Previsto no mês"
-            value={resumo ? formatarMoeda(resumo.previsto_no_mes) : '—'}
-            hint="mensalidade das ativas"
-            icon={TrendingUp}
-            tone="emerald"
-          />
-        </KpiBotao>
-
-        <KpiBotao ativo={false} onClick={() => {}}>
-          <KpiCard
-            label="Ganhas no mês"
-            value={resumo?.ganhas_mes ?? '—'}
-            hint={resumo ? `${resumo.perdidas_mes} perdidas` : undefined}
-            icon={Trophy}
-            tone="violet"
-          />
-        </KpiBotao>
-      </div>
-
-      {/* ── Área do funil: come toda a altura restante ── */}
-      <div className="flex-1 min-h-0 flex flex-col rounded-xl border border-hipo-border bg-hipo-card">
-        <div className="shrink-0 flex items-baseline justify-between gap-2 px-4 py-2 border-b border-hipo-border">
-          <h2 className="text-sm font-semibold text-hipo-ink">
-            {visao === 'kanban'
-              ? 'Funil'
-              : `${lista.total} oportunidade${lista.total === 1 ? '' : 's'}`}
-          </h2>
-          {temFiltro && <span className="text-xs text-hipo-slate">resultado filtrado</span>}
-        </div>
-
-        <div className="flex-1 min-h-0 p-3">
-          {visao === 'kanban' ? (
-            <KanbanOportunidades
-              colunas={colunas}
-              carregando={carregando || !visao}
-              onAbrir={abrir}
-              onMover={mover}
-              onDesfecho={setDesfechoDe}
-            />
-          ) : carregando ? (
-            <p className="py-10 text-center text-sm text-hipo-slate">Carregando…</p>
-          ) : lista.itens.length === 0 ? (
-            <Empty
-              title={temFiltro ? 'Nenhuma oportunidade com esses filtros' : 'Nenhuma oportunidade'}
-              description={temFiltro ? 'Ajuste os filtros.' : 'Crie a primeira para começar o funil.'}
-              icon={Briefcase}
-              action={
-                temFiltro
-                  ? <Button variant="secondary" onClick={limpar}>Limpar filtros</Button>
-                  : <Button icon={Plus} onClick={() => setNovaAberta(true)}>Nova oportunidade</Button>
-              }
-            />
-          ) : (
-            <div className="h-full min-h-0 flex flex-col">
-              {/* O scroll da tabela é aqui dentro, não na página. */}
-              <div className="flex-1 min-h-0 overflow-auto border border-hipo-border rounded-lg">
-                <Table>
-                  <thead>
-                    <tr>
-                      <Th>Número</Th>
-                      <Th>Empresa</Th>
-                      <Th>Fase</Th>
-                      <Th>Status</Th>
-                      <Th align="right">Mensalidade</Th>
-                      <Th align="right">Temp.</Th>
-                      <Th>Previsão</Th>
-                      <Th>Envolvidos</Th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {lista.itens.map((o) => (
-                      <Tr key={o.id} onClick={() => abrir(o.id)}>
-                        <Td className="font-mono text-sm">{o.numero}</Td>
-                        <Td>
-                          <span className="font-medium text-hipo-ink">{o.conta_razao_social}</span>
-                          {o.contato_nome && (
-                            <span className="block text-xs text-hipo-slate">{o.contato_nome}</span>
-                          )}
-                        </Td>
-                        <Td>{FASES[o.fase] || o.fase}</Td>
-                        <Td>
-                          <Badge tone={TOM_STATUS[o.status] || 'neutral'}>{o.status}</Badge>
-                          {o.fase_desfecho && (
-                            <span className="block text-xs text-hipo-muted">
-                              de {FASES[o.fase_desfecho]}
-                            </span>
-                          )}
-                        </Td>
-                        <Td align="right">{formatarMoeda(o.valor_mensalidade)}</Td>
-                        <Td align="right">
-                          {o.temperatura ?? <span className="text-hipo-muted">—</span>}
-                        </Td>
-                        <Td>{formatarData(o.previsao_fechamento)}</Td>
-                        <Td>
-                          <div className="flex flex-wrap gap-1">
-                            {(o.envolvidos || []).map((e) => (
-                              <Badge key={`${e.usuario_id}-${e.papel}`} tone="neutral">
-                                {e.papel}
-                              </Badge>
-                            ))}
-                          </div>
-                        </Td>
-                      </Tr>
-                    ))}
-                  </tbody>
-                </Table>
-              </div>
-
-              {totalPaginas > 1 && (
-                <div className="shrink-0 flex items-center justify-between pt-3">
-                  <span className="text-sm text-hipo-slate">
-                    Página {pagina + 1} de {totalPaginas}
-                  </span>
-                  <div className="flex gap-2">
-                    <Button
-                      size="sm" variant="secondary" disabled={pagina === 0}
-                      onClick={() => setPagina((p) => p - 1)}
-                    >
-                      Anterior
-                    </Button>
-                    <Button
-                      size="sm" variant="secondary" disabled={pagina + 1 >= totalPaginas}
-                      onClick={() => setPagina((p) => p + 1)}
-                    >
-                      Próxima
-                    </Button>
+            <div className="flex-1 min-h-0 p-3">
+              {carregando ? (
+                <p className="py-10 text-center text-sm text-hipo-slate">Carregando…</p>
+              ) : lista.itens.length === 0 ? (
+                <Empty
+                  title={temFiltro ? 'Nenhuma oportunidade com esses filtros' : 'Nenhuma oportunidade'}
+                  description={temFiltro ? 'Ajuste os filtros.' : 'Crie a primeira para começar o funil.'}
+                  icon={Briefcase}
+                  action={
+                    temFiltro
+                      ? <Button variant="secondary" onClick={limpar}>Limpar filtros</Button>
+                      : <Button icon={Plus} onClick={() => setNovaAberta(true)}>Nova oportunidade</Button>
+                  }
+                />
+              ) : (
+                <div className="h-full min-h-0 flex flex-col">
+                  {/* O scroll da tabela é aqui dentro, não na página. */}
+                  <div className="flex-1 min-h-0 overflow-auto border border-hipo-border rounded-lg">
+                    <Table>
+                      <thead>
+                        <tr>
+                          <Th>Número</Th>
+                          <Th>Empresa</Th>
+                          <Th>Fase</Th>
+                          <Th>Status</Th>
+                          <Th align="right">Mensalidade</Th>
+                          <Th align="right">Temp.</Th>
+                          <Th>Previsão</Th>
+                          <Th>Envolvidos</Th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {lista.itens.map((o) => (
+                          <Tr key={o.id} onClick={() => abrir(o.id)}>
+                            <Td className="font-mono text-sm">{o.numero}</Td>
+                            <Td>
+                              <span className="font-medium text-hipo-ink">{o.conta_razao_social}</span>
+                              {o.contato_nome && (
+                                <span className="block text-xs text-hipo-slate">{o.contato_nome}</span>
+                              )}
+                            </Td>
+                            <Td>{FASES[o.fase] || o.fase}</Td>
+                            <Td>
+                              <Badge tone={TOM_STATUS[o.status] || 'neutral'}>{o.status}</Badge>
+                              {o.fase_desfecho && (
+                                <span className="block text-xs text-hipo-muted">
+                                  de {FASES[o.fase_desfecho]}
+                                </span>
+                              )}
+                            </Td>
+                            <Td align="right">{formatarMoeda(o.valor_mensalidade)}</Td>
+                            <Td align="right">
+                              {o.temperatura ?? <span className="text-hipo-muted">—</span>}
+                            </Td>
+                            <Td>{formatarData(o.previsao_fechamento)}</Td>
+                            <Td>
+                              <div className="flex flex-wrap gap-1">
+                                {(o.envolvidos || []).map((e) => (
+                                  <Badge key={`${e.usuario_id}-${e.papel}`} tone="neutral">
+                                    {e.papel}
+                                  </Badge>
+                                ))}
+                              </div>
+                            </Td>
+                          </Tr>
+                        ))}
+                      </tbody>
+                    </Table>
                   </div>
+
+                  {totalPaginas > 1 && (
+                    <div className="shrink-0 flex items-center justify-between pt-2">
+                      <span className="text-xs text-hipo-slate">
+                        Página {pagina + 1} de {totalPaginas}
+                      </span>
+                      <div className="flex gap-2">
+                        <Button
+                          size="sm" variant="secondary" disabled={pagina === 0}
+                          onClick={() => setPagina((p) => p - 1)}
+                        >
+                          Anterior
+                        </Button>
+                        <Button
+                          size="sm" variant="secondary" disabled={pagina + 1 >= totalPaginas}
+                          onClick={() => setPagina((p) => p + 1)}
+                        >
+                          Próxima
+                        </Button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
-          )}
-        </div>
+          </div>
+        )}
       </div>
 
       <FormNovaOportunidade

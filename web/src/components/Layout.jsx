@@ -208,7 +208,8 @@ export default function Layout() {
   return (
     <div className="h-screen flex flex-col bg-hipo-bg overflow-hidden">
       <header className="bg-hipo-card border-b border-hipo-border shrink-0 z-30">
-        <div className="h-14 lg:h-16 flex items-center px-4 lg:px-6 gap-3 lg:gap-6">
+        {/* 48/52px. Era 56/64 — 20% a menos, para devolver altura ao conteudo. */}
+        <div className="h-12 lg:h-[52px] flex items-center px-3 lg:px-5 gap-3 lg:gap-5">
           {temNav && (
             <button
               onClick={() => setMobileOpen((v) => !v)}
@@ -221,7 +222,7 @@ export default function Layout() {
           )}
 
           <NavLink to="/" className="flex items-center gap-2 shrink-0">
-            <Logo size={28} />
+            <Logo size={24} />
             <LogoWordmark />
           </NavLink>
 
@@ -258,7 +259,7 @@ export default function Layout() {
 
       {temNav && mobileOpen && (
         <div
-          className="lg:hidden fixed inset-0 top-14 bg-hipo-ink/30 z-20"
+          className="lg:hidden fixed inset-0 top-12 bg-hipo-ink/30 z-20"
           onClick={() => setMobileOpen(false)}
           aria-hidden="true"
         />
@@ -277,7 +278,7 @@ export default function Layout() {
             navegador não sabe qual é a altura disponível.
       */}
       <main className="flex-1 min-h-0 overflow-y-auto">
-        <div className="p-6 lg:p-8 max-w-7xl mx-auto h-full">
+        <div className="px-3 lg:px-5 py-3 h-full">
           <Outlet />
         </div>
       </main>

@@ -211,7 +211,7 @@ export default function KanbanOportunidades({
   }
 
   return (
-    <div className="h-full flex gap-3 overflow-x-auto overflow-y-hidden pb-1">
+    <div className="h-full flex gap-2 overflow-x-auto overflow-y-hidden pb-1">
       {colunas.map((coluna) => (
         <section
           key={coluna.fase}
@@ -220,7 +220,7 @@ export default function KanbanOportunidades({
           onDrop={(e) => soltar(e, coluna)}
           aria-label={`Fase ${coluna.rotulo}`}
           className={
-            'flex-1 min-w-[12rem] h-full flex flex-col rounded-xl border p-2 transition-colors ' +
+            'flex-1 min-w-[11.5rem] h-full flex flex-col rounded-xl border p-1.5 transition-colors ' +
             (alvo === coluna.fase
               ? 'border-hipo-blue bg-hipo-blueSoft/40'
               : coluna.somente_leitura
@@ -228,13 +228,13 @@ export default function KanbanOportunidades({
                 : 'border-hipo-border bg-hipo-bg/40')
           }
         >
-          <header className="shrink-0 mb-2 px-1">
+          <header className="shrink-0 mb-1.5 px-1">
             <div className="flex items-baseline justify-between gap-2">
-              <h3 className="text-sm font-semibold text-hipo-ink truncate">{coluna.rotulo}</h3>
-              <span className="text-xs text-hipo-slate">{coluna.quantidade}</span>
+              <h3 className="text-xs font-semibold text-hipo-ink truncate">{coluna.rotulo}</h3>
+              <span className="text-[11px] text-hipo-slate">{coluna.quantidade}</span>
             </div>
             {/* Ticket somado da coluna INTEIRA, não só dos cartões visíveis. */}
-            <p className="text-xs text-hipo-slate truncate">
+            <p className="text-[11px] text-hipo-slate truncate">
               {formatarMoeda(coluna.ticket_total) || 'R$ 0,00'}
               {coluna.somente_leitura && (
                 <span className="text-hipo-muted"> ganho no mês</span>
@@ -247,7 +247,7 @@ export default function KanbanOportunidades({
             flex-item usa a altura do conteúdo como mínimo e a coluna cresce
             para fora do container em vez de rolar.
           */}
-          <ul className="flex-1 min-h-0 overflow-y-auto space-y-2 pr-0.5">
+          <ul className="flex-1 min-h-0 overflow-y-auto space-y-1.5 pr-0.5">
             {coluna.itens.length === 0 ? (
               <li className="px-1 py-6 text-center text-xs text-hipo-muted list-none">
                 {alvo === coluna.fase
