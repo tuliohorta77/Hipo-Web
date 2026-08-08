@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 
 import api from '../../api';
+import AbaTarefas from './AbaTarefas';
 import Tabs from '../ui/Tabs';
 import Input, { Select } from '../ui/Input';
 import Button from '../ui/Button';
@@ -370,7 +371,10 @@ export default function OportunidadeDetalhe({
 
   useEffect(() => {
     api.get(`/crm/contatos`, { params: { conta_id: oportunidade.conta_id, limit: 100 } })
-      .then(({ data }) => setContatos(data.itens))
+      // `|| []` não é paranoia: uma resposta sem `itens` deixava o map de
+      // baixo estourar e a tela inteira virava branco. Erro de dado não pode
+      // derrubar a tela.
+      .then(({ data }) => setContatos(data.itens || []))
       .catch(() => setContatos([]));
     api.get('/crm/dominio/origens')
       .then(({ data }) => setOrigens(data))
@@ -441,6 +445,11 @@ export default function OportunidadeDetalhe({
 
   const abas = [
     { key: 'dados', label: 'Dados' },
+    // Tarefas logo depois de Dados: é a aba que responde "e agora?", que é a
+    // pergunta que traz o vendedor a esta tela. O badge conta as abertas e
+    // vem do detalhe, não de uma segunda chamada — precisa estar certo antes
+    // de alguém clicar.
+    { key: 'tarefas', label: 'Tarefas', badge: oportunidade.tarefas_abertas || undefined },
     { key: 'envolvidos', label: 'Envolvidos', badge: oportunidade.envolvidos?.length || undefined },
     { key: 'concorrentes', label: 'Concorrentes', badge: oportunidade.concorrentes?.length || undefined },
     { key: 'historico', label: 'Histórico' },
@@ -644,6 +653,10 @@ export default function OportunidadeDetalhe({
             onMudou={onRecarregar}
             setErro={setErro}
           />
+        )}
+
+        {aba === 'tarefas' && (
+          <AbaTarefas oportunidade={oportunidade} onMudou={onRecarregar} />
         )}
 
         {aba === 'historico' && <AbaHistorico oportunidadeId={oportunidade.id} />}

@@ -7,6 +7,7 @@
 --   001_drop_legado.sql  removeu PEX, CROmie, BD Ativados, POs e Carteira
 --   002_crm_core.sql     criou as 11 tabelas do CRM
 --   003_fase_suspect.sql acrescentou a fase 'suspect' na boca do funil
+--   004_tarefas.sql      criou a tabela de tarefas do funil
 --
 -- Este arquivo e a fonte usada para criar o banco de teste no CI e deve
 -- refletir o estado acumulado das migrations.
@@ -343,3 +344,70 @@ CREATE TABLE IF NOT EXISTS usuarios_preferencias (
     PRIMARY KEY (usuario_id, chave)
 );
 
+
+-- ---------------------------------------------------------------------------
+-- tarefas  (espelha api/migrations/004_tarefas.sql)
+-- ---------------------------------------------------------------------------
+-- Toda tarefa pertence a UMA oportunidade. Sem esse vinculo a tarefa vira
+-- lista de afazeres pessoal e para de servir para metrica de funil.
+--
+-- SITUACAO NAO E COLUNA. E derivada de prazo + concluida_em + cancelada_em
+-- mais o relogio (services/tarefa.py):
+--     cancelada / concluida / atrasada / hoje / futura
+-- Guardar 'atrasada' numa coluna exigiria um job virando o estado a
+-- meia-noite, e qualquer falha do job produziria dado mentiroso.
+--
+-- tarefa_anterior_id forma a corrente de follow-up: concluir obriga a criar a
+-- proxima (regra na API), e a nova aponta para a que a gerou.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS tarefas (
+    id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    oportunidade_id     UUID NOT NULL REFERENCES oportunidades(id) ON DELETE CASCADE,
+    tipo                VARCHAR(20) NOT NULL,
+    titulo              VARCHAR(200) NOT NULL,
+    descricao           TEXT,
+    responsavel_id      UUID NOT NULL REFERENCES usuarios(id) ON DELETE RESTRICT,
+    prazo               TIMESTAMPTZ NOT NULL,
+    concluida_em        TIMESTAMPTZ,
+    resultado           TEXT,
+    cancelada_em        TIMESTAMPTZ,
+    motivo_cancelamento TEXT,
+    tarefa_anterior_id  UUID REFERENCES tarefas(id) ON DELETE SET NULL,
+    criado_por          UUID REFERENCES usuarios(id) ON DELETE SET NULL,
+    criado_em           TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    atualizado_em       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT ck_tarefa_tipo CHECK (
+        tipo IN ('ligacao', 'reuniao', 'visita', 'proposta',
+                 'email', 'whatsapp', 'outro')
+    ),
+    CONSTRAINT ck_tarefa_titulo CHECK (length(btrim(titulo)) > 0),
+    CONSTRAINT ck_tarefa_desfecho_unico CHECK (
+        concluida_em IS NULL OR cancelada_em IS NULL
+    ),
+    CONSTRAINT ck_tarefa_resultado CHECK (
+        resultado IS NULL OR concluida_em IS NOT NULL
+    ),
+    CONSTRAINT ck_tarefa_motivo_cancelamento CHECK (
+        motivo_cancelamento IS NULL OR cancelada_em IS NOT NULL
+    ),
+    CONSTRAINT ck_tarefa_corrente CHECK (
+        tarefa_anterior_id IS NULL OR tarefa_anterior_id <> id
+    )
+);
+
+CREATE INDEX IF NOT EXISTS idx_tarefas_oportunidade
+    ON tarefas (oportunidade_id, prazo);
+
+-- Indice que a "proxima tarefa" da Etapa 5 vai usar. Parcial: tarefa fechada
+-- nunca entra nessa consulta.
+CREATE INDEX IF NOT EXISTS idx_tarefas_abertas
+    ON tarefas (responsavel_id, prazo)
+    WHERE concluida_em IS NULL AND cancelada_em IS NULL;
+
+CREATE INDEX IF NOT EXISTS idx_tarefas_abertas_por_opp
+    ON tarefas (oportunidade_id)
+    WHERE concluida_em IS NULL AND cancelada_em IS NULL;
+
+CREATE INDEX IF NOT EXISTS idx_tarefas_anterior
+    ON tarefas (tarefa_anterior_id)
+    WHERE tarefa_anterior_id IS NOT NULL;

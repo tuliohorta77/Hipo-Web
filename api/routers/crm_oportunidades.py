@@ -38,10 +38,14 @@ router = APIRouter()
 
 PAPEIS = ("EC", "SDR", "EV")
 
+# proxima_acao_em / proxima_acao_tipo saíram: quem responde "qual o próximo
+# passo" agora é a tabela `tarefas`. As colunas continuam no banco porque DROP
+# é destrutivo e exige export prévio — está no backlog. Fora desta lista, elas
+# não são mais escritas por ninguém.
 CAMPOS_EDITAVEIS = {
     "conta_id", "contato_id", "valor_mensalidade", "temperatura",
     "previsao_fechamento", "descricao", "observacoes", "origem_id",
-    "finder_conta_id", "proxima_acao_em", "proxima_acao_tipo",
+    "finder_conta_id",
 }
 
 ORDENACOES = {
@@ -185,6 +189,10 @@ class OportunidadeDetalhe(OportunidadeResumo):
     observacoes: str | None
     origem_id: int | None
     concorrentes: list[dict]
+    # Contagem de tarefas em aberto, para o badge da aba. Vem daqui e não de
+    # uma segunda chamada do front porque o modal já carrega o detalhe: o
+    # badge precisa estar certo antes de alguém clicar na aba.
+    tarefas_abertas: int = 0
 
 
 class OportunidadeLista(BaseModel):
@@ -421,6 +429,17 @@ async def _detalhe(conn, oportunidade_id: UUID) -> dict:
         oportunidade_id,
     )
     d["concorrentes"] = [dict(c) for c in concorrentes]
+
+    # Índice parcial idx_tarefas_abertas_por_opp cobre exatamente este WHERE.
+    d["tarefas_abertas"] = await conn.fetchval(
+        """
+        SELECT count(*) FROM tarefas
+         WHERE oportunidade_id = $1
+           AND concluida_em IS NULL
+           AND cancelada_em IS NULL
+        """,
+        oportunidade_id,
+    ) or 0
     return d
 
 

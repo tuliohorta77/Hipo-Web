@@ -1,0 +1,177 @@
+"""
+HIPO — Regras das tarefas do funil.
+
+Funções puras: sem banco, sem I/O, sem `datetime.now()` escondido. Todo
+cálculo que depende do relógio recebe `agora` como parâmetro — é o que
+permite testar "atrasada" e "hoje" sem mockar o tempo, mesmo padrão de
+services/dias_uteis.py.
+
+Duas regras moram aqui:
+
+  1. SITUAÇÃO DERIVADA. A tarefa não tem coluna de estado. O que ela tem é
+     prazo, concluída_em e cancelada_em; o estado sai da combinação desses
+     três com o relógio. Guardar 'atrasada' no banco exigiria um job virando
+     o estado à meia-noite, e falha de job produz dado mentiroso.
+
+  2. CONCLUIR EXIGE A PRÓXIMA. Enquanto a oportunidade está aberta, fechar
+     uma tarefa sem marcar a seguinte deixaria o negócio sem próximo passo —
+     que é exatamente o buraco que o CRM existe para tapar. A exceção é a
+     oportunidade já finalizada: acabou, não há próxima.
+"""
+from __future__ import annotations
+
+from dataclasses import dataclass
+from datetime import datetime, timezone
+
+# Tipos de tarefa. Lista fechada de propósito: diferente de vertical e
+# origem, aqui não interessa cada um inventar o seu — a comparação entre
+# "quantas ligações até fechar" só funciona com vocabulário estável.
+TIPOS = (
+    "ligacao", "reuniao", "visita", "proposta", "email", "whatsapp", "outro",
+)
+
+ROTULOS_TIPO = {
+    "ligacao": "Ligação",
+    "reuniao": "Reunião",
+    "visita": "Visita",
+    "proposta": "Proposta",
+    "email": "E-mail",
+    "whatsapp": "WhatsApp",
+    "outro": "Outro",
+}
+
+# Situações derivadas. As três primeiras são tarefa em aberto.
+SITUACOES_ABERTAS = ("atrasada", "hoje", "futura")
+SITUACOES_FECHADAS = ("concluida", "cancelada")
+SITUACOES = SITUACOES_ABERTAS + SITUACOES_FECHADAS
+
+# Ordem de urgência para a tela: atrasada primeiro, concluída por último.
+ORDEM_SITUACAO = {s: i for i, s in enumerate(
+    ("atrasada", "hoje", "futura", "concluida", "cancelada")
+)}
+
+
+class TarefaInvalida(ValueError):
+    """Operação recusada pelas regras de tarefa."""
+
+
+@dataclass(frozen=True)
+class EstadoTarefa:
+    prazo: datetime
+    concluida_em: datetime | None = None
+    cancelada_em: datetime | None = None
+
+
+def validar_tipo(tipo: str) -> str:
+    if tipo not in TIPOS:
+        raise TarefaInvalida(
+            f"Tipo de tarefa inválido: '{tipo}'. Use: {', '.join(TIPOS)}."
+        )
+    return tipo
+
+
+def esta_aberta(estado: EstadoTarefa) -> bool:
+    return estado.concluida_em is None and estado.cancelada_em is None
+
+
+def situacao(estado: EstadoTarefa, agora: datetime) -> str:
+    """
+    Situação derivada da tarefa.
+
+        cancelada_em preenchido        -> 'cancelada'
+        concluida_em preenchido        -> 'concluida'
+        prazo antes de agora           -> 'atrasada'
+        prazo no mesmo dia que agora   -> 'hoje'
+        senão                          -> 'futura'
+
+    'hoje' é dia de calendário, não janela de 24h: uma tarefa marcada para as
+    09h continua sendo "de hoje" às 18h, mesmo já atrasada em relação à hora.
+    Só vira 'atrasada' na virada do dia. Vendedor não trata as duas coisas do
+    mesmo jeito — o que passou da hora ainda dá para fazer hoje; o que passou
+    do dia é dívida.
+    """
+    if estado.cancelada_em is not None:
+        return "cancelada"
+    if estado.concluida_em is not None:
+        return "concluida"
+
+    prazo = _com_fuso(estado.prazo)
+    agora = _com_fuso(agora)
+
+    if prazo.date() == agora.date():
+        return "hoje"
+    if prazo < agora:
+        return "atrasada"
+    return "futura"
+
+
+def exige_proxima(status_oportunidade: str) -> bool:
+    """
+    Concluir esta tarefa obriga a criar a próxima?
+
+    Sim enquanto a oportunidade está viva (ativa ou suspensa). Não quando ela
+    já foi finalizada — conquistada, perdida ou cancelada não têm próximo
+    passo comercial, e exigir um só produziria tarefa de mentira que ninguém
+    vai fazer.
+
+    Suspensa continua exigindo de propósito: suspender é pausa, e pausa sem
+    data para voltar é como oportunidade morre em silêncio.
+    """
+    return status_oportunidade in ("ativa", "suspensa")
+
+
+def validar_conclusao(
+    estado: EstadoTarefa,
+    status_oportunidade: str,
+    tem_proxima: bool,
+) -> None:
+    """
+    Levanta TarefaInvalida com mensagem em português se a conclusão não pode
+    acontecer. O CHECK do banco é a última linha de defesa; esta é a primeira.
+    """
+    if estado.cancelada_em is not None:
+        raise TarefaInvalida("Esta tarefa foi cancelada e não pode ser concluída.")
+    if estado.concluida_em is not None:
+        raise TarefaInvalida("Esta tarefa já foi concluída.")
+    if exige_proxima(status_oportunidade) and not tem_proxima:
+        raise TarefaInvalida(
+            "Concluir exige agendar a próxima tarefa desta oportunidade. "
+            "Se não há próximo passo, finalize a oportunidade."
+        )
+
+
+def validar_cancelamento(estado: EstadoTarefa) -> None:
+    if estado.concluida_em is not None:
+        raise TarefaInvalida("Tarefa concluída não pode ser cancelada.")
+    if estado.cancelada_em is not None:
+        raise TarefaInvalida("Esta tarefa já foi cancelada.")
+
+
+def validar_edicao(estado: EstadoTarefa) -> None:
+    """
+    Só tarefa em aberto é editável.
+
+    Reescrever prazo ou título de tarefa já fechada apagaria o histórico —
+    que é justamente o que a aba existe para mostrar.
+    """
+    if not esta_aberta(estado):
+        raise TarefaInvalida(
+            "Tarefa fechada não pode ser editada. O histórico é imutável."
+        )
+
+
+def chave_ordenacao(situacao_atual: str, prazo: datetime) -> tuple[int, datetime]:
+    """
+    Ordem de exibição: bloco por situação (atrasada → hoje → futura →
+    concluída → cancelada) e, dentro do bloco, por prazo crescente.
+    """
+    return (ORDEM_SITUACAO.get(situacao_atual, 99), _com_fuso(prazo))
+
+
+def _com_fuso(d: datetime) -> datetime:
+    """
+    asyncpg devolve TIMESTAMPTZ com fuso, mas teste puro costuma montar
+    datetime ingênuo. Comparar os dois levanta TypeError, então normaliza
+    para UTC quando vier sem fuso.
+    """
+    return d if d.tzinfo is not None else d.replace(tzinfo=timezone.utc)

@@ -8,13 +8,15 @@ envolvimento vale para oportunidades, e é aplicado no repositório, não aqui.
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from routers import auth, crm_contas, crm_contatos, crm_dominio, crm_oportunidades
+from routers import (
+    auth, crm_contas, crm_contatos, crm_dominio, crm_oportunidades, crm_tarefas,
+)
 from routers.permissions import requer_modulo
 
 app = FastAPI(
     title="HIPO API",
     description="Hipotálamo Inteligente de Processos e Operações",
-    version="2.3.0",
+    version="2.4.0",
 )
 
 app.add_middleware(
@@ -43,6 +45,15 @@ app.include_router(
 app.include_router(
     crm_oportunidades.router,
     prefix="/crm/oportunidades", tags=["CRM - Oportunidades"],
+    dependencies=[Depends(requer_modulo("crm"))],
+)
+
+# Tarefas ficam num prefixo proprio e nao aninhadas em /oportunidades/{id}
+# porque a agenda por pessoa (a "proxima tarefa" da Etapa 5) vai consultar por
+# responsavel, sem oportunidade no caminho.
+app.include_router(
+    crm_tarefas.router,
+    prefix="/crm/tarefas", tags=["CRM - Tarefas"],
     dependencies=[Depends(requer_modulo("crm"))],
 )
 
