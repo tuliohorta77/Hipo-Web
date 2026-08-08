@@ -33,6 +33,29 @@ const CAMPOS = [
   'descricao', 'observacoes', 'origem_id', 'finder_conta_id',
 ];
 
+/**
+ * Campo com o rótulo na MESMA linha do controle.
+ *
+ * No trilho de 208px, rótulo em cima gastava duas alturas por campo sem
+ * necessidade — e são só duas palavras curtas. Local de propósito: mexer no
+ * Input/Select compartilhado por causa de um caso arriscaria todas as telas.
+ */
+function CampoInline({ id, rotulo, children }) {
+  return (
+    <div className="flex items-center gap-2">
+      <label htmlFor={id} className="w-16 shrink-0 text-xs text-hipo-slate">
+        {rotulo}
+      </label>
+      {children}
+    </div>
+  );
+}
+
+const CLASSE_INLINE =
+  'flex-1 min-w-0 h-8 px-2 text-xs rounded-lg border border-hipo-border ' +
+  'bg-hipo-card text-hipo-ink focus:outline-none focus:ring-2 focus:ring-hipo-blue ' +
+  'disabled:bg-hipo-bg disabled:text-hipo-slate';
+
 // Só as fases abertas: Finalizado não é escolha de seletor, é desfecho com
 // status e motivo.
 const FASES = [
@@ -336,7 +359,7 @@ export default function OportunidadeDetalhe({
   onRecarregar,
   onSalvo,
   onDesfecho,
-  registrarSalvar,
+  onFechar,
 }) {
   const [form, setForm] = useState({});
   const [aba, setAba] = useState('dados');
@@ -416,15 +439,6 @@ export default function OportunidadeDetalhe({
     }
   }, [form, oportunidade.id, onSalvo]);
 
-  // Ver a nota em ContaDetalhe: publicar `salvar` como dependência do efeito
-  // cria loop de renderização com as props recriadas pelo pai.
-  const salvarRef = useRef(salvar);
-  salvarRef.current = salvar;
-
-  useEffect(() => {
-    registrarSalvar?.({ salvar: () => salvarRef.current(), sujo, salvando });
-  }, [registrarSalvar, sujo, salvando]);
-
   async function acao(chave, fn) {
     setAcaoEmCurso(chave);
     setErro(null);
@@ -464,60 +478,40 @@ export default function OportunidadeDetalhe({
 
       {/* ── Trilho: estado, navegação e ações ── */}
       <aside className="shrink-0 w-52 border-r border-hipo-border bg-hipo-bg/40 flex flex-col min-h-0">
-        <div className="px-3 pt-3 pb-2 space-y-2.5">
-          <div className="flex flex-wrap items-center gap-1.5">
-            <Badge tone={TOM_STATUS[oportunidade.status] || 'neutral'}>
-              {oportunidade.status}
-            </Badge>
-            {oportunidade.fase_desfecho && (
-              <span className="text-[11px] text-hipo-slate">
-                de {oportunidade.fase_desfecho}
-              </span>
-            )}
-          </div>
-
+        <div className="px-3 pt-3 pb-3 space-y-2">
           {/*
             Fase é ação, não campo: mudar dispara regra e grava evento. Por
             isso o select chama o endpoint na hora, sem passar pelo Salvar.
           */}
-          <Select
-            label="Fase"
-            value={oportunidade.fase}
-            disabled={finalizada || Boolean(acaoEmCurso)}
-            onChange={(e) => acao('fase', () =>
-              api.patch(`/crm/oportunidades/${oportunidade.id}/fase`, { fase: e.target.value })
-            )}
-          >
-            {FASES.map((f) => <option key={f.valor} value={f.valor}>{f.rotulo}</option>)}
-            {finalizada && <option value="finalizado">Finalizado</option>}
-          </Select>
+          <CampoInline id="opp-fase" rotulo="Fase">
+            <select
+              id="opp-fase"
+              aria-label="Fase"
+              className={CLASSE_INLINE}
+              value={oportunidade.fase}
+              disabled={finalizada || Boolean(acaoEmCurso)}
+              onChange={(e) => acao('fase', () =>
+                api.patch(`/crm/oportunidades/${oportunidade.id}/fase`, { fase: e.target.value })
+              )}
+            >
+              {FASES.map((f) => <option key={f.valor} value={f.valor}>{f.rotulo}</option>)}
+              {finalizada && <option value="finalizado">Finalizado</option>}
+            </select>
+          </CampoInline>
 
-          {/*
-            Temperatura e mensalidade lado a lado. Empilhadas, as três caixas
-            do topo empurravam a navegação para além da altura do trilho e
-            ela ganhava barra de rolagem por 3px — feio e frágil: a sétima
-            aba quebraria de novo.
-          */}
-          <div className="grid grid-cols-2 gap-2">
-            <Select
-              label="Temp."
+          <CampoInline id="opp-temperatura" rotulo="Temp.">
+            <select
+              id="opp-temperatura"
+              aria-label="Temperatura"
+              className={CLASSE_INLINE}
               value={form.temperatura ?? ''}
               disabled={oportunidade.status !== 'ativa'}
               onChange={(e) => set('temperatura', e.target.value)}
             >
               {oportunidade.status !== 'ativa' && <option value="">—</option>}
               {TEMPERATURAS.map((t) => <option key={t} value={t}>{t}</option>)}
-            </Select>
-
-            <Input
-              label="Mensal. R$"
-              type="number"
-              min="0"
-              step="0.01"
-              value={form.valor_mensalidade ?? ''}
-              onChange={(e) => set('valor_mensalidade', e.target.value)}
-            />
-          </div>
+            </select>
+          </CampoInline>
         </div>
 
         {/* Navegação. Rola sozinha se um dia houver abas demais. */}
@@ -525,42 +519,6 @@ export default function OportunidadeDetalhe({
           <Tabs items={abas} value={aba} onChange={setAba} orientacao="vertical" />
         </div>
 
-        {/* Ações de estado no rodapé do trilho: são saída, não navegação. */}
-        <div className="shrink-0 px-3 py-3 border-t border-hipo-border space-y-2">
-          {finalizada ? (
-            <Button
-              variant="secondary"
-              icon={RotateCcw}
-              className="w-full"
-              loading={acaoEmCurso === 'reabrir'}
-              onClick={() => acao('reabrir', () =>
-                api.post(`/crm/oportunidades/${oportunidade.id}/reabrir`, {})
-              )}
-            >
-              Reabrir
-            </Button>
-          ) : (
-            <>
-              <Button
-                variant="secondary"
-                className="w-full"
-                icon={oportunidade.status === 'ativa' ? PauseCircle : PlayCircle}
-                loading={acaoEmCurso === 'status'}
-                onClick={() => acao('status', () =>
-                  api.patch(`/crm/oportunidades/${oportunidade.id}/status`, {
-                    status: oportunidade.status === 'ativa' ? 'suspensa' : 'ativa',
-                    temperatura: oportunidade.temperatura ?? 50,
-                  })
-                )}
-              >
-                {oportunidade.status === 'ativa' ? 'Suspender' : 'Reativar'}
-              </Button>
-              <Button icon={Flag} className="w-full" onClick={() => onDesfecho(oportunidade)}>
-                Finalizar
-              </Button>
-            </>
-          )}
-        </div>
       </aside>
 
       {/* ── Conteúdo da aba ── */}
@@ -673,14 +631,89 @@ export default function OportunidadeDetalhe({
           é barato, adivinhar o modelo de dados é caro.
         */}
         {aba === 'proposta' && (
-          <Empty
-            title="Proposta ainda não implementada"
-            description="Aqui vão as vidas, o valor por vida, a mensalidade calculada e o histórico de versões da proposta. Depende de fechar o catálogo de serviços."
-            icon={FileText}
-          />
+          <div className="max-w-md space-y-5">
+            {/*
+              A mensalidade veio para cá porque é resultado de proposta, não
+              atributo solto da oportunidade. Hoje é digitada; quando o
+              catálogo existir, passa a ser vidas x valor por vida.
+            */}
+            <Input
+              label="Mensalidade (R$)"
+              type="number"
+              min="0"
+              step="0.01"
+              value={form.valor_mensalidade ?? ''}
+              onChange={(e) => set('valor_mensalidade', e.target.value)}
+              hint="Por enquanto digitada. Vai ser calculada quando o catálogo de serviços existir."
+            />
+
+            <div className="border-t border-hipo-border pt-4">
+              <Empty
+                title="Versões da proposta ainda não implementadas"
+                description="Aqui vão as vidas, o valor por vida e o histórico de versões (v1, v2, v3). Depende de fechar o catálogo de serviços e a precificação."
+                icon={FileText}
+              />
+            </div>
+          </div>
         )}
 
         {aba === 'historico' && <AbaHistorico oportunidadeId={oportunidade.id} />}
+        </div>
+
+        {/*
+          Uma barra só. Suspender e Finalizar são saídas desta tela, igual a
+          Fechar e Salvar — separá-las em cantos diferentes obrigava o olho a
+          procurar onde estava cada ação.
+        */}
+        <div
+          aria-label="Ações da oportunidade"
+          className="shrink-0 flex flex-wrap items-center gap-2 px-5 py-3 border-t border-hipo-border bg-hipo-bg/40"
+        >
+          <span className="text-xs text-hipo-slate">
+            {sujo ? 'Alterações não salvas' : 'Tudo salvo'}
+          </span>
+
+          <div className="ml-auto flex flex-wrap items-center gap-2">
+            {finalizada ? (
+              <Button
+                size="sm"
+                variant="secondary"
+                icon={RotateCcw}
+                loading={acaoEmCurso === 'reabrir'}
+                onClick={() => acao('reabrir', () =>
+                  api.post(`/crm/oportunidades/${oportunidade.id}/reabrir`, {})
+                )}
+              >
+                Reabrir
+              </Button>
+            ) : (
+              <>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  icon={oportunidade.status === 'ativa' ? PauseCircle : PlayCircle}
+                  loading={acaoEmCurso === 'status'}
+                  onClick={() => acao('status', () =>
+                    api.patch(`/crm/oportunidades/${oportunidade.id}/status`, {
+                      status: oportunidade.status === 'ativa' ? 'suspensa' : 'ativa',
+                      temperatura: oportunidade.temperatura ?? 50,
+                    })
+                  )}
+                >
+                  {oportunidade.status === 'ativa' ? 'Suspender' : 'Reativar'}
+                </Button>
+                <Button size="sm" variant="secondary" icon={Flag}
+                  onClick={() => onDesfecho(oportunidade)}>
+                  Finalizar
+                </Button>
+              </>
+            )}
+
+            <Button size="sm" variant="ghost" onClick={onFechar}>Fechar</Button>
+            <Button size="sm" onClick={salvar} disabled={!sujo} loading={salvando}>
+              Salvar
+            </Button>
+          </div>
         </div>
       </div>
     </div>

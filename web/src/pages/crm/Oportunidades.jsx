@@ -263,7 +263,6 @@ export default function Oportunidades() {
   const [detalhe, setDetalhe] = useState(null);
   const [desfechoDe, setDesfechoDe] = useState(null);
   const [kpiAtivo, setKpiAtivo] = useState(null);
-  const [acaoSalvar, setAcaoSalvar] = useState(null);
   const debounce = useRef(null);
 
   // O `f.q === busca ? f : ...` nao e microtuning: devolver o MESMO objeto faz
@@ -698,32 +697,26 @@ export default function Oportunidades() {
         }}
       />
 
+      {/*
+        Sem `footer`: quem monta a barra de baixo é o próprio
+        OportunidadeDetalhe, porque as ações de estado (Suspender, Finalizar)
+        moram lá e precisam ficar na mesma linha de Fechar e Salvar. Isso
+        também apagou o canal `registrarSalvar` — e com ele o risco de loop
+        de renderização que ele carregava.
+
+        O subtítulo é o STATUS, não a fase: a fase já está no seletor do
+        trilho, e o que muda a leitura da tela é saber se está ativa,
+        suspensa ou finalizada.
+      */}
       <Modal
         aberto={Boolean(detalhe)}
-        onFechar={() => { setDetalhe(null); setAcaoSalvar(null); }}
+        onFechar={() => setDetalhe(null)}
         titulo={detalhe ? `${detalhe.numero} · ${detalhe.conta_razao_social}` : undefined}
-        subtitulo={detalhe ? FASES[detalhe.fase] : undefined}
+        subtitulo={detalhe ? (
+          <Badge tone={TOM_STATUS[detalhe.status] || 'neutral'}>{detalhe.status}</Badge>
+        ) : undefined}
         size="full"
         bodySemPadding
-        footer={
-          <div className="flex items-center justify-between gap-3">
-            <span className="text-xs text-hipo-slate">
-              {acaoSalvar?.sujo ? 'Alterações não salvas' : 'Tudo salvo'}
-            </span>
-            <div className="flex gap-2">
-              <Button variant="ghost" onClick={() => { setDetalhe(null); setAcaoSalvar(null); }}>
-                Fechar
-              </Button>
-              <Button
-                onClick={() => acaoSalvar?.salvar()}
-                disabled={!acaoSalvar?.sujo}
-                loading={acaoSalvar?.salvando}
-              >
-                Salvar
-              </Button>
-            </div>
-          </div>
-        }
       >
         {detalhe && (
           <OportunidadeDetalhe
@@ -731,7 +724,7 @@ export default function Oportunidades() {
             onRecarregar={recarregarDetalhe}
             onSalvo={aoSalvar}
             onDesfecho={setDesfechoDe}
-            registrarSalvar={setAcaoSalvar}
+            onFechar={() => setDetalhe(null)}
           />
         )}
       </Modal>

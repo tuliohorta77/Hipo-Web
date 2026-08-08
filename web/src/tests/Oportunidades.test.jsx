@@ -3,7 +3,7 @@
 // A página do funil: duas visões da mesma lista, com a preferência gravada no
 // banco (não no localStorage), e KPIs que aplicam filtro.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, cleanup, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, cleanup, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 
 const mockGet = vi.fn();
@@ -260,6 +260,83 @@ describe('Oportunidades — kanban', () => {
     await screen.findByRole('region', { name: 'Fase Suspect' });
     fireEvent.click(screen.getByLabelText('Finalizar OPP-2026-00001'));
     expect(await screen.findByText('Finalizar oportunidade')).toBeInTheDocument();
+  });
+});
+
+describe('Oportunidades — o drill da oportunidade', () => {
+  const DETALHE = {
+    ...OPP,
+    descricao: null, observacoes: null, origem_id: null,
+    concorrentes: [], tarefas_abertas: 0,
+  };
+
+  function respostasComDetalhe(url) {
+    if (url === '/crm/oportunidades/o1') return Promise.resolve({ data: DETALHE });
+    if (url === '/crm/contatos') {
+      return Promise.resolve({ data: { total: 0, limit: 100, offset: 0, itens: [] } });
+    }
+    if (url === '/crm/tarefas') {
+      return Promise.resolve({ data: { total: 0, abertas: 0, atrasadas: 0, itens: [] } });
+    }
+    if (url.startsWith('/crm/dominio/')) return Promise.resolve({ data: [] });
+    return respostas(null)(url);
+  }
+
+  async function abrir() {
+    mockGet.mockImplementation(respostasComDetalhe);
+    montar();
+    await screen.findByRole('region', { name: 'Fase Suspect' });
+    fireEvent.click(screen.getByText('Metalurgica Alfa'));
+    await screen.findByTestId('tab-dados');
+  }
+
+  it('o subtítulo do modal é o status, não a fase', async () => {
+    /*
+      A fase já está no seletor do trilho. O que muda a leitura da tela é
+      saber se está ativa, suspensa ou finalizada.
+    */
+    await abrir();
+    // O número também aparece no cartão do kanban atrás do modal — pega o
+    // <h2> do cabeçalho, que é único.
+    const cabecalho = screen.getByRole('heading', { name: /OPP-2026-00001/ })
+      .closest('div').parentElement;
+    expect(cabecalho).toHaveTextContent('ativa');
+    expect(cabecalho).not.toHaveTextContent('Negociação');
+  });
+
+  it('as quatro ações ficam na mesma barra de baixo', async () => {
+    /*
+      Suspender e Finalizar são saídas desta tela, igual a Fechar e Salvar.
+      Espalhá-las em cantos diferentes obrigava o olho a procurar.
+    */
+    await abrir();
+    // Escopado na barra: 'Fechar' também é o rótulo do botão de desfecho no
+    // cartão do kanban, e 'Finalizar' aparece no X do modal.
+    const barra = within(screen.getByLabelText('Ações da oportunidade'));
+    for (const acao of ['Suspender', 'Finalizar', 'Fechar', 'Salvar']) {
+      expect(barra.getByText(acao)).toBeInTheDocument();
+    }
+  });
+
+  it('fase e temperatura ficam no trilho, com o rótulo na mesma linha', async () => {
+    await abrir();
+    expect(screen.getByLabelText('Fase')).toBeInTheDocument();
+    expect(screen.getByLabelText('Temperatura')).toBeInTheDocument();
+  });
+
+  it('mensalidade saiu do trilho e foi para a aba Proposta', async () => {
+    /* É resultado de proposta, não atributo solto da oportunidade. */
+    await abrir();
+    expect(screen.queryByLabelText('Mensalidade (R$)')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('tab-proposta'));
+    expect(await screen.findByLabelText('Mensalidade (R$)')).toBeInTheDocument();
+  });
+
+  it('a aba Proposta avisa que as versões ainda não existem', async () => {
+    await abrir();
+    fireEvent.click(screen.getByTestId('tab-proposta'));
+    expect(await screen.findByText(/Versões da proposta ainda não implementadas/))
+      .toBeInTheDocument();
   });
 });
 
