@@ -448,72 +448,108 @@ async def _detalhe(conn, oportunidade_id: UUID) -> dict:
 @router.get("/resumo", response_model=ResumoFunil)
 async def resumo(
     dias_parada: int = Query(14, ge=1, le=365),
+    q: str | None = Query(None, max_length=200),
+    conta_id: UUID | None = None,
+    envolvido_id: UUID | None = None,
+    finder_conta_id: UUID | None = None,
+    origem_id: int | None = None,
+    temperatura_min: int | None = Query(None, ge=0, le=90),
+    previsao_ate: date | None = None,
     conn=Depends(get_conn),
     user=Depends(usuario_atual),
 ):
     """
-    KPIs do topo da tela. Cada número tem filtro equivalente na listagem —
-    é o que permite o drilldown.
+    KPIs do topo da tela e o corte por fase que alimenta a visão de funil.
+
+    Cada número tem filtro equivalente na listagem — é o que permite o
+    drilldown.
+
+    Aceita o MESMO conjunto de filtros do kanban (menos fase e status, que
+    são a dimensão que este endpoint agrega). Sem isso, trocar de visão com
+    um filtro ativo mostrava um funil global ao lado de uma lista filtrada —
+    dois números diferentes para a mesma pergunta na mesma tela. Chamado sem
+    parâmetro nenhum, o resultado é idêntico ao de antes.
 
     'paradas' usa a data do último EVENTO, não `atualizado_em`: corrigir um
     telefone não significa que a negociação andou.
     """
+    # `apenas_abertas=False` aqui: os KPIs de ganhas/perdidas do mês precisam
+    # enxergar as finalizadas. O recorte por status é feito com FILTER dentro
+    # de cada agregado.
+    where, params = _montar_filtros(
+        q, None, None, conta_id, envolvido_id, finder_conta_id, origem_id,
+        temperatura_min, previsao_ate, False,
+    )
+    clausula = f"WHERE {' AND '.join(where)}" if where else ""
+
+    # O JOIN com contas é obrigatório mesmo sem busca textual: `_montar_filtros`
+    # referencia `c.razao_social` no filtro `q`, e manter uma só forma da
+    # consulta evita que o SQL divirja conforme o filtro em uso.
     row = await conn.fetchrow(
-        """
+        f"""
         SELECT
-            count(*) FILTER (WHERE status IN ('ativa','suspensa'))          AS abertas,
-            COALESCE(sum(valor_mensalidade) FILTER (
-                WHERE status = 'ativa'), 0)                                  AS ticket_aberto,
-            COALESCE(sum(valor_mensalidade) FILTER (
-                WHERE status = 'ativa'
-                  AND date_trunc('month', previsao_fechamento)
+            count(*) FILTER (WHERE o.status IN ('ativa','suspensa'))        AS abertas,
+            COALESCE(sum(o.valor_mensalidade) FILTER (
+                WHERE o.status = 'ativa'), 0)                                AS ticket_aberto,
+            COALESCE(sum(o.valor_mensalidade) FILTER (
+                WHERE o.status = 'ativa'
+                  AND date_trunc('month', o.previsao_fechamento)
                       = date_trunc('month', CURRENT_DATE)), 0)              AS previsto_no_mes,
             count(*) FILTER (
-                WHERE status = 'conquistado'
-                  AND date_trunc('month', atualizado_em)
+                WHERE o.status = 'conquistado'
+                  AND date_trunc('month', o.atualizado_em)
                       = date_trunc('month', CURRENT_DATE))                  AS ganhas_mes,
             count(*) FILTER (
-                WHERE status = 'perdido'
-                  AND date_trunc('month', atualizado_em)
+                WHERE o.status = 'perdido'
+                  AND date_trunc('month', o.atualizado_em)
                       = date_trunc('month', CURRENT_DATE))                  AS perdidas_mes
-        FROM oportunidades
-        """
+        FROM oportunidades o
+        JOIN contas c ON c.id = o.conta_id
+        {clausula}
+        """,
+        *params,
     )
 
     paradas = await conn.fetchval(
-        """
+        f"""
         SELECT count(*)
           FROM oportunidades o
-         WHERE o.status IN ('ativa','suspensa')
+          JOIN contas c ON c.id = o.conta_id
+        {clausula + ' AND ' if clausula else 'WHERE '} o.status IN ('ativa','suspensa')
            AND COALESCE(
                  (SELECT max(e.criado_em) FROM oportunidade_eventos e
                    WHERE e.oportunidade_id = o.id),
                  o.criado_em
-               ) < NOW() - ($1 || ' days')::interval
+               ) < NOW() - (${len(params) + 1} || ' days')::interval
         """,
-        str(dias_parada),
+        *params, str(dias_parada),
     )
 
     por_fase = await conn.fetch(
-        """
-        SELECT fase,
-               count(*)                                  AS quantidade,
-               COALESCE(sum(valor_mensalidade), 0)       AS ticket
-          FROM oportunidades
-         WHERE status IN ('ativa','suspensa')
-         GROUP BY fase
-        """
+        f"""
+        SELECT o.fase,
+               count(*)                                    AS quantidade,
+               COALESCE(sum(o.valor_mensalidade), 0)       AS ticket
+          FROM oportunidades o
+          JOIN contas c ON c.id = o.conta_id
+        {clausula + ' AND ' if clausula else 'WHERE '} o.status IN ('ativa','suspensa')
+         GROUP BY o.fase
+        """,
+        *params,
     )
 
     # Só 'perdido' entra: 'cancelado' é erro de CRM e distorceria a leitura
     # de onde o funil realmente perde negócio.
     perda_por_fase = await conn.fetch(
-        """
-        SELECT fase_desfecho AS fase, count(*) AS quantidade
-          FROM oportunidades
-         WHERE status = 'perdido' AND fase_desfecho IS NOT NULL
-         GROUP BY fase_desfecho
-        """
+        f"""
+        SELECT o.fase_desfecho AS fase, count(*) AS quantidade
+          FROM oportunidades o
+          JOIN contas c ON c.id = o.conta_id
+        {clausula + ' AND ' if clausula else 'WHERE '} o.status = 'perdido'
+           AND o.fase_desfecho IS NOT NULL
+         GROUP BY o.fase_desfecho
+        """,
+        *params,
     )
 
     mapa_fase = {r["fase"]: r for r in por_fase}

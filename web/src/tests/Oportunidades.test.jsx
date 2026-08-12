@@ -1,7 +1,8 @@
 // web/src/tests/Oportunidades.test.jsx
 //
-// A página do funil: duas visões da mesma lista, com a preferência gravada no
-// banco (não no localStorage), e KPIs que aplicam filtro.
+// A página do funil: TRÊS visões dos mesmos dados (kanban, tabela e funil),
+// com a preferência gravada no banco (não no localStorage), e KPIs que
+// aplicam filtro.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, cleanup, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
@@ -25,7 +26,14 @@ import Oportunidades from '../pages/crm/Oportunidades';
 const RESUMO = {
   abertas: 3, ticket_aberto: 7500, previsto_no_mes: 2500,
   paradas: 0, ganhas_mes: 2, perdidas_mes: 1,
-  por_fase: [], perda_por_fase: [],
+  por_fase: [
+    { fase: 'suspect', rotulo: 'Suspect', quantidade: 2, ticket: 5000 },
+    { fase: 'lead', rotulo: 'Lead', quantidade: 0, ticket: 0 },
+    { fase: 'qualificacao', rotulo: 'Qualificação', quantidade: 0, ticket: 0 },
+    { fase: 'apresentacao', rotulo: 'Apresentação', quantidade: 0, ticket: 0 },
+    { fase: 'negociacao', rotulo: 'Negociação', quantidade: 1, ticket: 2500 },
+  ],
+  perda_por_fase: [],
 };
 
 const OPP = {
@@ -152,6 +160,103 @@ describe('Oportunidades — visão padrão e preferência', () => {
     await screen.findByRole('region', { name: 'Fase Suspect' });
     fireEvent.click(screen.getByLabelText('Ver como tabela'));
     expect(await screen.findByText('OPP-2026-00001')).toBeInTheDocument();
+  });
+});
+
+describe('Oportunidades — a terceira visão (funil)', () => {
+  it('respeita a preferência de funil vinda do banco', async () => {
+    mockGet.mockImplementation(respostas('funil'));
+    montar();
+    expect(await screen.findByRole('region', { name: 'Funil de vendas' })).toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Fase Suspect' })).not.toBeInTheDocument();
+  });
+
+  it('preferência com valor desconhecido cai no kanban', async () => {
+    /*
+      A preferência vem do banco e pode ter sido gravada por uma versão
+      anterior da tela. Sem whitelist, um valor órfão renderizava a página
+      sem visão nenhuma.
+    */
+    mockGet.mockImplementation(respostas('carrossel'));
+    montar();
+    expect(await screen.findByRole('region', { name: 'Fase Suspect' })).toBeInTheDocument();
+  });
+
+  it('trocar para funil grava a preferência no banco', async () => {
+    montar();
+    await screen.findByRole('region', { name: 'Fase Suspect' });
+    fireEvent.click(screen.getByLabelText('Ver como funil'));
+    await waitFor(() =>
+      expect(mockPut).toHaveBeenCalledWith(
+        '/crm/dominio/preferencias/crm_oportunidades_visao',
+        { valor: 'funil' }
+      )
+    );
+  });
+
+  it('o funil não busca kanban nem a lista — ele vem do resumo', async () => {
+    /*
+      As faixas são desenhadas com `por_fase` e `perda_por_fase`, que já vêm
+      no /resumo. Buscar a lista aqui seria uma varredura inteira da tabela
+      para desenhar cinco retângulos.
+    */
+    mockGet.mockImplementation(respostas('funil'));
+    montar();
+    await screen.findByRole('region', { name: 'Funil de vendas' });
+    expect(mockGet.mock.calls.filter(([u]) => u === '/crm/oportunidades/kanban')).toHaveLength(0);
+    expect(mockGet.mock.calls.filter(([u]) => u === '/crm/oportunidades')).toHaveLength(0);
+  });
+
+  it('o resumo recebe os mesmos filtros das outras visões', async () => {
+    /*
+      Sem isso, trocar de visão com um filtro ativo mostrava um funil global
+      ao lado de uma lista filtrada — dois números diferentes para a mesma
+      pergunta, na mesma tela.
+    */
+    mockGet.mockImplementation(respostas('funil'));
+    montar();
+    await screen.findByRole('region', { name: 'Funil de vendas' });
+    fireEvent.change(screen.getByLabelText('Envolvido'), { target: { value: 'u1' } });
+    await waitFor(() =>
+      expect(mockGet).toHaveBeenCalledWith(
+        '/crm/oportunidades/resumo',
+        { params: { envolvido_id: 'u1' } }
+      )
+    );
+  });
+
+  it('a métrica do funil também é preferência de banco', async () => {
+    mockGet.mockImplementation(respostas('funil'));
+    montar();
+    await screen.findByRole('region', { name: 'Funil de vendas' });
+    fireEvent.click(screen.getByRole('button', { name: 'R$' }));
+    await waitFor(() =>
+      expect(mockPut).toHaveBeenCalledWith(
+        '/crm/dominio/preferencias/crm_oportunidades_funil_metrica',
+        { valor: 'ticket' }
+      )
+    );
+  });
+
+  it('o filtro de fase não aparece no funil — a fase É a faixa', async () => {
+    mockGet.mockImplementation(respostas('funil'));
+    montar();
+    await screen.findByRole('region', { name: 'Funil de vendas' });
+    expect(screen.queryByLabelText('Fase')).not.toBeInTheDocument();
+  });
+
+  it('mover pelo painel da fase chama o endpoint e recarrega', async () => {
+    mockGet.mockImplementation(respostas('funil'));
+    montar();
+    await screen.findByRole('region', { name: 'Funil de vendas' });
+    fireEvent.click(screen.getByLabelText('Ver oportunidades em Negociação'));
+    const seletor = await screen.findByLabelText('Mover OPP-2026-00001 para outra fase');
+    fireEvent.change(seletor, { target: { value: 'lead' } });
+    await waitFor(() =>
+      expect(mockPatch).toHaveBeenCalledWith(
+        '/crm/oportunidades/o1/fase', { fase: 'lead' }
+      )
+    );
   });
 });
 

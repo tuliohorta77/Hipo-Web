@@ -3,17 +3,20 @@
 // O funil. Dashboard operacional (diretriz pétrea 2): os KPIs do topo aplicam
 // filtro na visão de baixo, e a visão de baixo permite agir sem sair da tela.
 //
-// Duas visões da MESMA lista, com toggle persistido no banco:
+// TRÊS visões dos MESMOS dados, com toggle persistido no banco:
 //
 //   * KANBAN — para trabalhar o funil. Arrasta o cartão, muda a fase.
 //   * TABELA — para conferir e comparar. Ordena, filtra, vê tudo junto.
+//   * FUNIL  — para ler a forma do pipeline: onde engorda, onde afunila e em
+//              que fase o negócio morre. Clicar na faixa abre o painel da
+//              fase, e dali se opera igual ao kanban.
 //
 // A preferência vai para usuarios_preferencias, não localStorage: o HIPO é a
 // fonte primária, e a escolha deve acompanhar a pessoa entre máquinas.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Briefcase, Search, Plus, LayoutGrid, Table as TableIcon, X,
+  Briefcase, Search, Plus, LayoutGrid, Table as TableIcon, Filter, X,
   TrendingUp, Trophy,
 } from 'lucide-react';
 
@@ -27,11 +30,19 @@ import Empty from '../../components/ui/Empty';
 import AlertMessage from '../../components/ui/AlertMessage';
 import EntityPicker from '../../components/EntityPicker';
 import KanbanOportunidades from '../../components/crm/KanbanOportunidades';
+import FunilOportunidades from '../../components/crm/FunilOportunidades';
 import OportunidadeDetalhe from '../../components/crm/OportunidadeDetalhe';
 import ModalDesfecho from '../../components/crm/ModalDesfecho';
 
 const POR_PAGINA = 50;
 const CHAVE_VISAO = 'crm_oportunidades_visao';
+const CHAVE_METRICA = 'crm_oportunidades_funil_metrica';
+
+// Whitelist explícita: a preferência vem do banco e pode ter sido gravada por
+// uma versão anterior da tela (ou por um valor que não existe mais). Sem esta
+// lista, um valor órfão renderizaria a tela sem visão nenhuma.
+const VISOES = ['kanban', 'tabela', 'funil'];
+const METRICAS = ['quantidade', 'ticket'];
 
 // Seis etapas. 'suspect' é a boca do funil: empresa na base que ninguém ainda
 // tocou. Vira 'lead' quando há contato e interesse demonstrado.
@@ -250,6 +261,7 @@ function FormNovaOportunidade({ aberto, contaFixa, onFechar, onCriada }) {
 
 export default function Oportunidades() {
   const [visao, setVisao] = useState(null);   // null = ainda carregando a preferência
+  const [metrica, setMetrica] = useState('quantidade');
   const [resumo, setResumo] = useState(null);
   const [lista, setLista] = useState({ total: 0, itens: [] });
   const [colunas, setColunas] = useState([]);
@@ -280,12 +292,14 @@ export default function Oportunidades() {
     return () => clearTimeout(debounce.current);
   }, [busca]);
 
-  // Preferência de visão: carrega uma vez, com kanban como padrão.
+  // Preferências: carregam uma vez, com kanban e quantidade como padrão.
   useEffect(() => {
     api.get('/crm/dominio/preferencias')
       .then(({ data }) => {
-        const p = data.find((x) => x.chave === CHAVE_VISAO);
-        setVisao(p?.valor === 'tabela' ? 'tabela' : 'kanban');
+        const v = data.find((x) => x.chave === CHAVE_VISAO)?.valor;
+        const m = data.find((x) => x.chave === CHAVE_METRICA)?.valor;
+        setVisao(VISOES.includes(v) ? v : 'kanban');
+        if (METRICAS.includes(m)) setMetrica(m);
       })
       .catch(() => setVisao('kanban'));
     api.get('/crm/dominio/usuarios')
@@ -293,14 +307,24 @@ export default function Oportunidades() {
       .catch(() => setUsuarios([]));
   }, []);
 
-  async function trocarVisao(nova) {
-    setVisao(nova);
+  // Preferência é conforto, não função: se a gravação falhar, a escolha da
+  // sessão já valeu e o usuário não fica travado.
+  const gravarPreferencia = useCallback(async (chave, valor) => {
     try {
-      await api.put(`/crm/dominio/preferencias/${CHAVE_VISAO}`, { valor: nova });
+      await api.put(`/crm/dominio/preferencias/${chave}`, { valor });
     } catch {
-      // Preferência é conforto, não função: se falhar, a visão da sessão já
-      // mudou e o usuário não fica travado.
+      /* silencioso de propósito — ver comentário acima */
     }
+  }, []);
+
+  function trocarVisao(nova) {
+    setVisao(nova);
+    gravarPreferencia(CHAVE_VISAO, nova);
+  }
+
+  function trocarMetrica(nova) {
+    setMetrica(nova);
+    gravarPreferencia(CHAVE_METRICA, nova);
   }
 
   // Depende dos VALORES, nao do objeto `filtros`. Qualquer troca de identidade
@@ -317,24 +341,33 @@ export default function Oportunidades() {
     setCarregando(true);
     setErro(null);
     try {
-      const [kpis, dados] = await Promise.all([
-        api.get('/crm/oportunidades/resumo'),
-        visao === 'kanban'
-          ? api.get('/crm/oportunidades/kanban', { params })
-          : api.get('/crm/oportunidades', {
-              params: {
-                ...params,
-                ...(filtros.fase ? { fase: filtros.fase } : {}),
-                ...(filtros.status ? { status: filtros.status } : {}),
-                apenas_abertas: filtros.apenas_abertas || undefined,
-                limit: POR_PAGINA,
-                offset: pagina * POR_PAGINA,
-              },
-            }),
-      ]);
+      // O /resumo recebe os MESMOS filtros das outras visões. Sem isso, trocar
+      // de visão com um filtro ativo mostrava um funil global ao lado de uma
+      // lista filtrada — dois números diferentes para a mesma pergunta.
+      const chamadas = [api.get('/crm/oportunidades/resumo', { params })];
+
+      // A visão de funil não pede uma segunda lista: ela é desenhada a partir
+      // de `por_fase` e `perda_por_fase`, que já vêm no resumo. Os cartões só
+      // são buscados quando o usuário abre uma fase.
+      if (visao === 'kanban') {
+        chamadas.push(api.get('/crm/oportunidades/kanban', { params }));
+      } else if (visao === 'tabela') {
+        chamadas.push(api.get('/crm/oportunidades', {
+          params: {
+            ...params,
+            ...(filtros.fase ? { fase: filtros.fase } : {}),
+            ...(filtros.status ? { status: filtros.status } : {}),
+            apenas_abertas: filtros.apenas_abertas || undefined,
+            limit: POR_PAGINA,
+            offset: pagina * POR_PAGINA,
+          },
+        }));
+      }
+
+      const [kpis, dados] = await Promise.all(chamadas);
       setResumo(kpis.data);
       if (visao === 'kanban') setColunas(dados.data);
-      else setLista(dados.data);
+      else if (visao === 'tabela') setLista(dados.data);
     } catch (err) {
       setErro(mensagemDeErro(err, 'Não foi possível carregar o funil.'));
     } finally {
@@ -548,6 +581,26 @@ export default function Oportunidades() {
             >
               <TableIcon size={14} />Tabela
             </button>
+            {/*
+              Ícone `Filter`: nesta versão do lucide-react ele É o desenho do
+              funil — não existe export `Funnel`. Trocar por outro ícone só
+              para o nome bater deixaria a barra com um símbolo que não é um
+              funil.
+            */}
+            <button
+              type="button"
+              onClick={() => trocarVisao('funil')}
+              aria-pressed={visao === 'funil'}
+              aria-label="Ver como funil"
+              className={
+                'h-8 px-2.5 text-xs inline-flex items-center gap-1 transition-colors ' +
+                (visao === 'funil'
+                  ? 'bg-hipo-blue text-white'
+                  : 'bg-hipo-card text-hipo-slate hover:bg-hipo-bg')
+              }
+            >
+              <Filter size={14} />Funil
+            </button>
           </div>
 
           <Button size="sm" icon={Plus} onClick={() => setNovaAberta(true)}>
@@ -570,6 +623,17 @@ export default function Oportunidades() {
           <KanbanOportunidades
             colunas={colunas}
             carregando={carregando || !visao}
+            onAbrir={abrir}
+            onMover={mover}
+            onDesfecho={setDesfechoDe}
+          />
+        ) : visao === 'funil' ? (
+          <FunilOportunidades
+            resumo={resumo}
+            carregando={carregando || !visao}
+            metrica={metrica}
+            onTrocarMetrica={trocarMetrica}
+            params={params}
             onAbrir={abrir}
             onMover={mover}
             onDesfecho={setDesfechoDe}

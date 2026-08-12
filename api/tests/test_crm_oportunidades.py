@@ -860,6 +860,110 @@ class TestResumo:
         )).json()
         assert body["ganhas_mes"] == 1
 
+    async def test_por_fase_soma_quantidade_e_ticket(self, db_conn, client, usuario_adm):
+        """
+        `por_fase` é o que desenha a visão de funil. Se a soma sair errada, a
+        faixa sai com a largura errada — e o erro não aparece em lugar nenhum
+        além do desenho.
+        """
+        conta = await nova_conta(client, usuario_adm["headers"])
+        await nova_oportunidade(
+            client, usuario_adm["headers"], conta["id"],
+            fase="negociacao", valor_mensalidade=1000,
+        )
+        await nova_oportunidade(
+            client, usuario_adm["headers"], conta["id"],
+            fase="negociacao", valor_mensalidade=500,
+        )
+        await nova_oportunidade(
+            client, usuario_adm["headers"], conta["id"], fase="lead", valor_mensalidade=300
+        )
+        body = (await client.get(
+            "/crm/oportunidades/resumo", headers=usuario_adm["headers"]
+        )).json()
+        negociacao = next(f for f in body["por_fase"] if f["fase"] == "negociacao")
+        assert negociacao["quantidade"] == 2
+        assert float(negociacao["ticket"]) == 1500.0
+
+    async def test_filtra_por_busca_textual(self, db_conn, client, usuario_adm):
+        """
+        O funil e a lista precisam responder à MESMA pergunta quando há filtro
+        ativo. Antes, /resumo ignorava tudo e a tela mostrava um funil global
+        ao lado de uma lista filtrada.
+        """
+        alfa = await nova_conta(client, usuario_adm["headers"], CNPJ_A, "Metalurgica Alfa")
+        beta = await nova_conta(client, usuario_adm["headers"], CNPJ_B, "Transportes Beta")
+        await nova_oportunidade(
+            client, usuario_adm["headers"], alfa["id"],
+            fase="negociacao", valor_mensalidade=1000,
+        )
+        await nova_oportunidade(
+            client, usuario_adm["headers"], beta["id"],
+            fase="negociacao", valor_mensalidade=7000,
+        )
+
+        body = (await client.get(
+            "/crm/oportunidades/resumo?q=Alfa", headers=usuario_adm["headers"]
+        )).json()
+        assert body["abertas"] == 1
+        assert float(body["ticket_aberto"]) == 1000.0
+        negociacao = next(f for f in body["por_fase"] if f["fase"] == "negociacao")
+        assert negociacao["quantidade"] == 1
+        assert float(negociacao["ticket"]) == 1000.0
+
+    async def test_filtra_por_envolvido(self, db_conn, client, usuario_adm):
+        u = await criar_usuario(db_conn, client, "EV", "resumo-env@teste.com")
+        uid = str(await db_conn.fetchval(
+            "SELECT id FROM usuarios WHERE email=$1", u["email"]
+        ))
+        conta = await nova_conta(client, usuario_adm["headers"])
+        await nova_oportunidade(
+            client, usuario_adm["headers"], conta["id"],
+            envolvidos=[{"usuario_id": uid, "papel": "EV"}],
+        )
+        await nova_oportunidade(client, usuario_adm["headers"], conta["id"])
+
+        body = (await client.get(
+            f"/crm/oportunidades/resumo?envolvido_id={uid}",
+            headers=usuario_adm["headers"],
+        )).json()
+        assert body["abertas"] == 1
+        assert sum(f["quantidade"] for f in body["por_fase"]) == 1
+
+    async def test_sem_filtro_continua_global(self, db_conn, client, usuario_adm):
+        """
+        Os parâmetros novos são todos opcionais: a chamada sem filtro tem de
+        devolver exatamente o que devolvia antes.
+        """
+        alfa = await nova_conta(client, usuario_adm["headers"], CNPJ_A, "Metalurgica Alfa")
+        beta = await nova_conta(client, usuario_adm["headers"], CNPJ_B, "Transportes Beta")
+        await nova_oportunidade(client, usuario_adm["headers"], alfa["id"])
+        await nova_oportunidade(client, usuario_adm["headers"], beta["id"])
+        body = (await client.get(
+            "/crm/oportunidades/resumo", headers=usuario_adm["headers"]
+        )).json()
+        assert body["abertas"] == 2
+        assert sum(f["quantidade"] for f in body["por_fase"]) == 2
+
+    async def test_paradas_respeita_o_filtro(self, db_conn, client, usuario_adm):
+        """
+        'paradas' tem SQL próprio (subconsulta em oportunidade_eventos) e é o
+        ponto mais fácil de esquecer quando se adiciona filtro ao endpoint —
+        é a única das quatro consultas em que o placeholder do parâmetro vem
+        DEPOIS dos parâmetros do filtro.
+        """
+        alfa = await nova_conta(client, usuario_adm["headers"], CNPJ_A, "Metalurgica Alfa")
+        beta = await nova_conta(client, usuario_adm["headers"], CNPJ_B, "Transportes Beta")
+        await nova_oportunidade(client, usuario_adm["headers"], alfa["id"])
+        await nova_oportunidade(client, usuario_adm["headers"], beta["id"])
+        # dias_parada=1 com tudo criado agora: ninguém está parado ainda.
+        body = (await client.get(
+            "/crm/oportunidades/resumo?q=Alfa&dias_parada=1",
+            headers=usuario_adm["headers"],
+        )).json()
+        assert body["paradas"] == 0
+        assert body["abertas"] == 1
+
 
 # ── Listagem ─────────────────────────────────────────────────────────
 
