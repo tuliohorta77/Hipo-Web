@@ -9,14 +9,15 @@ from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from routers import (
-    auth, crm_contas, crm_contatos, crm_dominio, crm_oportunidades, crm_tarefas,
+    auth, crm_contas, crm_contatos, crm_dominio, crm_oportunidades,
+    crm_parceiros, crm_tarefas,
 )
 from routers.permissions import requer_modulo
 
 app = FastAPI(
     title="HIPO API",
     description="Hipotálamo Inteligente de Processos e Operações",
-    version="2.4.0",
+    version="2.5.0",
 )
 
 app.add_middleware(
@@ -55,6 +56,16 @@ app.include_router(
     crm_tarefas.router,
     prefix="/crm/tarefas", tags=["CRM - Tarefas"],
     dependencies=[Depends(requer_modulo("crm"))],
+)
+
+# Parceiros é o ÚNICO router fora do módulo 'crm'. Cultivar a relação com quem
+# indica é trabalho do EC (e da gestão, que remaneja carteira) — SDR, EV e EP
+# não têm o que fazer aqui. É a diretriz "uma tela por função" aplicada à
+# permissão, não só ao layout.
+app.include_router(
+    crm_parceiros.router,
+    prefix="/crm/parceiros", tags=["CRM - Parceiros"],
+    dependencies=[Depends(requer_modulo("parceiros"))],
 )
 
 # Listas de domínio (verticais, origens, concorrentes, motivos). Mesmo módulo:

@@ -13,6 +13,7 @@ from fastapi import Depends, FastAPI
 from httpx import AsyncClient, ASGITransport
 
 from routers.permissions import (
+    CARGOS_COM_PARCEIROS,
     CARGOS_GESTAO,
     CARGOS_OPERACIONAIS,
     CARGOS_VALIDOS,
@@ -28,12 +29,38 @@ from tests.conftest import criar_usuario
 
 class TestModulosDoCargo:
     @pytest.mark.parametrize("cargo", sorted(CARGOS_GESTAO))
-    def test_gestao_tem_base_mais_usuarios(self, cargo):
-        assert modulos_do_cargo(cargo) == {"perfil", "crm", "usuarios"}
+    def test_gestao_tem_base_mais_usuarios_e_parceiros(self, cargo):
+        assert modulos_do_cargo(cargo) == {"perfil", "crm", "usuarios", "parceiros"}
 
-    @pytest.mark.parametrize("cargo", sorted(CARGOS_OPERACIONAIS))
-    def test_operacional_tem_so_a_base(self, cargo):
+    @pytest.mark.parametrize(
+        "cargo", sorted(CARGOS_OPERACIONAIS - CARGOS_COM_PARCEIROS)
+    )
+    def test_operacional_sem_carteira_tem_so_a_base(self, cargo):
+        """SDR, EV e EP não trabalham carteira de parceiro."""
         assert modulos_do_cargo(cargo) == {"perfil", "crm"}
+
+    @pytest.mark.parametrize(
+        "cargo", sorted(CARGOS_OPERACIONAIS & CARGOS_COM_PARCEIROS)
+    )
+    def test_operacional_com_carteira_ganha_parceiros(self, cargo):
+        """
+        O EC é o único cargo operacional acima da base. Cultivar a relação
+        com quem indica é trabalho dele — é a diretriz "uma tela por função"
+        aplicada à permissão, não só ao layout.
+        """
+        assert modulos_do_cargo(cargo) == {"perfil", "crm", "parceiros"}
+
+    def test_ec_e_o_unico_operacional_com_parceiros(self):
+        """
+        Guarda contra alguém liberar o módulo para SDR ou EV "só para ver".
+        Se este teste cair, a decisão mudou e o doc precisa mudar junto.
+        """
+        assert CARGOS_OPERACIONAIS & CARGOS_COM_PARCEIROS == {"EC"}
+
+    @pytest.mark.parametrize("cargo", sorted(CARGOS_VALIDOS))
+    def test_parceiros_so_para_quem_trabalha_carteira(self, cargo):
+        esperado = cargo in CARGOS_COM_PARCEIROS
+        assert ("parceiros" in modulos_do_cargo(cargo)) is esperado
 
     @pytest.mark.parametrize("cargo", sorted(CARGOS_VALIDOS))
     def test_todo_cargo_valido_recebe_a_base(self, cargo):
@@ -91,12 +118,12 @@ class TestAuthMe:
         body = resp.json()
         assert body["email"] == "ec1@teste.com"
         assert body["cargo"] == "EC"
-        assert sorted(body["modulos"]) == ["crm", "perfil"]
+        assert sorted(body["modulos"]) == ["crm", "parceiros", "perfil"]
 
     async def test_me_franqueado_ve_usuarios(self, db_conn, client, usuario_franqueado):
         resp = await client.get("/auth/me", headers=usuario_franqueado["headers"])
         assert resp.status_code == 200
-        assert sorted(resp.json()["modulos"]) == ["crm", "perfil", "usuarios"]
+        assert sorted(resp.json()["modulos"]) == ["crm", "parceiros", "perfil", "usuarios"]
 
     async def test_me_cargo_extinto_sem_modulos(self, db_conn, client):
         """Usuário que sobrou com cargo Gerente loga mas não vê nada."""

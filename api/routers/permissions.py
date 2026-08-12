@@ -14,9 +14,16 @@ em EC). Um usuário que ainda tenha um desses cargos loga mas não recebe
 módulo nenhum — proposital, para não herdar acesso por acidente.
 
 Módulos:
-  'perfil'    — dados do próprio usuário e troca de senha (todo cargo válido)
-  'crm'       — contas, contatos e oportunidades (todo cargo válido)
-  'usuarios'  — gestão de usuários (Franqueado, ADM)
+  'perfil'     — dados do próprio usuário e troca de senha (todo cargo válido)
+  'crm'        — contas, contatos e oportunidades (todo cargo válido)
+  'parceiros'  — carteira de parceiros indicadores (EC + gestão)
+  'usuarios'   — gestão de usuários (Franqueado, ADM)
+
+Por que 'parceiros' NÃO é de todo mundo: cultivar a relação com o escritório
+de contabilidade que indica é trabalho do EC, e a diretriz é uma tela por
+função. SDR, EV e EP não trabalham carteira de parceiro — a tela na barra
+deles seria ruído permanente. Gestão enxerga porque é quem remaneja carteira
+quando alguém sai.
 
 Por que 'crm' é de todo mundo: contas e contatos são base compartilhada.
 Se cada um enxergasse só a própria fatia, um usuário bateria no erro de CNPJ
@@ -46,19 +53,30 @@ CARGOS_VALIDOS = CARGOS_GESTAO | CARGOS_OPERACIONAIS
 # Módulos que todo cargo válido enxerga.
 MODULOS_BASE = {"perfil", "crm"}
 
+# Cargos que trabalham carteira de parceiro. O EC é quem cultiva a relação;
+# gestão entra porque é quem remaneja carteira quando alguém sai. Esta é
+# também a lista de quem pode ser `contas.ec_responsavel_id` — validada em
+# routers/crm_parceiros.py, porque CHECK de banco não enxerga cargo.
+CARGOS_COM_PARCEIROS = CARGOS_GESTAO | {"EC"}
+
 
 def modulos_do_cargo(cargo: str | None) -> set[str]:
     """Devolve o conjunto de módulos visíveis para o cargo informado."""
     if not cargo:
         return set()
 
+    if cargo not in CARGOS_VALIDOS:
+        return set()
+
+    modulos = set(MODULOS_BASE)
+
     if cargo in CARGOS_GESTAO:
-        return MODULOS_BASE | {"usuarios"}
+        modulos.add("usuarios")
 
-    if cargo in CARGOS_OPERACIONAIS:
-        return set(MODULOS_BASE)
+    if cargo in CARGOS_COM_PARCEIROS:
+        modulos.add("parceiros")
 
-    return set()
+    return modulos
 
 
 def requer_modulo(modulo: str):

@@ -15,12 +15,14 @@
 // fonte primária, e a escolha deve acompanhar a pessoa entre máquinas.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   Briefcase, Search, Plus, LayoutGrid, Table as TableIcon, Filter, X,
   TrendingUp, Trophy,
 } from 'lucide-react';
 
 import api from '../../api';
+import KpiInline from '../../components/ui/KpiInline';
 import Table, { Th, Tr, Td } from '../../components/ui/Table';
 import Button from '../../components/ui/Button';
 import Input, { Select } from '../../components/ui/Input';
@@ -86,55 +88,10 @@ const CLASSE_CAMPO =
   'h-8 text-xs rounded-lg border border-hipo-border bg-hipo-card text-hipo-ink ' +
   'focus:outline-none focus:ring-2 focus:ring-hipo-blue';
 
-/**
- * KPI na barra de topo, não em card.
- *
- * O KpiCard padrão tem ~110px de altura. Três deles empurravam o kanban para
- * baixo da dobra numa tela de notebook. Aqui o mesmo dado cabe em 40px, e o
- * que importa continua de pé: quando tem `onClick`, o KPI é botão com
- * `aria-pressed` e aplica filtro — a diretriz do dashboard operacional é que
- * o número leve à ação, não que ele more num card grande.
- */
-function KpiInline({ label, valor, detalhe, titulo, icone: Icone, tom, ativo, onClick }) {
-  const conteudo = (
-    <>
-      <span className={`shrink-0 w-6 h-6 rounded-md grid place-items-center ${tom}`}>
-        <Icone size={13} />
-      </span>
-      <span className="min-w-0 leading-none">
-        <span className="block text-[10px] text-hipo-slate truncate">{label}</span>
-        <span className="block text-sm font-semibold text-hipo-ink truncate mt-0.5">
-          {valor}
-          {detalhe && (
-            <span className="ml-1 text-[10px] font-normal text-hipo-slate">{detalhe}</span>
-          )}
-        </span>
-      </span>
-    </>
-  );
-
-  const base =
-    'h-10 px-2 flex items-center gap-1.5 rounded-lg border bg-hipo-card ' +
-    'max-w-[10.5rem] transition-colors ';
-
-  if (!onClick) {
-    return <div title={titulo} className={`${base} border-hipo-border`}>{conteudo}</div>;
-  }
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-pressed={ativo}
-      title={titulo}
-      className={
-        base + 'text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-hipo-blue ' +
-        (ativo ? 'border-hipo-blue ring-1 ring-hipo-blue' : 'border-hipo-border hover:bg-hipo-bg')
-      }
-    >
-      {conteudo}
-    </button>
-  );
-}
+// O KpiInline saiu daqui para components/ui/KpiInline.jsx quando a tela de
+// Parceiros precisou do mesmo componente. Duas cópias divergiriam no primeiro
+// ajuste de altura, e as duas barras operacionais deixariam de parecer a
+// mesma coisa.
 
 // ── Criação ──────────────────────────────────────────────────────────
 
@@ -260,14 +217,27 @@ function FormNovaOportunidade({ aberto, contaFixa, onFechar, onCriada }) {
 // ── Página ───────────────────────────────────────────────────────────
 
 export default function Oportunidades() {
+  /*
+    ?q= na URL semeia a busca. É o que faz o "abrir no funil" do painel de
+    Parceiros levar direto à oportunidade indicada, em vez de despejar o
+    usuário numa lista de 300 cartões para procurar o número na mão.
+
+    Semeia `busca` E `filtros.q` no mesmo valor de propósito: se só `busca`
+    fosse semeada, o debounce dispararia na montagem, trocaria a identidade de
+    `filtros` e a tela buscaria tudo duas vezes — a regressão que o teste do
+    debounce existe para segurar.
+  */
+  const [searchParams] = useSearchParams();
+  const qInicial = searchParams.get('q') || '';
+
   const [visao, setVisao] = useState(null);   // null = ainda carregando a preferência
   const [metrica, setMetrica] = useState('quantidade');
   const [resumo, setResumo] = useState(null);
   const [lista, setLista] = useState({ total: 0, itens: [] });
   const [colunas, setColunas] = useState([]);
   const [usuarios, setUsuarios] = useState([]);
-  const [filtros, setFiltros] = useState(FILTROS_VAZIOS);
-  const [busca, setBusca] = useState('');
+  const [filtros, setFiltros] = useState(() => ({ ...FILTROS_VAZIOS, q: qInicial }));
+  const [busca, setBusca] = useState(qInicial);
   const [pagina, setPagina] = useState(0);
   const [carregando, setCarregando] = useState(true);
   const [erro, setErro] = useState(null);

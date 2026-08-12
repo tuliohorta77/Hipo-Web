@@ -8,6 +8,7 @@
 --   002_crm_core.sql     criou as 11 tabelas do CRM
 --   003_fase_suspect.sql acrescentou a fase 'suspect' na boca do funil
 --   004_tarefas.sql      criou a tabela de tarefas do funil
+--   005_parceiros.sql    EC responsavel por parceiro + trilha da carteira
 --
 -- Este arquivo e a fonte usada para criar o banco de teste no CI e deve
 -- refletir o estado acumulado das migrations.
@@ -122,7 +123,15 @@ CREATE TABLE IF NOT EXISTS motivos_desfecho (
 --
 -- eh_finder marca a conta como parceira indicadora (ex.: escritorio de
 -- contabilidade). E ligado automaticamente na primeira vez que a conta e
--- usada como finder_conta_id de uma oportunidade.
+-- usada como finder_conta_id de uma oportunidade, e tambem pode ser ligado
+-- a mao -- e o que permite prospectar um contador antes da primeira
+-- indicacao e acompanhar "parceiro que ainda nao indicou nada".
+--
+-- ec_responsavel_id e o EC dono da relacao de parceria (Sprint 6). Fica em
+-- contas, e nao numa tabela de vinculo, porque a relacao e 1:1 a cada
+-- momento; o historico de quem foi dono quando vive em parceiro_eventos.
+-- O CHECK amarra o campo ao eh_finder: desmarcar o parceiro TEM que limpar o
+-- responsavel na mesma transacao, senao o banco recusa.
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS contas (
     id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -142,6 +151,7 @@ CREATE TABLE IF NOT EXISTS contas (
     telefone_2        VARCHAR(20),
     email             VARCHAR(150),
     eh_finder         BOOLEAN NOT NULL DEFAULT FALSE,
+    ec_responsavel_id UUID REFERENCES usuarios(id) ON DELETE SET NULL,
     observacoes       TEXT,
     ativo             BOOLEAN NOT NULL DEFAULT TRUE,
     criado_por        UUID REFERENCES usuarios(id) ON DELETE SET NULL,
@@ -151,7 +161,8 @@ CREATE TABLE IF NOT EXISTS contas (
     CONSTRAINT ck_contas_cep        CHECK (cep IS NULL OR cep ~ '^[0-9]{8}$'),
     CONSTRAINT ck_contas_uf         CHECK (uf IS NULL OR uf ~ '^[A-Z]{2}$'),
     CONSTRAINT ck_contas_num_func   CHECK (num_funcionarios IS NULL OR num_funcionarios >= 0),
-    CONSTRAINT ck_contas_razao      CHECK (length(btrim(razao_social)) > 0)
+    CONSTRAINT ck_contas_razao      CHECK (length(btrim(razao_social)) > 0),
+    CONSTRAINT ck_contas_ec_so_parceiro CHECK (ec_responsavel_id IS NULL OR eh_finder)
 );
 
 CREATE INDEX IF NOT EXISTS idx_contas_razao_trgm  ON contas USING gin (razao_social gin_trgm_ops);
@@ -159,6 +170,11 @@ CREATE INDEX IF NOT EXISTS idx_contas_fantasia_trgm ON contas USING gin (nome_fa
 CREATE INDEX IF NOT EXISTS idx_contas_vertical    ON contas (vertical_id);
 CREATE INDEX IF NOT EXISTS idx_contas_finder      ON contas (eh_finder) WHERE eh_finder;
 CREATE INDEX IF NOT EXISTS idx_contas_ativo       ON contas (ativo) WHERE ativo;
+
+-- Parcial: a esmagadora maioria das contas nao e parceira e nunca vai ter
+-- responsavel. Serve a pergunta "quais sao os parceiros do EC X".
+CREATE INDEX IF NOT EXISTS idx_contas_ec_responsavel
+    ON contas (ec_responsavel_id) WHERE ec_responsavel_id IS NOT NULL;
 
 
 -- ---------------------------------------------------------------------------
@@ -411,3 +427,42 @@ CREATE INDEX IF NOT EXISTS idx_tarefas_abertas_por_opp
 CREATE INDEX IF NOT EXISTS idx_tarefas_anterior
     ON tarefas (tarefa_anterior_id)
     WHERE tarefa_anterior_id IS NOT NULL;
+
+
+-- ---------------------------------------------------------------------------
+-- parceiro_eventos  (trilha da carteira de parceiros -- Sprint 6)
+-- ---------------------------------------------------------------------------
+-- Mesma escolha de oportunidade_eventos: sem registrar a transicao, "de quem
+-- era essa carteira em marco" vira pergunta sem resposta, e esse dado nao da
+-- para reconstruir depois.
+--
+-- Transferencia em massa grava uma linha POR PARCEIRO, nao uma por lote: o
+-- que interessa depois e a historia de cada parceiro, nao a do clique.
+--
+-- O CHECK rigoroso de forma (amarrar de/para a cada tipo) NAO esta aqui de
+-- proposito: as duas FKs sao ON DELETE SET NULL, e apagar um usuario
+-- dispararia um UPDATE que reavalia o CHECK e travaria a exclusao. A forma
+-- correta de cada evento e responsabilidade da API, que e quem escreve.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS parceiro_eventos (
+    id               BIGSERIAL PRIMARY KEY,
+    conta_id         UUID NOT NULL REFERENCES contas(id)   ON DELETE CASCADE,
+    tipo             VARCHAR(20) NOT NULL,
+    de_usuario_id    UUID REFERENCES usuarios(id)          ON DELETE SET NULL,
+    para_usuario_id  UUID REFERENCES usuarios(id)          ON DELETE SET NULL,
+    usuario_id       UUID REFERENCES usuarios(id)          ON DELETE SET NULL,
+    criado_em        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT ck_parceiro_evento_tipo CHECK (
+        tipo IN ('marcado', 'desmarcado', 'atribuido', 'transferido', 'removido')
+    ),
+    CONSTRAINT ck_parceiro_evento_de_para CHECK (
+        de_usuario_id IS NULL OR de_usuario_id <> para_usuario_id
+    )
+);
+
+CREATE INDEX IF NOT EXISTS idx_parceiro_eventos_conta
+    ON parceiro_eventos (conta_id, criado_em DESC);
+
+CREATE INDEX IF NOT EXISTS idx_parceiro_eventos_para
+    ON parceiro_eventos (para_usuario_id)
+    WHERE para_usuario_id IS NOT NULL;

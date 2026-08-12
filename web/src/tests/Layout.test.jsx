@@ -27,6 +27,7 @@ function renderLayout(rotaInicial = '/perfil') {
           <Route path="perfil" element={<div>conteudo-perfil</div>} />
           <Route path="crm/contas" element={<div>conteudo-contas</div>} />
           <Route path="crm/oportunidades" element={<div>conteudo-oportunidades</div>} />
+          <Route path="crm/parceiros" element={<div>conteudo-parceiros</div>} />
         </Route>
       </Routes>
     </MemoryRouter>
@@ -40,7 +41,7 @@ beforeEach(() => {
     email: 'tulio@teste.com',
     cargo: 'Franqueado',
   });
-  mockGetModulos.mockReturnValue(['perfil', 'crm', 'usuarios']);
+  mockGetModulos.mockReturnValue(['perfil', 'crm', 'parceiros', 'usuarios']);
 });
 
 afterEach(cleanup);
@@ -59,11 +60,28 @@ describe('Layout — nav com o módulo crm', () => {
     }
   });
 
-  it('a nav segue a ordem do dia: funil, pendências, cadastro', () => {
+  it('a nav segue a ordem do dia: funil, pendências, cadastro, parceria', () => {
+    renderLayout();
+    const nav = screen.getByLabelText('Navegação principal');
+    const hrefs = [...nav.querySelectorAll('a')].map((a) => a.getAttribute('href'));
+    expect(hrefs).toEqual([
+      '/crm/oportunidades', '/crm/tarefas', '/crm/contas', '/crm/parceiros',
+    ]);
+  });
+
+  it('esconde Parceiros de quem não tem o módulo', () => {
+    /*
+      Sprint 6: 'parceiros' foi o primeiro módulo a diferenciar cargos
+      operacionais entre si. Para SDR, EV e EP a barra continua com três
+      itens — se este teste cair, a tela de carteira vazou para quem não
+      trabalha carteira.
+    */
+    mockGetModulos.mockReturnValue(['perfil', 'crm']);
     renderLayout();
     const nav = screen.getByLabelText('Navegação principal');
     const hrefs = [...nav.querySelectorAll('a')].map((a) => a.getAttribute('href'));
     expect(hrefs).toEqual(['/crm/oportunidades', '/crm/tarefas', '/crm/contas']);
+    expect(screen.queryByText('Parceiros')).not.toBeInTheDocument();
   });
 
   it('renderiza o botão hamburger quando há itens', () => {

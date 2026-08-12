@@ -10,6 +10,7 @@ import Login from './pages/Login';
 import Perfil from './pages/Perfil';
 import Contas from './pages/crm/Contas';
 import Oportunidades from './pages/crm/Oportunidades';
+import Parceiros from './pages/crm/Parceiros';
 import Tarefas from './pages/crm/Tarefas';
 import { primeiraRotaAcessivel } from './api';
 
@@ -35,6 +36,13 @@ export default function App() {
           <Route path="crm/oportunidades" element={<Oportunidades />} />
           <Route path="crm/tarefas" element={<Tarefas />} />
           <Route path="crm/contas" element={<Contas />} />
+          {/*
+            A rota existe para todo mundo; quem barra é o guard do módulo na
+            API, e a nav não mostra o item para quem não tem 'parceiros'.
+            Digitar a URL na mão leva a uma tela que responde 403 — que é o
+            comportamento correto: a permissão vive no servidor, não aqui.
+          */}
+          <Route path="crm/parceiros" element={<Parceiros />} />
           <Route path="perfil" element={<Perfil />} />
         </Route>
 

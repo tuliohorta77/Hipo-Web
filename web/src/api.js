@@ -48,9 +48,13 @@ export function getUser() {
 // Módulos visíveis pro cargo do usuário logado (vêm do /auth/me e ficam
 // gravados no localStorage no login).
 //
-//   Franqueado / ADM        -> ['perfil', 'crm', 'usuarios']
-//   EC / SDR / EV / EP      -> ['perfil', 'crm']
+//   Franqueado / ADM        -> ['perfil', 'crm', 'parceiros', 'usuarios']
+//   EC                      -> ['perfil', 'crm', 'parceiros']
+//   SDR / EV / EP           -> ['perfil', 'crm']
 //   cargo extinto ou vazio  -> []
+//
+// 'parceiros' foi o primeiro módulo a diferenciar cargos OPERACIONAIS entre
+// si: só o EC trabalha carteira de indicador.
 //
 // ATENÇÃO: mudança de permissão no backend só reflete depois de relogin.
 // Ctrl+Shift+R recarrega os assets mas não zera o localStorage — só
