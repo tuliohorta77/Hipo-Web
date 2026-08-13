@@ -26,25 +26,41 @@
 // três anos apareceria como "sem indicação" toda vez que alguém olhasse os
 // últimos 90 dias.
 //
+// ── Duas leituras opostas na mesma linha ─────────────────────────────
+// O FAROL mede o que NÓS fizemos pelo parceiro: quatro semanas de cadência de
+// contato, verde quando alguma tarefa foi concluída naquela semana. O
+// MINI-FUNIL mede o que ELE nos deu e em que pé está: o estoque aberto das
+// indicações dele, por fase.
+//
+// Estão lado a lado de propósito. Parceiro sem indicação com quatro semanas
+// verdes é problema de produto ou de mercado; parceiro sem indicação com
+// quatro semanas vermelhas é abandono — e a ação é outra. Nenhuma coluna
+// sozinha separa esses dois casos, e é exatamente aí que a carteira costuma
+// mentir para quem a olha.
+//
 // ── Operacional, não relatório ───────────────────────────────────────
 // Diretriz pétrea 2. O EC responsável troca no próprio select da linha; o
-// painel lateral abre as indicações e o histórico da carteira; e a passagem
-// em massa mora no botão da barra. Se a tela só listasse, seria a mesma
-// planilha que ela veio substituir.
+// painel lateral abre as indicações, as tarefas e o histórico da carteira; e
+// a passagem em massa mora no botão da barra. Se a tela só listasse, seria a
+// mesma planilha que ela veio substituir.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Handshake, UserX, Moon, Trophy, Search, X, ArrowLeftRight, ExternalLink,
+  CalendarX,
 } from 'lucide-react';
 
-import api from '../../api';
+import api, { getUser } from '../../api';
 import Table, { Th, Tr, Td } from '../../components/ui/Table';
 import Button from '../../components/ui/Button';
 import Badge from '../../components/ui/Badge';
 import Empty from '../../components/ui/Empty';
 import AlertMessage from '../../components/ui/AlertMessage';
 import KpiInline from '../../components/ui/KpiInline';
+import FarolSemanal, { resumoDoFarol } from '../../components/ui/FarolSemanal';
+import MiniFunil from '../../components/ui/MiniFunil';
+import TarefasDoParceiro from '../../components/crm/TarefasDoParceiro';
 import TransferirCarteira, { SEM_EC } from '../../components/crm/TransferirCarteira';
 
 const POR_PAGINA = 50;
@@ -82,7 +98,9 @@ const ROTULO_EVENTO = {
   removido: 'Ficou sem responsável',
 };
 
-const FILTROS_VAZIOS = { q: '', ec_responsavel_id: '', situacao: '', sem_ec: false };
+const FILTROS_VAZIOS = {
+  q: '', ec_responsavel_id: '', situacao: '', sem_ec: false, sem_contato: false,
+};
 
 const CLASSE_CAMPO =
   'h-8 text-xs rounded-lg border border-hipo-border bg-hipo-card text-hipo-ink ' +
@@ -106,6 +124,32 @@ function formatarData(iso) {
 }
 
 /**
+ * '14/08 09:00' — a data da próxima tarefa cabe na coluna do farol sem
+ * empurrar as outras. O ano fica de fora porque a próxima tarefa é sempre
+ * perto; se estiver a um ano daqui, o problema não é de formatação.
+ */
+function dataHoraCurta(iso) {
+  if (!iso) return null;
+  return new Date(iso).toLocaleString('pt-BR', {
+    day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit',
+  });
+}
+
+/**
+ * O prazo já passou?
+ *
+ * Comparação simples com o relógio, e NÃO a regra de situação de
+ * services/tarefa.py (onde 'hoje' é dia de calendário e uma tarefa das 09h
+ * segue sendo de hoje às 18h). Aqui a pergunta é outra: a linha só precisa
+ * saber se aquela data ainda está à frente para escolher a palavra. A
+ * situação de verdade, com a regra completa, vem do servidor e aparece no
+ * painel — este é um rótulo de coluna, não uma segunda fonte de verdade.
+ */
+function vencida(iso) {
+  return Boolean(iso) && new Date(iso).getTime() < Date.now();
+}
+
+/**
  * Percentual, ou travessão quando não há denominador.
  *
  * `null` e `0` são coisas diferentes: o primeiro é "nada fechou ainda", o
@@ -119,7 +163,10 @@ function percentual(v) {
 
 // ── Painel lateral do parceiro ───────────────────────────────────────
 
-function PainelParceiro({ parceiro, usuarios, periodo, onFechar, onTrocarEc, onDesmarcar }) {
+function PainelParceiro({
+  parceiro, usuarios, periodo, usuarioAtualId,
+  onFechar, onTrocarEc, onDesmarcar, onTarefaMudou,
+}) {
   const navigate = useNavigate();
   const [indicacoes, setIndicacoes] = useState([]);
   const [carregando, setCarregando] = useState(true);
@@ -202,6 +249,31 @@ function PainelParceiro({ parceiro, usuarios, periodo, onFechar, onTrocarEc, onD
             </span>
           </div>
         </div>
+
+        {/*
+          O farol vem ANTES das indicações no painel, e não depois: quem abriu
+          o parceiro quase sempre abriu por causa da cadência de contato. O
+          que ele indicou é a leitura seguinte.
+        */}
+        <div className="rounded-lg border border-hipo-border bg-hipo-card p-2">
+          <span className="flex items-center justify-between gap-2">
+            <span className="text-[10px] text-hipo-slate">Contato nas 4 semanas</span>
+            <FarolSemanal
+              semanas={parceiro.farol}
+              semanasSemContato={parceiro.semanas_sem_contato}
+            />
+          </span>
+          <span className="block mt-1 text-[11px] text-hipo-ink">
+            {resumoDoFarol(parceiro.farol, parceiro.semanas_sem_contato)}
+          </span>
+        </div>
+
+        <TarefasDoParceiro
+          parceiroId={parceiro.id}
+          usuarios={usuarios}
+          usuarioAtualId={usuarioAtualId}
+          onMudou={onTarefaMudou}
+        />
 
         <section>
           <h4 className="text-xs font-semibold text-hipo-ink mb-1.5">
@@ -303,6 +375,11 @@ export default function Parceiros() {
   const [transferindo, setTransferindo] = useState(false);
   const debounce = useRef(null);
 
+  // Responsável padrão de toda tarefa nova: quem está com a tela aberta.
+  // Vem do localStorage (o mesmo lugar de onde saem os módulos), e não de um
+  // /auth/me a cada montagem — o dado já está lá desde o login.
+  const usuarioAtualId = getUser()?.id || '';
+
   // Mesma armadilha das outras telas: devolver o MESMO objeto quando nada
   // mudou faz o React abortar o re-render. Sem isso, o timer dispara uma vez
   // na montagem com a busca vazia e a tela recarrega sozinha.
@@ -327,10 +404,14 @@ export default function Parceiros() {
     const p = { periodo };
     if (filtros.q) p.q = filtros.q;
     if (filtros.situacao) p.situacao = filtros.situacao;
+    if (filtros.sem_contato) p.sem_contato = true;
     if (filtros.sem_ec) p.sem_ec = true;
     else if (filtros.ec_responsavel_id) p.ec_responsavel_id = filtros.ec_responsavel_id;
     return p;
-  }, [periodo, filtros.q, filtros.situacao, filtros.sem_ec, filtros.ec_responsavel_id]);
+  }, [
+    periodo, filtros.q, filtros.situacao, filtros.sem_contato,
+    filtros.sem_ec, filtros.ec_responsavel_id,
+  ]);
 
   const carregar = useCallback(async () => {
     setCarregando(true);
@@ -440,12 +521,27 @@ export default function Parceiros() {
             ativo={kpiAtivo === 'sem_ec'}
             onClick={() => alternarKpi('sem_ec', { sem_ec: true })}
           />
+          {/*
+            O outro KPI que existe para ser zerado — e este, toda sexta.
+            Conta só o VERMELHO da semana: nem contato feito nem tarefa
+            marcada. Amarelo fica de fora porque já tem alguém com ele, e um
+            KPI que cobra quem já agendou vira ruído que se aprende a ignorar.
+          */}
+          <KpiInline
+            label="Sem contato"
+            valor={resumo?.sem_contato_semana ?? '—'}
+            titulo="Nesta semana: nenhuma tarefa feita nem marcada — clique para ver a fila"
+            icone={CalendarX}
+            tom="text-hipo-danger bg-hipo-dangerSoft"
+            ativo={kpiAtivo === 'sem_contato'}
+            onClick={() => alternarKpi('sem_contato', { sem_contato: true })}
+          />
           <KpiInline
             label="Dormentes"
             valor={dormentes}
             titulo="Sem indicar há mais de 180 dias"
             icone={Moon}
-            tom="text-hipo-danger bg-hipo-dangerSoft"
+            tom="text-hipo-warning bg-hipo-warningSoft"
             ativo={kpiAtivo === 'dormentes'}
             onClick={() => alternarKpi('dormentes', { situacao: 'dormente' })}
           />
@@ -569,6 +665,10 @@ export default function Parceiros() {
                       <tr>
                         <Th>Parceiro</Th>
                         <Th>EC responsável</Th>
+                        {/* O que nós fizemos por ele. */}
+                        <Th>Contato</Th>
+                        {/* O que ele nos deu, e em que pé está. */}
+                        <Th>Em aberto</Th>
                         <Th>Situação</Th>
                         <Th align="right">Indicações</Th>
                         <Th align="right">Conversão</Th>
@@ -607,6 +707,46 @@ export default function Parceiros() {
                                 <option key={u.id} value={u.id}>{u.nome}</option>
                               ))}
                             </select>
+                          </Td>
+                          <Td>
+                            {/*
+                              Clicar no farol abre o painel — que é onde
+                              estão as tarefas. O stopPropagation existe
+                              porque a linha inteira já abre o painel: sem
+                              ele o clique dispararia os dois handlers.
+                            */}
+                            <span onClick={(e) => e.stopPropagation()}>
+                              <FarolSemanal
+                                semanas={p.farol}
+                                semanasSemContato={p.semanas_sem_contato}
+                                onClick={() => abrir(p.id)}
+                              />
+                            </span>
+                            {/*
+                              Tarefa em aberto com prazo vencido NÃO é "a
+                              próxima": chamá-la assim faria a linha dizer
+                              "próxima 22/07" num dia 13/08 — a tela
+                              anunciando futuro para uma dívida. Atrasada tem
+                              palavra e cor próprias.
+                            */}
+                            {p.proxima_tarefa_em ? (
+                              vencida(p.proxima_tarefa_em) ? (
+                                <span className="block text-[10px] text-hipo-danger mt-0.5">
+                                  atrasada {dataHoraCurta(p.proxima_tarefa_em)}
+                                </span>
+                              ) : (
+                                <span className="block text-[10px] text-hipo-slate mt-0.5">
+                                  próxima {dataHoraCurta(p.proxima_tarefa_em)}
+                                </span>
+                              )
+                            ) : (
+                              <span className="block text-[10px] text-hipo-muted mt-0.5">
+                                nada agendado
+                              </span>
+                            )}
+                          </Td>
+                          <Td>
+                            <MiniFunil dados={p.funil} />
                           </Td>
                           <Td>
                             <Badge tone={TOM_SITUACAO[p.situacao] || 'neutral'}>
@@ -668,9 +808,17 @@ export default function Parceiros() {
             parceiro={selecionado}
             usuarios={usuarios}
             periodo={periodo}
+            usuarioAtualId={usuarioAtualId}
             onFechar={() => setSelecionado(null)}
             onTrocarEc={(p, ec) => salvar(p, { ec_responsavel_id: ec })}
             onDesmarcar={(p) => salvar(p, { eh_finder: false })}
+            /*
+              Concluir ou agendar muda o farol e a contagem de abertas da
+              LINHA. Sem este recarregamento, o quadradinho da semana
+              continuaria vermelho depois de a tarefa ser concluída — e a
+              tela estaria mentindo sobre o que o usuário acabou de fazer.
+            */
+            onTarefaMudou={() => { carregar(); abrir(selecionado.id); }}
           />
         )}
       </div>

@@ -88,7 +88,14 @@ function Cartao({ tarefa, onAbrir }) {
           {tarefa.conta_razao_social}
         </span>
         <span className="flex items-center gap-2 text-[11px] text-hipo-muted">
-          <span className="font-mono">{tarefa.oportunidade_numero}</span>
+          {/*
+            Tarefa de parceiro não tem número de oportunidade. Mostrar a
+            palavra "Parceiro" no lugar — e não deixar o espaço vazio — é o
+            que evita o cartão parecer um registro quebrado.
+          */}
+          <span className="font-mono">
+            {tarefa.oportunidade_numero || tarefa.alvo_rotulo}
+          </span>
           {tarefa.responsavel_nome && (
             <span className="ml-auto truncate">{tarefa.responsavel_nome}</span>
           )}
@@ -345,7 +352,10 @@ export default function Tarefas() {
         titulo={aberta ? aberta.titulo : undefined}
         subtitulo={aberta ? (
           <span>
-            {aberta.conta_razao_social} · <span className="font-mono">{aberta.oportunidade_numero}</span>
+            {aberta.conta_razao_social} ·{' '}
+            <span className="font-mono">
+              {aberta.oportunidade_numero || aberta.alvo_rotulo}
+            </span>
           </span>
         ) : undefined}
         size="lg"

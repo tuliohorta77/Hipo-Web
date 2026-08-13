@@ -20,6 +20,12 @@ O que mora aqui:
   3. OS PERÍODOS. A tela abre no acumulado histórico e recorta sob demanda.
      Quem só olha acumulado não enxerga o parceiro que indicava bem e parou —
      e é exatamente esse que precisa de visita.
+
+  4. O FAROL SEMANAL. Cadência de contato, semana a semana. Mora aqui e não
+     em services/tarefa.py porque é regra da RELAÇÃO com o parceiro, irmã de
+     `situacao()` — a tarefa é só o insumo. O service de tarefa continua
+     sendo sobre o ciclo de vida de uma tarefa; este é sobre o ritmo de uma
+     parceria.
 """
 from __future__ import annotations
 
@@ -160,3 +166,134 @@ def taxa_cancelamento(canceladas: int, indicacoes: int) -> float | None:
     if indicacoes <= 0:
         return None
     return round(canceladas / indicacoes, 4)
+
+
+# ── O farol semanal ──────────────────────────────────────────────────
+#
+# A situação (ativo / esfriando / dormente) mede o que o parceiro NOS deu.
+# O farol mede o contrário: o que NÓS fizemos por ele. São perguntas
+# diferentes e é de propósito que existam as duas na mesma linha — parceiro
+# dormente com quatro semanas verdes é problema de produto ou de mercado;
+# parceiro dormente com quatro semanas vermelhas é abandono, e a ação é
+# outra.
+#
+# A SEMANA É DE SEGUNDA A DOMINGO, no calendário do escritório. Não é janela
+# móvel de 7 dias: janela móvel muda de resposta todo dia e não dá para
+# combinar numa reunião de segunda. "Falei com ele esta semana?" é pergunta
+# de calendário.
+
+SEMANAS_FAROL = 4
+
+CORES = ("verde", "amarelo", "vermelho")
+
+ROTULOS_COR = {
+    "verde": "Contato feito",
+    "amarelo": "Agendado, não feito",
+    "vermelho": "Sem contato",
+}
+
+
+def inicio_da_semana(dia: date) -> date:
+    """Segunda-feira da semana de `dia`. `weekday()` é 0 na segunda."""
+    return dia - timedelta(days=dia.weekday())
+
+
+def semanas_do_farol(hoje: date, quantidade: int = SEMANAS_FAROL) -> list[tuple[date, date]]:
+    """
+    As `quantidade` últimas semanas, MAIS ANTIGA PRIMEIRO e a corrente por
+    último.
+
+    A ordem importa: a trilha é lida da esquerda para a direita e termina em
+    hoje, como qualquer linha do tempo. Invertida, o olho leria a semana
+    corrente como a mais antiga.
+    """
+    if quantidade < 1:
+        raise ValueError("O farol precisa de pelo menos uma semana.")
+    corrente = inicio_da_semana(hoje)
+    semanas = []
+    for n in reversed(range(quantidade)):
+        inicio = corrente - timedelta(weeks=n)
+        semanas.append((inicio, inicio + timedelta(days=6)))
+    return semanas
+
+
+def cor_do_farol(concluidas: int, agendadas: int) -> str:
+    """
+    Verde  — houve contato: pelo menos uma tarefa CONCLUÍDA na semana.
+    Amarelo— há tarefa na semana, nenhuma concluída ainda.
+    Vermelho— nada na semana.
+
+    O verde olha `concluida_em`, não `prazo`: o que vale é quando o contato
+    aconteceu, não quando estava previsto. Agendar dez visitas e não fazer
+    nenhuma não é semana verde.
+
+    Amarelo tem duas leituras conforme a semana, e é de propósito que a cor
+    seja a mesma: na semana corrente é "ainda dá tempo"; numa semana passada
+    é "prometeu e não fez". As duas são o mesmo fato — tarefa que existe e
+    não virou contato — e quem lê a trilha inteira distingue pela posição.
+    """
+    if concluidas > 0:
+        return "verde"
+    if agendadas > 0:
+        return "amarelo"
+    return "vermelho"
+
+
+def farol(
+    contagens: dict[date, dict[str, int]],
+    hoje: date,
+    quantidade: int = SEMANAS_FAROL,
+) -> list[dict]:
+    """
+    Monta a trilha do farol.
+
+    `contagens` é indexado pela SEGUNDA-FEIRA da semana e cada valor tem
+    'concluidas' e 'agendadas'. Semana ausente do dicionário é semana sem
+    nada — vermelha. Quem consulta o banco entrega só as semanas que têm
+    linha; completar os buracos é trabalho daqui, não de um LEFT JOIN contra
+    generate_series.
+    """
+    trilha = []
+    for inicio, fim in semanas_do_farol(hoje, quantidade):
+        c = contagens.get(inicio) or {}
+        concluidas = int(c.get("concluidas", 0))
+        agendadas = int(c.get("agendadas", 0))
+        trilha.append({
+            "inicio": inicio,
+            "fim": fim,
+            "concluidas": concluidas,
+            "agendadas": agendadas,
+            "cor": cor_do_farol(concluidas, agendadas),
+            "corrente": inicio == inicio_da_semana(hoje),
+        })
+    return trilha
+
+
+def sem_contato_na_semana(trilha: list[dict]) -> bool:
+    """
+    O parceiro está na fila de quem precisa de ação AGORA?
+
+    Só o vermelho da semana corrente conta. Amarelo fica de fora de
+    propósito: já tem tarefa marcada com alguém, e um KPI que cobra quem já
+    agendou vira ruído que se aprende a ignorar. Este número existe para
+    produzir ação, e a ação é "marque alguma coisa com esse parceiro".
+    """
+    for semana in trilha:
+        if semana["corrente"]:
+            return semana["cor"] == "vermelho"
+    return False
+
+
+def semanas_sem_contato(trilha: list[dict]) -> int:
+    """
+    Quantas semanas seguidas, contando da corrente para trás, sem verde.
+
+    É a leitura de gravidade que a cor sozinha não dá: uma semana vermelha é
+    uma semana corrida; quatro seguidas é uma relação que parou.
+    """
+    total = 0
+    for semana in reversed(trilha):
+        if semana["cor"] == "verde":
+            break
+        total += 1
+    return total

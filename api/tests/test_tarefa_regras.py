@@ -13,6 +13,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
+from services import tarefa as regras
 from services.tarefa import (
     ORDEM_SITUACAO,
     ROTULOS_TIPO,
@@ -246,3 +247,56 @@ class TestOrdenacao:
     def test_prazo_ingenuo_nao_quebra_a_ordenacao(self):
         itens = [("hoje", datetime(2026, 8, 10, 9, 0)), ("hoje", AGORA)]
         assert len(sorted(itens, key=lambda i: chave_ordenacao(*i))) == 2
+
+
+# ── O alvo da tarefa (006) ───────────────────────────────────────────
+#
+# Toda tarefa é de uma oportunidade OU de um parceiro. Zero alvos seria a
+# lista de afazeres pessoal que a Sprint 5 recusou; dois alvos faria a
+# primeira métrica que somasse os dois contar a mesma tarefa duas vezes.
+
+class TestValidarAlvo:
+    def test_so_oportunidade(self):
+        assert regras.validar_alvo("opp-1", None) == "oportunidade"
+
+    def test_so_parceiro(self):
+        assert regras.validar_alvo(None, "conta-1") == "parceiro"
+
+    def test_os_dois_e_recusado(self):
+        with pytest.raises(regras.TarefaInvalida, match="não das duas"):
+            regras.validar_alvo("opp-1", "conta-1")
+
+    def test_nenhum_e_recusado(self):
+        with pytest.raises(regras.TarefaInvalida, match="Informe a oportunidade"):
+            regras.validar_alvo(None, None)
+
+    def test_todo_alvo_devolvido_esta_na_lista(self):
+        for retorno in (
+            regras.validar_alvo("opp-1", None),
+            regras.validar_alvo(None, "conta-1"),
+        ):
+            assert retorno in regras.ALVOS
+            assert retorno in regras.ROTULOS_ALVO
+
+
+class TestExigeProximaNoParceiro:
+    def test_tarefa_de_parceiro_nao_exige(self):
+        """
+        `status_oportunidade` chega None quando a tarefa é de parceiro.
+
+        A regra da oportunidade se apoia num estado final: um dia ela é
+        conquistada ou perdida e a corrente termina. Parceria não tem estado
+        final — exigir a próxima ali produziria corrente infinita, e o que se
+        agenda para não deixar o campo vazio é justamente a tarefa que
+        ninguém faz. Quem cobra cadência do parceiro é o farol semanal.
+        """
+        assert regras.exige_proxima(None) is False
+
+    def test_conclusao_de_tarefa_de_parceiro_passa_sem_proxima(self):
+        estado = EstadoTarefa(prazo=datetime(2026, 8, 12, 9, tzinfo=timezone.utc))
+        regras.validar_conclusao(estado, None, tem_proxima=False)
+
+    def test_conclusao_de_tarefa_de_parceiro_aceita_proxima(self):
+        """Não é obrigatória, mas continua sendo aceita."""
+        estado = EstadoTarefa(prazo=datetime(2026, 8, 12, 9, tzinfo=timezone.utc))
+        regras.validar_conclusao(estado, None, tem_proxima=True)

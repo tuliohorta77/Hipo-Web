@@ -6,7 +6,7 @@ cálculo que depende do relógio recebe `agora` como parâmetro — é o que
 permite testar "atrasada" e "hoje" sem mockar o tempo, mesmo padrão de
 services/dias_uteis.py.
 
-Duas regras moram aqui:
+Três regras moram aqui:
 
   1. SITUAÇÃO DERIVADA. A tarefa não tem coluna de estado. O que ela tem é
      prazo, concluída_em e cancelada_em; o estado sai da combinação desses
@@ -17,6 +17,9 @@ Duas regras moram aqui:
      uma tarefa sem marcar a seguinte deixaria o negócio sem próximo passo —
      que é exatamente o buraco que o CRM existe para tapar. A exceção é a
      oportunidade já finalizada: acabou, não há próxima.
+
+  3. EXATAMENTE UM ALVO. Toda tarefa é de uma oportunidade OU de um parceiro,
+     nunca das duas e nunca de nenhum. Ver `validar_alvo`.
 """
 from __future__ import annotations
 
@@ -81,6 +84,42 @@ def esta_aberta(estado: EstadoTarefa) -> bool:
     return estado.concluida_em is None and estado.cancelada_em is None
 
 
+# ── O alvo da tarefa ─────────────────────────────────────────────────
+#
+# Desde a 006, tarefa tem dois alvos possíveis: a oportunidade (o follow-up
+# do negócio) e a conta parceira (o cultivo da relação com quem indica).
+#
+# EXATAMENTE UM. Zero seria a lista de afazeres pessoal que a Sprint 5
+# recusou de propósito — sem vínculo a tarefa para de servir para métrica.
+# Dois tornaria ambíguo em qual funil ela conta, e a primeira métrica que
+# somasse os dois alvos contaria a mesma tarefa duas vezes.
+
+ALVOS = ("oportunidade", "parceiro")
+
+ROTULOS_ALVO = {"oportunidade": "Oportunidade", "parceiro": "Parceiro"}
+
+
+def validar_alvo(oportunidade_id, conta_id) -> str:
+    """
+    Devolve 'oportunidade' ou 'parceiro'. Levanta TarefaInvalida se vierem
+    os dois ou nenhum.
+
+    O CHECK do banco (ck_tarefa_alvo) é a última linha de defesa; esta é a
+    primeira, e é a que produz mensagem em português em vez de 500.
+    """
+    tem_opp = oportunidade_id is not None
+    tem_conta = conta_id is not None
+    if tem_opp and tem_conta:
+        raise TarefaInvalida(
+            "A tarefa é de uma oportunidade OU de um parceiro, não das duas."
+        )
+    if not tem_opp and not tem_conta:
+        raise TarefaInvalida(
+            "Informe a oportunidade ou o parceiro a que esta tarefa pertence."
+        )
+    return "oportunidade" if tem_opp else "parceiro"
+
+
 def situacao(
     estado: EstadoTarefa,
     agora: datetime,
@@ -120,7 +159,7 @@ def situacao(
     return "futura"
 
 
-def exige_proxima(status_oportunidade: str) -> bool:
+def exige_proxima(status_oportunidade: str | None) -> bool:
     """
     Concluir esta tarefa obriga a criar a próxima?
 
@@ -131,13 +170,21 @@ def exige_proxima(status_oportunidade: str) -> bool:
 
     Suspensa continua exigindo de propósito: suspender é pausa, e pausa sem
     data para voltar é como oportunidade morre em silêncio.
+
+    TAREFA DE PARCEIRO NÃO EXIGE (`status_oportunidade` chega None). A regra
+    da oportunidade se apoia num estado final: um dia ela é conquistada ou
+    perdida, e a corrente termina. Parceria não tem estado final — exigir a
+    próxima ali produziria corrente infinita, e o que se agenda para não
+    deixar o campo vazio é justamente a tarefa que ninguém faz. Quem cobra
+    cadência do parceiro é o farol semanal, que fica vermelho sozinho e sem
+    poluir a base com tarefa de mentira.
     """
     return status_oportunidade in ("ativa", "suspensa")
 
 
 def validar_conclusao(
     estado: EstadoTarefa,
-    status_oportunidade: str,
+    status_oportunidade: str | None,
     tem_proxima: bool,
 ) -> None:
     """

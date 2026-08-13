@@ -35,6 +35,14 @@ Decisões que este módulo materializa:
   * NÃO EXISTE CÁLCULO DE COMISSÃO AQUI. Existe contrapartida ao parceiro,
     mas o cálculo e o pagamento acontecem fora do HIPO. O papel desta tela é
     dizer quantas indicações converteram e com que ticket.
+
+  * O FAROL E O MINI-FUNIL SÃO DUAS PERGUNTAS OPOSTAS, e é de propósito que
+    fiquem lado a lado na mesma linha. O farol mede o que NÓS fizemos pelo
+    parceiro (cadência de contato, semana a semana); o mini-funil mede o que
+    ELE nos deu e em que pé está. Parceiro sem indicação com quatro semanas
+    verdes é problema de produto ou de mercado; parceiro sem indicação com
+    quatro semanas vermelhas é abandono — e a ação é outra. Uma coluna só
+    nunca separaria os dois casos.
 """
 from __future__ import annotations
 
@@ -49,9 +57,17 @@ from database import get_conn
 from routers.auth import usuario_atual
 from routers.permissions import CARGOS_COM_PARCEIROS
 from services import cnpj as cnpj_svc
+from services import oportunidade as regras_opp
 from services import parceiro as regras
+from services.tarefa import FUSO_OPERACAO
 
 router = APIRouter()
+
+# O fuso vai para o SQL como parâmetro para que o corte de semana do banco
+# seja EXATAMENTE o mesmo que services/parceiro.inicio_da_semana() faz em
+# Python. Deixar o Postgres usar o TimeZone da sessão faria o farol mudar de
+# resposta conforme a configuração do servidor.
+_NOME_FUSO = FUSO_OPERACAO.key
 
 # Teto de leitura da carteira. Ver o comentário do módulo: a paginação e o
 # filtro por situação acontecem em memória, e isso só é honesto enquanto a
@@ -73,6 +89,40 @@ ORDENACAO_SITUACAO = "situacao"
 
 
 # ── Schemas ──────────────────────────────────────────────────────────
+
+class SemanaFarol(BaseModel):
+    """Uma casa da trilha do farol. A regra da cor está em services."""
+    inicio: date
+    fim: date
+    cor: str
+    concluidas: int
+    agendadas: int
+    corrente: bool
+
+
+class FaseFunil(BaseModel):
+    qtd: int
+    ticket: Decimal
+
+
+class FunilParceiro(BaseModel):
+    """
+    O estoque aberto que este parceiro indicou, por fase.
+
+    Modelo fechado com as cinco fases abertas, e não um dicionário livre: a
+    tela desenha cinco faixas sempre, inclusive as zeradas. Fase ausente do
+    payload viraria faixa que some da linha e volta — e um mini-funil que
+    muda de largura conforme o conteúdo não dá para comparar entre linhas.
+
+    'finalizado' fica fora. É fluxo, não estoque — mesma decisão da visão de
+    funil da tela de Oportunidades.
+    """
+    suspect: FaseFunil
+    lead: FaseFunil
+    qualificacao: FaseFunil
+    apresentacao: FaseFunil
+    negociacao: FaseFunil
+
 
 class ParceiroResumo(BaseModel):
     id: UUID
@@ -104,6 +154,19 @@ class ParceiroResumo(BaseModel):
     # None (e não 0.0) quando não há denominador — ver services/parceiro.py.
     taxa_conversao: float | None
     taxa_cancelamento: float | None
+
+    # ── O que nós fizemos por ele ────────────────────────────────────
+    farol: list[SemanaFarol]
+    semanas_sem_contato: int
+    sem_contato: bool
+    tarefas_abertas: int
+    # A menor data entre as tarefas em aberto. É o embrião da "próxima
+    # tarefa" da Etapa 5 — a tela já mostra QUANDO é o próximo toque, sem
+    # ainda decidir por ninguém qual fazer primeiro.
+    proxima_tarefa_em: datetime | None
+
+    # ── O que ele nos deu, e em que pé está ──────────────────────────
+    funil: FunilParceiro
 
 
 class EventoCarteira(BaseModel):
@@ -149,6 +212,12 @@ class ResumoCarteira(BaseModel):
     periodo: str
     por_situacao: list[dict]
     por_ec: list[dict]
+    # Quantos parceiros estão vermelhos NESTA semana — nem contato feito nem
+    # tarefa marcada. É o KPI que existe para ser zerado toda sexta.
+    sem_contato_semana: int
+    # Distribuição das cores da semana corrente, para a leitura de rebanho:
+    # 3 vermelhos em 5 parceiros é uma conversa; 3 em 80 é ruído.
+    por_cor_semana: list[dict]
 
 
 class ParceiroEditar(BaseModel):
@@ -241,6 +310,133 @@ def _inicio(periodo: str, hoje: date | None) -> date | None:
         raise HTTPException(422, str(e)) from e
 
 
+# ── Farol semanal e mini-funil ───────────────────────────────────────
+#
+# Dois agregados, duas consultas, ambas por LOTE de conta_ids. Consultar por
+# parceiro dentro do laço seria N+1 — 50 parceiros na tela viram 100 idas ao
+# banco, e a tela que existe para ser aberta o dia inteiro é a pior candidata
+# a isso.
+#
+# Os dois rodam sobre o CONJUNTO INTEIRO, antes de paginar, pelo mesmo motivo
+# que a situação: o farol é filtrável, e filtrar por um campo calculado só na
+# página visível daria contagem errada na primeira troca de página. Vale sob a
+# mesma premissa declarada em CAP_PARCEIROS.
+
+# O verde olha `concluida_em` e o amarelo olha `prazo` — são datas
+# diferentes de propósito (ver services/parceiro.cor_do_farol), e é por isso
+# que são dois SELECT unidos e não um GROUP BY só. Cancelada não conta nem
+# como agendada: cancelar é dizer que aquilo não deveria ter sido marcado.
+_SQL_FAROL = """
+    SELECT conta_id, semana,
+           sum(concluidas)::int AS concluidas,
+           sum(agendadas)::int  AS agendadas
+      FROM (
+          SELECT t.conta_id,
+                 date_trunc('week', t.concluida_em AT TIME ZONE $2::text)::date AS semana,
+                 1 AS concluidas, 0 AS agendadas
+            FROM tarefas t
+           WHERE t.conta_id = ANY($1::uuid[])
+             AND t.concluida_em IS NOT NULL
+             AND (t.concluida_em AT TIME ZONE $2::text)::date BETWEEN $3 AND $4
+          UNION ALL
+          SELECT t.conta_id,
+                 date_trunc('week', t.prazo AT TIME ZONE $2::text)::date AS semana,
+                 0 AS concluidas, 1 AS agendadas
+            FROM tarefas t
+           WHERE t.conta_id = ANY($1::uuid[])
+             AND t.concluida_em IS NULL
+             AND t.cancelada_em IS NULL
+             AND (t.prazo AT TIME ZONE $2::text)::date BETWEEN $3 AND $4
+      ) x
+     GROUP BY conta_id, semana
+"""
+
+# Tarefas em aberto e a data da próxima. Sem recorte de janela: uma tarefa
+# marcada para daqui a dois meses continua sendo a próxima, e escondê-la
+# faria a tela dizer "sem próximo passo" para quem tem um.
+_SQL_TAREFAS_ABERTAS = """
+    SELECT t.conta_id,
+           count(*)::int AS abertas,
+           min(t.prazo)  AS proxima_em
+      FROM tarefas t
+     WHERE t.conta_id = ANY($1::uuid[])
+       AND t.concluida_em IS NULL
+       AND t.cancelada_em IS NULL
+     GROUP BY t.conta_id
+"""
+
+# Estoque aberto por fase. Respeita o período da barra, como todo agregado
+# desta tela: "das que ele indicou nos últimos 90 dias, onde estão".
+# Só status aberto — e como o CHECK do funil amarra `finalizado` aos status
+# de desfecho, filtrar por status aberto já devolve exatamente as 5 fases.
+_SQL_FUNIL = """
+    SELECT o.finder_conta_id AS conta_id, o.fase,
+           count(*)::int                         AS qtd,
+           COALESCE(sum(o.valor_mensalidade), 0) AS ticket
+      FROM oportunidades o
+     WHERE o.finder_conta_id = ANY($1::uuid[])
+       AND o.status IN ('ativa', 'suspensa')
+       AND ($2::date IS NULL OR o.criado_em >= $2::date)
+     GROUP BY o.finder_conta_id, o.fase
+"""
+
+
+def _funil_vazio() -> dict:
+    return {f: {"qtd": 0, "ticket": Decimal(0)} for f in regras_opp.FASES_ABERTAS}
+
+
+async def _enriquecer(conn, itens: list[dict], hoje: date | None,
+                      inicio: date | None) -> list[dict]:
+    """
+    Acrescenta farol, tarefas em aberto e mini-funil às linhas já montadas.
+
+    Três consultas em lote, independentemente de quantos parceiros. Sai daqui
+    com tudo que a linha da tela desenha.
+    """
+    if not itens:
+        return itens
+
+    ids = [i["id"] for i in itens]
+    referencia = hoje or date.today()
+    semanas = regras.semanas_do_farol(referencia)
+    primeira, ultima = semanas[0][0], semanas[-1][1]
+
+    linhas_farol = await conn.fetch(_SQL_FAROL, ids, _NOME_FUSO, primeira, ultima)
+    linhas_tarefas = await conn.fetch(_SQL_TAREFAS_ABERTAS, ids)
+    linhas_funil = await conn.fetch(_SQL_FUNIL, ids, inicio)
+
+    contagens: dict[UUID, dict[date, dict]] = {}
+    for r in linhas_farol:
+        contagens.setdefault(r["conta_id"], {})[r["semana"]] = {
+            "concluidas": r["concluidas"], "agendadas": r["agendadas"],
+        }
+
+    tarefas = {r["conta_id"]: r for r in linhas_tarefas}
+
+    funis: dict[UUID, dict] = {}
+    for r in linhas_funil:
+        alvo = funis.setdefault(r["conta_id"], _funil_vazio())
+        # Guarda contra fase fora das cinco abertas. Não deveria acontecer —
+        # o CHECK do funil impede —, mas um KeyError aqui derrubaria a tela
+        # inteira por causa de uma linha.
+        if r["fase"] in alvo:
+            alvo[r["fase"]] = {"qtd": r["qtd"], "ticket": r["ticket"]}
+
+    for item in itens:
+        trilha = regras.farol(contagens.get(item["id"], {}), referencia)
+        item["farol"] = trilha
+        item["sem_contato"] = regras.sem_contato_na_semana(trilha)
+        item["semanas_sem_contato"] = regras.semanas_sem_contato(trilha)
+
+        t = tarefas.get(item["id"])
+        item["tarefas_abertas"] = t["abertas"] if t else 0
+        item["proxima_tarefa_em"] = t["proxima_em"] if t else None
+
+        item["funil"] = funis.get(item["id"]) or _funil_vazio()
+
+    return itens
+
+
 async def _conta_ou_404(conn, conta_id: UUID) -> dict:
     row = await conn.fetchrow(
         "SELECT id, razao_social, eh_finder, ec_responsavel_id FROM contas WHERE id = $1",
@@ -325,7 +521,9 @@ async def _detalhe(conn, conta_id: UUID, periodo: str, hoje: date | None) -> dic
         """,
         conta_id,
     )
-    return {**_linha(row, hoje), "eventos": [dict(e) for e in eventos]}
+    linha = _linha(row, hoje)
+    await _enriquecer(conn, [linha], hoje, inicio)
+    return {**linha, "eventos": [dict(e) for e in eventos]}
 
 
 # ── Leitura ──────────────────────────────────────────────────────────
@@ -355,7 +553,7 @@ async def resumo(
     rows = await conn.fetch(
         f"{_SELECT_PARCEIRO} WHERE c.eh_finder LIMIT {CAP_PARCEIROS}", inicio
     )
-    itens = [_linha(r, hoje) for r in rows]
+    itens = await _enriquecer(conn, [_linha(r, hoje) for r in rows], hoje, inicio)
 
     convertidas = sum(i["convertidas"] for i in itens)
     perdidas = sum(i["perdidas"] for i in itens)
@@ -363,6 +561,15 @@ async def resumo(
     por_situacao = {s: 0 for s in regras.SITUACOES}
     for i in itens:
         por_situacao[i["situacao"]] += 1
+
+    # Cor da semana CORRENTE. A trilha tem quatro casas; o KPI olha só a
+    # última — a pergunta do topo da tela é sobre esta semana, e a leitura
+    # histórica é a trilha na linha de cada parceiro.
+    por_cor = {c: 0 for c in regras.CORES}
+    for i in itens:
+        corrente = next((s for s in i["farol"] if s["corrente"]), None)
+        if corrente:
+            por_cor[corrente["cor"]] += 1
 
     # Carteira por EC. Só quem tem parceiro aparece — a lista existe para
     # comparar carteiras, não para mostrar todo mundo com zero.
@@ -396,6 +603,11 @@ async def resumo(
             for s in regras.SITUACOES
         ],
         "por_ec": sorted(por_ec.values(), key=lambda x: (-x["parceiros"], x["nome"] or "")),
+        "sem_contato_semana": sum(1 for i in itens if i["sem_contato"]),
+        "por_cor_semana": [
+            {"cor": c, "rotulo": regras.ROTULOS_COR[c], "quantidade": por_cor[c]}
+            for c in regras.CORES
+        ],
     }
 
 
@@ -466,6 +678,7 @@ async def listar(
     ec_responsavel_id: UUID | None = None,
     sem_ec: bool = False,
     situacao: str | None = Query(None),
+    sem_contato: bool = False,
     periodo: str = Query("sempre"),
     apenas_ativas: bool = True,
     ordenar_por: str = Query("indicacoes"),
@@ -525,9 +738,14 @@ async def listar(
         *params,
     )
 
-    itens = [_linha(r, hoje) for r in rows]
+    itens = await _enriquecer(conn, [_linha(r, hoje) for r in rows], hoje, inicio)
     if situacao:
         itens = [i for i in itens if i["situacao"] == situacao]
+    if sem_contato:
+        # Vermelho da semana corrente: nem contato feito nem tarefa marcada.
+        # Amarelo fica fora de propósito — já tem alguém com ele. Ver
+        # services/parceiro.sem_contato_na_semana.
+        itens = [i for i in itens if i["sem_contato"]]
     if ordenar_por == ORDENACAO_SITUACAO:
         # ORDEM_SITUACAO é uma ordem de ATENÇÃO (sem_indicacao primeiro, ativo
         # por último), então o padrão da tela — desc=True — precisa percorrê-la

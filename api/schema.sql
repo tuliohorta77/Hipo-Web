@@ -9,6 +9,7 @@
 --   003_fase_suspect.sql acrescentou a fase 'suspect' na boca do funil
 --   004_tarefas.sql      criou a tabela de tarefas do funil
 --   005_parceiros.sql    EC responsavel por parceiro + trilha da carteira
+--   006_tarefas_parceiro.sql  tarefa presa ao parceiro (alvo alternativo)
 --
 -- Este arquivo e a fonte usada para criar o banco de teste no CI e deve
 -- refletir o estado acumulado das migrations.
@@ -362,10 +363,12 @@ CREATE TABLE IF NOT EXISTS usuarios_preferencias (
 
 
 -- ---------------------------------------------------------------------------
--- tarefas  (espelha api/migrations/004_tarefas.sql)
+-- tarefas  (espelha api/migrations/004_tarefas.sql + 006_tarefas_parceiro.sql)
 -- ---------------------------------------------------------------------------
--- Toda tarefa pertence a UMA oportunidade. Sem esse vinculo a tarefa vira
--- lista de afazeres pessoal e para de servir para metrica de funil.
+-- Toda tarefa tem EXATAMENTE UM alvo: uma oportunidade ou um parceiro (conta).
+-- Nunca zero, nunca os dois -- ck_tarefa_alvo. Zero alvos seria a lista de
+-- afazeres pessoal que a Sprint 5 recusou de proposito; dois alvos tornaria
+-- ambiguo em qual funil a tarefa conta.
 --
 -- SITUACAO NAO E COLUNA. E derivada de prazo + concluida_em + cancelada_em
 -- mais o relogio (services/tarefa.py):
@@ -374,11 +377,16 @@ CREATE TABLE IF NOT EXISTS usuarios_preferencias (
 -- meia-noite, e qualquer falha do job produziria dado mentiroso.
 --
 -- tarefa_anterior_id forma a corrente de follow-up: concluir obriga a criar a
--- proxima (regra na API), e a nova aponta para a que a gerou.
+-- proxima (regra na API), e a nova aponta para a que a gerou. A obrigacao vale
+-- para tarefa de OPORTUNIDADE; na de parceiro a proxima e oferecida, nao
+-- exigida -- parceria nao tem estado final, e exigir a proxima para sempre
+-- produziria corrente infinita de tarefa de mentira. Quem cobra cadencia ali
+-- e o farol semanal, que fica vermelho sozinho.
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS tarefas (
     id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    oportunidade_id     UUID NOT NULL REFERENCES oportunidades(id) ON DELETE CASCADE,
+    oportunidade_id     UUID REFERENCES oportunidades(id) ON DELETE CASCADE,
+    conta_id            UUID REFERENCES contas(id) ON DELETE CASCADE,
     tipo                VARCHAR(20) NOT NULL,
     titulo              VARCHAR(200) NOT NULL,
     descricao           TEXT,
@@ -408,11 +416,25 @@ CREATE TABLE IF NOT EXISTS tarefas (
     ),
     CONSTRAINT ck_tarefa_corrente CHECK (
         tarefa_anterior_id IS NULL OR tarefa_anterior_id <> id
+    ),
+    -- Exatamente um alvo. Ver o comentario do bloco.
+    CONSTRAINT ck_tarefa_alvo CHECK (
+        num_nonnulls(oportunidade_id, conta_id) = 1
     )
 );
 
 CREATE INDEX IF NOT EXISTS idx_tarefas_oportunidade
     ON tarefas (oportunidade_id, prazo);
+
+-- Aba de tarefas do parceiro.
+CREATE INDEX IF NOT EXISTS idx_tarefas_conta
+    ON tarefas (conta_id, prazo)
+    WHERE conta_id IS NOT NULL;
+
+-- Farol semanal. Olha concluida_em (quando o contato ACONTECEU), nao prazo.
+CREATE INDEX IF NOT EXISTS idx_tarefas_conta_concluidas
+    ON tarefas (conta_id, concluida_em)
+    WHERE conta_id IS NOT NULL AND concluida_em IS NOT NULL;
 
 -- Indice que a "proxima tarefa" da Etapa 5 vai usar. Parcial: tarefa fechada
 -- nunca entra nessa consulta.

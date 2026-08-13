@@ -21,7 +21,61 @@ vi.mock('../api', () => ({
     post: (...a) => mockPost(...a),
     patch: (...a) => mockPatch(...a),
   },
+  // A tela lê o usuário logado do localStorage para preencher o responsável
+  // padrão de toda tarefa nova. O mock precisa exportar getUser junto com o
+  // default, senão o import quebra a tela inteira na montagem.
+  getUser: () => ({ id: 'u1', nome: 'Ana EC', cargo: 'EC' }),
 }));
+
+// ── Farol e mini-funil ───────────────────────────────────────────────
+//
+// A cor vem PRONTA do backend. A tela não recalcula nada: recalcular criaria
+// uma segunda fonte de verdade que diverge no primeiro ajuste, e a que
+// divergisse seria a que o usuário está olhando. Por isso os fixtures abaixo
+// trazem a cor, e não os números que a produziriam.
+
+function semana(inicio, fim, cor, extra = {}) {
+  return {
+    inicio, fim, cor, concluidas: 0, agendadas: 0, corrente: false, ...extra,
+  };
+}
+
+const FAROL_VERDE = [
+  semana('2026-07-20', '2026-07-26', 'vermelho'),
+  semana('2026-07-27', '2026-08-02', 'amarelo', { agendadas: 1 }),
+  semana('2026-08-03', '2026-08-09', 'vermelho'),
+  semana('2026-08-10', '2026-08-16', 'verde', { concluidas: 2, corrente: true }),
+];
+
+const FAROL_VERMELHO = [
+  semana('2026-07-20', '2026-07-26', 'vermelho'),
+  semana('2026-07-27', '2026-08-02', 'vermelho'),
+  semana('2026-08-03', '2026-08-09', 'vermelho'),
+  semana('2026-08-10', '2026-08-16', 'vermelho', { corrente: true }),
+];
+
+/*
+  A data da próxima tarefa é RELATIVA ao relógio, e não uma data fixa: a
+  linha decide entre "próxima" e "atrasada" comparando com agora, então uma
+  constante em 2026 viraria "atrasada" sozinha depois daquele dia e o teste
+  quebraria por passagem do tempo. Mesma disciplina dos testes de backend,
+  onde `hoje` entra por parâmetro.
+*/
+const DAQUI_A_DOIS_DIAS = new Date(Date.now() + 2 * 86400_000).toISOString();
+
+function fase(qtd = 0, ticket = 0) {
+  return { qtd, ticket };
+}
+
+const FUNIL_CHEIO = {
+  suspect: fase(2, 3000), lead: fase(0, 0), qualificacao: fase(1, 1500),
+  apresentacao: fase(0, 0), negociacao: fase(1, 2500),
+};
+
+const FUNIL_VAZIO = {
+  suspect: fase(), lead: fase(), qualificacao: fase(),
+  apresentacao: fase(), negociacao: fase(),
+};
 
 import Parceiros from '../pages/crm/Parceiros';
 
@@ -40,6 +94,9 @@ const ALFA = {
   ticket_indicado: 4000, ticket_convertido: 1000,
   ultima_indicacao_em: '2026-08-01', situacao: 'ativo', situacao_rotulo: 'Ativo',
   taxa_conversao: 0.5, taxa_cancelamento: 0.25,
+  farol: FAROL_VERDE, semanas_sem_contato: 0, sem_contato: false,
+  tarefas_abertas: 1, proxima_tarefa_em: DAQUI_A_DOIS_DIAS,
+  funil: FUNIL_CHEIO,
 };
 
 const BETA = {
@@ -52,6 +109,9 @@ const BETA = {
   ultima_indicacao_em: null, situacao: 'sem_indicacao',
   situacao_rotulo: 'Sem indicação',
   taxa_conversao: null, taxa_cancelamento: null,
+  farol: FAROL_VERMELHO, semanas_sem_contato: 4, sem_contato: true,
+  tarefas_abertas: 0, proxima_tarefa_em: null,
+  funil: FUNIL_VAZIO,
 };
 
 const RESUMO = {
@@ -64,6 +124,27 @@ const RESUMO = {
     { situacao: 'dormente', rotulo: 'Dormente', quantidade: 3 },
   ],
   por_ec: [{ usuario_id: 'u1', nome: 'Ana EC', parceiros: 1, indicacoes: 4, convertidas: 1 }],
+  sem_contato_semana: 1,
+  por_cor_semana: [
+    { cor: 'verde', rotulo: 'Contato feito', quantidade: 1 },
+    { cor: 'amarelo', rotulo: 'Agendado, não feito', quantidade: 0 },
+    { cor: 'vermelho', rotulo: 'Sem contato', quantidade: 1 },
+  ],
+};
+
+const TAREFAS_DO_PARCEIRO = {
+  total: 1, abertas: 1, atrasadas: 0,
+  itens: [{
+    id: 't1', alvo: 'parceiro', alvo_rotulo: 'Parceiro',
+    oportunidade_id: null, oportunidade_numero: null, status_oportunidade: null,
+    conta_id: 'p1', conta_razao_social: 'Contabilidade Alfa',
+    tipo: 'ligacao', tipo_rotulo: 'Ligação', titulo: 'Ligar para o contador',
+    descricao: null, responsavel_id: 'u1', responsavel_nome: 'Ana EC',
+    prazo: '2026-08-14T12:00:00Z', situacao: 'futura',
+    concluida_em: null, resultado: null, cancelada_em: null,
+    motivo_cancelamento: null, tarefa_anterior_id: null,
+    criado_em: '2026-08-10T12:00:00Z',
+  }],
 };
 
 const INDICACOES = [{
@@ -97,6 +178,7 @@ function respostas(url) {
     return Promise.resolve({ data: { ...BETA, eventos: [] } });
   }
   if (url === '/crm/parceiros/p2/indicacoes') return Promise.resolve({ data: [] });
+  if (url === '/crm/tarefas') return Promise.resolve({ data: TAREFAS_DO_PARCEIRO });
   return Promise.resolve({ data: [] });
 }
 
@@ -437,5 +519,205 @@ describe('Parceiros — transferência de carteira', () => {
         { de_usuario_id: null, para_usuario_id: 'u1' }
       )
     );
+  });
+});
+
+// ── Farol, mini-funil e tarefas (006) ────────────────────────────────
+//
+// As duas colunas novas respondem perguntas opostas, e é por isso que existem
+// as duas: o farol mede o que NÓS fizemos pelo parceiro, o mini-funil mede o
+// que ELE nos deu. Parceiro sem indicação com quatro semanas verdes é
+// problema de mercado; com quatro vermelhas é abandono.
+
+describe('Parceiros — o farol semanal na linha', () => {
+  it('cada parceiro tem a trilha das quatro semanas', async () => {
+    montar();
+    const linha = (await screen.findByText('Contabilidade Alfa')).closest('tr');
+    expect(
+      within(linha).getByRole('button', { name: /Contato feito esta semana/ })
+    ).toBeInTheDocument();
+  });
+
+  it('quem está parado mostra há quantas semanas', async () => {
+    montar();
+    const linha = (await screen.findByText('Escritorio Beta')).closest('tr');
+    expect(
+      within(linha).getByRole('button', { name: /Sem contato há 4\+ semanas/ })
+    ).toBeInTheDocument();
+  });
+
+  it('mostra quando é a próxima tarefa', async () => {
+    /*
+      Embrião da "próxima tarefa" da Etapa 5: a linha já diz QUANDO é o
+      próximo toque, sem ainda decidir por ninguém qual fazer primeiro.
+    */
+    montar();
+    const linha = (await screen.findByText('Contabilidade Alfa')).closest('tr');
+    expect(within(linha).getByText(/^próxima /)).toBeInTheDocument();
+  });
+
+  it('prazo vencido não é chamado de "próxima"', async () => {
+    /*
+      Tarefa em aberto com prazo passado é dívida, não futuro. Chamá-la de
+      próxima faria a linha anunciar "próxima 22/07" num dia 13/08.
+    */
+    mockGet.mockImplementation((url, cfg) => {
+      if (url === '/crm/parceiros') {
+        return Promise.resolve({
+          data: {
+            total: 1, limit: 50, offset: 0, periodo: 'sempre',
+            itens: [{ ...ALFA, proxima_tarefa_em: '2020-01-15T12:00:00Z' }],
+          },
+        });
+      }
+      return respostas(url, cfg);
+    });
+    montar();
+    const linha = (await screen.findByText('Contabilidade Alfa')).closest('tr');
+    expect(within(linha).getByText(/^atrasada /)).toBeInTheDocument();
+    expect(within(linha).queryByText(/^próxima /)).not.toBeInTheDocument();
+  });
+
+  it('sem tarefa marcada a linha diz isso, em vez de ficar em branco', async () => {
+    montar();
+    const linha = (await screen.findByText('Escritorio Beta')).closest('tr');
+    expect(within(linha).getByText('nada agendado')).toBeInTheDocument();
+  });
+
+  it('clicar no farol abre o painel daquele parceiro', async () => {
+    /*
+      Diretriz pétrea 2. Um farol vermelho que não leva a lugar nenhum é
+      relatório; daqui o EC chega às tarefas em um clique.
+    */
+    montar();
+    const linha = (await screen.findByText('Contabilidade Alfa')).closest('tr');
+    fireEvent.click(
+      within(linha).getByRole('button', { name: /Contato feito esta semana/ })
+    );
+    expect(
+      await screen.findByLabelText('Parceiro Contabilidade Alfa')
+    ).toBeInTheDocument();
+  });
+});
+
+describe('Parceiros — o mini-funil na linha', () => {
+  it('mostra o estoque aberto por fase', async () => {
+    montar();
+    const linha = (await screen.findByText('Contabilidade Alfa')).closest('tr');
+    expect(
+      within(linha).getByLabelText('Funil em aberto: 4 oportunidades')
+    ).toBeInTheDocument();
+  });
+
+  it('parceiro sem nada em aberto mostra a frase, não cinco zeros', async () => {
+    montar();
+    const linha = (await screen.findByText('Escritorio Beta')).closest('tr');
+    expect(within(linha).getByText('Nada em aberto')).toBeInTheDocument();
+  });
+});
+
+/**
+ * O KPI, e não o farol da linha.
+ *
+ * Os dois começam com "Sem contato": o KPI se chama "Sem contato 1" (rótulo
+ * + valor) e o farol de um parceiro parado se chama "Sem contato há 4+
+ * semanas". Sem a âncora no dígito, o seletor pega os dois e o teste falha
+ * com "found multiple elements" — que é um erro de teste, não de tela.
+ */
+function kpiSemContato() {
+  return screen.getByRole('button', { name: /^Sem contato \d/ });
+}
+
+describe('Parceiros — o KPI "Sem contato"', () => {
+  it('mostra quantos estão vermelhos nesta semana', async () => {
+    montar();
+    await screen.findByText('Contabilidade Alfa');
+    const kpi = kpiSemContato();
+    expect(kpi).toHaveTextContent('1');
+  });
+
+  it('clicar filtra a carteira pelos vermelhos', async () => {
+    /*
+      É o KPI que existe para ser zerado toda sexta. Sem o filtro ele seria
+      um número que ninguém sabe o que fazer com.
+    */
+    montar();
+    await screen.findByText('Contabilidade Alfa');
+    fireEvent.click(kpiSemContato());
+    await waitFor(() =>
+      expect(mockGet).toHaveBeenCalledWith(
+        '/crm/parceiros',
+        expect.objectContaining({
+          params: expect.objectContaining({ sem_contato: true }),
+        })
+      )
+    );
+  });
+
+  it('clicar de novo desfaz o filtro', async () => {
+    montar();
+    await screen.findByText('Contabilidade Alfa');
+    const kpi = kpiSemContato();
+    fireEvent.click(kpi);
+    await waitFor(() => expect(kpi).toHaveAttribute('aria-pressed', 'true'));
+    fireEvent.click(kpi);
+    await waitFor(() => expect(kpi).toHaveAttribute('aria-pressed', 'false'));
+    const ultima = mockGet.mock.calls
+      .filter(([url]) => url === '/crm/parceiros')
+      .pop();
+    expect(ultima[1].params).not.toHaveProperty('sem_contato');
+  });
+
+  it('só um KPI fica ativo por vez', async () => {
+    montar();
+    await screen.findByText('Contabilidade Alfa');
+    fireEvent.click(kpiSemContato());
+    fireEvent.click(screen.getByRole('button', { name: /Dormentes/ }));
+    await waitFor(() =>
+      expect(kpiSemContato())
+        .toHaveAttribute('aria-pressed', 'false')
+    );
+  });
+});
+
+describe('Parceiros — tarefas dentro do painel', () => {
+  it('o painel carrega as tarefas daquele parceiro', async () => {
+    montar();
+    fireEvent.click(await screen.findByText('Contabilidade Alfa'));
+    await screen.findByLabelText('Parceiro Contabilidade Alfa');
+    expect(await screen.findByText('Ligar para o contador')).toBeInTheDocument();
+    expect(mockGet).toHaveBeenCalledWith('/crm/tarefas', {
+      params: { conta_id: 'p1', ordenar: 'urgencia' },
+    });
+  });
+
+  it('o painel resume a cadência em texto', async () => {
+    montar();
+    fireEvent.click(await screen.findByText('Contabilidade Alfa'));
+    const painel = await screen.findByLabelText('Parceiro Contabilidade Alfa');
+    expect(within(painel).getByText('Contato feito esta semana')).toBeInTheDocument();
+  });
+
+  it('concluir uma tarefa recarrega a linha e o painel', async () => {
+    /*
+      O farol e a contagem de abertas são da LINHA. Sem o recarregamento, o
+      quadradinho da semana continuaria vermelho depois de a tarefa ser
+      concluída — a tela mentindo sobre o que o usuário acabou de fazer.
+    */
+    mockPost.mockResolvedValue({ data: {} });
+    montar();
+    fireEvent.click(await screen.findByText('Contabilidade Alfa'));
+    await screen.findByText('Ligar para o contador');
+    const antes = mockGet.mock.calls.filter(([u]) => u === '/crm/parceiros').length;
+
+    fireEvent.click(screen.getByRole('button', { name: /Concluir Ligar para o contador/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Concluir tarefa' }));
+
+    await waitFor(() =>
+      expect(
+        mockGet.mock.calls.filter(([u]) => u === '/crm/parceiros').length
+      ).toBeGreaterThan(antes)
+    );
+    expect(mockGet).toHaveBeenCalledWith('/crm/parceiros/p1', expect.anything());
   });
 });
