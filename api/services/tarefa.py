@@ -171,15 +171,36 @@ def exige_proxima(status_oportunidade: str | None) -> bool:
     Suspensa continua exigindo de propósito: suspender é pausa, e pausa sem
     data para voltar é como oportunidade morre em silêncio.
 
-    TAREFA DE PARCEIRO NÃO EXIGE (`status_oportunidade` chega None). A regra
-    da oportunidade se apoia num estado final: um dia ela é conquistada ou
-    perdida, e a corrente termina. Parceria não tem estado final — exigir a
-    próxima ali produziria corrente infinita, e o que se agenda para não
-    deixar o campo vazio é justamente a tarefa que ninguém faz. Quem cobra
-    cadência do parceiro é o farol semanal, que fica vermelho sozinho e sem
-    poluir a base com tarefa de mentira.
+    TAREFA DE PARCEIRO EXIGE SEMPRE (`status_oportunidade` chega None).
+    Parceria não tem estado final que dispense a próxima — e é exatamente
+    por isso que ela exige: sem um próximo contato marcado, a relação some
+    da agenda de todo mundo e só reaparece meses depois, como parceiro
+    dormente. O farol mostra que parou; a corrente de tarefas é o que
+    impede de parar.
+
+    Quem realmente não tem próximo passo com um parceiro não deve concluir a
+    tarefa: deve CANCELAR (que é dizer "isso não ia acontecer") ou tirar o
+    parceiro da carteira. As duas saídas existem e nenhuma exige próxima.
     """
+    if status_oportunidade is None:
+        return True
     return status_oportunidade in ("ativa", "suspensa")
+
+
+# Mensagem por alvo. A da oportunidade manda finalizar; a do parceiro não
+# pode mandar isso, porque não existe "finalizar parceria" — mandar o
+# usuário fazer uma coisa que a tela não oferece é pior do que não explicar.
+_SEM_PROXIMA = {
+    "oportunidade": (
+        "Concluir exige agendar a próxima tarefa desta oportunidade. "
+        "Se não há próximo passo, finalize a oportunidade."
+    ),
+    "parceiro": (
+        "Concluir exige agendar a próxima conversa com este parceiro. "
+        "Se não há próximo passo, cancele a tarefa em vez de concluir, ou "
+        "tire o parceiro da carteira."
+    ),
+}
 
 
 def validar_conclusao(
@@ -196,10 +217,8 @@ def validar_conclusao(
     if estado.concluida_em is not None:
         raise TarefaInvalida("Esta tarefa já foi concluída.")
     if exige_proxima(status_oportunidade) and not tem_proxima:
-        raise TarefaInvalida(
-            "Concluir exige agendar a próxima tarefa desta oportunidade. "
-            "Se não há próximo passo, finalize a oportunidade."
-        )
+        alvo = "parceiro" if status_oportunidade is None else "oportunidade"
+        raise TarefaInvalida(_SEM_PROXIMA[alvo])
 
 
 def validar_cancelamento(estado: EstadoTarefa) -> None:

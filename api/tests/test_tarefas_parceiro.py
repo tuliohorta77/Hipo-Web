@@ -263,11 +263,11 @@ class TestTarefaDeParceiro:
 
 
 class TestConclusaoDeTarefaDeParceiro:
-    async def test_conclui_sem_proxima(self, client, cenario):
+    async def test_concluir_sem_proxima_e_recusado(self, client, cenario):
         """
-        Parceria não tem estado final. Exigir a próxima ali produziria
-        corrente infinita de tarefa de mentira — quem cobra cadência é o
-        farol.
+        A próxima é obrigatória também no parceiro. Sem um próximo contato
+        marcado, a relação some da agenda de todo mundo e só reaparece meses
+        depois, como parceiro dormente.
         """
         criada = (await nova_tarefa(
             client, cenario["headers"], cenario["usuario_id"],
@@ -278,8 +278,42 @@ class TestConclusaoDeTarefaDeParceiro:
             json={"resultado": "Atendeu, mandou dois contatos"},
             headers=cenario["headers"],
         )
+        assert resp.status_code == 422
+        assert "próxima conversa" in resp.text
+
+    async def test_a_mensagem_nao_manda_finalizar_a_parceria(self, client, cenario):
+        """
+        Não existe "finalizar parceria". Mandar o usuário fazer uma coisa que
+        a tela não oferece é pior do que não explicar — as saídas reais são
+        cancelar a tarefa ou tirar o parceiro da carteira.
+        """
+        criada = (await nova_tarefa(
+            client, cenario["headers"], cenario["usuario_id"],
+            conta_id=cenario["parceiro_id"],
+        )).json()
+        resp = await client.post(
+            f"/crm/tarefas/{criada['id']}/concluir", json={},
+            headers=cenario["headers"],
+        )
+        assert "finalize a oportunidade" not in resp.text
+        assert "cancele a tarefa" in resp.text
+
+    async def test_cancelar_continua_sem_exigir_proxima(self, client, cenario):
+        """
+        A saída para quem não tem próximo passo. Se cancelar também exigisse,
+        a tarefa ficaria presa em aberto para sempre.
+        """
+        criada = (await nova_tarefa(
+            client, cenario["headers"], cenario["usuario_id"],
+            conta_id=cenario["parceiro_id"],
+        )).json()
+        resp = await client.post(
+            f"/crm/tarefas/{criada['id']}/cancelar",
+            json={"motivo": "Parceiro pediu para nao insistir"},
+            headers=cenario["headers"],
+        )
         assert resp.status_code == 200, resp.text
-        assert resp.json()["situacao"] == "concluida"
+        assert resp.json()["situacao"] == "cancelada"
 
     async def test_a_proxima_herda_o_parceiro(self, client, cenario):
         """
@@ -540,18 +574,32 @@ class TestTarefasAbertasDoParceiro:
         assert linha["tarefas_abertas"] == 1
         assert linha["proxima_tarefa_em"].startswith("2026-12-20")
 
-    async def test_concluida_sai_da_contagem(self, client, cenario):
+    async def test_concluida_sai_da_contagem_e_a_proxima_entra(self, client, cenario):
+        """
+        Concluir agora obriga a agendar a próxima, então o saldo de abertas
+        NÃO vai a zero: sai uma, entra outra. É esse o efeito pretendido —
+        a corrente não deixa a relação ficar sem próximo passo.
+        """
         t = (await nova_tarefa(
             client, cenario["headers"], cenario["usuario_id"],
             conta_id=cenario["parceiro_id"],
         )).json()
-        await client.post(
-            f"/crm/tarefas/{t['id']}/concluir", json={}, headers=cenario["headers"]
+        resp = await client.post(
+            f"/crm/tarefas/{t['id']}/concluir",
+            json={"proxima": {
+                "tipo": "ligacao",
+                "titulo": "Retomar em duas semanas",
+                "responsavel_id": cenario["usuario_id"],
+                "prazo": "2026-08-26T13:00:00Z",
+            }},
+            headers=cenario["headers"],
         )
+        assert resp.status_code == 200, resp.text
         linha = await linha_do_parceiro(
             client, cenario["headers"], cenario["parceiro_id"]
         )
-        assert linha["tarefas_abertas"] == 0
+        assert linha["tarefas_abertas"] == 1
+        assert linha["proxima_tarefa_em"].startswith("2026-08-26")
 
 
 # ── Mini-funil da linha ──────────────────────────────────────────────

@@ -280,23 +280,44 @@ class TestValidarAlvo:
 
 
 class TestExigeProximaNoParceiro:
-    def test_tarefa_de_parceiro_nao_exige(self):
-        """
-        `status_oportunidade` chega None quando a tarefa é de parceiro.
+    """
+    `status_oportunidade` chega None quando a tarefa é de parceiro, e nesse
+    caso a próxima é SEMPRE obrigatória.
 
-        A regra da oportunidade se apoia num estado final: um dia ela é
-        conquistada ou perdida e a corrente termina. Parceria não tem estado
-        final — exigir a próxima ali produziria corrente infinita, e o que se
-        agenda para não deixar o campo vazio é justamente a tarefa que
-        ninguém faz. Quem cobra cadência do parceiro é o farol semanal.
-        """
-        assert regras.exige_proxima(None) is False
+    Parceria não tem estado final que dispense a próxima — e é por isso que
+    ela exige. Sem um próximo contato marcado, a relação some da agenda de
+    todo mundo e só reaparece meses depois, como parceiro dormente. O farol
+    mostra que parou; a corrente de tarefas é o que impede de parar.
+    """
 
-    def test_conclusao_de_tarefa_de_parceiro_passa_sem_proxima(self):
+    def test_tarefa_de_parceiro_exige_sempre(self):
+        assert regras.exige_proxima(None) is True
+
+    def test_concluir_sem_proxima_e_recusado(self):
         estado = EstadoTarefa(prazo=datetime(2026, 8, 12, 9, tzinfo=timezone.utc))
-        regras.validar_conclusao(estado, None, tem_proxima=False)
+        with pytest.raises(TarefaInvalida, match="próxima conversa"):
+            regras.validar_conclusao(estado, None, tem_proxima=False)
 
-    def test_conclusao_de_tarefa_de_parceiro_aceita_proxima(self):
-        """Não é obrigatória, mas continua sendo aceita."""
+    def test_concluir_com_proxima_passa(self):
         estado = EstadoTarefa(prazo=datetime(2026, 8, 12, 9, tzinfo=timezone.utc))
         regras.validar_conclusao(estado, None, tem_proxima=True)
+
+    def test_a_mensagem_do_parceiro_nao_manda_finalizar(self):
+        """
+        A mensagem da oportunidade manda finalizar. A do parceiro não pode:
+        não existe "finalizar parceria", e mandar o usuário fazer uma coisa
+        que a tela não oferece é pior do que não explicar. As saídas reais
+        são cancelar a tarefa ou tirar o parceiro da carteira.
+        """
+        estado = EstadoTarefa(prazo=datetime(2026, 8, 12, 9, tzinfo=timezone.utc))
+        with pytest.raises(TarefaInvalida) as e:
+            regras.validar_conclusao(estado, None, tem_proxima=False)
+        texto = str(e.value)
+        assert "finalize a oportunidade" not in texto
+        assert "cancele a tarefa" in texto
+        assert "carteira" in texto
+
+    def test_oportunidade_continua_com_a_mensagem_dela(self):
+        estado = EstadoTarefa(prazo=datetime(2026, 8, 12, 9, tzinfo=timezone.utc))
+        with pytest.raises(TarefaInvalida, match="finalize a oportunidade"):
+            regras.validar_conclusao(estado, "ativa", tem_proxima=False)

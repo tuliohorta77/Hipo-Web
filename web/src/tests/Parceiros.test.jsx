@@ -412,43 +412,118 @@ describe('Parceiros — trocar o EC na linha', () => {
   });
 });
 
-describe('Parceiros — o painel', () => {
-  it('clicar na linha abre o painel do parceiro', async () => {
+/**
+ * O drilldown do parceiro. Modal `full`, trilho com abas verticais e barra
+ * no rodapé — a MESMA casca do OportunidadeDetalhe.
+ *
+ * O seletor virou `role=dialog`: quando o drilldown deixou de ser um aside
+ * próprio e passou a usar o modal compartilhado, o rótulo passou a ser o
+ * título do modal.
+ */
+async function abrirParceiro(nome = 'Contabilidade Alfa') {
+  fireEvent.click(await screen.findByText(nome));
+  return screen.findByRole('dialog');
+}
+
+describe('Parceiros — o drilldown', () => {
+  it('clicar na linha abre o mesmo modal da oportunidade', async () => {
     montar();
-    fireEvent.click(await screen.findByText('Contabilidade Alfa'));
-    expect(await screen.findByLabelText('Parceiro Contabilidade Alfa')).toBeInTheDocument();
+    const dialogo = await abrirParceiro();
+    expect(within(dialogo).getByText('Contabilidade Alfa')).toBeInTheDocument();
+    expect(within(dialogo).getByText('11.111.111/0001-91')).toBeInTheDocument();
   });
 
-  it('o painel lista as indicações', async () => {
+  it('as abas do parceiro sao Dados, Tarefas, Indicacoes e Carteira', async () => {
+    /*
+      O que vai divergir da venda com o tempo é SÓ este conjunto. A casca, o
+      trilho e o mecanismo de tarefa são os mesmos.
+    */
     montar();
-    fireEvent.click(await screen.findByText('Contabilidade Alfa'));
-    expect(await screen.findByText('OPP-2026-00007')).toBeInTheDocument();
-    expect(screen.getByText('Metalurgica Gama')).toBeInTheDocument();
+    const dialogo = await abrirParceiro();
+    ['dados', 'tarefas', 'indicacoes', 'carteira'].forEach((k) => {
+      expect(within(dialogo).getByTestId(`tab-${k}`)).toBeInTheDocument();
+    });
   });
 
-  it('o painel mostra o histórico da carteira', async () => {
-    /* A pergunta "de quem era isso antes" aparece exatamente quando alguém
-       abre o parceiro para entender por que ninguém falou com ele. */
+  it('abre na aba Dados, com as duas taxas separadas', async () => {
     montar();
-    fireEvent.click(await screen.findByText('Contabilidade Alfa'));
-    const painel = within(await screen.findByLabelText('Parceiro Contabilidade Alfa'));
-    expect(painel.getByText('Transferido')).toBeInTheDocument();
-    expect(painel.getByText(/era de Bruno EC/)).toBeInTheDocument();
+    const dialogo = await abrirParceiro();
+    expect(within(dialogo).getByText('Conversão')).toBeInTheDocument();
+    expect(within(dialogo).getByText('Cancelamento')).toBeInTheDocument();
   });
 
-  it('o painel mostra as duas taxas separadas', async () => {
+  it('a aba Dados traz o farol e o mini-funil lado a lado', async () => {
     montar();
-    fireEvent.click(await screen.findByText('Contabilidade Alfa'));
-    const painel = within(await screen.findByLabelText('Parceiro Contabilidade Alfa'));
-    expect(painel.getByText('Conversão')).toBeInTheDocument();
-    expect(painel.getByText('Cancelamento')).toBeInTheDocument();
+    const dialogo = await abrirParceiro();
+    expect(within(dialogo).getByText('Contato feito esta semana')).toBeInTheDocument();
+    expect(
+      within(dialogo).getByLabelText('Funil em aberto: 4 oportunidades')
+    ).toBeInTheDocument();
+  });
+
+  it('trocar o EC pelo trilho chama o endpoint na hora, sem Salvar', async () => {
+    /*
+      Mesmo papel que a Fase tem na oportunidade: estado que muda por AÇÃO e
+      grava evento, não campo de formulário. Por isso não há botão Salvar.
+    */
+    montar();
+    const dialogo = await abrirParceiro();
+    fireEvent.change(within(dialogo).getByLabelText('EC responsável'), {
+      target: { value: 'u2' },
+    });
+    await waitFor(() =>
+      expect(mockPatch).toHaveBeenCalledWith(
+        '/crm/parceiros/p1', { ec_responsavel_id: 'u2' }, expect.anything()
+      )
+    );
+    expect(within(dialogo).queryByText('Salvar')).not.toBeInTheDocument();
+  });
+
+  it('a aba Indicacoes lista o que o parceiro indicou', async () => {
+    montar();
+    const dialogo = await abrirParceiro();
+    fireEvent.click(within(dialogo).getByTestId('tab-indicacoes'));
+    expect(await within(dialogo).findByText('OPP-2026-00007')).toBeInTheDocument();
+    expect(within(dialogo).getByText('Metalurgica Gama')).toBeInTheDocument();
+  });
+
+  it('a indicacao tem atalho para o funil', async () => {
+    /* É o caminho mais curto entre "quem indicou" e "o que virou". */
+    montar();
+    const dialogo = await abrirParceiro();
+    fireEvent.click(within(dialogo).getByTestId('tab-indicacoes'));
+    expect(
+      await within(dialogo).findByLabelText('Abrir OPP-2026-00007 no funil')
+    ).toBeInTheDocument();
+  });
+
+  it('falha ao buscar indicacoes nao derruba o drilldown', async () => {
+    mockGet.mockImplementation((url, cfg) => {
+      if (url === '/crm/parceiros/p1/indicacoes') return Promise.reject(new Error('offline'));
+      return respostas(url, cfg);
+    });
+    montar();
+    const dialogo = await abrirParceiro();
+    fireEvent.click(within(dialogo).getByTestId('tab-indicacoes'));
+    expect(
+      await within(dialogo).findByText('Não foi possível carregar as indicações.')
+    ).toBeInTheDocument();
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+  });
+
+  it('a aba Carteira mostra de quem era antes', async () => {
+    montar();
+    const dialogo = await abrirParceiro();
+    fireEvent.click(within(dialogo).getByTestId('tab-carteira'));
+    expect(within(dialogo).getByText('Transferido')).toBeInTheDocument();
+    expect(within(dialogo).getByText(/era de Bruno EC/)).toBeInTheDocument();
   });
 
   it('remover da carteira desmarca o parceiro', async () => {
     mockPatch.mockResolvedValue({ data: { ...DETALHE, eh_finder: false } });
     montar();
-    fireEvent.click(await screen.findByText('Contabilidade Alfa'));
-    fireEvent.click(await screen.findByText('Remover da carteira'));
+    const dialogo = await abrirParceiro();
+    fireEvent.click(within(dialogo).getByText('Remover da carteira'));
     await waitFor(() =>
       expect(mockPatch).toHaveBeenCalledWith(
         '/crm/parceiros/p1', { eh_finder: false }, expect.anything()
@@ -456,44 +531,19 @@ describe('Parceiros — o painel', () => {
     );
   });
 
-  it('desmarcado fecha o painel — a linha saiu da carteira', async () => {
+  it('desmarcado fecha o drilldown — a linha saiu da carteira', async () => {
     mockPatch.mockResolvedValue({ data: { ...DETALHE, eh_finder: false } });
     montar();
-    fireEvent.click(await screen.findByText('Contabilidade Alfa'));
-    fireEvent.click(await screen.findByText('Remover da carteira'));
-    await waitFor(() =>
-      expect(screen.queryByLabelText('Parceiro Contabilidade Alfa')).not.toBeInTheDocument()
-    );
+    const dialogo = await abrirParceiro();
+    fireEvent.click(within(dialogo).getByText('Remover da carteira'));
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
   });
 
-  it('o X fecha o painel', async () => {
+  it('Fechar fecha o drilldown', async () => {
     montar();
-    fireEvent.click(await screen.findByText('Contabilidade Alfa'));
-    await screen.findByLabelText('Parceiro Contabilidade Alfa');
-    fireEvent.click(screen.getByLabelText('Fechar painel do parceiro'));
-    expect(screen.queryByLabelText('Parceiro Contabilidade Alfa')).not.toBeInTheDocument();
-  });
-
-  it('a indicação tem atalho para o funil', async () => {
-    /* É o caminho mais curto entre "quem indicou" e "o que virou". */
-    montar();
-    fireEvent.click(await screen.findByText('Contabilidade Alfa'));
-    expect(
-      await screen.findByLabelText('Abrir OPP-2026-00007 no funil')
-    ).toBeInTheDocument();
-  });
-
-  it('falha ao buscar indicações não derruba o painel', async () => {
-    mockGet.mockImplementation((url) => {
-      if (url === '/crm/parceiros/p1/indicacoes') return Promise.reject(new Error('offline'));
-      return respostas(url);
-    });
-    montar();
-    fireEvent.click(await screen.findByText('Contabilidade Alfa'));
-    expect(
-      await screen.findByText('Não foi possível carregar as indicações.')
-    ).toBeInTheDocument();
-    expect(screen.getByLabelText('Parceiro Contabilidade Alfa')).toBeInTheDocument();
+    const dialogo = await abrirParceiro();
+    fireEvent.click(within(dialogo).getByText('Fechar'));
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
   });
 });
 
@@ -584,7 +634,7 @@ describe('Parceiros — o farol semanal na linha', () => {
     expect(within(linha).getByText('nada agendado')).toBeInTheDocument();
   });
 
-  it('clicar no farol abre o painel daquele parceiro', async () => {
+  it('clicar no farol abre o drilldown daquele parceiro', async () => {
     /*
       Diretriz pétrea 2. Um farol vermelho que não leva a lugar nenhum é
       relatório; daqui o EC chega às tarefas em um clique.
@@ -595,7 +645,7 @@ describe('Parceiros — o farol semanal na linha', () => {
       within(linha).getByRole('button', { name: /Contato feito esta semana/ })
     );
     expect(
-      await screen.findByLabelText('Parceiro Contabilidade Alfa')
+      await screen.findByRole('dialog')
     ).toBeInTheDocument();
   });
 });
@@ -680,25 +730,65 @@ describe('Parceiros — o KPI "Sem contato"', () => {
   });
 });
 
-describe('Parceiros — tarefas dentro do painel', () => {
-  it('o painel carrega as tarefas daquele parceiro', async () => {
+describe('Parceiros — a aba de Tarefas e a mesma da venda', () => {
+  it('a aba carrega as tarefas DAQUELE parceiro', async () => {
     montar();
-    fireEvent.click(await screen.findByText('Contabilidade Alfa'));
-    await screen.findByLabelText('Parceiro Contabilidade Alfa');
-    expect(await screen.findByText('Ligar para o contador')).toBeInTheDocument();
+    const dialogo = await abrirParceiro();
+    fireEvent.click(within(dialogo).getByTestId('tab-tarefas'));
+    expect(await within(dialogo).findByText('Ligar para o contador')).toBeInTheDocument();
     expect(mockGet).toHaveBeenCalledWith('/crm/tarefas', {
-      params: { conta_id: 'p1', ordenar: 'urgencia' },
+      params: { conta_id: 'p1', ordenar: 'cronologico' },
     });
   });
 
-  it('o painel resume a cadência em texto', async () => {
+  it('usa a linha do tempo, igual a da oportunidade', async () => {
+    /*
+      Mesmo componente, não um parecido. Se alguém recriar uma lista própria
+      para o parceiro, este teste cai.
+    */
     montar();
-    fireEvent.click(await screen.findByText('Contabilidade Alfa'));
-    const painel = await screen.findByLabelText('Parceiro Contabilidade Alfa');
-    expect(within(painel).getByText('Contato feito esta semana')).toBeInTheDocument();
+    const dialogo = await abrirParceiro();
+    fireEvent.click(within(dialogo).getByTestId('tab-tarefas'));
+    expect(
+      await within(dialogo).findByLabelText('Linha do tempo das tarefas')
+    ).toBeInTheDocument();
   });
 
-  it('concluir uma tarefa recarrega a linha e o painel', async () => {
+  it('concluir exige agendar a proxima, igual a oportunidade', async () => {
+    /*
+      Parceria não tem estado final que dispense a próxima — e é por isso que
+      ela exige. Sem próximo contato marcado, a relação some da agenda de
+      todo mundo e só reaparece meses depois, como parceiro dormente.
+    */
+    montar();
+    const dialogo = await abrirParceiro();
+    fireEvent.click(within(dialogo).getByTestId('tab-tarefas'));
+    fireEvent.click(await within(dialogo).findByText('Ligar para o contador'));
+    fireEvent.click(await within(dialogo).findByLabelText(/^Concluir Ligar/));
+
+    expect(within(dialogo).getByLabelText(/Próxima: Título/)).toBeInTheDocument();
+    expect(
+      within(dialogo).getByText('Concluir tarefa').closest('button')
+    ).toBeDisabled();
+  });
+
+  it('o aviso da proxima nao manda "finalizar a oportunidade"', async () => {
+    /*
+      Não existe "finalizar parceria", e a tela do parceiro não tem esse
+      botão. Mandar o usuário fazer uma ação que a tela não oferece é pior
+      do que não explicar. Espelha a mensagem do backend.
+    */
+    montar();
+    const dialogo = await abrirParceiro();
+    fireEvent.click(within(dialogo).getByTestId('tab-tarefas'));
+    fireEvent.click(await within(dialogo).findByText('Ligar para o contador'));
+    fireEvent.click(await within(dialogo).findByLabelText(/^Concluir Ligar/));
+
+    expect(within(dialogo).queryByText(/finalize a oportunidade/)).not.toBeInTheDocument();
+    expect(within(dialogo).getByText(/tire o parceiro da carteira/)).toBeInTheDocument();
+  });
+
+  it('concluir com a proxima preenchida recarrega a linha e o drilldown', async () => {
     /*
       O farol e a contagem de abertas são da LINHA. Sem o recarregamento, o
       quadradinho da semana continuaria vermelho depois de a tarefa ser
@@ -706,12 +796,16 @@ describe('Parceiros — tarefas dentro do painel', () => {
     */
     mockPost.mockResolvedValue({ data: {} });
     montar();
-    fireEvent.click(await screen.findByText('Contabilidade Alfa'));
-    await screen.findByText('Ligar para o contador');
-    const antes = mockGet.mock.calls.filter(([u]) => u === '/crm/parceiros').length;
+    const dialogo = await abrirParceiro();
+    fireEvent.click(within(dialogo).getByTestId('tab-tarefas'));
+    fireEvent.click(await within(dialogo).findByText('Ligar para o contador'));
+    fireEvent.click(await within(dialogo).findByLabelText(/^Concluir Ligar/));
 
-    fireEvent.click(screen.getByRole('button', { name: /Concluir Ligar para o contador/ }));
-    fireEvent.click(screen.getByRole('button', { name: 'Concluir tarefa' }));
+    const antes = mockGet.mock.calls.filter(([u]) => u === '/crm/parceiros').length;
+    fireEvent.change(within(dialogo).getByLabelText(/Próxima: Título/), {
+      target: { value: 'Retomar em duas semanas' },
+    });
+    fireEvent.click(within(dialogo).getByText('Concluir tarefa'));
 
     await waitFor(() =>
       expect(
@@ -719,5 +813,21 @@ describe('Parceiros — tarefas dentro do painel', () => {
       ).toBeGreaterThan(antes)
     );
     expect(mockGet).toHaveBeenCalledWith('/crm/parceiros/p1', expect.anything());
+  });
+
+  it('o detalhe da tarefa tem textarea, nao input de uma linha', async () => {
+    /*
+      Campo apertado ensina a escrever pouco. O detalhe é textarea; o título
+      segue em uma linha, porque rótulo que vira parágrafo quebra a lista.
+    */
+    montar();
+    const dialogo = await abrirParceiro();
+    fireEvent.click(within(dialogo).getByTestId('tab-tarefas'));
+    fireEvent.click(await within(dialogo).findByText('Nova tarefa'));
+
+    const detalhe = within(dialogo).getByLabelText(/Detalhe \(opcional\)/);
+    expect(detalhe.tagName).toBe('TEXTAREA');
+    expect(Number(detalhe.getAttribute('rows'))).toBeGreaterThanOrEqual(3);
+    expect(within(dialogo).getByLabelText(/^Título/).tagName).toBe('INPUT');
   });
 });

@@ -51,13 +51,22 @@ param(
     [string]$UsuarioSsh = "ec2-user",
     [string]$Chave     = "$HOME\Downloads\chave-hipo.pem",
     [string]$UrlPublica = "https://hipogestao.com.br",
-    [string]$Mensagem  = "feat(crm): tarefas de parceiro, farol semanal e mini-funil da linha"
+    [string]$Mensagem  = "feat(crm): tarefas de parceiro, farol semanal, mini-funil e drilldown unificado"
 )
 
 $ErrorActionPreference = "Stop"
 $ProgressPreference    = "SilentlyContinue"
 
 $MIGRACAO_LOCAL  = "api\migrations\006_tarefas_parceiro.sql"
+
+# Codigo morto da revisao: o TarefasDoParceiro virou a AbaTarefas
+# compartilhada com a oportunidade. O build passa com eles no disco (ninguem
+# os importa), mas o vitest roda o teste de um componente que nao existe mais
+# no produto -- e teste verde de codigo morto e pior que teste vermelho.
+$MORTOS = @(
+    "web\src\components\crm\TarefasDoParceiro.jsx",
+    "web\src\tests\TarefasDoParceiro.test.jsx"
+)
 $MIGRACAO_REMOTA = "/tmp/006_tarefas_parceiro.sql"
 $SCRIPT_REMOTO   = "/tmp/aplicar-006.sh"
 
@@ -148,6 +157,21 @@ if ($schema -notmatch "idx_tarefas_conta_concluidas") {
     Abortar "api\schema.sql nao tem os indices da 006."
 }
 Bom "schema.sql espelha a migration"
+
+$apagados = 0
+foreach ($morto in $MORTOS) {
+    if (Test-Path $morto) {
+        Remove-Item $morto -Force
+        $apagados = $apagados + 1
+        Passo "removido (codigo morto): $morto"
+    }
+}
+if ($apagados -gt 0) {
+    Bom "$apagados arquivo(s) de codigo morto removido(s)"
+}
+else {
+    Bom "nenhum codigo morto sobrando"
+}
 
 $ramo = (& git rev-parse --abbrev-ref HEAD).Trim()
 Passo "ramo atual: $ramo"
@@ -505,7 +529,10 @@ Write-Host "  Depois, na tela de Parceiros, confira:" -ForegroundColor Gray
 Write-Host "    - a coluna Contato mostra 4 quadradinhos por linha" -ForegroundColor Gray
 Write-Host "    - a coluna Em aberto mostra o mini-funil S/L/Q/A/N" -ForegroundColor Gray
 Write-Host "    - o KPI 'Sem contato' aparece e filtra ao clicar" -ForegroundColor Gray
-Write-Host "    - abrir um parceiro mostra a secao Tarefas com o botao Nova" -ForegroundColor Gray
+Write-Host "    - clicar numa linha abre o MESMO modal da oportunidade," -ForegroundColor Gray
+Write-Host "      com trilho a esquerda e as abas Dados/Tarefas/Indicacoes/Carteira" -ForegroundColor Gray
+Write-Host "    - na aba Tarefas, concluir EXIGE agendar a proxima" -ForegroundColor Gray
+Write-Host "    - o campo Detalhe da tarefa e uma caixa de 4 linhas" -ForegroundColor Gray
 Write-Host ""
 Write-Host "  Nenhum modulo novo foi criado, entao ninguem perde acesso a nada." -ForegroundColor Gray
 Write-Host ""

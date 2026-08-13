@@ -166,8 +166,18 @@ function Evento({
 }
 
 // ── Aba ──────────────────────────────────────────────────────────────
+//
+// Serve os DOIS alvos: a oportunidade e o parceiro. Recebe um ou outro, e
+// só três coisas mudam — o parametro da consulta, o corpo do POST e o texto
+// do vazio. Todo o resto (linha do tempo, drilldown, painéis de concluir /
+// cancelar / editar, a regra da próxima obrigatória) é literalmente o mesmo
+// código.
+//
+// Duas cópias divergiriam no primeiro ajuste, e a que divergisse seria a
+// que o usuário está usando na hora. Foi por isso que o TarefasDoParceiro,
+// que existia separado, foi apagado.
 
-export default function AbaTarefas({ oportunidade, onMudou }) {
+export default function AbaTarefas({ oportunidade, parceiro, onMudou }) {
   const [dados, setDados] = useState({ total: 0, abertas: 0, atrasadas: 0, itens: [] });
   const [usuarios, setUsuarios] = useState([]);
   const [carregando, setCarregando] = useState(true);
@@ -177,15 +187,25 @@ export default function AbaTarefas({ oportunidade, onMudou }) {
   const [nova, setNova] = useState(() => tarefaVazia());
   const [expandida, setExpandida] = useState(null);
 
-  const oportunidadeId = oportunidade.id;
-  const exigeProxima = STATUS_ABERTOS.includes(oportunidade.status);
+  const ehParceiro = Boolean(parceiro);
+  const alvo = ehParceiro ? parceiro : oportunidade;
+  const alvoId = alvo.id;
+
+  // A oportunidade dispensa a próxima quando já foi finalizada — acabou, não
+  // há próximo passo. O parceiro exige SEMPRE: parceria não tem estado final
+  // que dispense, e sem próximo contato marcado a relação some da agenda de
+  // todo mundo. Mesma regra do backend (services/tarefa.exige_proxima), e o
+  // 422 de lá é a rede embaixo desta linha.
+  const exigeProxima = ehParceiro || STATUS_ABERTOS.includes(oportunidade?.status);
+
+  const filtro = ehParceiro ? { conta_id: alvoId } : { oportunidade_id: alvoId };
 
   const carregar = useCallback(async () => {
     setCarregando(true);
     setErro(null);
     try {
       const { data } = await api.get('/crm/tarefas', {
-        params: { oportunidade_id: oportunidadeId, ordenar: 'cronologico' },
+        params: { ...filtro, ordenar: 'cronologico' },
       });
       setDados(data);
     } catch (err) {
@@ -193,7 +213,12 @@ export default function AbaTarefas({ oportunidade, onMudou }) {
     } finally {
       setCarregando(false);
     }
-  }, [oportunidadeId]);
+    // `filtro` e recriado a cada render; a dependencia real e o par
+    // (alvo, id). Depender do objeto trocaria a identidade de `carregar` em
+    // todo render e a aba buscaria em loop -- a mesma armadilha do debounce
+    // que ja custou um recarregamento duplo nas telas de lista.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ehParceiro, alvoId]);
 
   useEffect(() => { carregar(); }, [carregar]);
 
@@ -225,9 +250,7 @@ export default function AbaTarefas({ oportunidade, onMudou }) {
   }, [carregar, onMudou]);
 
   const criar = () => mutar(
-    () => api.post('/crm/tarefas', {
-      oportunidade_id: oportunidadeId, ...corpoDaTarefa(nova),
-    }),
+    () => api.post('/crm/tarefas', { ...filtro, ...corpoDaTarefa(nova) }),
     'Não foi possível criar a tarefa.',
   ).then((ok) => {
     if (ok) { setNova(tarefaVazia()); setCriando(false); }
@@ -302,8 +325,12 @@ export default function AbaTarefas({ oportunidade, onMudou }) {
         <p className="py-8 text-center text-sm text-hipo-slate">Carregando tarefas…</p>
       ) : dados.itens.length === 0 ? (
         <Empty
-          title="Nenhuma tarefa nesta oportunidade"
-          description="Agende o próximo contato para a negociação não parar."
+          title={ehParceiro
+            ? 'Nenhuma tarefa com este parceiro'
+            : 'Nenhuma tarefa nesta oportunidade'}
+          description={ehParceiro
+            ? 'Agende a próxima conversa para a parceria não esfriar.'
+            : 'Agende o próximo contato para a negociação não parar.'}
           icon={CircleDot}
           action={
             <Button icon={Plus} onClick={() => setCriando(true)}>Nova tarefa</Button>

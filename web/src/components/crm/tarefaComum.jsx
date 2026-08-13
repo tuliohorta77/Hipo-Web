@@ -164,32 +164,80 @@ export function formDaTarefa(tarefa) {
   };
 }
 
-export function CamposTarefa({ valor, onChange, usuarios, prefixo = '' }) {
+/**
+ * O que se escreve na tarefa tem tamanho de campo à altura.
+ *
+ * O título vinha num input de 40px e o detalhe, num input de UMA linha —
+ * do mesmo tamanho de um campo de CEP. Quem escreve "Ligar para o RH da
+ * Metalurgica confirmando as 40 vidas do PCMSO e a data dos exames"
+ * enxergava um terço do que digitou e perdia a noção do que já tinha
+ * escrito. O campo comunica quanto se espera que seja escrito, e um campo
+ * apertado ensina a escrever pouco.
+ *
+ * Título continua em uma linha só — é rótulo, e rótulo que vira parágrafo
+ * quebra a lista e a linha do tempo. Mas ganhou altura e fonte maiores. O
+ * detalhe virou textarea de 4 linhas, redimensionável na vertical.
+ */
+const CLASSE_TEXTAREA =
+  'w-full px-3 py-2 rounded-lg bg-hipo-card border border-hipo-border ' +
+  'text-hipo-ink text-sm outline-none transition-colors resize-y ' +
+  'placeholder:text-hipo-muted ' +
+  'focus:border-hipo-blue focus:ring-2 focus:ring-blue-100';
+
+export function CamposTarefa({ valor, onChange, usuarios, prefixo = '', idBase = 'tarefa' }) {
   const set = (campo) => (e) => onChange({ ...valor, [campo]: e.target.value });
+
+  /*
+    Ids explícitos, e não os que o Input deriva do rótulo.
+
+    O Input monta `inp-${label}` minúsculo com espaços virando hífen. Com o
+    prefixo "Próxima: " isso produz `inp-próxima:-título` — legal em HTML5,
+    mas os dois-pontos quebram `document.querySelector('#...')` sem escape.
+    Ninguém tropeça nisso no dia a dia, e é justamente por isso que dói
+    quando alguém tropeça: um seletor que falha por causa de pontuação no
+    rótulo é caça ao fantasma.
+
+    Como bônus, dois formulários abertos ao mesmo tempo (o de editar uma
+    tarefa e o da próxima de outra) deixam de brigar pelo mesmo id.
+  */
+  const campoId = (nome) => `${idBase}-${nome}`;
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-      <Select label={`${prefixo}Tipo`} value={valor.tipo} onChange={set('tipo')}>
+      {/*
+        Título em primeiro e ocupando a linha toda: é o que a pessoa veio
+        escrever. Tipo, prazo e responsável são classificação, e vêm depois.
+      */}
+      <div className="md:col-span-2">
+        <Input
+          id={campoId('titulo')}
+          label={`${prefixo}Título`}
+          placeholder="ex.: Ligar para o RH confirmando as 40 vidas do PCMSO"
+          value={valor.titulo}
+          onChange={set('titulo')}
+          inputClassName="text-base"
+        />
+      </div>
+
+      <Select
+        id={campoId('tipo')}
+        label={`${prefixo}Tipo`}
+        value={valor.tipo}
+        onChange={set('tipo')}
+      >
         {TIPOS.map((t) => <option key={t.valor} value={t.valor}>{t.rotulo}</option>)}
       </Select>
 
       <Input
+        id={campoId('prazo')}
         label={`${prefixo}Prazo`}
         type="datetime-local"
         value={valor.prazo}
         onChange={set('prazo')}
       />
 
-      <div className="md:col-span-2">
-        <Input
-          label={`${prefixo}Título`}
-          placeholder="ex.: Ligar para o RH confirmando os exames"
-          value={valor.titulo}
-          onChange={set('titulo')}
-        />
-      </div>
-
       <Select
+        id={campoId('responsavel')}
         label={`${prefixo}Responsável`}
         value={valor.responsavel_id}
         onChange={set('responsavel_id')}
@@ -198,16 +246,50 @@ export function CamposTarefa({ valor, onChange, usuarios, prefixo = '' }) {
         {usuarios.map((u) => <option key={u.id} value={u.id}>{u.nome}</option>)}
       </Select>
 
-      <Input
-        label={`${prefixo}Detalhe (opcional)`}
-        value={valor.descricao}
-        onChange={set('descricao')}
-      />
+      <div className="md:col-span-2">
+        <label
+          htmlFor={campoId('detalhe')}
+          className="block text-sm font-medium text-hipo-ink mb-1.5"
+        >
+          {`${prefixo}Detalhe (opcional)`}
+        </label>
+        <textarea
+          id={campoId('detalhe')}
+          rows={4}
+          value={valor.descricao}
+          onChange={set('descricao')}
+          placeholder="Contexto, combinados, o que precisa levar"
+          className={CLASSE_TEXTAREA}
+        />
+      </div>
     </div>
   );
 }
 
 // ── Painéis de ação ──────────────────────────────────────────────────
+
+/*
+  A saída para quem NÃO tem próximo passo depende do alvo, e o texto tem que
+  dizer a verdade sobre a tela em que a pessoa está.
+
+  A oportunidade manda finalizar, e existe um botão Finalizar ali. Parceria
+  não se finaliza — mandar "finalize a parceria" seria pedir uma ação que a
+  tela não oferece, que é pior do que não explicar. As saídas reais do
+  parceiro são cancelar a tarefa ou tirá-lo da carteira, e as duas existem
+  na tela.
+
+  `tarefa.alvo` vem pronto do servidor. Inferir de campo nulo aqui seria a
+  segunda fonte de verdade que o backend já evitou ao mandar o campo.
+  Espelha `_SEM_PROXIMA` de api/services/tarefa.py.
+*/
+const SAIDA_SEM_PROXIMA = {
+  oportunidade:
+    'Toda tarefa concluída exige a próxima. Se não há próximo passo, '
+    + 'finalize a oportunidade.',
+  parceiro:
+    'Toda tarefa concluída exige a próxima. Se não há próximo passo, '
+    + 'cancele a tarefa em vez de concluir, ou tire o parceiro da carteira.',
+};
 
 /**
  * Concluir, cancelar e editar — os três painéis, num componente só.
@@ -273,16 +355,14 @@ export function PainelAcoesTarefa({
           <div className="space-y-2">
             <div className="flex items-center gap-2 text-xs text-hipo-slate">
               <AlertTriangle size={13} className="text-hipo-warning" />
-              <span>
-                Toda tarefa concluída exige a próxima. Se não há próximo passo,
-                finalize a oportunidade.
-              </span>
+              <span>{SAIDA_SEM_PROXIMA[tarefa.alvo] || SAIDA_SEM_PROXIMA.oportunidade}</span>
             </div>
             <CamposTarefa
               valor={proxima}
               onChange={setProxima}
               usuarios={usuarios}
               prefixo="Próxima: "
+              idBase={`proxima-${tarefa.id}`}
             />
           </div>
         ) : (
@@ -290,6 +370,7 @@ export function PainelAcoesTarefa({
             Oportunidade finalizada — não é preciso agendar a próxima.
           </p>
         )}
+
 
         <div className="flex justify-end gap-2">
           <Button size="sm" variant="ghost" onClick={() => setPainel(null)}>
@@ -335,7 +416,12 @@ export function PainelAcoesTarefa({
 
   return (
     <div className="space-y-3 border-l-2 border-hipo-border pl-3">
-      <CamposTarefa valor={edicao} onChange={setEdicao} usuarios={usuarios} />
+      <CamposTarefa
+        valor={edicao}
+        onChange={setEdicao}
+        usuarios={usuarios}
+        idBase={`edicao-${tarefa.id}`}
+      />
       <div className="flex justify-end gap-2">
         <Button size="sm" variant="ghost" onClick={() => setPainel(null)}>
           Voltar

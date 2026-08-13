@@ -39,28 +39,35 @@
 // mentir para quem a olha.
 //
 // ── Operacional, não relatório ───────────────────────────────────────
-// Diretriz pétrea 2. O EC responsável troca no próprio select da linha; o
-// painel lateral abre as indicações, as tarefas e o histórico da carteira; e
-// a passagem em massa mora no botão da barra. Se a tela só listasse, seria a
-// mesma planilha que ela veio substituir.
+// Diretriz pétrea 2. O EC responsável troca no próprio select da linha; a
+// passagem em massa mora no botão da barra; e abrir a linha leva ao mesmo
+// drilldown da oportunidade. Se a tela só listasse, seria a mesma planilha
+// que ela veio substituir.
+//
+// ── O drilldown é o MESMO da venda ───────────────────────────────────
+// Abrir um parceiro e abrir uma oportunidade são o mesmo gesto: clicar numa
+// linha para trabalhar aquele registro. Por isso a mesma casca — modal
+// `full`, trilho à esquerda com o estado, abas verticais, barra única no
+// rodapé — e a MESMA aba de Tarefas, componente e tudo. O que vai divergir
+// com o tempo é só o conjunto de abas.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  Handshake, UserX, Moon, Trophy, Search, X, ArrowLeftRight, ExternalLink,
-  CalendarX,
+  Handshake, UserX, Moon, Trophy, Search, X, ArrowLeftRight, CalendarX,
 } from 'lucide-react';
 
-import api, { getUser } from '../../api';
+import api from '../../api';
 import Table, { Th, Tr, Td } from '../../components/ui/Table';
 import Button from '../../components/ui/Button';
 import Badge from '../../components/ui/Badge';
 import Empty from '../../components/ui/Empty';
+import Modal from '../../components/ui/Modal';
 import AlertMessage from '../../components/ui/AlertMessage';
 import KpiInline from '../../components/ui/KpiInline';
-import FarolSemanal, { resumoDoFarol } from '../../components/ui/FarolSemanal';
+import FarolSemanal from '../../components/ui/FarolSemanal';
 import MiniFunil from '../../components/ui/MiniFunil';
-import TarefasDoParceiro from '../../components/crm/TarefasDoParceiro';
+import ParceiroDetalhe from '../../components/crm/ParceiroDetalhe';
 import TransferirCarteira, { SEM_EC } from '../../components/crm/TransferirCarteira';
 
 const POR_PAGINA = 50;
@@ -83,19 +90,6 @@ const TOM_SITUACAO = {
   esfriando: 'warning',
   dormente: 'danger',
   sem_indicacao: 'neutral',
-};
-
-const TOM_STATUS_OPP = {
-  ativa: 'info', suspensa: 'warning', conquistado: 'success',
-  perdido: 'danger', cancelado: 'neutral',
-};
-
-const ROTULO_EVENTO = {
-  marcado: 'Virou parceiro',
-  desmarcado: 'Saiu da carteira',
-  atribuido: 'Assumido por',
-  transferido: 'Transferido',
-  removido: 'Ficou sem responsável',
 };
 
 const FILTROS_VAZIOS = {
@@ -161,203 +155,6 @@ function percentual(v) {
   return `${Math.round(v * 100)}%`;
 }
 
-// ── Painel lateral do parceiro ───────────────────────────────────────
-
-function PainelParceiro({
-  parceiro, usuarios, periodo, usuarioAtualId,
-  onFechar, onTrocarEc, onDesmarcar, onTarefaMudou,
-}) {
-  const navigate = useNavigate();
-  const [indicacoes, setIndicacoes] = useState([]);
-  const [carregando, setCarregando] = useState(true);
-  const [erro, setErro] = useState(null);
-
-  useEffect(() => {
-    let vivo = true;
-    setCarregando(true);
-    setErro(null);
-    api.get(`/crm/parceiros/${parceiro.id}/indicacoes`, { params: { periodo } })
-      .then(({ data }) => { if (vivo) setIndicacoes(data); })
-      .catch(() => { if (vivo) setErro('Não foi possível carregar as indicações.'); })
-      .finally(() => { if (vivo) setCarregando(false); });
-    return () => { vivo = false; };
-  }, [parceiro.id, periodo, parceiro.indicacoes]);
-
-  return (
-    <aside
-      aria-label={`Parceiro ${parceiro.razao_social}`}
-      className="w-[23rem] shrink-0 h-full min-h-0 flex flex-col rounded-xl border border-hipo-border bg-hipo-bg/60"
-    >
-      <header className="shrink-0 flex items-start justify-between gap-2 px-3 py-2 border-b border-hipo-border">
-        <div className="min-w-0">
-          <h3 className="text-sm font-semibold text-hipo-ink truncate">
-            {parceiro.razao_social}
-          </h3>
-          <p className="text-[11px] text-hipo-slate font-mono">{parceiro.cnpj_formatado}</p>
-        </div>
-        <button
-          type="button"
-          onClick={onFechar}
-          aria-label="Fechar painel do parceiro"
-          className="h-7 w-7 shrink-0 inline-flex items-center justify-center rounded-lg border border-hipo-border text-hipo-slate hover:bg-hipo-card transition-colors"
-        >
-          <X size={14} />
-        </button>
-      </header>
-
-      <div className="flex-1 min-h-0 overflow-y-auto p-3 space-y-4">
-        {/* Ações primeiro: o painel é ferramenta, não ficha cadastral. */}
-        <div className="space-y-2">
-          <label
-            htmlFor="painel-ec"
-            className="block text-[11px] font-medium text-hipo-slate"
-          >
-            EC responsável
-          </label>
-          <select
-            id="painel-ec"
-            value={parceiro.ec_responsavel_id || ''}
-            onChange={(e) => onTrocarEc(parceiro, e.target.value || null)}
-            className={`${CLASSE_CAMPO} w-full px-2`}
-          >
-            <option value="">Sem responsável</option>
-            {usuarios.map((u) => (
-              <option key={u.id} value={u.id}>{u.nome}</option>
-            ))}
-          </select>
-          <Button
-            size="sm"
-            variant="secondary"
-            className="w-full"
-            onClick={() => onDesmarcar(parceiro)}
-          >
-            Remover da carteira
-          </Button>
-        </div>
-
-        <div className="grid grid-cols-2 gap-2 text-xs">
-          <div className="rounded-lg border border-hipo-border bg-hipo-card p-2">
-            <span className="block text-[10px] text-hipo-slate">Conversão</span>
-            <span className="text-sm font-semibold text-hipo-ink">
-              {percentual(parceiro.taxa_conversao)}
-            </span>
-          </div>
-          <div className="rounded-lg border border-hipo-border bg-hipo-card p-2">
-            <span className="block text-[10px] text-hipo-slate">Cancelamento</span>
-            <span className="text-sm font-semibold text-hipo-ink">
-              {percentual(parceiro.taxa_cancelamento)}
-            </span>
-          </div>
-        </div>
-
-        {/*
-          O farol vem ANTES das indicações no painel, e não depois: quem abriu
-          o parceiro quase sempre abriu por causa da cadência de contato. O
-          que ele indicou é a leitura seguinte.
-        */}
-        <div className="rounded-lg border border-hipo-border bg-hipo-card p-2">
-          <span className="flex items-center justify-between gap-2">
-            <span className="text-[10px] text-hipo-slate">Contato nas 4 semanas</span>
-            <FarolSemanal
-              semanas={parceiro.farol}
-              semanasSemContato={parceiro.semanas_sem_contato}
-            />
-          </span>
-          <span className="block mt-1 text-[11px] text-hipo-ink">
-            {resumoDoFarol(parceiro.farol, parceiro.semanas_sem_contato)}
-          </span>
-        </div>
-
-        <TarefasDoParceiro
-          parceiroId={parceiro.id}
-          usuarios={usuarios}
-          usuarioAtualId={usuarioAtualId}
-          onMudou={onTarefaMudou}
-        />
-
-        <section>
-          <h4 className="text-xs font-semibold text-hipo-ink mb-1.5">
-            Indicações {parceiro.indicacoes > 0 && `(${parceiro.indicacoes})`}
-          </h4>
-          {carregando ? (
-            <p className="py-4 text-center text-xs text-hipo-slate">Carregando…</p>
-          ) : erro ? (
-            <p className="py-4 text-center text-xs text-hipo-danger">{erro}</p>
-          ) : indicacoes.length === 0 ? (
-            <p className="py-4 text-center text-xs text-hipo-muted">
-              Nenhuma indicação no período.
-            </p>
-          ) : (
-            <ul className="space-y-1.5">
-              {indicacoes.map((i) => (
-                <li
-                  key={i.id}
-                  className="rounded-lg border border-hipo-border bg-hipo-card p-2"
-                >
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <span className="block text-xs font-medium text-hipo-ink truncate">
-                        {i.conta_razao_social}
-                      </span>
-                      <span className="block text-[11px] font-mono text-hipo-slate">
-                        {i.numero}
-                      </span>
-                    </div>
-                    {/*
-                      Abre a oportunidade no funil, buscando pelo número. É o
-                      caminho mais curto entre "quem indicou" e "o que virou".
-                    */}
-                    <button
-                      type="button"
-                      onClick={() => navigate(`/crm/oportunidades?q=${i.numero}`)}
-                      aria-label={`Abrir ${i.numero} no funil`}
-                      className="shrink-0 h-6 w-6 inline-flex items-center justify-center rounded border border-hipo-border text-hipo-slate hover:bg-hipo-bg transition-colors"
-                    >
-                      <ExternalLink size={12} />
-                    </button>
-                  </div>
-                  <div className="mt-1 flex flex-wrap items-center gap-1">
-                    <Badge tone={TOM_STATUS_OPP[i.status] || 'neutral'}>{i.status}</Badge>
-                    <span className="text-[11px] text-hipo-slate">
-                      {formatarMoeda(i.valor_mensalidade)}
-                    </span>
-                    <span className="text-[11px] text-hipo-muted">
-                      {formatarData(i.criado_em)}
-                    </span>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
-
-        {/*
-          Histórico da carteira. Está aqui e não escondido num modal porque a
-          pergunta "de quem era isso antes" aparece exatamente quando alguém
-          abre o parceiro para entender por que ninguém falou com ele.
-        */}
-        {parceiro.eventos?.length > 0 && (
-          <section>
-            <h4 className="text-xs font-semibold text-hipo-ink mb-1.5">
-              Histórico da carteira
-            </h4>
-            <ul className="space-y-1">
-              {parceiro.eventos.map((e, i) => (
-                <li key={i} className="text-[11px] text-hipo-slate leading-tight">
-                  <span className="text-hipo-ink">{ROTULO_EVENTO[e.tipo] || e.tipo}</span>
-                  {e.para_nome && <> · {e.para_nome}</>}
-                  {e.de_nome && e.tipo === 'transferido' && <> (era de {e.de_nome})</>}
-                  <span className="text-hipo-muted"> · {formatarData(e.criado_em)}</span>
-                </li>
-              ))}
-            </ul>
-          </section>
-        )}
-      </div>
-    </aside>
-  );
-}
-
 // ── Página ───────────────────────────────────────────────────────────
 
 export default function Parceiros() {
@@ -374,11 +171,7 @@ export default function Parceiros() {
   const [selecionado, setSelecionado] = useState(null);
   const [transferindo, setTransferindo] = useState(false);
   const debounce = useRef(null);
-
-  // Responsável padrão de toda tarefa nova: quem está com a tela aberta.
-  // Vem do localStorage (o mesmo lugar de onde saem os módulos), e não de um
-  // /auth/me a cada montagem — o dado já está lá desde o login.
-  const usuarioAtualId = getUser()?.id || '';
+  const navigate = useNavigate();
 
   // Mesma armadilha das outras telas: devolver o MESMO objeto quando nada
   // mudou faz o React abortar o re-render. Sem isso, o timer dispara uma vez
@@ -803,25 +596,53 @@ export default function Parceiros() {
           </div>
         </div>
 
+      </div>
+
+      {/*
+        Modal `full` e sem padding no corpo, exatamente como a oportunidade:
+        quem monta a barra do rodapé é o próprio ParceiroDetalhe, porque a
+        ação de saída (Remover da carteira) precisa ficar na mesma linha de
+        Fechar.
+
+        O subtítulo é o CNPJ — o que identifica a empresa sem ambiguidade
+        quando duas se chamam parecido.
+      */}
+      <Modal
+        aberto={Boolean(selecionado)}
+        onFechar={() => setSelecionado(null)}
+        titulo={selecionado ? selecionado.razao_social : undefined}
+        subtitulo={selecionado ? (
+          <span className="font-mono text-xs">{selecionado.cnpj_formatado}</span>
+        ) : undefined}
+        size="full"
+        bodySemPadding
+      >
         {selecionado && (
-          <PainelParceiro
+          <ParceiroDetalhe
             parceiro={selecionado}
             usuarios={usuarios}
             periodo={periodo}
-            usuarioAtualId={usuarioAtualId}
             onFechar={() => setSelecionado(null)}
-            onTrocarEc={(p, ec) => salvar(p, { ec_responsavel_id: ec })}
-            onDesmarcar={(p) => salvar(p, { eh_finder: false })}
+            onAbrirNoFunil={(numero) => navigate(`/crm/oportunidades?q=${numero}`)}
+            /*
+              Toda ação do detalhe devolve o registro atualizado. Se ele
+              deixou de ser parceiro, a linha saiu da carteira e o modal
+              sobre ela tem que fechar junto.
+            */
+            onSalvo={(dado) => {
+              setSelecionado(dado.eh_finder ? dado : null);
+              carregar();
+            }}
             /*
               Concluir ou agendar muda o farol e a contagem de abertas da
               LINHA. Sem este recarregamento, o quadradinho da semana
               continuaria vermelho depois de a tarefa ser concluída — e a
               tela estaria mentindo sobre o que o usuário acabou de fazer.
             */
-            onTarefaMudou={() => { carregar(); abrir(selecionado.id); }}
+            onRecarregar={() => { carregar(); abrir(selecionado.id); }}
           />
         )}
-      </div>
+      </Modal>
 
       <TransferirCarteira
         aberto={transferindo}
