@@ -44,6 +44,15 @@ class TestListaDeUsuarios:
         cargos = {cargo for _, _, cargo in USUARIOS}
         assert cargos & {"Franqueado", "ADM"}
 
+    def test_existe_ao_menos_um_ec(self):
+        """
+        A tela de Parceiros foi desenhada para o EC e a carteira
+        (contas.ec_responsavel_id) so aceita cargo com o modulo 'parceiros'.
+        Lista sem nenhum EC deixa a carteira sem dono operacional.
+        """
+        cargos = {cargo for _, _, cargo in USUARIOS}
+        assert "EC" in cargos
+
     def test_senha_padrao_atende_o_minimo_da_api(self):
         """PUT /auth/senha exige min_length=6; a padrao nao pode ser menor."""
         assert len(SENHA_PADRAO) >= 6

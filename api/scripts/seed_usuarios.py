@@ -46,6 +46,7 @@ USUARIOS = [
     ("Wellington Souza", "wellington.souza@controllermedseg.com", "Franqueado"),
     ("Gabriel Lira",     "gabriel.lira@controllermedseg.com",     "SDR"),
     ("Kethlleen Gomes",  "comercial@controllermedseg.com",        "SDR"),
+    ("Aline Martins",    "aline.martins@controllermedseg.com",    "EC"),
 ]
 
 SENHA_PADRAO = "@123456"
