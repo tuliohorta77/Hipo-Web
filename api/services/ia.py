@@ -24,6 +24,7 @@ import logging
 import httpx
 
 from config import settings
+from services.validacao_numerica import numeros_invalidos, numeros_permitidos
 
 log = logging.getLogger("hipo.ia")
 
@@ -104,7 +105,23 @@ async def narrar(metricas: dict) -> tuple[str | None, str | None]:
             # inteira de um 500 da outra ponta.
             log.warning("ia: HTTP %s — %s", resp.status_code, resp.text[:300])
             return None, None
-        return _texto_da_resposta(resp.json()), settings.ANTHROPIC_MODEL
+        texto = _texto_da_resposta(resp.json())
+        if texto:
+            # A INSTRUCAO pede que o modelo nao invente numero; isto
+            # verifica. Pedido em prompt nao e garantia, e este e o unico
+            # ponto do fechamento onde um defeito produz saida plausivel e
+            # errada em vez de erro.
+            inventados = numeros_invalidos(texto, numeros_permitidos(metricas))
+            if inventados:
+                # ERROR, nao WARNING: se isto aparece direto no journal, o
+                # relatorio esta saindo sem narrativa todo dia e ninguem viu.
+                # O ajuste e na INSTRUCAO, nao na guarda.
+                log.error(
+                    "ia: narrativa descartada, numeros fora da telemetria (%s)",
+                    ", ".join(inventados),
+                )
+                return None, None
+        return texto, settings.ANTHROPIC_MODEL
     except Exception as e:
         log.warning("ia: chamada falhou (%s: %s)", type(e).__name__, e)
         return None, None

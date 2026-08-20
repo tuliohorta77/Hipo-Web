@@ -445,6 +445,56 @@ class TestReabrir:
         )).json()
         assert any(e["tipo"] == "reabertura" for e in eventos)
 
+    async def test_reabertura_preserva_os_eventos_de_fase_e_status(
+        self, db_conn, client, usuario_adm
+    ):
+        """
+        Reabrir grava TRÊS eventos: fase, status e o marcador de reabertura.
+
+        Antes da correção o tipo dos três era reescrito para 'reabertura': a
+        transição de fase da volta sumia — e com ela o tempo por fase —, o
+        status sumia — e com ele conquistadas/perdidas —, e uma reabertura
+        contava como duas.
+
+        O teste vizinho usa any() e passa MESMO COM O BUG, porque com o bug
+        todos os eventos viram 'reabertura'. Este exige os três tipos
+        distintos, que é o que o any() não consegue ver.
+        """
+        conta = await nova_conta(client, usuario_adm["headers"])
+        o = await nova_oportunidade(
+            client, usuario_adm["headers"], conta["id"], fase="negociacao"
+        )
+        await client.post(
+            f"/crm/oportunidades/{o['id']}/desfecho",
+            json={"status": "conquistado"},
+            headers=usuario_adm["headers"],
+        )
+        await client.post(
+            f"/crm/oportunidades/{o['id']}/reabrir",
+            json={},
+            headers=usuario_adm["headers"],
+        )
+
+        eventos = (await client.get(
+            f"/crm/oportunidades/{o['id']}/eventos", headers=usuario_adm["headers"]
+        )).json()
+
+        # A rota devolve do mais novo para o mais antigo, então os três
+        # primeiros são os da reabertura.
+        da_reabertura = eventos[:3]
+        assert sorted(e["tipo"] for e in da_reabertura) == [
+            "fase", "reabertura", "status",
+        ]
+
+        fase = next(e for e in da_reabertura if e["tipo"] == "fase")
+        assert (fase["de"], fase["para"]) == ("finalizado", "negociacao")
+
+        status = next(e for e in da_reabertura if e["tipo"] == "status")
+        assert (status["de"], status["para"]) == ("conquistado", "ativa")
+
+        # Uma reabertura é UM evento de reabertura, não dois.
+        assert sum(1 for e in eventos if e["tipo"] == "reabertura") == 1
+
     async def test_so_reabre_finalizada(self, db_conn, client, usuario_adm):
         conta = await nova_conta(client, usuario_adm["headers"])
         o = await nova_oportunidade(client, usuario_adm["headers"], conta["id"])
