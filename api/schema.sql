@@ -488,3 +488,95 @@ CREATE INDEX IF NOT EXISTS idx_parceiro_eventos_conta
 CREATE INDEX IF NOT EXISTS idx_parceiro_eventos_para
     ON parceiro_eventos (para_usuario_id)
     WHERE para_usuario_id IS NOT NULL;
+
+
+-- ===========================================================================
+-- TELEMETRIA DE USO E FECHAMENTO DIARIO  (migration 007)
+-- ===========================================================================
+-- Espelha api/migrations/007_telemetria.sql. O CI monta o banco de teste com
+-- `psql -f api/schema.sql`, NAO com as migrations: migration que nao chega
+-- aqui derruba toda a suite que usa `db_conn`, porque o conftest trunca
+-- `relatorios_diarios` na fixture.
+--
+-- POR QUE UMA TABELA DE REQUESTS E NAO SO EVENTOS DE NEGOCIO
+--   As trilhas que ja existem (oportunidade_eventos, parceiro_eventos,
+--   tarefas) respondem "o que mudou". Nao respondem "quem abriu o sistema e
+--   nao fez nada", que e o sintoma que antecede o abandono de uma ferramenta
+--   interna. uso_eventos responde adocao; as trilhas respondem resultado.
+--
+-- O QUE NAO ENTRA, DE PROPOSITO
+--   Corpo de request, querystring e headers. Guardamos o TEMPLATE da rota
+--   (/crm/contas/{conta_id}), nunca o path com o id preenchido: uma busca por
+--   CNPJ viraria dado pessoal num log sem o mesmo cuidado de acesso que a
+--   tabela de origem.
+--
+-- CARGO DESNORMALIZADO
+--   Copiado no momento do uso. Quem muda de cargo nao reescreve o passado: o
+--   que a pessoa fez como SDR nao vira retroativamente acao de EC.
+-- ---------------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS uso_eventos (
+    id           BIGSERIAL PRIMARY KEY,
+    usuario_id   UUID REFERENCES usuarios(id) ON DELETE SET NULL,
+    cargo        VARCHAR(80),
+    metodo       VARCHAR(10)  NOT NULL,
+    rota         VARCHAR(200) NOT NULL,
+    modulo       VARCHAR(40),
+    status       SMALLINT     NOT NULL,
+    duracao_ms   INTEGER      NOT NULL,
+    criado_em    TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    CONSTRAINT ck_uso_status  CHECK (status BETWEEN 100 AND 599),
+    CONSTRAINT ck_uso_duracao CHECK (duracao_ms >= 0)
+);
+
+-- O relatorio sempre recorta por dia; sustenta as agregacoes e o DELETE da
+-- retencao.
+CREATE INDEX IF NOT EXISTS idx_uso_eventos_criado
+    ON uso_eventos (criado_em DESC);
+
+-- "o que a pessoa X fez hoje" -- a secao por colaborador do relatorio.
+CREATE INDEX IF NOT EXISTS idx_uso_eventos_usuario
+    ON uso_eventos (usuario_id, criado_em DESC)
+    WHERE usuario_id IS NOT NULL;
+
+-- "quais telas sao usadas" e "onde da erro".
+CREATE INDEX IF NOT EXISTS idx_uso_eventos_rota
+    ON uso_eventos (rota, criado_em DESC);
+
+COMMENT ON TABLE uso_eventos IS
+    'Uma linha por request autenticada. Rota e o template, nunca o path com ids.';
+
+
+-- ---------------------------------------------------------------------------
+-- relatorios_diarios -- o fechamento de cada dia
+-- ---------------------------------------------------------------------------
+-- Uma linha por dia, com as metricas congeladas em JSONB. Guardar o numero
+-- fechado (e nao so recalcular na hora) e o que permite comparar ontem com
+-- hoje depois que a retencao ja apagou os eventos brutos.
+--
+-- 'narrativa' e o texto gerado pela IA. Fica NULL quando a chave nao esta
+-- configurada, quando a chamada falhou ou quando a validacao numerica
+-- descartou o texto -- o relatorio sai assim mesmo, so com os numeros. A IA
+-- e enfeite util, nao dependencia.
+--
+-- NAO tem FK para usuarios, entao o TRUNCATE CASCADE do conftest nao a
+-- alcanca: a fixture a trunca explicitamente.
+-- ---------------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS relatorios_diarios (
+    dia               DATE PRIMARY KEY,
+    metricas          JSONB       NOT NULL,
+    narrativa         TEXT,
+    narrativa_modelo  VARCHAR(60),
+    destinatarios     TEXT[],
+    enviado_em        TIMESTAMPTZ,
+    erro              TEXT,
+    gerado_em         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    atualizado_em     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_relatorios_diarios_dia
+    ON relatorios_diarios (dia DESC);
+
+COMMENT ON COLUMN relatorios_diarios.metricas IS
+    'Snapshot fechado do dia. Sobrevive a retencao de uso_eventos.';
