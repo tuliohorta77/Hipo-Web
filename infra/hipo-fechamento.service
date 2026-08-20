@@ -1,0 +1,45 @@
+[Unit]
+# HIPO — fechamento diário: telemetria + narrativa por IA + e-mail.
+#
+# Instalação (como root na EC2):
+#   sudo cp /home/hipo/app/infra/hipo-fechamento.* /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now hipo-fechamento.timer
+#
+# Verificação:
+#   systemctl list-timers hipo-fechamento.timer
+#   sudo systemctl start hipo-fechamento.service   # roda agora, sem esperar
+#   journalctl -u hipo-fechamento.service -n 50 --no-pager
+Description=HIPO — fechamento diario (telemetria + relatorio por e-mail)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=hipo
+Group=hipo
+WorkingDirectory=/home/hipo/app/api
+
+# Mesmo arquivo que a API usa. Precisa conter, alem de DATABASE_URL e
+# JWT_SECRET: ANTHROPIC_API_KEY, SES_REMETENTE e RELATORIO_DESTINATARIOS.
+EnvironmentFile=/home/hipo/app/.env
+Environment=PYTHONPATH=/home/hipo/app/api
+Environment=PYTHONUNBUFFERED=1
+
+ExecStart=/usr/bin/python3 -m scripts.fechamento_diario
+
+# O script ja e idempotente e nao reenvia e-mail ja enviado, entao repetir e
+# seguro. Duas tentativas cobrem a queda de rede momentanea sem transformar
+# uma falha real (chave invalida, SES em sandbox) num laco de retentativa.
+Restart=on-failure
+RestartSec=300
+StartLimitBurst=2
+
+# O processo so precisa ler o proprio diretorio e falar com RDS/SES.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=read-only
+
+[Install]
+WantedBy=multi-user.target

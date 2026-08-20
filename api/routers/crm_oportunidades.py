@@ -305,7 +305,11 @@ async def _aplicar(conn, oportunidade_id: UUID, novo: Estado, usuario_id,
         eventos.append(("fase", anterior.fase, novo.fase))
     if novo.status != anterior.status:
         eventos.append(("status", anterior.status, novo.status))
-    if tipo_evento == "reabertura" and not eventos:
+    # Reabrir muda fase E status, entao os dois eventos precisam existir
+    # com o tipo certo: sao eles que sustentam tempo por fase e
+    # conquistadas/perdidas. O marcador de reabertura vem ALEM deles,
+    # nunca no lugar deles.
+    if tipo_evento == "reabertura":
         eventos.append(("reabertura", anterior.status, novo.status))
 
     for tipo, de, para in eventos:
@@ -314,7 +318,7 @@ async def _aplicar(conn, oportunidade_id: UUID, novo: Estado, usuario_id,
             INSERT INTO oportunidade_eventos (oportunidade_id, tipo, de, para, usuario_id)
             VALUES ($1, $2, $3, $4, $5)
             """,
-            oportunidade_id, "reabertura" if tipo_evento == "reabertura" else tipo,
+            oportunidade_id, tipo,
             de, para, usuario_id,
         )
 

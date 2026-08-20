@@ -1,0 +1,24 @@
+[Unit]
+Description=HIPO — dispara o fechamento diario
+Documentation=file:///home/hipo/app/api/scripts/fechamento_diario.py
+
+[Timer]
+# 03:10 no horario de Sao Paulo. O script fecha SEMPRE o dia anterior, entao
+# rodar de madrugada garante um dia inteiro de dados — e o relatorio chega na
+# caixa antes de qualquer pessoa abrir o sistema.
+#
+# OnCalendar respeita o fuso declarado abaixo, nao o UTC do servidor. Sem a
+# linha Timezone, a EC2 (que roda em UTC) dispararia meia-noite e dez em Sao
+# Paulo e o "dia anterior" pularia um dia inteiro.
+OnCalendar=*-*-* 03:10:00
+Timezone=America/Sao_Paulo
+
+# Se a maquina estava desligada na hora marcada, roda na volta.
+Persistent=true
+
+# Espalha ate 3 minutos: evita bater no mesmo segundo que qualquer outro
+# cron da instancia.
+RandomizedDelaySec=180
+
+[Install]
+WantedBy=timers.target
