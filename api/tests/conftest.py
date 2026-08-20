@@ -81,6 +81,30 @@ def anyio_backend():
     return "asyncio"
 
 
+@pytest.fixture(autouse=True)
+async def telemetria_sem_descarga_automatica():
+    """
+    Desliga a descarga automatica do buffer de telemetria durante os testes.
+
+    O middleware, ao juntar LOTE_DESCARGA eventos, dispara uma task solta que
+    abre conexao propria e INSERE em uso_eventos. A fixture db_conn roda
+    TRUNCATE usuarios CASCADE, que alcanca uso_eventos pela FK e precisa de
+    ACCESS EXCLUSIVE. Os dois se encontram e a suite trava sem erro nenhum --
+    foi exatamente o que aconteceu quando a telemetria entrou.
+
+    Elevando o lote, nada descarrega sozinho: os testes de captura chamam
+    `buffer.descarregar()` explicitamente, no momento em que querem gravar.
+    O comportamento de producao fica intacto.
+    """
+    from middleware.telemetria import buffer
+
+    original = buffer.lote
+    buffer.lote = 10 ** 9
+    yield
+    await buffer.limpar()
+    buffer.lote = original
+
+
 @pytest.fixture
 async def db_conn():
     """
@@ -92,6 +116,11 @@ async def db_conn():
     """
     conn = await asyncpg.connect(_DB_URL)
     await conn.execute("TRUNCATE TABLE usuarios CASCADE")
+    # relatorios_diarios NAO tem FK para usuarios (o fechamento sobrevive a
+    # saida de quem o gerou), entao o CASCADE acima nao a alcanca. Sem este
+    # TRUNCATE explicito, o dia gravado por um teste colide com o do proximo
+    # na PK e a suite falha por ordem de execucao.
+    await conn.execute("TRUNCATE TABLE relatorios_diarios")
     yield conn
     await conn.close()
 

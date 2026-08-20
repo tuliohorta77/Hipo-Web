@@ -18,12 +18,17 @@ Módulos:
   'crm'        — contas, contatos e oportunidades (todo cargo válido)
   'parceiros'  — carteira de parceiros indicadores (EC + gestão)
   'usuarios'   — gestão de usuários (Franqueado, ADM)
+  'telemetria' — uso do sistema e fechamento diário (Franqueado, ADM)
 
 Por que 'parceiros' NÃO é de todo mundo: cultivar a relação com o escritório
 de contabilidade que indica é trabalho do EC, e a diretriz é uma tela por
 função. SDR, EV e EP não trabalham carteira de parceiro — a tela na barra
 deles seria ruído permanente. Gestão enxerga porque é quem remaneja carteira
 quando alguém sai.
+
+Por que 'telemetria' é só de gestão: não é sigilo, é ruído. Mostrar para o
+SDR quantas ações o colega fez transforma a ferramenta em painel de vigilância
+entre pares — o jeito mais rápido de a equipe parar de lançar no sistema.
 
 Por que 'crm' é de todo mundo: contas e contatos são base compartilhada.
 Se cada um enxergasse só a própria fatia, um usuário bateria no erro de CNPJ
@@ -72,6 +77,7 @@ def modulos_do_cargo(cargo: str | None) -> set[str]:
 
     if cargo in CARGOS_GESTAO:
         modulos.add("usuarios")
+        modulos.add("telemetria")
 
     if cargo in CARGOS_COM_PARCEIROS:
         modulos.add("parceiros")

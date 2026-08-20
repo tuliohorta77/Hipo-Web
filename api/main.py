@@ -8,9 +8,11 @@ envolvimento vale para oportunidades, e é aplicado no repositório, não aqui.
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from config import settings
+from middleware.telemetria import TelemetriaMiddleware
 from routers import (
     auth, crm_contas, crm_contatos, crm_dominio, crm_oportunidades,
-    crm_parceiros, crm_tarefas,
+    crm_parceiros, crm_tarefas, telemetria,
 )
 from routers.permissions import requer_modulo
 
@@ -19,6 +21,13 @@ app = FastAPI(
     description="Hipotálamo Inteligente de Processos e Operações",
     version="2.5.0",
 )
+
+# Telemetria ANTES do CORS na lista = camada mais externa da pilha (o
+# Starlette monta os middlewares na ordem inversa do add_middleware). Assim a
+# duracao medida inclui todo o trabalho da request, e nao so o miolo dela.
+# Desligavel por .env: TELEMETRIA_ATIVA=false sobe a API sem captura nenhuma.
+if settings.TELEMETRIA_ATIVA:
+    app.add_middleware(TelemetriaMiddleware)
 
 app.add_middleware(
     CORSMiddleware,
@@ -74,6 +83,15 @@ app.include_router(
     crm_dominio.router,
     prefix="/crm/dominio", tags=["CRM - Domínio"],
     dependencies=[Depends(requer_modulo("crm"))],
+)
+
+
+# Telemetria e leitura de gestao: quem opera nao precisa ver quantas acoes o
+# colega fez. Ver a nota em routers/permissions.py.
+app.include_router(
+    telemetria.router,
+    prefix="/telemetria", tags=["Telemetria"],
+    dependencies=[Depends(requer_modulo("telemetria"))],
 )
 
 
