@@ -44,6 +44,24 @@ function Confirmar($pergunta) {
     if ($r -cne 'SIM') { Parar 'Cancelado por voce. Nada foi feito nesta etapa.' }
 }
 
+function Remoto($chave, $alvo, $comando) {
+    # ErrorActionPreference = 'Stop' faz o PowerShell transformar QUALQUER
+    # stderr de comando nativo em NativeCommandError e abortar. O psql escreve
+    # os NOTICE de "already exists, skipping" no stderr -- ou seja, a propria
+    # prova de idempotencia derrubaria o script. Aqui o stderr volta a ser
+    # texto; quem decide sucesso e o codigo de saida, nao o canal.
+    $antigo = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        $linhas = & ssh -i $chave $alvo $comando 2>&1 | ForEach-Object { $_.ToString() }
+        $codigo = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $antigo
+    }
+    $linhas | ForEach-Object { Write-Host "  $_" }
+    return [pscustomobject]@{ Texto = ($linhas -join "`n"); Codigo = $codigo }
+}
+
 # =====================================================================
 Titulo 'FASE 0 - Verificacoes antes de tocar em qualquer coisa'
 # =====================================================================
@@ -143,10 +161,9 @@ if ($LASTEXITCODE -ne 0) { Parar 'scp do script falhou.' }
 
 # Gravado em .sh e executado com bash: `ssh ... 'cmd1; cmd2'` quebra no
 # primeiro ponto e virgula.
-$saida = ssh -i $Chave "${Usuario}@${Servidor}" 'bash /tmp/aplicar-007.sh' 2>&1
-$saida | ForEach-Object { Write-Host "  $_" }
-if ($LASTEXITCODE -ne 0) { Parar 'A migration falhou. NADA foi enviado para o repositorio.' }
-if (-not ($saida -join "`n").Contains('MIGRATION OK')) { Parar 'A migration nao confirmou sucesso. Push cancelado.' }
+$r = Remoto $Chave "${Usuario}@${Servidor}" 'bash /tmp/aplicar-007.sh'
+if ($r.Codigo -ne 0) { Parar 'A migration falhou. NADA foi enviado para o repositorio.' }
+if (-not $r.Texto.Contains('MIGRATION OK')) { Parar 'A migration nao confirmou sucesso. Push cancelado.' }
 Ok 'Migration 007 aplicada e idempotente'
 
 # =====================================================================
@@ -219,8 +236,7 @@ $verificar = @(
 $vLocal = Join-Path $env:TEMP 'verificar.sh'
 [System.IO.File]::WriteAllBytes($vLocal, [System.Text.Encoding]::ASCII.GetBytes($verificar))
 scp -i $Chave $vLocal "${Usuario}@${Servidor}:/tmp/" | Out-Null
-ssh -i $Chave "${Usuario}@${Servidor}" 'bash /tmp/verificar.sh' 2>&1 |
-    ForEach-Object { Write-Host "  $_" }
+Remoto $Chave "${Usuario}@${Servidor}" 'bash /tmp/verificar.sh' | Out-Null
 
 Write-Host ''
 Write-Host '  Front (o healthcheck do CI mente, este nao):' -ForegroundColor DarkGray
