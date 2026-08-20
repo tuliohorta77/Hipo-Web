@@ -55,7 +55,7 @@ ROTAS_IGNORADAS = frozenset({
 LIMITE_BUFFER = 5_000
 
 # Descarga automática quando o buffer chega neste tamanho.
-LOTE_DESCARGA = 25
+LOTE_DESCARGA = 5
 
 # Descarga por IDADE, além da descarga por tamanho.
 #
@@ -71,7 +71,15 @@ LOTE_DESCARGA = 25
 # Ressalva conhecida: o gatilho é avaliado ao REGISTRAR. Se o tráfego parar,
 # os últimos eventos ficam no buffer até a próxima requisição — ou até a
 # descarga do desligamento, no lifespan de main.py.
-IDADE_MAXIMA_S = 30.0
+IDADE_MAXIMA_S = 10.0
+
+# Intervalo da descarga periódica (ver `descarga_periodica`).
+#
+# É esta que garante o dado no banco; os dois gatilhos acima passam a ser
+# redundância barata para pico de tráfego. Dez segundos porque o consumidor é
+# um relatório diário: a diferença entre 10s e 60s de atraso não muda nada
+# para ele, e 10s mantém a janela de perda por queda abrupta bem pequena.
+INTERVALO_DESCARGA_S = 10.0
 
 _SQL_INSERT = """
     INSERT INTO uso_eventos
@@ -230,6 +238,46 @@ class BufferTelemetria:
         finally:
             if conn is not None:
                 await conn.close()
+
+
+async def descarga_periodica(
+    alvo: BufferTelemetria,
+    intervalo: float = INTERVALO_DESCARGA_S,
+) -> None:
+    """
+    Descarrega o buffer a cada `intervalo` segundos, haja tráfego ou não.
+
+    POR QUE ELA PRECISA EXISTIR
+
+    Os gatilhos por tamanho e por idade são avaliados dentro de `registrar` —
+    ou seja, só quando chega uma requisição. Se a última ação do dia for às
+    18h e ninguém mais tocar na API, esses eventos ficam em memória a noite
+    inteira, e o fechamento das 03:10 não os enxerga. Eles apareceriam no
+    banco só na manhã seguinte, com `criado_em` de ontem, num dia que já foi
+    fechado: dado presente no banco e ausente do relatório, que é pior que
+    dado perdido porque ninguém desconfia.
+
+    NÃO RODA NA SUÍTE, DE PROPÓSITO
+
+    Ela é iniciada pelo lifespan de main.py, e o conftest sobe o cliente de
+    teste com lifespan desabilitado. Era esse o motivo original para não
+    existir uma task de background — descarga automática disputando lock com
+    o TRUNCATE CASCADE da fixture `db_conn` travava a suíte inteira. Amarrada
+    ao lifespan, o problema deixa de existir sem abrir mão do comportamento
+    em produção. Os testes exercitam a função direto, com um buffer próprio.
+
+    Cancelamento sai pelo CancelledError, que herda de BaseException e por
+    isso não é capturado pelo `except Exception` abaixo.
+    """
+    while True:
+        await asyncio.sleep(intervalo)
+        try:
+            await alvo.descarregar()
+        except Exception as e:  # pragma: no cover - blindagem
+            # `descarregar` já trata falha de banco. Isto aqui existe para o
+            # laço nunca morrer: uma task que encerra em silêncio deixaria a
+            # telemetria parada até o próximo restart, sem sinal nenhum.
+            log.warning("telemetria: descarga periódica falhou: %s", e)
 
 
 # Instância global: um buffer por worker do uvicorn.

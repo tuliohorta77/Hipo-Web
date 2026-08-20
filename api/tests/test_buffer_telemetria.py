@@ -20,10 +20,11 @@ Se alguém remover o gatilho por tempo, estes testes caem.
 from __future__ import annotations
 
 import asyncio
+from contextlib import suppress
 
 import pytest
 
-from middleware.telemetria import BufferTelemetria
+from middleware.telemetria import BufferTelemetria, descarga_periodica
 
 pytestmark = pytest.mark.anyio
 
@@ -173,3 +174,47 @@ class TestLimpar:
         await registrar(b)
         assert b.descargas == []
         assert b.descartados == 0
+
+
+class TestDescargaPeriodica:
+    """
+    A task que garante o dado no banco quando NÃO há tráfego.
+
+    É o furo que sobrava depois dos dois gatilhos: ambos são avaliados dentro
+    de `registrar`, então precisam de uma requisição para acontecer. A última
+    ação do dia ficaria em memória até a manhã seguinte — depois do
+    fechamento das 03:10.
+    """
+
+    async def _rodar(self, b, intervalo=0.01, duracao=0.06):
+        tarefa = asyncio.create_task(descarga_periodica(b, intervalo=intervalo))
+        await asyncio.sleep(duracao)
+        tarefa.cancel()
+        with suppress(asyncio.CancelledError):
+            await tarefa
+        return tarefa
+
+    async def test_descarrega_sem_requisicao_nenhuma(self):
+        relogio = RelogioFalso()
+        b = montar(lote=1000, idade_maxima=None, relogio=relogio)
+
+        await registrar(b)
+        assert b.descargas == [], "nenhum gatilho de registro deveria disparar aqui"
+
+        await self._rodar(b)
+
+        assert b.descargas, "a task periódica precisa descarregar sem tráfego"
+        assert b.descargas[0] == 1
+        assert len(b) == 0
+
+    async def test_cancelamento_encerra_a_task(self):
+        b = montar(lote=1000, idade_maxima=None, relogio=RelogioFalso())
+        tarefa = await self._rodar(b, duracao=0.03)
+        assert tarefa.done()
+        assert tarefa.cancelled()
+
+    async def test_buffer_vazio_nao_quebra_o_laco(self):
+        """Descarga de buffer vazio é rotina, não erro."""
+        b = montar(lote=1000, idade_maxima=None, relogio=RelogioFalso())
+        await self._rodar(b)
+        assert all(q == 0 for q in b.descargas)

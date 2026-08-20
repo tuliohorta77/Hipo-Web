@@ -5,14 +5,15 @@ O módulo 'crm' é compartilhado — todo cargo válido enxerga contas e
 contatos, o que é o que impede cadastro duplicado de CNPJ. O filtro por
 envolvimento vale para oportunidades, e é aplicado no repositório, não aqui.
 """
+import asyncio
 import logging
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from config import settings
-from middleware.telemetria import TelemetriaMiddleware, buffer
+from middleware.telemetria import TelemetriaMiddleware, buffer, descarga_periodica
 from routers import (
     auth, crm_contas, crm_contatos, crm_dominio, crm_oportunidades,
     crm_parceiros, crm_tarefas, telemetria,
@@ -22,17 +23,36 @@ from routers.permissions import requer_modulo
 @asynccontextmanager
 async def ciclo_de_vida(app: FastAPI):
     """
-    Descarrega o buffer de telemetria no desligamento.
+    Sobe a descarga periódica da telemetria e a encerra com uma última
+    descarga.
 
-    O deploy reinicia o serviço a cada push. Sem isto, todo evento ainda em
-    memória some no restart — e numa operação pequena, que raramente enche o
-    lote, isso é quase toda a telemetria do dia.
+    A TASK. Sem ela, o buffer só é avaliado quando chega requisição: a última
+    ação do dia ficaria em memória até alguém mexer no sistema de novo — e o
+    fechamento das 03:10 fecharia o dia sem ela.
+
+    A DESCARGA FINAL. O deploy reinicia o serviço a cada push. Sem esta linha,
+    todo evento ainda em memória some no restart.
+
+    A REFERÊNCIA VIVA em `tarefa` não é decorativa: o event loop guarda só
+    referência fraca para tasks, e uma task sem dono pode ser coletada no meio
+    da execução. Manter a variável no escopo do lifespan resolve.
 
     O conftest sobe o cliente de teste com lifespan DESABILITADO (para não
-    criar conexão asyncpg no event loop errado), então este hook não roda na
-    suíte. É intencional: quem testa a descarga chama `descarregar()` na mão.
+    criar conexão asyncpg no event loop errado), então nada disto roda na
+    suíte — e é justamente o que impede a descarga automática de disputar lock
+    com o TRUNCATE CASCADE da fixture db_conn. Os testes exercitam
+    `descarga_periodica` direto, com um buffer próprio.
     """
+    tarefa = None
+    if settings.TELEMETRIA_ATIVA:
+        tarefa = asyncio.create_task(descarga_periodica(buffer))
+
     yield
+
+    if tarefa is not None:
+        tarefa.cancel()
+        with suppress(asyncio.CancelledError):
+            await tarefa
     try:
         gravados = await buffer.descarregar()
         if gravados:
