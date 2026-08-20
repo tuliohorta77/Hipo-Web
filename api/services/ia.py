@@ -45,6 +45,9 @@ Escreva 3 ou 4 parágrafos curtos, em português do Brasil, sobre o dia:
 Regras:
 - NÃO invente número, nome ou tendência que não esteja no JSON.
 - NÃO repita a tabela: quem lê já vê os números acima do seu texto.
+- Se adocao.disponivel for false, a captura de uso NÃO estava ativa nesse dia.
+  Nesse caso não diga que ninguém acessou nem cite ausentes: diga que não há
+  telemetria para o dia e comente apenas o bloco de operação.
 - Se o dia foi vazio ou quase, diga isso em uma frase e pare. Dia parado não
   merece três parágrafos de análise.
 - Sem saudação, sem despedida, sem markdown. Só os parágrafos.

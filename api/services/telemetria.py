@@ -106,8 +106,28 @@ async def adocao(conn, dia: date) -> dict:
         ORDER BY u.cargo, u.nome
     """, dia)
 
+    # Telemetria AUSENTE não é telemetria ZERADA.
+    #
+    # Antes de o middleware existir, uso_eventos não tinha uma linha — e um dia
+    # daqueles fecharia afirmando que as sete pessoas não acessaram o sistema,
+    # num dia em que 34 tarefas foram criadas. É a mesma regra que
+    # taxa_conversao aplica em services/parceiro.py: 0% e "ainda não dá para
+    # saber" são coisas diferentes, e a segunda não pode se disfarçar da
+    # primeira.
+    #
+    # Ressalva: a retenção apaga eventos antigos, então este mínimo anda para
+    # frente com o tempo. Reprocessar um dia já fechado, meses depois, pode
+    # marcá-lo como indisponível. Um dia é fechado no dia seguinte, quando o
+    # dado ainda está fresco, então o caminho normal não sofre.
+    primeiro_dia = await conn.fetchval(f"""
+        SELECT (min(criado_em) AT TIME ZONE '{FUSO_OPERACAO}')::date
+        FROM uso_eventos
+    """)
+    disponivel = primeiro_dia is not None and primeiro_dia <= dia
+
     acoes = geral["acoes"] or 0
     return {
+        "disponivel": disponivel,
         "acoes": acoes,
         "pessoas_ativas": geral["pessoas"] or 0,
         "erros": geral["erros"] or 0,
@@ -138,7 +158,12 @@ async def adocao(conn, dia: date) -> dict:
              "ocorrencias": r["ocorrencias"]}
             for r in erros
         ],
-        "sem_acesso_hoje": [{"nome": r["nome"], "cargo": r["cargo"]} for r in ausentes],
+        # Sem medição, ninguém está ausente: a lista só significa alguma coisa
+        # quando a captura estava rodando naquele dia.
+        "sem_acesso_hoje": (
+            [{"nome": r["nome"], "cargo": r["cargo"]} for r in ausentes]
+            if disponivel else []
+        ),
     }
 
 

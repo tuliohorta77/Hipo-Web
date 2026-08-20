@@ -98,11 +98,17 @@ async def telemetria_sem_descarga_automatica():
     """
     from middleware.telemetria import buffer
 
-    original = buffer.lote
+    original_lote = buffer.lote
+    original_idade = buffer.idade_maxima
     buffer.lote = 10 ** 9
+    # O gatilho por TEMPO passaria por cima do lote elevado: bastaria um evento
+    # parado por mais de IDADE_MAXIMA_S para a descarga disparar sozinha e
+    # reencontrar o TRUNCATE CASCADE. None desliga so o gatilho, e so no teste.
+    buffer.idade_maxima = None
     yield
     await buffer.limpar()
-    buffer.lote = original
+    buffer.lote = original_lote
+    buffer.idade_maxima = original_idade
 
 
 @pytest.fixture

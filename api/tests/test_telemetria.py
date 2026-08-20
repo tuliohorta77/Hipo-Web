@@ -160,10 +160,60 @@ class TestAdocao:
         assert (await tel.adocao(db_conn, date.today()))["acoes"] == 0
 
     async def test_quem_nao_usou_aparece_na_lista(self, db_conn, client):
+        # Precisa de PELO MENOS um evento no dia. Sem nenhum, a telemetria é
+        # considerada indisponível e a lista de ausentes sai vazia de propósito
+        # — ver TestTelemetriaIndisponivel logo abaixo.
+        await criar_usuario(db_conn, client, "ADM", "usou@teste.com")
+        uid = await db_conn.fetchval(
+            "SELECT id FROM usuarios WHERE email = 'usou@teste.com'"
+        )
+        await _semear(db_conn, uid, datetime.now(timezone.utc), n=1)
+
         await criar_usuario(db_conn, client, "EV", "sumiu@teste.com")
         r = await tel.adocao(db_conn, date.today())
+        assert r["disponivel"] is True
         assert "sumiu@teste.com" not in [p["nome"] for p in r["por_pessoa"]]
         assert any(a["cargo"] == "EV" for a in r["sem_acesso_hoje"])
+
+
+class TestTelemetriaIndisponivel:
+    """
+    Telemetria ausente não é telemetria zerada.
+
+    Mesma regra de taxa_conversao em services/parceiro.py: 0% e "ainda não dá
+    para saber" são coisas diferentes. Sem esta distinção, todo dia anterior à
+    entrada do middleware fecharia acusando a equipe inteira de não ter
+    acessado o sistema — inclusive dias em que dezenas de tarefas foram
+    criadas, o que o próprio relatório mostraria no bloco de operação, duas
+    seções abaixo.
+    """
+
+    async def test_sem_nenhum_evento_a_telemetria_e_indisponivel(self, db_conn, client):
+        await criar_usuario(db_conn, client, "EV", "ninguem@teste.com")
+        r = await tel.adocao(db_conn, date.today())
+        assert r["disponivel"] is False
+        assert r["sem_acesso_hoje"] == []
+
+    async def test_dia_anterior_ao_primeiro_evento_e_indisponivel(self, db_conn, client):
+        # O caso real: middleware entrou hoje, o fechamento de ontem roda
+        # amanhã e não pode afirmar ausência de quem não estava sendo medido.
+        await criar_usuario(db_conn, client, "ADM", "primeiro@teste.com")
+        uid = await db_conn.fetchval(
+            "SELECT id FROM usuarios WHERE email = 'primeiro@teste.com'"
+        )
+        await _semear(db_conn, uid, datetime.now(timezone.utc), n=1)
+
+        r = await tel.adocao(db_conn, date.today() - timedelta(days=1))
+        assert r["disponivel"] is False
+        assert r["sem_acesso_hoje"] == []
+
+    async def test_dia_com_evento_e_disponivel(self, db_conn, client):
+        await criar_usuario(db_conn, client, "ADM", "ativo@teste.com")
+        uid = await db_conn.fetchval(
+            "SELECT id FROM usuarios WHERE email = 'ativo@teste.com'"
+        )
+        await _semear(db_conn, uid, datetime.now(timezone.utc), n=2)
+        assert (await tel.adocao(db_conn, date.today()))["disponivel"] is True
 
 
 class TestOperacao:

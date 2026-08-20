@@ -184,6 +184,13 @@ def montar_html(metricas: dict, narrativa: str | None = None) -> str:
         ["left", "left", "right", "right", "right", "right"],
     ))
 
+    if not ad.get("disponivel", True):
+        w(f'<p style="font-size:13px;color:{TINTA};background:#f1f5f9;'
+          f'border:1px solid #e2e8f0;padding:10px 12px;border-radius:8px;'
+          f'margin:4px 0 0"><strong>Sem telemetria neste dia.</strong> '
+          f'A captura de uso ainda não estava ativa, então não dá para dizer '
+          f'quem acessou. Os números de Operação abaixo não dependem dela.</p>')
+
     ausentes = ad.get("sem_acesso_hoje", [])
     if ausentes:
         nomes = ", ".join(f'{_esc(a["nome"])} ({_esc(a["cargo"] or "sem cargo")})' for a in ausentes)
@@ -284,12 +291,23 @@ def montar_texto(metricas: dict, narrativa: str | None = None) -> str:
     ]
     for p in ad.get("por_pessoa", []) or [None]:
         if p is None:
-            linhas.append("  (ninguém usou o sistema hoje)")
+            linhas.append(
+                "  (sem telemetria neste dia)"
+                if not ad.get("disponivel", True)
+                else "  (ninguém usou o sistema hoje)"
+            )
             break
         linhas.append(
             f"  {p['nome']} ({p['cargo'] or 'sem cargo'}): {p['acoes']} ações, "
             f"{p['telas']} telas, {hora_curta(p.get('primeira'))}–{hora_curta(p.get('ultima'))}"
         )
+
+    if not ad.get("disponivel", True):
+        linhas += [
+            "", "SEM TELEMETRIA NESTE DIA",
+            "  A captura de uso ainda não estava ativa; não dá para dizer quem",
+            "  acessou. Os números de OPERAÇÃO abaixo não dependem dela.",
+        ]
 
     ausentes = ad.get("sem_acesso_hoje", [])
     if ausentes:

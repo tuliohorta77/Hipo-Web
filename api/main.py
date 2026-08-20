@@ -5,21 +5,51 @@ O módulo 'crm' é compartilhado — todo cargo válido enxerga contas e
 contatos, o que é o que impede cadastro duplicado de CNPJ. O filtro por
 envolvimento vale para oportunidades, e é aplicado no repositório, não aqui.
 """
+import logging
+from contextlib import asynccontextmanager
+
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from config import settings
-from middleware.telemetria import TelemetriaMiddleware
+from middleware.telemetria import TelemetriaMiddleware, buffer
 from routers import (
     auth, crm_contas, crm_contatos, crm_dominio, crm_oportunidades,
     crm_parceiros, crm_tarefas, telemetria,
 )
 from routers.permissions import requer_modulo
 
+@asynccontextmanager
+async def ciclo_de_vida(app: FastAPI):
+    """
+    Descarrega o buffer de telemetria no desligamento.
+
+    O deploy reinicia o serviço a cada push. Sem isto, todo evento ainda em
+    memória some no restart — e numa operação pequena, que raramente enche o
+    lote, isso é quase toda a telemetria do dia.
+
+    O conftest sobe o cliente de teste com lifespan DESABILITADO (para não
+    criar conexão asyncpg no event loop errado), então este hook não roda na
+    suíte. É intencional: quem testa a descarga chama `descarregar()` na mão.
+    """
+    yield
+    try:
+        gravados = await buffer.descarregar()
+        if gravados:
+            logging.getLogger("hipo.telemetria").info(
+                "descarga no desligamento: %d evento(s)", gravados
+            )
+    except Exception as e:  # pragma: no cover - blindagem de shutdown
+        logging.getLogger("hipo.telemetria").warning(
+            "descarga no desligamento falhou: %s", e
+        )
+
+
 app = FastAPI(
     title="HIPO API",
     description="Hipotálamo Inteligente de Processos e Operações",
     version="2.5.0",
+    lifespan=ciclo_de_vida,
 )
 
 # Telemetria ANTES do CORS na lista = camada mais externa da pilha (o

@@ -55,7 +55,23 @@ ROTAS_IGNORADAS = frozenset({
 LIMITE_BUFFER = 5_000
 
 # Descarga automática quando o buffer chega neste tamanho.
-LOTE_DESCARGA = 100
+LOTE_DESCARGA = 25
+
+# Descarga por IDADE, além da descarga por tamanho.
+#
+# Só o gatilho por tamanho não serve a esta operação. O buffer é global POR
+# PROCESSO e o uvicorn roda --workers 4, então "100 eventos" viram 400
+# requisições espalhadas por quatro buffers antes da primeira gravação. Com
+# sete pessoas, isso é telemetria que quase nunca chega ao banco — e que se
+# perde inteira a cada deploy.
+#
+# Trinta segundos é o atraso máximo que um relatório diário tolera sem
+# esforço, e custa no máximo uma conexão a cada 30s por worker.
+#
+# Ressalva conhecida: o gatilho é avaliado ao REGISTRAR. Se o tráfego parar,
+# os últimos eventos ficam no buffer até a próxima requisição — ou até a
+# descarga do desligamento, no lifespan de main.py.
+IDADE_MAXIMA_S = 30.0
 
 _SQL_INSERT = """
     INSERT INTO uso_eventos
@@ -117,11 +133,29 @@ class BufferTelemetria:
     chamar `descarregar()` na mão.
     """
 
-    def __init__(self, limite: int = LIMITE_BUFFER, lote: int = LOTE_DESCARGA):
+    def __init__(
+        self,
+        limite: int = LIMITE_BUFFER,
+        lote: int = LOTE_DESCARGA,
+        idade_maxima: float | None = IDADE_MAXIMA_S,
+        relogio=time.monotonic,
+    ):
         self._eventos: list[tuple] = []
         self._limite = limite
         self._lock = asyncio.Lock()
         self.descartados = 0
+
+        # Relogio injetavel, mesmo padrao de services/tarefa.py e
+        # services/parceiro.py: o teste do gatilho por tempo avanca o relogio
+        # em vez de dormir 30 segundos.
+        self._relogio = relogio
+        self._mais_antigo: float | None = None
+
+        # Publico de proposito: o conftest zera o gatilho por tempo junto com
+        # o de tamanho. Com so o lote elevado, um evento parado por mais de
+        # IDADE_MAXIMA_S dispararia a descarga sozinho e reencontraria o
+        # TRUNCATE CASCADE da fixture db_conn.
+        self.idade_maxima = idade_maxima
 
         # Publico de proposito: a suite de testes eleva o lote para desativar
         # a descarga automatica e chamar `descarregar()` na mao. Sem isso, a
@@ -137,14 +171,25 @@ class BufferTelemetria:
         async with self._lock:
             self._eventos.clear()
             self.descartados = 0
+            self._mais_antigo = None
 
     async def registrar(self, evento: tuple) -> None:
         async with self._lock:
             if len(self._eventos) >= self._limite:
                 self.descartados += 1
                 return
+            agora = self._relogio()
+            if not self._eventos:
+                self._mais_antigo = agora
             self._eventos.append(evento)
-            precisa_descarregar = len(self._eventos) >= self.lote
+            precisa_descarregar = (
+                len(self._eventos) >= self.lote
+                or (
+                    self.idade_maxima is not None
+                    and self._mais_antigo is not None
+                    and agora - self._mais_antigo >= self.idade_maxima
+                )
+            )
         if precisa_descarregar:
             # Task solta: a resposta não espera o INSERT.
             asyncio.create_task(self.descarregar())
@@ -162,6 +207,7 @@ class BufferTelemetria:
             if not self._eventos:
                 return 0
             lote, self._eventos = self._eventos, []
+            self._mais_antigo = None
 
         conn = None
         try:
