@@ -15,6 +15,15 @@ FALHA É SILENCIOSA POR DESIGN. Sem chave, com timeout, com 429 ou com a API
 fora do ar, `narrar()` devolve None e o fechamento segue. O e-mail sai com
 todos os números e sem a narrativa. O contrário — segurar o relatório porque
 o texto de apoio falhou — troca a parte essencial pela acessória.
+
+O QUE A GUARDA NUMÉRICA NÃO PEGA — e é o limite dela, não um defeito.
+`validacao_numerica` confere NÚMEROS, não AFIRMAÇÕES. Na primeira narrativa
+gerada em produção (28/08), o modelo escreveu "as tarefas atrasadas
+cresceram" num dia em que `comparativo.disponivel` era false: o "22" estava
+certo, o "cresceram" era inventado, e a guarda deixou passar porque todo
+número da frase existia na telemetria. Alegação de tendência e explicação de
+causa só podem ser barradas na INSTRUCAO — que ganhou duas regras dedicadas a
+isso. Se voltarem a aparecer, o ajuste é lá, não aqui.
 """
 from __future__ import annotations
 
@@ -38,13 +47,26 @@ de medicina e segurança ocupacional. Quem lê é o dono da operação.
 Escreva 3 ou 4 parágrafos curtos, em português do Brasil, sobre o dia:
 
 1. O que aconteceu de fato — volume de uso e o que andou na operação.
-2. O que destoa: alguém que não entrou, erro repetido, queda contra o dia
-   anterior, tarefa em atraso acumulando.
+2. O que destoa: alguém que não entrou, erro repetido, número que chama
+   atenção pelo tamanho.
 3. Uma recomendação concreta para amanhã, ligada a um número específico.
 
 Regras:
 - NÃO invente número, nome ou tendência que não esteja no JSON.
 - NÃO repita a tabela: quem lê já vê os números acima do seu texto.
+- MOVIMENTO SÓ COM COMPARATIVO. Os contadores do JSON são fotografias do dia,
+  não séries históricas. Só diga que algo subiu, caiu, cresceu ou vem
+  acumulando quando comparativo.disponivel for true E o número estiver lá.
+  Sem isso, descreva o ESTADO ("22 tarefas em atraso") e nunca o MOVIMENTO
+  ("as tarefas em atraso cresceram") — você não tem como saber qual era o
+  número ontem.
+- NÃO EXPLIQUE A CAUSA de um número. O JSON diz o que aconteceu, não por quê.
+  "Seis pessoas não acessaram" é observação; "por isso o atraso cresceu" é
+  invenção — e é o tipo de invenção que passa batido, porque cada número
+  citado na frase está correto.
+- Refira-se ao dia pela data ou pelo dia da semana, nunca como "ontem" ou
+  "hoje". O fechamento pode ser gerado dias depois do dia que ele descreve, e
+  aí "ontem" aponta para o dia errado.
 - Se adocao.disponivel for false, a captura de uso NÃO estava ativa nesse dia.
   Nesse caso não diga que ninguém acessou nem cite ausentes: diga que não há
   telemetria para o dia e comente apenas o bloco de operação.
