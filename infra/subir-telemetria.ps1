@@ -110,6 +110,15 @@ if ($PularTestes) {
     try {
         $env:PYTHONPATH = (Get-Location).Path
         # Apenas os que nao precisam de Postgres. O resto valida no CI.
+        #
+        # test_telemetria_ruido.py NAO esta na lista de proposito: ele importa
+        # middleware.telemetria, que importa config, e config exige
+        # DATABASE_URL e JWT_SECRET ja no import. E o mesmo motivo pelo qual
+        # test_buffer_telemetria.py -- que importa o mesmo modulo -- nunca
+        # esteve aqui. Os dois validam no CI, que tem Postgres e ambiente.
+        #
+        # Para rodar a mao, com api/.env presente:
+        #   py -m pytest tests/test_telemetria_ruido.py tests/test_buffer_telemetria.py
         py -m pytest -q -p no:cacheprovider `
             tests/test_validacao_numerica.py `
             tests/test_tarefa_regras.py `
@@ -200,13 +209,32 @@ Titulo 'FASE 4 - Acompanhar o CI'
 $gh = Get-Command gh -ErrorAction SilentlyContinue
 if ($gh) {
     Start-Sleep -Seconds 6
-    gh run watch --exit-status
-    if ($LASTEXITCODE -ne 0) {
+    # 'gh run watch' devolve codigo diferente de zero em DOIS casos muito
+    # diferentes: o CI ficou vermelho, ou o gh nao conseguiu falar com o
+    # GitHub. Em 20/08 foi o segundo -- 'error connecting to api.github.com'
+    # -- e o script anunciou CI vermelho para um deploy que subiu inteiro.
+    # Confundir 'nao sei' com 'deu errado' custou 11 dias de duvida.
+    $ErrorActionPreference = 'Continue'
+    $saida = & gh run watch --exit-status 2>&1 | ForEach-Object { $_.ToString() }
+    $codigo = $LASTEXITCODE
+    $ErrorActionPreference = 'Stop'
+    $saida | ForEach-Object { Write-Host "  $_" }
+    $texto = ($saida -join "`n")
+    $semRede = $texto -match 'error connecting' -or `
+               $texto -match 'check your internet connection' -or `
+               $texto -match 'Could not resolve host'
+    if ($codigo -eq 0) {
+        Ok 'Os 3 jobs verdes'
+    } elseif ($semRede) {
+        Aviso 'O gh nao conseguiu falar com o GitHub. Isso NAO diz nada'
+        Aviso 'sobre o CI -- o push ja foi feito e o deploy pode ter subido.'
+        Write-Host '    https://github.com/tuliohorta77/Hipo-Web/actions'
+        Confirmar 'Os 3 jobs (Backend, Frontend, Deploy) ficaram verdes?'
+    } else {
         Aviso 'O CI falhou. O banco JA esta migrado (aditivo, nao atrapalha).'
         Aviso 'Corrija, commite e o proximo push refaz o deploy.'
         Parar 'CI vermelho.'
     }
-    Ok 'Os 3 jobs verdes'
 } else {
     Aviso 'gh CLI nao encontrado. Acompanhe em:'
     Write-Host '    https://github.com/tuliohorta77/Hipo-Web/actions'

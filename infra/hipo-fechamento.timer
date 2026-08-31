@@ -7,13 +7,42 @@ Documentation=file:///home/hipo/app/api/scripts/fechamento_diario.py
 # rodar de madrugada garante um dia inteiro de dados — e o relatorio chega na
 # caixa antes de qualquer pessoa abrir o sistema.
 #
-# OnCalendar respeita o fuso declarado abaixo, nao o UTC do servidor. Sem a
-# linha Timezone, a EC2 (que roda em UTC) dispararia meia-noite e dez em Sao
-# Paulo e o "dia anterior" pularia um dia inteiro.
-OnCalendar=*-*-* 03:10:00
-Timezone=America/Sao_Paulo
+# O FUSO VAI COMO SUFIXO DA EXPRESSAO, nao como chave propria. A secao
+# [Timer] nao tem chave de fuso: o systemd loga "Unknown key name" e cai
+# no fuso do sistema, que na EC2 e UTC. Com isso o disparo sairia 00:10 em
+# Sao Paulo — o relatorio chegaria a meia-noite e dez, e nao antes do
+# expediente.
+#
+# Conferir antes de instalar:
+#   systemd-analyze calendar --iterations=6 \
+#     'Tue..Sat *-*-* 03:10:00 America/Sao_Paulo'
+#
+# O sufixo de fuso exige systemd >= 252 (AL2023 tem 252). Em versao menor,
+# usar '06:10:00' sem sufixo e aceitar que nao acompanha mudanca de fuso.
+#
+# TER..SAB, e nao SEG..SEX. Parece errado e nao e: o script fecha SEMPRE
+# o dia ANTERIOR, entao o dia da semana do disparo esta deslocado um dia
+# do dia relatado. Ter..Sab cobre segunda a sexta:
+#
+#     roda terca  -> fecha segunda
+#     roda sabado -> fecha sexta
+#
+# Seg..Sex seria a armadilha: rodaria segunda para fechar DOMINGO (dia
+# vazio) e nunca rodaria sabado, deixando SEXTA sem fechamento nenhum.
+#
+# Fim de semana fora porque a operacao nao trabalha: um e-mail dizendo
+# 'zero acoes, zero pessoas' todo domingo ensina a nao abrir o e-mail, e
+# aterrissa na mesma caixa que o de segunda.
+OnCalendar=Tue..Sat *-*-* 03:10:00 America/Sao_Paulo
 
 # Se a maquina estava desligada na hora marcada, roda na volta.
+#
+# PEGADINHA: `ontem()` e calculado na HORA DA EXECUCAO, nao na hora que
+# estava agendada. Um disparo de sabado recuperado na segunda fecha
+# DOMINGO, e sexta fica sem fechamento. A EC2 nao reinicia sozinha, entao
+# isso e raro -- e quando acontecer, o conserto e uma linha, porque o
+# script e idempotente e aceita a data:
+#   python3 -m scripts.fechamento_diario --dia 2026-09-04
 Persistent=true
 
 # Espalha ate 3 minutos: evita bater no mesmo segundo que qualquer outro
