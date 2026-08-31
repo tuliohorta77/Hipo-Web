@@ -28,7 +28,11 @@ set -o pipefail
 
 DIA="${1:-}"
 CONFIRMAR=0
-[ "$2" = "--confirmar" ] && CONFIRMAR=1
+FORCAR=0
+for a in "$@"; do
+    [ "$a" = "--confirmar" ] && CONFIRMAR=1
+    [ "$a" = "--forcar" ]    && FORCAR=1
+done
 
 titulo() { printf '\n==== %s ====\n' "$1"; }
 parar()  { printf '\n!! %s\n' "$1"; exit 1; }
@@ -75,8 +79,16 @@ JA=$(psql "$D" -Atc "select enviado_em is not null from relatorios_diarios
                       where dia = '$DIA'::date;")
 if [ "$JA" = "t" ]; then
     echo
-    echo "  ATENCAO: este dia JA foi enviado. O script vai pular o envio."
-    echo "  Para repetir mesmo assim, acrescente --forcar-email no ExecStart."
+    if [ $FORCAR -eq 1 ]; then
+        echo "  Este dia JA foi enviado, e --forcar foi passado: vai sair OUTRA"
+        echo "  copia na mesma caixa. E o unico caminho que fura a idempotencia,"
+        echo "  e por isso ele exige uma palavra so para ele."
+    else
+        echo "  ATENCAO: este dia JA foi enviado, entao o envio sera PULADO."
+        echo "  A idempotencia existe para cron que reexecuta nao virar quatro"
+        echo "  copias na caixa. Para repetir de proposito:"
+        echo "      bash $0 $DIA --confirmar --forcar"
+    fi
 fi
 
 if [ $CONFIRMAR -eq 0 ]; then
@@ -87,12 +99,17 @@ if [ $CONFIRMAR -eq 0 ]; then
 Isto foi a previsao. Para enviar de verdade:
 
     bash /tmp/enviar-fechamento.sh $DIA --confirmar
+        (acrescente --forcar se o dia ja tiver sido enviado)
 
 FIM
     exit 0
 fi
 
 titulo "4. Enviando"
+ANTES=$(psql "$D" -Atc "select coalesce(enviado_em::text,'-') from relatorios_diarios
+                         where dia = '$DIA'::date;")
+EXTRA=""
+[ $FORCAR -eq 1 ] && EXTRA="--forcar-email"
 sudo systemd-run \
     --uid=ec2-user --gid=ec2-user \
     --property=EnvironmentFile="$APP/.env" \
@@ -100,7 +117,7 @@ sudo systemd-run \
     --setenv=PYTHONPATH="$APP/api" \
     --setenv=PYTHONUNBUFFERED=1 \
     --wait --pipe --quiet \
-    /usr/bin/python3 -m scripts.fechamento_diario --dia "$DIA"
+    /usr/bin/python3 -m scripts.fechamento_diario --dia "$DIA" $EXTRA
 CODIGO=$?
 echo "  codigo de saida: $CODIGO"
 
@@ -111,6 +128,34 @@ psql "$D" -x -c "select dia, enviado_em, narrativa_modelo, destinatarios, erro,
 
 if [ $CODIGO -ne 0 ]; then
     parar "o envio falhou. A coluna 'erro' acima diz o motivo."
+fi
+
+# CODIGO=0 NAO QUER DIZER QUE SAIU E-MAIL.
+#
+# O fechamento e idempotente: se `enviado_em` ja estava preenchido e nao veio
+# --forcar-email, ele PULA o envio e termina com sucesso -- porque pular e o
+# comportamento correto, nao um erro. Este script anunciava "ENVIADO" nesse
+# caso, que e a mentira mais cara que ele poderia contar: manda conferir uma
+# caixa onde nada chegou.
+#
+# A verdade esta no banco: `enviado_em` mudou ou nao mudou.
+DEPOIS=$(psql "$D" -Atc "select coalesce(enviado_em::text,'-') from relatorios_diarios
+                          where dia = '$DIA'::date;")
+if [ "$ANTES" = "$DEPOIS" ]; then
+    echo
+    echo "==== NADA FOI ENVIADO ===="
+    echo
+    echo "  enviado_em nao mudou ($DEPOIS)."
+    if [ $FORCAR -eq 0 ]; then
+        echo "  O dia ja tinha sido enviado e a idempotencia pulou o envio."
+        echo "  Para repetir de proposito:"
+        echo "      bash $0 $DIA --confirmar --forcar"
+    else
+        echo "  --forcar foi passado e mesmo assim nao saiu. Olhe a coluna"
+        echo "  'erro' acima e o log:"
+        echo "      sudo journalctl --since '10 min ago' | grep -i hipo"
+    fi
+    exit 1
 fi
 
 cat <<'FIM'

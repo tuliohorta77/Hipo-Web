@@ -33,7 +33,9 @@ import logging
 import httpx
 
 from config import settings
-from services.validacao_numerica import numeros_invalidos, numeros_permitidos
+from services.validacao_numerica import (
+    contexto, numeros_invalidos, numeros_permitidos,
+)
 
 log = logging.getLogger("hipo.ia")
 
@@ -157,6 +159,16 @@ async def narrar(metricas: dict) -> tuple[str | None, str | None]:
                     "ia: narrativa descartada, numeros fora da telemetria (%s)",
                     ", ".join(inventados),
                 )
+                # A FRASE, e nao so o numero. O cabecalho de
+                # validacao_numerica manda ajustar a INSTRUCAO quando isto
+                # aparecer com frequencia -- e sem o trecho isso e impossivel:
+                # "30" pode ser "30%", "ha 30 dias" ou "temperatura 30", e
+                # cada um pede um ajuste diferente (o ultimo seria falso
+                # positivo da guarda, nao erro do modelo). A narrativa e
+                # descartada; se nao deixar rastro, o defeito fica invisivel
+                # justamente quando esta acontecendo.
+                for token in inventados[:5]:
+                    log.error("ia:   %r em: %s", token, contexto(texto, token))
                 return None, None
         return texto, settings.ANTHROPIC_MODEL
     except Exception as e:

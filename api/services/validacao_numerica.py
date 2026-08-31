@@ -112,6 +112,38 @@ def numeros_permitidos(metricas: Any) -> set[str]:
     return achados
 
 
+def contexto(texto: str, token: str, janela: int = 70) -> str:
+    """
+    O trecho da narrativa em volta da primeira ocorrencia de `token`.
+
+    POR QUE ISTO PRECISA EXISTIR
+
+    O cabecalho deste modulo manda ajustar a INSTRUCAO quando a narrativa for
+    descartada com frequencia. Sem ver a FRASE, isso e impossivel: o log dizia
+    apenas `numeros fora da telemetria (30)`, e '30' pode ser '30%', 'ha 30
+    dias', 'R$ 30' ou 'temperatura 30' -- cada um pede um ajuste diferente, e
+    um deles ('temperatura 30') seria falso positivo da guarda, nao erro do
+    modelo.
+
+    A narrativa descartada e jogada fora; se ela nao deixar rastro, o defeito
+    fica invisivel exatamente quando esta acontecendo.
+
+    >>> contexto("houve queda de 30% no uso do sistema", "30", janela=10)
+    '...queda de 30% no uso d...'
+    >>> contexto("nada aqui", "99")
+    ''
+    """
+    if not texto or not token:
+        return ""
+    i = texto.find(token)
+    if i < 0:
+        return ""
+    ini = max(0, i - janela)
+    fim = min(len(texto), i + len(token) + janela)
+    trecho = " ".join(texto[ini:fim].split())
+    return ("..." if ini > 0 else "") + trecho + ("..." if fim < len(texto) else "")
+
+
 def numeros_invalidos(texto: str, permitidos: set[str]) -> list[str]:
     """
     Numeros escritos no texto que nao existem nas metricas.
