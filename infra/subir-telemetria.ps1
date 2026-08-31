@@ -207,38 +207,91 @@ Titulo 'FASE 4 - Acompanhar o CI'
 # =====================================================================
 
 $gh = Get-Command gh -ErrorAction SilentlyContinue
-if ($gh) {
-    Start-Sleep -Seconds 6
-    # 'gh run watch' devolve codigo diferente de zero em DOIS casos muito
-    # diferentes: o CI ficou vermelho, ou o gh nao conseguiu falar com o
-    # GitHub. Em 20/08 foi o segundo -- 'error connecting to api.github.com'
-    # -- e o script anunciou CI vermelho para um deploy que subiu inteiro.
-    # Confundir 'nao sei' com 'deu errado' custou 11 dias de duvida.
-    $ErrorActionPreference = 'Continue'
-    $saida = & gh run watch --exit-status 2>&1 | ForEach-Object { $_.ToString() }
-    $codigo = $LASTEXITCODE
-    $ErrorActionPreference = 'Stop'
-    $saida | ForEach-Object { Write-Host "  $_" }
-    $texto = ($saida -join "`n")
-    $semRede = $texto -match 'error connecting' -or `
-               $texto -match 'check your internet connection' -or `
-               $texto -match 'Could not resolve host'
-    if ($codigo -eq 0) {
-        Ok 'Os 3 jobs verdes'
-    } elseif ($semRede) {
-        Aviso 'O gh nao conseguiu falar com o GitHub. Isso NAO diz nada'
-        Aviso 'sobre o CI -- o push ja foi feito e o deploy pode ter subido.'
-        Write-Host '    https://github.com/tuliohorta77/Hipo-Web/actions'
-        Confirmar 'Os 3 jobs (Backend, Frontend, Deploy) ficaram verdes?'
-    } else {
-        Aviso 'O CI falhou. O banco JA esta migrado (aditivo, nao atrapalha).'
-        Aviso 'Corrija, commite e o proximo push refaz o deploy.'
-        Parar 'CI vermelho.'
-    }
-} else {
+if (-not $gh) {
     Aviso 'gh CLI nao encontrado. Acompanhe em:'
     Write-Host '    https://github.com/tuliohorta77/Hipo-Web/actions'
     Confirmar 'Os 3 jobs (Backend, Frontend, Deploy) ficaram verdes?'
+} else {
+    $ErrorActionPreference = 'Continue'
+
+    # POR QUE BUSCAR O ID EM VEZ DE 'gh run watch' PELADO
+    #
+    # Sem id, o watch abre um SELETOR INTERATIVO. Enquanto rodava colado ao
+    # terminal isso passava; assim que a saida comecou a ser capturada, o gh
+    # perdeu o TTY e passou a morrer com 'run ID required when not running
+    # interactively' -- que o script leu como CI vermelho, pela terceira vez
+    # em duas semanas.
+    #
+    # Buscar pelo SHA elimina os dois problemas de uma vez: nao precisa de
+    # TTY, e garante que estamos olhando o run DESTE push e nao de outro que
+    # por acaso estivesse na fila.
+    $sha = (git rev-parse HEAD).Trim()
+    Write-Host "  commit: $sha"
+
+    function Rede($texto) {
+        return ($texto -match 'error connecting') -or `
+               ($texto -match 'check your internet connection') -or `
+               ($texto -match 'Could not resolve host') -or `
+               ($texto -match 'dial tcp')
+    }
+
+    $runId    = $null
+    $semRede  = $false
+    foreach ($tentativa in 1..10) {
+        Start-Sleep -Seconds 6
+        $r = & gh run list --commit $sha --limit 1 --json databaseId --jq '.[0].databaseId' 2>&1
+        $codigo = $LASTEXITCODE
+        $txt = (($r | ForEach-Object { $_.ToString() }) -join "`n").Trim()
+        if ($codigo -ne 0) {
+            if (Rede $txt) { $semRede = $true; break }
+            Write-Host "  $txt"
+            continue
+        }
+        if ($txt -match '^\d+$') { $runId = $txt; break }
+        Write-Host "  aguardando o run aparecer no GitHub... ($tentativa/10)"
+    }
+
+    if ($semRede) {
+        Aviso 'O gh nao conseguiu falar com o GitHub. Isso NAO diz nada sobre'
+        Aviso 'o CI -- o push ja foi feito e o deploy pode ter subido.'
+        Write-Host '    https://github.com/tuliohorta77/Hipo-Web/actions'
+        Confirmar 'Os 3 jobs (Backend, Frontend, Deploy) ficaram verdes?'
+    } elseif (-not $runId) {
+        Aviso 'Nao achei nenhum run do CI para este commit.'
+        Write-Host '    https://github.com/tuliohorta77/Hipo-Web/actions'
+        Confirmar 'Os 3 jobs (Backend, Frontend, Deploy) ficaram verdes?'
+    } else {
+        Write-Host "  run: $runId"
+        # Sem captura: o watch precisa do terminal para desenhar o progresso,
+        # e ja provamos que a rede esta de pe ao buscar o id.
+        & gh run watch $runId --exit-status
+        $codigo = $LASTEXITCODE
+        if ($codigo -eq 0) {
+            $ErrorActionPreference = 'Stop'
+            Ok 'Os 3 jobs verdes'
+        } else {
+            # O watch tambem sai diferente de zero se a conexao cair no meio.
+            # A CONCLUSAO do run e a resposta autoritativa: perguntar de novo
+            # separa 'o CI reprovou' de 'eu perdi a conexao'.
+            $c = & gh run view $runId --json conclusion --jq '.conclusion' 2>&1
+            $conclusao = (($c | ForEach-Object { $_.ToString() }) -join "`n").Trim()
+            $ErrorActionPreference = 'Stop'
+            if ($conclusao -eq 'success') {
+                Ok 'Os 3 jobs verdes (o watch caiu, a conclusao do run confirma)'
+            } elseif (Rede $conclusao) {
+                Aviso 'Perdi a conexao com o GitHub durante o acompanhamento.'
+                Write-Host "    gh run view $runId"
+                Confirmar 'Os 3 jobs ficaram verdes?'
+            } else {
+                Aviso "Conclusao do run: $conclusao"
+                Aviso 'O CI falhou. O banco JA esta migrado (aditivo, nao atrapalha).'
+                Aviso 'Corrija, commite e o proximo push refaz o deploy.'
+                Write-Host "    gh run view $runId --log-failed"
+                Parar 'CI vermelho.'
+            }
+        }
+    }
+    $ErrorActionPreference = 'Stop'
 }
 
 # =====================================================================
