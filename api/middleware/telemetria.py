@@ -49,6 +49,11 @@ ROTAS_IGNORADAS = frozenset({
     "/health", "/docs", "/redoc", "/openapi.json", "/favicon.ico",
 })
 
+# Marcador para requisição que não casou rota nenhuma. O middleware não guarda
+# o path cru (ver o docstring do módulo), então todo 404 de caminho inventado
+# colapsa neste mesmo valor.
+SEM_ROTA = "<sem_rota>"
+
 # Acima disso o buffer descarta em vez de crescer sem limite. 5 mil eventos
 # são ~20 minutos de pico numa operação deste tamanho; se encher, o problema
 # é a descarga não estar rodando, e aí segurar mais memória não ajuda.
@@ -107,6 +112,48 @@ def modulo_da_rota(rota: str) -> str | None:
     """
     partes = [p for p in (rota or "").split("/") if p]
     return partes[0][:40] if partes else None
+
+
+def eh_ruido_externo(email: str | None, rota: str) -> bool:
+    """
+    True para requisição ANÔNIMA que não casou rota nenhuma.
+
+    O QUE ISTO ESTÁ TIRANDO DA TABELA
+
+    Nos 11 primeiros dias em produção, 1104 dos 2927 eventos gravados eram
+    exatamente isso: GET e POST para caminhos que não existem, sem token,
+    vindos de varredura automatizada contra o IP público. 38% da telemetria.
+
+    O estrago não era o espaço, era o número. `adocao()` conta `acoes` sobre
+    a tabela inteira e `erros` sobre tudo que passa de 400 — então um domingo
+    sem ninguém trabalhando fechava com "102 ações, 0 pessoas, taxa de erro
+    100%". Um relatório que diz isso todo fim de semana é um relatório que se
+    aprende a ignorar, e aí ele também não é lido na segunda.
+
+    POR QUE ESTAS DUAS CONDIÇÕES E NÃO OUTRAS
+
+    Anônima E sem rota, as duas juntas. Cada uma sozinha é sinal legítimo:
+
+      * anônima COM rota é sessão expirada — os 121 `GET /crm/contas` com 401
+        são o front tentando de novo com token vencido, que é uso real de uma
+        pessoa real e o docstring do módulo diz que é para capturar;
+      * autenticada SEM rota é alguém de dentro batendo em endpoint que não
+        existe — bug de front, e é justamente o que a telemetria deve pegar.
+
+    Só a interseção é ruído: ninguém identificável, em nada que exista.
+
+    O login continua entrando. `POST /auth/login` casa rota, então o token
+    ainda não existir não elimina o evento — e é dele que sai a contagem de
+    quem entrou no sistema no dia.
+
+    >>> eh_ruido_externo(None, "<sem_rota>")
+    True
+    >>> eh_ruido_externo(None, "/crm/contas")
+    False
+    >>> eh_ruido_externo("alguem@empresa.com", "<sem_rota>")
+    False
+    """
+    return email is None and rota == SEM_ROTA
 
 
 def email_do_token(header_autorizacao: str | None) -> str | None:
@@ -301,12 +348,19 @@ class TelemetriaMiddleware(BaseHTTPMiddleware):
             # casada (404), o template não existe e o path cru também não
             # serve — viraria uma linha nova a cada id inexistente tentado.
             rota_obj = request.scope.get("route")
-            rota = getattr(rota_obj, "path", None) or "<sem_rota>"
+            rota = getattr(rota_obj, "path", None) or SEM_ROTA
+
+            # Varredura da internet no IP publico nao e uso do sistema. Ver
+            # `eh_ruido_externo`: era 38% da tabela e levava a taxa de erro do
+            # fim de semana a 100%.
+            email = email_do_token(request.headers.get("authorization"))
+            if eh_ruido_externo(email, rota):
+                return resposta
 
             duracao_ms = int((time.perf_counter() - inicio) * 1000)
 
             await buffer.registrar((
-                email_do_token(request.headers.get("authorization")),
+                email,
                 request.method,
                 rota[:200],
                 modulo_da_rota(rota),
