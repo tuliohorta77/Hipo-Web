@@ -45,6 +45,35 @@ METRICAS = {
         "disponivel": True, "dia": "2026-08-14", "acoes": 90, "pessoas_ativas": 4,
         "oportunidades_criadas": 3, "tarefas_concluidas": 4,
     },
+    "conteudo": {
+        "precisa_de_acao": [
+            {"numero": "OPP-2026-00001", "conta": "Metalurgica Andrade",
+             "fase": "negociacao", "status": "ativa", "temperatura": 80,
+             "valor": 4200.0, "previsao": "2026-08-10",
+             "motivos": ["previsão venceu há 7 dias", "sem próxima tarefa marcada"]},
+        ],
+        "precisa_de_acao_mais": 2,
+        "perto_de_fechar": [
+            {"numero": "OPP-2026-00003", "conta": "Frigorifico Sao Jorge",
+             "fase": "negociacao", "status": "ativa", "temperatura": 90,
+             "valor": 9500.0, "previsao": "2026-08-20",
+             "motivos": ["temperatura 90"]},
+        ],
+        "perto_de_fechar_mais": 0,
+        "parceiros_para_acionar": [
+            {"conta": "Escritorio Aurora", "situacao": "dormente",
+             "indicacoes": 4, "conquistadas": 2, "em_aberto": 0,
+             "dias_sem_indicar": 238},
+        ],
+        "parceiros_para_acionar_mais": 0,
+        "tarefas_atrasadas": [
+            {"titulo": "Visita tecnica", "responsavel": "Aline Martins",
+             "dias_atraso": 13, "alvo": "OPP-2026-00001"},
+        ],
+        "tarefas_atrasadas_total": 2,
+        "totais": {"oportunidades_abertas": 5, "com_acao_pendente": 3,
+                   "perto_de_fechar": 1},
+    },
 }
 
 
@@ -75,8 +104,58 @@ class TestFormatacao:
 class TestHtml:
     def test_contem_os_numeros_e_os_nomes(self):
         html = r.montar_html(METRICAS)
-        for esperado in ["120", "Aline Martins", "/crm/contas", "55", "Bruno Gonçalo"]:
+        for esperado in ["120", "Aline Martins", "55", "Bruno Gonçalo"]:
             assert esperado in html, f"faltou {esperado!r} no e-mail"
+
+    def test_nao_mostra_rota_de_api(self):
+        """
+        As tabelas "Telas mais usadas" e "Erros do dia" saíram em 31/08.
+
+        Quem lê este e-mail é o dono da operação, e `/crm/parceiros/{id}` não
+        sugere ação nenhuma para ele — é diagnóstico de desenvolvedor. Os
+        dados continuam em `adocao.rotas_mais_usadas` para quem consultar a
+        API; o que saiu foi a exibição.
+
+        Este teste existe para a decisão não voltar por descuido: as métricas
+        ainda trazem as rotas no payload, então é fácil alguém religar a
+        tabela sem perceber que ela tinha sido tirada de propósito.
+        """
+        html = r.montar_html(METRICAS)
+        assert "/crm/contas" not in html
+        assert "Telas mais usadas" not in html
+        assert "Erros do dia" not in html
+
+    def test_desenha_o_conteudo_do_crm(self):
+        """O motivo de o e-mail existir depois de 31/08."""
+        html = r.montar_html(METRICAS)
+        for esperado in [
+            "Precisa de ação", "OPP-2026-00001", "Metalurgica Andrade",
+            "previsão venceu há 7 dias",
+            "Perto de fechar", "OPP-2026-00003", "temperatura 90",
+            "Parceiros para acionar", "Escritorio Aurora",
+            "Tarefas atrasadas", "Visita tecnica",
+        ]:
+            assert esperado in html, f"faltou {esperado!r} no e-mail"
+
+    def test_motivo_acompanha_cada_item(self):
+        """
+        Item sem motivo obrigaria o leitor a adivinhar por que aquela
+        oportunidade está na lista — e lista que precisa ser decifrada não é
+        lida. É também o material que a IA usa para narrar sem inventar.
+        """
+        html = r.montar_html(METRICAS)
+        assert "sem próxima tarefa marcada" in html
+
+    def test_conta_quantos_ficaram_de_fora(self):
+        """As listas são cortadas em cinco; o resto não pode sumir calado."""
+        assert "e mais 2 com pendência" in r.montar_html(METRICAS)
+
+    def test_sem_conteudo_nao_desenha_bloco_vazio(self):
+        """Payload antigo, sem a chave `conteudo`, não pode quebrar o render."""
+        m = {k: v for k, v in METRICAS.items() if k != "conteudo"}
+        html = r.montar_html(m)
+        assert "Precisa de ação" not in html
+        assert "120" in html, "o resto do e-mail continua desenhado"
 
     def test_sem_narrativa_nao_desenha_a_secao(self):
         assert "Leitura gerada por IA" not in r.montar_html(METRICAS)
