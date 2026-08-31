@@ -20,6 +20,8 @@ from __future__ import annotations
 
 from datetime import date
 
+from services import relatorio_conteudo
+
 FUSO_OPERACAO = "America/Sao_Paulo"
 
 # Janela do dia local convertida para o timestamptz do banco. Escrita uma vez
@@ -267,13 +269,27 @@ async def comparativo(conn, dia: date) -> dict:
 
 
 async def metricas_do_dia(conn, dia: date) -> dict:
-    """Payload completo do fechamento. É o que vai para o JSONB e para a IA."""
+    """
+    Payload completo do fechamento. É o que vai para o JSONB e para a IA.
+
+    Quatro blocos, e o quarto é de outra natureza:
+
+      adocao / operacao / comparativo  -> o que aconteceu NAQUELE dia
+      conteudo                         -> o que está EM ABERTO agora
+
+    `conteudo` mora em services/relatorio_conteudo.py e não é recortado por
+    dia de propósito: uma oportunidade com a previsão vencida em julho
+    continua sendo assunto hoje. Ele existe porque contagem não é acionável —
+    "22 tarefas em atraso" não diz QUAIS, e sem os itens no JSON a IA não tem
+    como apontar nenhum sem inventar.
+    """
     return {
         "dia": dia.isoformat(),
         "fuso": FUSO_OPERACAO,
         "adocao": await adocao(conn, dia),
         "operacao": await operacao(conn, dia),
         "comparativo": await comparativo(conn, dia),
+        "conteudo": await relatorio_conteudo.conteudo(conn, dia, FUSO_OPERACAO),
     }
 
 

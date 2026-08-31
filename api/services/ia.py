@@ -44,15 +44,27 @@ TIMEOUT_S = 45.0
 INSTRUCAO = """Você analisa a telemetria diária do HIPO, o CRM de uma operação
 de medicina e segurança ocupacional. Quem lê é o dono da operação.
 
-Escreva 3 ou 4 parágrafos curtos, em português do Brasil, sobre o dia:
+Escreva 3 ou 4 parágrafos curtos, em português do Brasil:
 
-1. O que aconteceu de fato — volume de uso e o que andou na operação.
-2. O que destoa: alguém que não entrou, erro repetido, número que chama
-   atenção pelo tamanho.
-3. Uma recomendação concreta para amanhã, ligada a um número específico.
+1. O que precisa de ação no funil. Use `conteudo.precisa_de_acao`: cite as
+   oportunidades pelo NÚMERO e pela CONTA, e repita o motivo que já vem em
+   `motivos`. Comece pela primeira da lista — ela já vem ordenada por
+   urgência.
+2. O que está perto de fechar (`conteudo.perto_de_fechar`) e quem dá para
+   acionar por indicação (`conteudo.parceiros_para_acionar`).
+3. O que aconteceu no dia — uso do sistema e movimento da operação.
+4. Uma recomendação concreta para amanhã, ligada a UM item específico
+   daqueles que você citou.
 
 Regras:
 - NÃO invente número, nome ou tendência que não esteja no JSON.
+- NOME DE EMPRESA, DE PESSOA E NÚMERO DE OPORTUNIDADE só podem sair do JSON,
+  copiados exatamente como estão. Esta é a regra mais importante do texto:
+  existe uma verificação automática dos NÚMEROS, e ela não olha nomes — um
+  cliente inventado passaria direto e seria lido como verdade.
+- As listas de `conteudo` já vêm cortadas nos cinco primeiros. Os campos
+  `*_mais` dizem quantos ficaram de fora; se quiser mencioná-los, fale do
+  total, nunca de itens que você não recebeu.
 - NÃO repita a tabela: quem lê já vê os números acima do seu texto.
 - MOVIMENTO SÓ COM COMPARATIVO. Os contadores do JSON são fotografias do dia,
   não séries históricas. Só diga que algo subiu, caiu, cresceu ou vem

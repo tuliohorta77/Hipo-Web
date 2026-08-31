@@ -130,6 +130,100 @@ def _tabela(colunas: list[str], linhas: list[list[str]], alinhamento: list[str] 
     )
 
 
+# ── Conteúdo do CRM ─────────────────────────────────────────────────────
+#
+# Estes blocos são o motivo de o e-mail existir depois de 31/08. A telemetria
+# diz quem clicou; isto diz o que está aberto e cobrando ação. Cada linha
+# carrega o MOTIVO junto — sem ele o leitor teria de adivinhar por que aquela
+# oportunidade está na lista, e uma lista que precisa ser decifrada não é lida.
+
+def _dinheiro(v) -> str:
+    """R$ 4.200 — sem centavos, que a esta distância só fazem ruído."""
+    if v is None:
+        return "—"
+    return "R$ " + f"{float(v):,.0f}".replace(",", ".")
+
+
+def _motivos(ms: list[str]) -> str:
+    return _esc(" · ".join(ms)) if ms else "—"
+
+
+def _e_mais(n: int, oque: str) -> str:
+    if not n:
+        return ""
+    return (f'<p style="font-size:12px;color:{SUAVE};margin:6px 0 0">'
+            f'e mais {n} {oque}.</p>')
+
+
+def _bloco_conteudo(cont: dict) -> list[str]:
+    """As quatro listas. Bloco vazio não é desenhado — nem como 'nenhum'."""
+    from services.oportunidade import ROTULOS_FASE
+
+    saida: list[str] = []
+    w = saida.append
+
+    acao = cont.get("precisa_de_acao", [])
+    if acao:
+        w(_titulo("Precisa de ação"))
+        w(_tabela(
+            ["Oportunidade", "Conta", "Fase", "Valor", "Por quê"],
+            [[
+                f'<strong>{_esc(o["numero"])}</strong>', _esc(o["conta"]),
+                _esc(ROTULOS_FASE.get(o["fase"], o["fase"])),
+                _dinheiro(o["valor"]),
+                f'<span style="color:{VERMELHO}">{_motivos(o["motivos"])}</span>',
+            ] for o in acao],
+            ["left", "left", "left", "right", "left"],
+        ))
+        w(_e_mais(cont.get("precisa_de_acao_mais", 0), "com pendência"))
+
+    fechar = cont.get("perto_de_fechar", [])
+    if fechar:
+        w(_titulo("Perto de fechar"))
+        w(_tabela(
+            ["Oportunidade", "Conta", "Fase", "Valor", "Por quê"],
+            [[
+                f'<strong>{_esc(o["numero"])}</strong>', _esc(o["conta"]),
+                _esc(ROTULOS_FASE.get(o["fase"], o["fase"])),
+                _dinheiro(o["valor"]),
+                f'<span style="color:{VERDE}">{_motivos(o["motivos"])}</span>',
+            ] for o in fechar],
+            ["left", "left", "left", "right", "left"],
+        ))
+        w(_e_mais(cont.get("perto_de_fechar_mais", 0), "maduras"))
+
+    parceiros = cont.get("parceiros_para_acionar", [])
+    if parceiros:
+        w(_titulo("Parceiros para acionar"))
+        w(_tabela(
+            ["Parceiro", "Situação", "Indicações", "Fechadas", "Sem indicar"],
+            [[
+                _esc(p["conta"]),
+                _esc(p["situacao"].replace("_", " ")),
+                str(p["indicacoes"]), str(p["conquistadas"]),
+                f'{p["dias_sem_indicar"]} dias',
+            ] for p in parceiros],
+            ["left", "left", "right", "right", "right"],
+        ))
+        w(_e_mais(cont.get("parceiros_para_acionar_mais", 0), "esfriando"))
+
+    atrasadas = cont.get("tarefas_atrasadas", [])
+    if atrasadas:
+        total = cont.get("tarefas_atrasadas_total", len(atrasadas))
+        w(_titulo(f"Tarefas atrasadas ({total})"))
+        w(_tabela(
+            ["Tarefa", "Responsável", "Onde", "Atraso"],
+            [[
+                _esc(t_["titulo"]), _esc(t_["responsavel"]), _esc(t_["alvo"]),
+                f'<span style="color:{VERMELHO}">{t_["dias_atraso"]} dias</span>',
+            ] for t_ in atrasadas],
+            ["left", "left", "left", "right"],
+        ))
+        w(_e_mais(max(0, total - len(atrasadas)), "atrasadas"))
+
+    return saida
+
+
 def montar_html(metricas: dict, narrativa: str | None = None) -> str:
     """E-mail completo. `narrativa` ausente simplesmente não desenha a seção."""
     dia = date.fromisoformat(metricas["dia"])
@@ -160,6 +254,8 @@ def montar_html(metricas: dict, narrativa: str | None = None) -> str:
           f'<div style="font-size:11px;color:{SUAVE};margin-top:8px">'
           f'Leitura gerada por IA sobre os números abaixo. Os números vêm do banco.'
           f'</div></div>')
+
+    w("".join(_bloco_conteudo(metricas.get("conteudo", {}) or {})))
 
     w(_titulo("Uso do sistema"))
     w(_linha_kpis([
@@ -216,29 +312,10 @@ def montar_html(metricas: dict, narrativa: str | None = None) -> str:
              f"{op.get('parceiros_sem_ec', 0)} sem EC"),
     ]))
 
-    w(_titulo("Telas mais usadas"))
-    w(_tabela(
-        ["Rota", "Método", "Ações", "Média"],
-        [[
-            f'<code style="font-size:12px;color:{TINTA}">{_esc(r["rota"])}</code>',
-            _esc(r["metodo"]), str(r["acoes"]), f'{r["media_ms"]} ms',
-        ] for r in ad.get("rotas_mais_usadas", [])[:10]],
-        ["left", "left", "right", "right"],
-    ))
-
-    erros = ad.get("erros_por_rota", [])
-    if erros:
-        w(_titulo("Erros do dia"))
-        w(_tabela(
-            ["Rota", "Método", "Status", "Ocorrências"],
-            [[
-                f'<code style="font-size:12px;color:{TINTA}">{_esc(e["rota"])}</code>',
-                _esc(e["metodo"]),
-                f'<span style="color:{VERMELHO};font-weight:600">{e["status"]}</span>',
-                str(e["ocorrencias"]),
-            ] for e in erros],
-            ["left", "left", "right", "right"],
-        ))
+    # As tabelas de rota saíram daqui em 31/08. `/crm/parceiros/{conta_id}` e
+    # a contagem de 401 são diagnóstico de desenvolvedor; quem lê este e-mail
+    # é o dono da operação, e para ele a rota não sugere ação nenhuma. Os
+    # dados continuam em `adocao.rotas_mais_usadas` para quem consultar a API.
 
     w(f'<p style="font-size:11px;color:{SUAVE};margin-top:26px;padding-top:14px;'
       f'border-top:1px solid {BORDA}">HIPO · gerado automaticamente no fechamento '
@@ -279,6 +356,58 @@ def montar_texto(metricas: dict, narrativa: str | None = None) -> str:
     ]
     if narrativa:
         linhas += [narrativa.strip(), ""]
+
+    cont = metricas.get("conteudo", {}) or {}
+
+    def _dinheiro_txt(v):
+        return "—" if v is None else "R$ " + f"{float(v):,.0f}".replace(",", ".")
+
+    if cont.get("precisa_de_acao"):
+        linhas += ["PRECISA DE AÇÃO"]
+        for o in cont["precisa_de_acao"]:
+            linhas.append(
+                f"  {o['numero']} · {o['conta']} · {_dinheiro_txt(o['valor'])}"
+            )
+            linhas.append(f"      {' · '.join(o['motivos'])}")
+        if cont.get("precisa_de_acao_mais"):
+            linhas.append(f"  e mais {cont['precisa_de_acao_mais']} com pendência.")
+        linhas.append("")
+
+    if cont.get("perto_de_fechar"):
+        linhas += ["PERTO DE FECHAR"]
+        for o in cont["perto_de_fechar"]:
+            linhas.append(
+                f"  {o['numero']} · {o['conta']} · {_dinheiro_txt(o['valor'])}"
+            )
+            linhas.append(f"      {' · '.join(o['motivos'])}")
+        if cont.get("perto_de_fechar_mais"):
+            linhas.append(f"  e mais {cont['perto_de_fechar_mais']} maduras.")
+        linhas.append("")
+
+    if cont.get("parceiros_para_acionar"):
+        linhas += ["PARCEIROS PARA ACIONAR"]
+        for pa in cont["parceiros_para_acionar"]:
+            linhas.append(
+                f"  {pa['conta']} ({pa['situacao'].replace('_', ' ')}) · "
+                f"{pa['indicacoes']} "
+                f"{'indicação' if pa['indicacoes'] == 1 else 'indicações'}, "
+                f"{pa['conquistadas']} fechadas · "
+                f"{pa['dias_sem_indicar']} dias sem indicar"
+            )
+        linhas.append("")
+
+    if cont.get("tarefas_atrasadas"):
+        total = cont.get("tarefas_atrasadas_total", len(cont["tarefas_atrasadas"]))
+        linhas += [f"TAREFAS ATRASADAS ({total})"]
+        for ta in cont["tarefas_atrasadas"]:
+            linhas.append(
+                f"  {ta['titulo']} · {ta['responsavel']} · {ta['alvo']} · "
+                f"{ta['dias_atraso']} dias"
+            )
+        resto = max(0, total - len(cont["tarefas_atrasadas"]))
+        if resto:
+            linhas.append(f"  e mais {resto} atrasadas.")
+        linhas.append("")
 
     linhas += [
         "USO DO SISTEMA",
