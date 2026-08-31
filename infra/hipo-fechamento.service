@@ -16,8 +16,22 @@ Wants=network-online.target
 
 [Service]
 Type=oneshot
-User=hipo
-Group=hipo
+# ec2-user, e nao hipo -- o mesmo usuario de hipo-api.service.
+#
+# O ensaio a seco de 31/08 morreu aqui com
+#   PermissionError: [Errno 13] Permission denied: '/home/hipo/app/.env'
+#
+# O systemd le o EnvironmentFile como root e injeta as variaveis, entao a
+# permissao do arquivo nao atrapalha ELE. Mas config.py passa o mesmo
+# caminho para o pydantic-settings como env_file, e o pydantic abre o
+# arquivo por conta propria, ja dentro do processo -- que roda como o
+# User= daqui. O .env e 600 ec2-user:ec2-user (e deve continuar sendo).
+#
+# O usuario hipo existe, e dono de /home/hipo e nao roda nada. Dois
+# usuarios diferentes para o mesmo app lendo o mesmo .env era o acidente,
+# nao o desenho.
+User=ec2-user
+Group=ec2-user
 WorkingDirectory=/home/hipo/app/api
 
 # Mesmo arquivo que a API usa. Precisa conter, alem de DATABASE_URL e
