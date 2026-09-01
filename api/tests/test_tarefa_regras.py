@@ -9,7 +9,7 @@ Duas regras que estes testes documentam e travam:
 Todo teste passa `agora` explicitamente. Nenhum mock de tempo, nenhum teste
 que quebra à meia-noite ou na virada do ano.
 """
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 
 import pytest
 
@@ -321,3 +321,57 @@ class TestExigeProximaNoParceiro:
         estado = EstadoTarefa(prazo=datetime(2026, 8, 12, 9, tzinfo=timezone.utc))
         with pytest.raises(TarefaInvalida, match="finalize a oportunidade"):
             regras.validar_conclusao(estado, "ativa", tem_proxima=False)
+
+
+# ── A janela de datas do resumo ──────────────────────────────────────
+#
+# O recorte por período é a única parte da regra de tarefa que vai para o
+# SQL. Pode ir porque é determinístico: não olha o relógio, só as duas datas.
+# Estes testes são o que garante que o agosto do resumo e o agosto do
+# drilldown são o mesmo agosto.
+
+
+class TestJanelaUtc:
+    def test_o_mes_comeca_e_termina_no_fuso_do_escritorio(self):
+        """
+        Agosto de 2026 em Brasília (UTC-3) vai de 01/08 03:00Z a 01/09 03:00Z.
+
+        Se a janela fosse montada em UTC direto, começaria três horas antes e
+        uma reunião das 22h de 31/07 apareceria em agosto.
+        """
+        inicio, fim = regras.janela_utc(date(2026, 8, 1), date(2026, 8, 31))
+        assert inicio == datetime(2026, 8, 1, 3, tzinfo=timezone.utc)
+        assert fim == datetime(2026, 9, 1, 3, tzinfo=timezone.utc)
+
+    def test_o_fim_e_exclusivo_e_cobre_o_ultimo_dia_inteiro(self):
+        """
+        A tarefa concluída às 23:59 de 31/08 tem que entrar em agosto, e a
+        das 00:00 de 01/09 não. É o que a janela meia-aberta garante sem
+        depender de precisão de segundo.
+        """
+        _, fim = regras.janela_utc(date(2026, 8, 1), date(2026, 8, 31))
+        ultimo_instante = datetime(2026, 9, 1, 2, 59, 59, tzinfo=timezone.utc)
+        primeiro_de_setembro = datetime(2026, 9, 1, 3, tzinfo=timezone.utc)
+        assert ultimo_instante < fim
+        assert not primeiro_de_setembro < fim
+
+    def test_um_unico_dia(self):
+        inicio, fim = regras.janela_utc(date(2026, 8, 14), date(2026, 8, 14))
+        assert (fim - inicio) == timedelta(days=1)
+
+    def test_extremos_abertos(self):
+        assert regras.janela_utc(None, None) == (None, None)
+        assert regras.janela_utc(date(2026, 8, 1), None)[1] is None
+        assert regras.janela_utc(None, date(2026, 8, 31))[0] is None
+
+    def test_data_inicial_depois_da_final_e_recusada(self):
+        with pytest.raises(TarefaInvalida, match="não pode ser depois"):
+            regras.janela_utc(date(2026, 8, 31), date(2026, 8, 1))
+
+    def test_o_mesmo_dia_nos_dois_extremos_passa(self):
+        """Um dia só é intervalo válido, não inversão."""
+        regras.validar_janela(date(2026, 8, 14), date(2026, 8, 14))
+
+    def test_extremo_faltando_nao_dispara_a_validacao(self):
+        regras.validar_janela(None, date(2026, 1, 1))
+        regras.validar_janela(date(2026, 12, 31), None)

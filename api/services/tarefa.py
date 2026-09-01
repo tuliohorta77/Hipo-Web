@@ -24,7 +24,7 @@ Três regras moram aqui:
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 # O dia de calendário que interessa é o do escritório, não o de Greenwich.
@@ -247,6 +247,64 @@ def chave_ordenacao(situacao_atual: str, prazo: datetime) -> tuple[int, datetime
     concluída → cancelada) e, dentro do bloco, por prazo crescente.
     """
     return (ORDEM_SITUACAO.get(situacao_atual, 99), _com_fuso(prazo))
+
+
+# ── Janela de datas ──────────────────────────────────────────────────
+#
+# "Quantas reuniões em agosto" pergunta pelo agosto do ESCRITÓRIO: de 01/08
+# 00:00 a 01/09 00:00 no fuso da operação, não em UTC. Comparando direto com
+# as datas em UTC, a janela começaria às 03:00 do dia 1 e engoliria as três
+# últimas horas de 31 de julho — uma reunião das 22h do dia 31 apareceria no
+# mês seguinte, e o número do mês fechado mudaria de valor conforme a hora
+# em que alguém trabalhou.
+#
+# Diferente da situação ('hoje', 'atrasada'), este recorte NÃO depende do
+# relógio: dadas duas datas, o par de instantes é sempre o mesmo. É por isso
+# que ele pode ir para o SQL sem criar uma segunda fonte de verdade — e
+# precisa ir, porque concluídas são fluxo e crescem para sempre; filtrar em
+# Python obrigaria a varrer a tabela inteira a cada carga do resumo.
+#
+# A janela é MEIA-ABERTA, [início, fim). Fechar em 31/08 23:59:59 perde o que
+# caiu no último segundo do dia, e '<=' contra timestamp de precisão de
+# microssegundo é a classe de bug que só aparece em produção.
+#
+# Horário de verão não é caso especial: cada extremo é convertido por conta
+# própria, então uma janela que atravessa a virada tem uma hora a mais ou a
+# menos — exatamente quanto o mês durou no relógio de quem trabalhou nele.
+
+
+def validar_janela(de: date | None, ate: date | None) -> None:
+    if de is not None and ate is not None and de > ate:
+        raise TarefaInvalida(
+            "A data inicial não pode ser depois da data final."
+        )
+
+
+def janela_utc(
+    de: date | None,
+    ate: date | None,
+    fuso: ZoneInfo = FUSO_OPERACAO,
+) -> tuple[datetime | None, datetime | None]:
+    """
+    Converte o intervalo de DIAS `de..ate` (inclusivo nos dois extremos, no
+    fuso da operação) no par de instantes UTC `[início, fim)`.
+
+    Qualquer extremo pode ser None, e aí aquele lado fica aberto: `de=None`
+    é "desde sempre", `ate=None` é "até hoje e além".
+    """
+    validar_janela(de, ate)
+
+    inicio = (
+        datetime.combine(de, time.min, tzinfo=fuso).astimezone(timezone.utc)
+        if de is not None else None
+    )
+    # `ate + 1 dia` à meia-noite: o fim exclusivo do último dia pedido.
+    fim = (
+        datetime.combine(ate + timedelta(days=1), time.min, tzinfo=fuso)
+        .astimezone(timezone.utc)
+        if ate is not None else None
+    )
+    return inicio, fim
 
 
 def _com_fuso(d: datetime) -> datetime:

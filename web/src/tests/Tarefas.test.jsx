@@ -82,10 +82,35 @@ const USUARIOS = [
   { id: 'u2', nome: 'Bruno Gonçalo', cargo: 'EV' },
 ];
 
+const TIPOS_RESUMO = [
+  ['ligacao', 'Ligação'], ['reuniao', 'Reunião'], ['visita', 'Visita'],
+  ['proposta', 'Proposta'], ['email', 'E-mail'], ['whatsapp', 'WhatsApp'],
+  ['outro', 'Outro'],
+];
+
+const RESUMO = {
+  de: '2026-08-01',
+  ate: '2026-08-31',
+  realizadas: 42,
+  agendadas: 48,
+  canceladas: 3,
+  por_tipo: TIPOS_RESUMO.map(([tipo, rotulo]) => ({
+    tipo, rotulo,
+    realizadas: tipo === 'reuniao' ? 12 : 0,
+    agendadas: tipo === 'reuniao' ? 15 : 0,
+    canceladas: 0,
+  })),
+  por_responsavel: [
+    { usuario_id: 'u1', nome: 'Jakeline Santana', realizadas: 42, agendadas: 48 },
+  ],
+};
+
 function respostas(colunas = COLUNAS) {
   return (url) => {
     if (url === '/crm/tarefas/kanban') return Promise.resolve({ data: colunas });
     if (url === '/crm/dominio/usuarios') return Promise.resolve({ data: USUARIOS });
+    if (url === '/crm/tarefas/resumo') return Promise.resolve({ data: RESUMO });
+    if (url === '/crm/tarefas') return Promise.resolve({ data: { total: 0, abertas: 0, atrasadas: 0, itens: [] } });
     return Promise.resolve({ data: [] });
   };
 }
@@ -336,5 +361,80 @@ describe('Tarefas — o detalhe', () => {
     fireEvent.click(screen.getByText('Concluir tarefa'));
     expect(await screen.findByText('Concluir exige agendar a próxima tarefa.'))
       .toBeInTheDocument();
+  });
+});
+
+// ── Produção do mês ──────────────────────────────────────────────────
+//
+// A barra contava só o que está PARADO — atrasadas e em aberto. Uma tela que
+// só mostra dívida ensina que o trabalho nunca rende. O KPI do mês é o
+// contrapeso, e é por onde se chega à resposta de "quantas reuniões tivemos
+// em agosto".
+
+describe('Tarefas — a produção do mês', () => {
+  beforeEach(() => {
+    // Só o relógio: com os timers inteiros falsos o debounce da busca nunca
+    // dispara e o waitFor estoura por timeout.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date(2026, 7, 14, 12, 0, 0));
+  });
+
+  afterEach(() => vi.useRealTimers());
+
+  const chamadasDe = (url) => mockGet.mock.calls.filter((c) => c[0] === url);
+
+  it('pede o resumo do mês corrente', async () => {
+    montar();
+    await waitFor(() => expect(chamadasDe('/crm/tarefas/resumo').length).toBe(1));
+    expect(chamadasDe('/crm/tarefas/resumo')[0][1].params).toMatchObject({
+      de: '2026-08-01', ate: '2026-08-31',
+    });
+  });
+
+  it('mostra o total realizado na barra', async () => {
+    montar();
+    expect(await screen.findByText('42')).toBeInTheDocument();
+    expect(screen.getByText('Realizadas em ago')).toBeInTheDocument();
+  });
+
+  it('o agregado usa os MESMOS filtros da barra', async () => {
+    /*
+      Número global ao lado de uma lista filtrada são duas respostas para a
+      mesma pergunta, na mesma tela.
+    */
+    montar();
+    await screen.findByRole('region', { name: 'Atrasadas' });
+
+    fireEvent.change(screen.getByLabelText('Responsável'), { target: { value: 'u2' } });
+
+    await waitFor(() => {
+      const ultima = chamadasDe('/crm/tarefas/resumo').at(-1);
+      expect(ultima[1].params).toMatchObject({ responsavel_id: 'u2' });
+    });
+  });
+
+  it('clicar abre a produção por tipo e por responsável', async () => {
+    montar();
+    fireEvent.click(await screen.findByText('Realizadas em ago'));
+
+    expect(await screen.findByText('Produção do mês')).toBeInTheDocument();
+    expect(screen.getByText('agosto de 2026')).toBeInTheDocument();
+    expect(screen.getByText('Reunião')).toBeInTheDocument();
+  });
+
+  it('falha do resumo não derruba o kanban nem rouba a faixa de erro', async () => {
+    /*
+      O kanban é o conteúdo. Um erro no contador do mês não pode aparecer no
+      lugar do erro de quem está tentando concluir uma tarefa.
+    */
+    mockGet.mockImplementation((url) => {
+      if (url === '/crm/tarefas/resumo') return Promise.reject(new Error('502'));
+      return respostas()(url);
+    });
+    montar();
+
+    await screen.findByRole('region', { name: 'Atrasadas' });
+    expect(screen.getByText('Cobrar proposta')).toBeInTheDocument();
+    expect(screen.getByText('—')).toBeInTheDocument();
   });
 });

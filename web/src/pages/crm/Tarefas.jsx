@@ -27,6 +27,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Search, X, CircleDot, AlarmClock, CalendarCheck, CalendarClock, CheckCircle2,
+  TrendingUp,
 } from 'lucide-react';
 
 import api from '../../api';
@@ -34,6 +35,10 @@ import Badge from '../../components/ui/Badge';
 import Empty from '../../components/ui/Empty';
 import AlertMessage from '../../components/ui/AlertMessage';
 import Modal from '../../components/ui/Modal';
+import KpiInline from '../../components/ui/KpiInline';
+import ProducaoDoMes, {
+  limitesDoMes, rotuloCurto,
+} from '../../components/crm/ProducaoDoMes';
 import {
   ABERTAS, ICONE_TIPO, SITUACAO, STATUS_ABERTOS,
   PainelAcoesTarefa,
@@ -166,6 +171,8 @@ export default function Tarefas() {
   const [ocupado, setOcupado] = useState(false);
   const [aberta, setAberta] = useState(null);      // tarefa no modal
   const [painel, setPainel] = useState(null);
+  const [producao, setProducao] = useState(null);  // resumo do mês corrente
+  const [verProducao, setVerProducao] = useState(false);
   const debounce = useRef(null);
 
   // O `q === busca ? q : busca` não é microtuning: sem ele o timer dispara
@@ -206,6 +213,33 @@ export default function Tarefas() {
       .then(({ data }) => setUsuarios(data))
       .catch(() => setUsuarios([]));
   }, []);
+
+  /*
+    O KPI do mês corrente, com os MESMOS filtros da barra. Agregado que
+    ignora o filtro da tela produz um número global ao lado de uma lista
+    filtrada — duas respostas para a mesma pergunta, na mesma tela.
+
+    Falha em silêncio de propósito: o kanban é o conteúdo, e um erro no
+    contador do mês não pode roubar a faixa de erro de quem está tentando
+    concluir uma tarefa.
+  */
+  const mesCorrente = useMemo(() => {
+    const hoje = new Date();
+    return {
+      ...limitesDoMes(hoje.getFullYear(), hoje.getMonth()),
+      rotulo: rotuloCurto(hoje.getFullYear(), hoje.getMonth()),
+    };
+  }, []);
+
+  useEffect(() => {
+    let vivo = true;
+    api.get('/crm/tarefas/resumo', {
+      params: { de: mesCorrente.de, ate: mesCorrente.ate, ...params },
+    })
+      .then(({ data }) => { if (vivo) setProducao(data); })
+      .catch(() => { if (vivo) setProducao(null); });
+    return () => { vivo = false; };
+  }, [params, mesCorrente]);
 
   const mutar = useCallback(async (fn, padrao) => {
     setOcupado(true);
@@ -272,6 +306,21 @@ export default function Tarefas() {
             {atrasadas} atrasada{atrasadas === 1 ? '' : 's'}
           </Badge>
           <Badge tone="info">{emAberto} em aberto</Badge>
+
+          {/*
+            O contrapeso das duas badges acima. Elas contam o que está
+            PARADO; esta conta o que ANDOU. Uma tela que só mostra dívida
+            ensina que o trabalho nunca rende.
+          */}
+          <KpiInline
+            label={`Realizadas em ${mesCorrente.rotulo}`}
+            valor={producao?.realizadas ?? '—'}
+            titulo="Tarefas concluídas no mês corrente. Clique para abrir a produção por tipo e por responsável."
+            icone={TrendingUp}
+            tom="bg-hipo-successSoft text-hipo-success"
+            ativo={verProducao}
+            onClick={() => setVerProducao(true)}
+          />
         </div>
 
         <div className="ml-auto flex flex-wrap items-center gap-2">
@@ -421,6 +470,12 @@ export default function Tarefas() {
           </div>
         )}
       </Modal>
+
+      <ProducaoDoMes
+        aberto={verProducao}
+        onFechar={() => setVerProducao(false)}
+        filtros={params}
+      />
     </div>
   );
 }
