@@ -4,6 +4,11 @@
 # Entrega da 007:
 #   1. a tela de Tarefas abre filtrada no responsavel logado
 #   2. a busca do funil acha por numero, empresa, fantasia, contato e CNPJ
+#   3. correcao de fuso em dois arquivos de teste: eles perguntavam "que dia
+#      e hoje" ao relogio da maquina (UTC no runner) enquanto o codigo
+#      recorta o dia em America/Sao_Paulo. Entre 21h e meia-noite de
+#      Brasilia os dois discordam, e 9 testes ficavam vermelhos sem ninguem
+#      ter mexido em nada. Nao ha mudanca de codigo de producao aqui.
 #
 # ESTA ENTREGA NAO TEM MIGRATION. Nenhuma coluna, nenhum indice, nenhum
 # CHECK novo -- so codigo. O script CONFERE isso no pre-voo: se aparecer
@@ -45,7 +50,7 @@ param(
 
     [string]$UrlPublica = "https://hipogestao.com.br",
     [string]$SmokeEmail = "",
-    [string]$Mensagem   = "feat(crm): tarefas abrem no responsavel logado; busca do funil por numero, empresa, fantasia, contato e CNPJ"
+    [string]$Mensagem   = "feat(crm): tarefas abrem no responsavel logado; busca do funil por numero, empresa, fantasia, contato e CNPJ; fix(tests): dia de calendario no fuso da operacao"
 )
 
 $ErrorActionPreference = "Stop"
@@ -59,8 +64,20 @@ $ESPERADOS = @(
     @{ Arquivo = "web\src\tests\Tarefas.test.jsx";           Marcador = "mockGetUser" },
     @{ Arquivo = "api\routers\crm_oportunidades.py";         Marcador = "_MIN_DIGITOS_CNPJ" },
     @{ Arquivo = "api\tests\test_crm_oportunidades.py";      Marcador = "TestMontagemDaBuscaTextual" },
-    @{ Arquivo = "web\src\pages\crm\Oportunidades.jsx";      Marcador = "empresa, contato ou CNPJ" }
+    @{ Arquivo = "web\src\pages\crm\Oportunidades.jsx";      Marcador = "empresa, contato ou CNPJ" },
+
+    # Correcao de fuso que veio junto. O CI de 00:49 UTC (21:49 em Brasilia)
+    # derrubou 9 testes que nada tinham a ver com a 007: eles ancoravam o
+    # "hoje" no relogio da maquina (UTC no runner) enquanto o codigo recorta
+    # o dia em America/Sao_Paulo. Entre 21h e meia-noite os dois discordam.
+    @{ Arquivo = "api\tests\test_crm_tarefas.py";            Marcador = "regras.FUSO_OPERACAO" },
+    @{ Arquivo = "api\tests\test_telemetria.py";             Marcador = "hoje_operacao" }
 )
+
+# Guarda da correcao de fuso: se 'date.today()' reaparecer em test_telemetria,
+# a suite volta a quebrar todo fim de tarde -- e so as vezes, que e o pior
+# jeito de um teste falhar.
+$SEM_TODAY = "api\tests\test_telemetria.py"
 
 # =====================================================================
 # Utilidades
@@ -121,7 +138,13 @@ foreach ($item in $ESPERADOS) {
         Abortar "$($item.Arquivo) existe mas nao tem '$($item.Marcador)' -- essa e a versao ANTIGA do arquivo."
     }
 }
-Bom "os 5 arquivos da 007 estao no disco, com o conteudo novo"
+Bom "os $($ESPERADOS.Count) arquivos da 007 estao no disco, com o conteudo novo"
+
+$telemetria = Get-Content $SEM_TODAY -Raw
+if ($telemetria -match [regex]::Escape("date.today()")) {
+    Abortar "$SEM_TODAY voltou a usar date.today(). Use hoje_operacao() -- o dia tem que ser o do fuso da operacao, nao o do relogio do runner."
+}
+Bom "telemetria sem date.today() -- o dia vem do fuso da operacao"
 
 # Guarda de escopo: se alguem juntou uma migration nesta leva, a ordem
 # correta muda (DDL em producao ANTES do push) e este script nao faz DDL.

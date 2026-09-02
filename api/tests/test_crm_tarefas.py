@@ -23,7 +23,22 @@ CNPJ_A = "11.222.333/0001-81"
 # ── Helpers ──────────────────────────────────────────────────────────
 
 def em(dias, hora=10):
-    d = datetime.now(timezone.utc) + timedelta(days=dias)
+    """
+    Prazo a N dias de hoje, às `hora` — no FUSO DA OPERAÇÃO.
+
+    O fuso aqui não é detalhe: `regras.situacao()` decide 'atrasada', 'hoje'
+    e 'futura' pelo dia de calendário em America/Sao_Paulo, e o runner do CI
+    roda em UTC. Ancorado em `now(timezone.utc)`, este helper devolvia o dia
+    UTC — igual ao de Brasília durante quase todo o dia, mas DIFERENTE entre
+    21h e meia-noite: `em(0)` caía no dia seguinte e virava 'futura',
+    `em(-1)` virava 'hoje', e a suíte inteira de situações ficava vermelha
+    sem ninguém ter mexido em nada. Aconteceu num run das 00:49 UTC.
+
+    Ancorado no fuso da operação, o dia do prazo é o mesmo dia que a regra
+    calcula, a qualquer hora do relógio. Mesmo cuidado do `carimbar` de
+    test_tarefas_parceiro.py.
+    """
+    d = datetime.now(regras.FUSO_OPERACAO) + timedelta(days=dias)
     return d.replace(hour=hora, minute=0, second=0, microsecond=0).isoformat()
 
 
