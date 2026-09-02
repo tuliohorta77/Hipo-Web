@@ -29,6 +29,19 @@ class TrocarSenhaPayload(BaseModel):
     nova_senha: str  = Field(..., min_length=6, max_length=200)
 
 
+class PerfilPayload(BaseModel):
+    """
+    O que o próprio usuário edita de si.
+
+    Só telefone por enquanto: nome e e-mail identificam a pessoa nas
+    trilhas e no login, e mudá-los é ato de administração, não de perfil.
+    Formato livre de propósito — o número sai na proposta comercial
+    exatamente como foi digitado, e forçar máscara brigaria com ramal,
+    DDI e "9 9571-3682".
+    """
+    telefone: str | None = Field(None, max_length=30)
+
+
 # ── Helpers ──────────────────────────────────────────────────────
 
 def _hash_senha(senha: str) -> str:
@@ -79,8 +92,25 @@ async def me(user=Depends(usuario_atual)):
         "nome": user["nome"],
         "email": user["email"],
         "cargo": user["cargo"],
+        # Sai no slide de fechamento da proposta. Vem no /me para a tela de
+        # Perfil poder exibir e editar sem uma segunda chamada.
+        "telefone": user.get("telefone"),
         "modulos": sorted(modulos_do_cargo(user.get("cargo"))),
     }
+
+
+@router.put("/perfil")
+async def atualizar_perfil(
+    payload: PerfilPayload,
+    user=Depends(usuario_atual),
+    conn=Depends(get_conn),
+):
+    """Atualiza os dados que o próprio usuário mantém. Hoje: telefone."""
+    telefone = (payload.telefone or "").strip() or None
+    await conn.execute(
+        "UPDATE usuarios SET telefone = $1 WHERE id = $2", telefone, user["id"]
+    )
+    return {"telefone": telefone}
 
 
 @router.put("/senha")

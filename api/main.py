@@ -16,7 +16,7 @@ from config import settings
 from middleware.telemetria import TelemetriaMiddleware, buffer, descarga_periodica
 from routers import (
     auth, crm_contas, crm_contatos, crm_dominio, crm_oportunidades,
-    crm_parceiros, crm_tarefas, telemetria,
+    crm_parceiros, crm_propostas, crm_tarefas, telemetria,
 )
 from routers.permissions import requer_modulo
 
@@ -125,6 +125,16 @@ app.include_router(
     crm_parceiros.router,
     prefix="/crm/parceiros", tags=["CRM - Parceiros"],
     dependencies=[Depends(requer_modulo("parceiros"))],
+)
+
+# Propostas. Prefixo proprio, e nao aninhado em /crm/oportunidades, porque o
+# download (/crm/propostas/{id}/arquivo) e endereçado pela proposta: o link do
+# arquivo precisa sobreviver a um copiar-e-colar sem carregar o id da
+# oportunidade junto.
+app.include_router(
+    crm_propostas.router,
+    prefix="/crm", tags=["CRM - Propostas"],
+    dependencies=[Depends(requer_modulo("crm"))],
 )
 
 # Listas de domínio (verticais, origens, concorrentes, motivos). Mesmo módulo:

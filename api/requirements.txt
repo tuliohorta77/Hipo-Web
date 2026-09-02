@@ -5,6 +5,12 @@ asyncpg==0.29.0
 psycopg2-binary==2.9.9
 pandas==2.2.0
 openpyxl==3.1.2
+# Proposta comercial: preenche api/templates/proposta_modelo.pptx.
+# ATENCAO: o deploy faz rsync e reinicia, NAO roda pip install. Instalar na
+# EC2 a mao antes do primeiro uso:  sudo -iu hipo pip install python-pptx==1.0.2
+# O PDF depende do LibreOffice, que e pacote do sistema:
+#   sudo dnf install -y libreoffice-impress
+python-pptx==1.0.2
 python-multipart==0.0.9
 python-jose[cryptography]==3.3.0
 bcrypt==4.2.0

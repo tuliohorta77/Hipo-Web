@@ -6,8 +6,8 @@
 // Acessível a todos os usuários logados.
 
 import { useState } from 'react';
-import { KeyRound, AlertCircle, CheckCircle2, User } from 'lucide-react';
-import api, { getUser } from '../api';
+import { KeyRound, AlertCircle, CheckCircle2, User, Phone } from 'lucide-react';
+import api, { getUser, USER_KEY } from '../api';
 
 import Card from '../components/ui/Card';
 import PageHeader from '../components/ui/PageHeader';
@@ -32,6 +32,45 @@ export default function Perfil() {
   const [confirmacao, setConfirmacao] = useState('');
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState(null);
+
+  // Telefone tem estado e mensagem PRÓPRIOS. Compartilhar `msg` com a troca
+  // de senha faria "Telefone salvo" aparecer dentro do formulário de senha,
+  // e o usuário procuraria o que tinha dado errado ali.
+  const [telefone, setTelefone] = useState(user.telefone || '');
+  const [salvandoTelefone, setSalvandoTelefone] = useState(false);
+  const [msgTelefone, setMsgTelefone] = useState(null);
+
+  /*
+    Grava e ATUALIZA O localStorage no mesmo passo.
+
+    O front lê o usuário do `hipo_user`, gravado no login. Sem reescrever
+    ali, o telefone novo sumiria da tela no próximo F5 e voltaria só depois
+    de logout/login — a mesma armadilha que já mordeu as permissões.
+  */
+  async function salvarTelefone(e) {
+    e.preventDefault();
+    setSalvandoTelefone(true);
+    setMsgTelefone(null);
+    try {
+      const { data } = await api.put('/auth/perfil', { telefone: telefone.trim() || null });
+      setTelefone(data.telefone || '');
+      try {
+        const atual = JSON.parse(localStorage.getItem(USER_KEY) || '{}');
+        localStorage.setItem(USER_KEY, JSON.stringify({ ...atual, telefone: data.telefone }));
+      } catch {
+        /* localStorage indisponível não pode derrubar o salvamento */
+      }
+      setMsgTelefone({ tipo: 'ok', texto: 'Telefone salvo.' });
+    } catch (err) {
+      const detail = err.response?.data?.detail;
+      setMsgTelefone({
+        tipo: 'erro',
+        texto: typeof detail === 'string' ? detail : 'Não foi possível salvar o telefone.',
+      });
+    } finally {
+      setSalvandoTelefone(false);
+    }
+  }
 
   function validarLocalmente() {
     if (!senhaAtual) return 'Informe a senha atual.';
@@ -129,6 +168,50 @@ export default function Perfil() {
               </div>
             </div>
           </div>
+        </Card>
+
+        {/* Telefone: sai na proposta comercial, ao lado de nome e e-mail. */}
+        <Card>
+          <div className="flex items-center gap-2 mb-1">
+            <Phone size={18} className="text-hipo-blue" />
+            <h2 className="text-lg font-semibold text-hipo-ink">Contato</h2>
+          </div>
+          <p className="text-sm text-hipo-slate mb-4">
+            Seu telefone sai no slide de fechamento das propostas que você
+            gerar, junto do nome e do e-mail. Sem ele, o slide mostra um
+            travessão e o cliente liga para a recepção.
+          </p>
+
+          <form onSubmit={salvarTelefone} className="space-y-4">
+            <Input
+              label="Telefone"
+              value={telefone}
+              onChange={(e) => setTelefone(e.target.value)}
+              placeholder="+55 (11) 9 0000-0000"
+              hint="Formato livre — sai na proposta exatamente como digitado."
+            />
+
+            {msgTelefone && (
+              <div
+                role="alert"
+                className={
+                  'flex items-start gap-2 px-3 py-2.5 rounded-lg text-sm '
+                  + (msgTelefone.tipo === 'ok'
+                    ? 'bg-hipo-successSoft text-hipo-success'
+                    : 'bg-hipo-dangerSoft text-hipo-danger')
+                }
+              >
+                {msgTelefone.tipo === 'ok'
+                  ? <CheckCircle2 size={16} className="mt-0.5 shrink-0" />
+                  : <AlertCircle size={16} className="mt-0.5 shrink-0" />}
+                <span>{msgTelefone.texto}</span>
+              </div>
+            )}
+
+            <Button type="submit" loading={salvandoTelefone}>
+              Salvar telefone
+            </Button>
+          </form>
         </Card>
 
         {/* Coluna 2: troca de senha */}

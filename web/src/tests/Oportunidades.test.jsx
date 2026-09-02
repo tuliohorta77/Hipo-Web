@@ -375,8 +375,23 @@ describe('Oportunidades — o drill da oportunidade', () => {
     concorrentes: [], tarefas_abertas: 0,
   };
 
+  // A aba Proposta é um componente que carrega do servidor. Sem estes dois
+  // mocks ela quebraria ao mapear um escopo indefinido — e o teste falharia
+  // por montagem, não pelo que ele quer medir.
+  const PADRAO_PROPOSTA = {
+    escopo_padrao: ['PGR - (NR-01)'],
+    cidade: 'Guarulhos', dias_validade: 10,
+    vidas: null, valor_por_vida: null,
+    executivo_id: 'u1', executivo_nome: 'Ana Vendas',
+    executivo_email: 'ana@exemplo.com', executivo_telefone: '11 90000-0000',
+    cliente_razao_social: 'Metalurgica Alfa',
+    geracao_disponivel: true, pdf_disponivel: true,
+  };
+
   function respostasComDetalhe(url) {
     if (url === '/crm/oportunidades/o1') return Promise.resolve({ data: DETALHE });
+    if (url.endsWith('/proposta-padrao')) return Promise.resolve({ data: PADRAO_PROPOSTA });
+    if (url.endsWith('/propostas')) return Promise.resolve({ data: [] });
     if (url === '/crm/contatos') {
       return Promise.resolve({ data: { total: 0, limit: 100, offset: 0, itens: [] } });
     }
@@ -437,11 +452,25 @@ describe('Oportunidades — o drill da oportunidade', () => {
     expect(await screen.findByLabelText('Mensalidade (R$)')).toBeInTheDocument();
   });
 
-  it('a aba Proposta avisa que as versões ainda não existem', async () => {
+  it('a aba Proposta traz o formulário da proposta comercial', async () => {
+    /*
+      Substitui o teste do placeholder "ainda não implementadas": a aba
+      passou a gerar o .pptx de verdade. Aqui só se confere que ela monta e
+      pede os dados certos — o comportamento da proposta tem arquivo
+      próprio, em AbaProposta.test.jsx.
+    */
     await abrir();
     fireEvent.click(screen.getByTestId('tab-proposta'));
-    expect(await screen.findByText(/Versões da proposta ainda não implementadas/))
-      .toBeInTheDocument();
+    expect(await screen.findByLabelText('Qtde. de vidas')).toBeInTheDocument();
+    expect(screen.getByLabelText('Válida até')).toBeInTheDocument();
+    expect(screen.getByText('Gerar proposta')).toBeInTheDocument();
+  });
+
+  it('a mensalidade continua editável para negociação sem proposta', async () => {
+    /* Negociação que começou no telefone tem valor antes de ter documento. */
+    await abrir();
+    fireEvent.click(screen.getByTestId('tab-proposta'));
+    expect(await screen.findByLabelText('Mensalidade (R$)')).toBeInTheDocument();
   });
 });
 
