@@ -31,6 +31,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from database import get_conn
 from routers.auth import usuario_atual
+from services import cnpj as cnpj_svc
 from services import oportunidade as regras
 from services.oportunidade import Estado, TransicaoInvalida
 
@@ -578,6 +579,12 @@ async def resumo(
     }
 
 
+# Mínimo de dígitos para o termo ser tratado TAMBÉM como CNPJ. Abaixo disso a
+# busca por documento vira ruído: "5" casaria com quase toda a base, e o
+# resultado ficaria pior do que se o CNPJ não fosse consultado.
+_MIN_DIGITOS_CNPJ = 3
+
+
 def _montar_filtros(
     q, fase, status, conta_id, envolvido_id, finder_conta_id, origem_id,
     temperatura_min, previsao_ate, apenas_abertas,
@@ -590,8 +597,40 @@ def _montar_filtros(
         where.append(clausula.format(n=len(params)))
 
     if q:
-        add("(o.numero ILIKE ${n} OR c.razao_social ILIKE ${n} OR o.descricao ILIKE ${n})",
-            f"%{q.strip()}%")
+        # Uma caixa de busca só: quem procura no funil não sabe (nem deveria
+        # precisar saber) se o que tem na mão é o número da oportunidade, a
+        # razão social, o nome de quem atendeu ou o CNPJ do cadastro. O termo
+        # entra por todos os caminhos e o primeiro que casar responde.
+        #
+        # O CNPJ é comparado por DÍGITOS, não pelo texto digitado: a coluna é
+        # CHAR(14) sem pontuação, então "11.222.333/0001-81" e "11222333"
+        # precisam achar a mesma conta.
+        termo = q.strip()
+        params.append(f"%{termo}%")
+        i_texto = len(params)
+
+        digitos = cnpj_svc.normalizar(termo)
+        params.append(f"%{digitos}%" if len(digitos) >= _MIN_DIGITOS_CNPJ else None)
+        i_cnpj = len(params)
+
+        where.append(
+            f"(o.numero ILIKE ${i_texto}"
+            f" OR c.razao_social ILIKE ${i_texto}"
+            f" OR c.nome_fantasia ILIKE ${i_texto}"
+            f" OR o.descricao ILIKE ${i_texto}"
+            f" OR (${i_cnpj}::text IS NOT NULL AND c.cnpj LIKE ${i_cnpj})"
+            # Contato da própria oportunidade: é por ele que o vendedor lembra
+            # da negociação ("aquela da Maria").
+            f" OR EXISTS (SELECT 1 FROM contatos ct_o"
+            f" WHERE ct_o.id = o.contato_id AND ct_o.nome ILIKE ${i_texto})"
+            # E qualquer contato ativo da conta: oportunidade sem contato
+            # preenchido ainda tem que ser encontrada pelo nome de quem
+            # atende naquela empresa.
+            f" OR EXISTS (SELECT 1 FROM conta_contatos cc_q"
+            f" JOIN contatos ct_q ON ct_q.id = cc_q.contato_id"
+            f" WHERE cc_q.conta_id = o.conta_id AND cc_q.ativo"
+            f" AND ct_q.nome ILIKE ${i_texto}))"
+        )
     if fase:
         add("o.fase = ANY(${n}::text[])", fase)
     if status:

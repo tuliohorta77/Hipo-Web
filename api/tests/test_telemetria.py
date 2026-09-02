@@ -7,12 +7,18 @@ Os testes de render e de fallback da IA ficam em test_relatorio_diario.py
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 import pytest
 
 from middleware import telemetria as mw
 from services import telemetria as tel
 from tests.conftest import criar_usuario
+
+# Mesmo fuso que services/telemetria.py usa para recortar o dia. Lido de lá,
+# nao redigitado: duas constantes com o mesmo nome divergem no primeiro
+# ajuste, e o teste passaria a medir um dia diferente do que o codigo mede.
+FUSO_OPERACAO = ZoneInfo(tel.FUSO_OPERACAO)
 
 pytestmark = pytest.mark.anyio
 
@@ -121,6 +127,30 @@ class TestCaptura:
 
 # ── Agregações ───────────────────────────────────────────────────────
 
+def hoje_operacao() -> date:
+    """
+    O dia corrente no FUSO DA OPERAÇÃO — o mesmo recorte que as agregações
+    usam (`AT TIME ZONE 'America/Sao_Paulo'` em services/telemetria.py).
+
+    O `today` do módulo `date`, que estava aqui antes, devolve o dia do
+    RELÓGIO DA MÁQUINA, e o runner do CI roda em UTC. Das 21h à meia-noite
+    de Brasília os dois discordam: o evento era semeado no instante certo,
+    mas a agregação era pedida para o dia SEGUINTE, cuja janela local ainda
+    nem tinha começado — zero ações num teste que acabou de gravar cinco.
+    Aconteceu num run das 00:49 UTC, e derrubou junto o teste de
+    disponibilidade e o de contas criadas.
+
+    A chamada antiga não aparece escrita neste arquivo, nem em comentário:
+    o pré-voo do deploy procura por ela literalmente para impedir que volte.
+
+    O instante semeado não precisa mudar: `now(timezone.utc)` e o mesmo
+    instante em qualquer outro fuso são o MESMO ponto no tempo, e é isso que
+    o timestamptz guarda. O que estava errado era só a pergunta "que dia é
+    hoje".
+    """
+    return datetime.now(FUSO_OPERACAO).date()
+
+
 async def _semear(db_conn, usuario_id, quando: datetime, n: int = 1,
                   rota: str = "/crm/contas", status: int = 200, ms: int = 10):
     for _ in range(n):
@@ -146,7 +176,7 @@ class TestAdocao:
         await _semear(db_conn, uid, hoje, n=4)
         await _semear(db_conn, uid, hoje, n=1, status=422)
 
-        r = await tel.adocao(db_conn, date.today())
+        r = await tel.adocao(db_conn, hoje_operacao())
         assert r["acoes"] == 5
         assert r["pessoas_ativas"] == 1
         assert r["erros"] == 1
@@ -157,7 +187,7 @@ class TestAdocao:
         await criar_usuario(db_conn, client, "ADM", "on@teste.com")
         uid = await db_conn.fetchval("SELECT id FROM usuarios WHERE email = 'on@teste.com'")
         await _semear(db_conn, uid, datetime.now(timezone.utc) - timedelta(days=2), n=3)
-        assert (await tel.adocao(db_conn, date.today()))["acoes"] == 0
+        assert (await tel.adocao(db_conn, hoje_operacao()))["acoes"] == 0
 
     async def test_quem_nao_usou_aparece_na_lista(self, db_conn, client):
         # Precisa de PELO MENOS um evento no dia. Sem nenhum, a telemetria é
@@ -170,7 +200,7 @@ class TestAdocao:
         await _semear(db_conn, uid, datetime.now(timezone.utc), n=1)
 
         await criar_usuario(db_conn, client, "EV", "sumiu@teste.com")
-        r = await tel.adocao(db_conn, date.today())
+        r = await tel.adocao(db_conn, hoje_operacao())
         assert r["disponivel"] is True
         assert "sumiu@teste.com" not in [p["nome"] for p in r["por_pessoa"]]
         assert any(a["cargo"] == "EV" for a in r["sem_acesso_hoje"])
@@ -190,7 +220,7 @@ class TestTelemetriaIndisponivel:
 
     async def test_sem_nenhum_evento_a_telemetria_e_indisponivel(self, db_conn, client):
         await criar_usuario(db_conn, client, "EV", "ninguem@teste.com")
-        r = await tel.adocao(db_conn, date.today())
+        r = await tel.adocao(db_conn, hoje_operacao())
         assert r["disponivel"] is False
         assert r["sem_acesso_hoje"] == []
 
@@ -203,7 +233,7 @@ class TestTelemetriaIndisponivel:
         )
         await _semear(db_conn, uid, datetime.now(timezone.utc), n=1)
 
-        r = await tel.adocao(db_conn, date.today() - timedelta(days=1))
+        r = await tel.adocao(db_conn, hoje_operacao() - timedelta(days=1))
         assert r["disponivel"] is False
         assert r["sem_acesso_hoje"] == []
 
@@ -213,7 +243,7 @@ class TestTelemetriaIndisponivel:
             "SELECT id FROM usuarios WHERE email = 'ativo@teste.com'"
         )
         await _semear(db_conn, uid, datetime.now(timezone.utc), n=2)
-        assert (await tel.adocao(db_conn, date.today()))["disponivel"] is True
+        assert (await tel.adocao(db_conn, hoje_operacao()))["disponivel"] is True
 
 
 class TestOperacao:
@@ -229,7 +259,7 @@ class TestOperacao:
             INSERT INTO contas (razao_social, cnpj, eh_finder, criado_por)
             VALUES ('Parceira Teste', '11222333000181', TRUE, $1)
         """, uid)
-        r = await tel.operacao(db_conn, date.today())
+        r = await tel.operacao(db_conn, hoje_operacao())
         assert r["carteira_parceiros"] == 1
         assert r["parceiros_sem_ec"] == 1
         assert r["contas_criadas"] == 1

@@ -202,3 +202,64 @@ class TestCortar:
     def test_abaixo_do_limite_nao_sobra(self):
         lista, sobrou = cortar([self.d("A", 10)], limite=5)
         assert len(lista) == 1 and sobrou == 0
+
+
+class TestNarrativaSoFalaDoQueOLeitorVe:
+    """
+    O e-mail deixou de mostrar rota; a narrativa também não pode citar.
+
+    O fechamento de 31/08 saiu com "consultou 117 vezes dados de contas
+    específicas" — número correto, e conferível por ninguém, porque a tabela
+    de rotas tinha saído. Número sem onde conferir é pior que número
+    inventado: parece verificável.
+    """
+
+    def base(self):
+        return {
+            "adocao": {
+                "acoes": 698, "pessoas_ativas": 1,
+                "rotas_mais_usadas": [
+                    {"metodo": "GET", "rota": "/crm/contas/{id}",
+                     "acoes": 117, "media_ms": 30},
+                ],
+                "erros_por_rota": [
+                    {"metodo": "POST", "rota": "/crm/contatos/vinculo",
+                     "status": 409, "ocorrencias": 33},
+                ],
+            },
+            "operacao": {"contas_criadas": 2},
+        }
+
+    def test_tira_o_detalhe_de_rota(self):
+        from services.ia import metricas_para_narrar
+        saida = metricas_para_narrar(self.base())
+        assert "rotas_mais_usadas" not in saida["adocao"]
+        assert "erros_por_rota" not in saida["adocao"]
+        assert saida["adocao"]["acoes"] == 698, "o resto continua"
+        assert saida["operacao"]["contas_criadas"] == 2
+
+    def test_nao_muta_a_original(self):
+        """
+        O mesmo dicionário vai para o relatorio_render depois, e a API serve
+        as rotas para quem consultar. Esvaziar aqui apagaria dado alheio.
+        """
+        from services.ia import metricas_para_narrar
+        m = self.base()
+        metricas_para_narrar(m)
+        assert m["adocao"]["rotas_mais_usadas"], "a original foi mutilada"
+
+    def test_numero_de_rota_deixa_de_ser_permitido(self):
+        """
+        A guarda passa a validar contra a mesma cópia que o modelo recebeu —
+        então citar 117 ou 409 agora DESCARTA a narrativa, que é o certo.
+        """
+        from services.ia import metricas_para_narrar
+        from services.validacao_numerica import numeros_invalidos, numeros_permitidos
+
+        permitidos = numeros_permitidos(metricas_para_narrar(self.base()))
+        assert numeros_invalidos("foram 698 ações", permitidos) == []
+        assert numeros_invalidos("consultou 117 vezes", permitidos) == ["117"]
+
+    def test_sem_bloco_adocao_nao_quebra(self):
+        from services.ia import metricas_para_narrar
+        assert metricas_para_narrar({"operacao": {}}) == {"operacao": {}}

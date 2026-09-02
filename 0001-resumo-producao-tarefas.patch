@@ -1,0 +1,2028 @@
+From c1b87515d670e2d01b44b23734b324325c9958d9 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Tue, 1 Sep 2026 15:53:39 +0000
+Subject: [PATCH] feat(tarefas): resumo de producao por tipo e periodo
+
+"Quantas reunioes tivemos em agosto" nao tinha resposta no HIPO. O dado
+existia desde a Sprint 5 -- toda tarefa tem tipo, prazo e concluida_em --
+mas so era alcancavel tarefa a tarefa, dentro do drilldown de cada
+oportunidade. Dado que so existe no detalhe nao e dado de gestao.
+
+GET /crm/tarefas/resumo devolve realizadas, agendadas e canceladas, com
+quebra por tipo e por responsavel. Os tres numeros usam datas DIFERENTES
+de proposito: concluida_em, prazo e cancelada_em. Uma reuniao marcada
+para 28/08 e feita em 02/09 e de agosto na agenda e de setembro na
+producao; um filtro unico teria que escolher uma e mentir na outra.
+
+services/tarefa.py ganha janela_utc(): agosto e o do escritorio, de
+01/08 03:00Z a 01/09 03:00Z. Em UTC cru a janela engoliria o fim de
+31/07 e o numero do mes fechado mudaria conforme a hora em que alguem
+trabalhou. E a unica parte da regra de tarefa que vai para o SQL, e pode
+ir porque nao olha o relogio -- a situacao continua derivada em Python.
+
+A listagem ganha tipo, de, ate, base e q para o drilldown: clicar em "12
+reunioes realizadas em agosto" abre exatamente aquelas doze, com o mesmo
+recorte dos dois lados. 'base' escolhe qual data a janela recorta --
+prazo (agenda) ou conclusao (producao).
+
+_Params substitui a numeracao manual de parametro posicional. Um filtro
+novo no meio da lista deslocava os indices abaixo, e o erro nao levanta
+excecao: devolve a linha errada. O kanban foi migrado junto e o filtro
+de busca virou _clausula_busca compartilhada.
+
+No front, KpiInline na barra que ja existe -- nao uma faixa nova, o
+kanban tem teto de 25% no topo -- e ProducaoDoMes com navegacao de mes,
+tabela por tipo com drilldown e tabela por responsavel.
+
+Sem migration e sem modulo novo: a informacao ja estava em tarefas e o
+router ja vive sob requer_modulo("crm"). Nada a patchar nos asserts de
+igualdade exata de modulos_do_cargo.
+
+pytest 894 passed (baseline 864), vitest 380 passed (baseline 349),
+vite build verde.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01Ez13EJQVr3eCZ6gne6D3Gp
+---
+ api/routers/crm_tarefas.py               | 316 ++++++++++++++--
+ api/services/tarefa.py                   |  60 +++-
+ api/tests/test_crm_tarefas.py            | 436 +++++++++++++++++++++++
+ api/tests/test_tarefa_regras.py          |  56 ++-
+ web/src/components/crm/ProducaoDoMes.jsx | 392 ++++++++++++++++++++
+ web/src/pages/crm/Tarefas.jsx            |  55 +++
+ web/src/tests/ProducaoDoMes.test.jsx     | 356 ++++++++++++++++++
+ web/src/tests/Tarefas.test.jsx           | 100 ++++++
+ 8 files changed, 1740 insertions(+), 31 deletions(-)
+ create mode 100644 web/src/components/crm/ProducaoDoMes.jsx
+ create mode 100644 web/src/tests/ProducaoDoMes.test.jsx
+
+diff --git a/api/routers/crm_tarefas.py b/api/routers/crm_tarefas.py
+index bc731b3..0710618 100644
+--- a/api/routers/crm_tarefas.py
++++ b/api/routers/crm_tarefas.py
+@@ -26,7 +26,7 @@ O que este módulo materializa:
+ """
+ from __future__ import annotations
+ 
+-from datetime import datetime, timezone
++from datetime import date, datetime, timezone
+ from uuid import UUID
+ 
+ from fastapi import APIRouter, Depends, HTTPException, Query, status as http
+@@ -182,6 +182,31 @@ class ColunaTarefas(BaseModel):
+     somente_leitura: bool = False
+ 
+ 
++class ProducaoTipo(BaseModel):
++    tipo: str
++    rotulo: str
++    realizadas: int
++    agendadas: int
++    canceladas: int
++
++
++class ProducaoResponsavel(BaseModel):
++    usuario_id: UUID
++    nome: str | None
++    realizadas: int
++    agendadas: int
++
++
++class ResumoTarefas(BaseModel):
++    de: date | None
++    ate: date | None
++    realizadas: int
++    agendadas: int
++    canceladas: int
++    por_tipo: list[ProducaoTipo]
++    por_responsavel: list[ProducaoResponsavel]
++
++
+ # ── SQL compartilhado ────────────────────────────────────────────────
+ 
+ _SELECT_BASE = """
+@@ -324,13 +349,76 @@ def _agora() -> datetime:
+     return datetime.now(timezone.utc)
+ 
+ 
++class _Params:
++    """
++    Acumulador de parâmetros posicionais do asyncpg.
++
++    Existe porque a numeração manual (`f"${len(params) + 1}"`) já produziu
++    dois bugs neste arquivo: um filtro novo no meio da lista desloca todos os
++    índices abaixo dele, e o erro não aparece como exceção — aparece como
++    consulta que devolve a linha errada. Aqui o número sai do próprio append.
++    """
++
++    def __init__(self) -> None:
++        self.valores: list = []
++
++    def add(self, valor) -> str:
++        self.valores.append(valor)
++        return f"${len(self.valores)}"
++
++
++def _clausula_busca(q: str | None, p: _Params) -> str | None:
++    """
++    Busca livre por título, empresa ou número da oportunidade.
++
++    COALESCE em vez de `co.razao_social`: com o LEFT JOIN da 006, a tarefa de
++    parceiro tem `co` inteiro nulo, e `co.razao_social ILIKE` devolve NULL —
++    que numa cláusula OR não é falso, é ausência. A busca simplesmente nunca
++    encontraria tarefa de parceiro.
++    """
++    if not q or not q.strip():
++        return None
++    n = p.add(f"%{q.strip()}%")
++    return (
++        f"(t.titulo ILIKE {n}"
++        f" OR COALESCE(cp.razao_social, co.razao_social) ILIKE {n}"
++        f" OR COALESCE(o.numero, '') ILIKE {n})"
++    )
++
++
++def _dentro(coluna: str, ini: str | None, fim: str | None) -> str:
++    """
++    Fragmento SQL "esta coluna de data caiu na janela".
++
++    Sem janela, a resposta é "a coluna está preenchida" — que é o que faz
++    `realizadas` continuar significando "concluídas" quando o período pedido
++    é 'desde sempre', em vez de virar a contagem de todas as tarefas.
++    """
++    if ini is None and fim is None:
++        return f"{coluna} IS NOT NULL"
++    partes = [f"{coluna} IS NOT NULL"]
++    if ini is not None:
++        partes.append(f"{coluna} >= {ini}")
++    if fim is not None:
++        partes.append(f"{coluna} < {fim}")
++    return "(" + " AND ".join(partes) + ")"
++
++
+ # ── Leitura ──────────────────────────────────────────────────────────
+ 
++BASES_DATA = {"prazo": "t.prazo", "conclusao": "t.concluida_em"}
++
++
+ @router.get("", response_model=TarefaLista)
+ async def listar(
+     oportunidade_id: UUID | None = None,
+     conta_id: UUID | None = None,
+     responsavel_id: UUID | None = None,
++    tipo: str | None = Query(None),
++    de: date | None = Query(None),
++    ate: date | None = Query(None),
++    base: str = Query("prazo"),
++    q: str | None = Query(None, max_length=200),
+     situacao: list[str] | None = Query(None),
+     ordenar: str = Query("urgencia"),
+     limit: int = Query(200, ge=1, le=500),
+@@ -342,6 +430,20 @@ async def listar(
+     Tarefas de uma oportunidade ou de um parceiro — passadas, em aberto e
+     futuras, na mesma lista.
+ 
++    `tipo`, `de`, `ate` e `base` existem para o drilldown do resumo: clicar em
++    "12 reuniões realizadas em agosto" tem que abrir exatamente aquelas doze,
++    e não uma lista parecida. Por isso o recorte é o MESMO dos dois lados —
++    services/tarefa.py:janela_utc.
++
++    `base` diz QUAL data a janela recorta, e o default não é inocente:
++
++      * 'prazo'     — quando a tarefa está marcada. É a pergunta da agenda.
++      * 'conclusao' — quando ela foi feita. É a pergunta da produção.
++
++    São números diferentes de propósito. Uma reunião marcada para 28/08 e
++    feita em 02/09 é de agosto na agenda e de setembro na produção; um único
++    filtro de data teria que escolher uma das duas e mentir na outra.
++
+     `conta_id` recorta as tarefas de um PARCEIRO (t.conta_id), não as da
+     conta por trás de uma oportunidade. São duas perguntas diferentes: a
+     primeira é "o que fizemos por esse parceiro", a segunda seria "o que
+@@ -370,27 +472,49 @@ async def listar(
+         raise HTTPException(
+             422, "ordenar inválido. Use: urgencia, cronologico."
+         )
++    if base not in BASES_DATA:
++        raise HTTPException(
++            422, f"base inválida. Use: {', '.join(BASES_DATA)}."
++        )
++    if tipo is not None and tipo not in regras.TIPOS:
++        raise HTTPException(
++            422, f"Tipo inválido: '{tipo}'. Use: {', '.join(regras.TIPOS)}."
++        )
+     for s in situacao or []:
+         if s not in regras.SITUACOES:
+             raise HTTPException(
+                 422, f"Situação inválida: '{s}'. Use: {', '.join(regras.SITUACOES)}."
+             )
++    try:
++        inicio, fim = regras.janela_utc(de, ate)
++    except TarefaInvalida as e:
++        raise HTTPException(422, str(e))
+ 
+-    where, params = [], []
++    p = _Params()
++    where = []
+     if oportunidade_id is not None:
+-        params.append(oportunidade_id)
+-        where.append(f"t.oportunidade_id = ${len(params)}")
++        where.append(f"t.oportunidade_id = {p.add(oportunidade_id)}")
+     if conta_id is not None:
+-        params.append(conta_id)
+-        where.append(f"t.conta_id = ${len(params)}")
++        where.append(f"t.conta_id = {p.add(conta_id)}")
+     if responsavel_id is not None:
+-        params.append(responsavel_id)
+-        where.append(f"t.responsavel_id = ${len(params)}")
++        where.append(f"t.responsavel_id = {p.add(responsavel_id)}")
++    if tipo is not None:
++        where.append(f"t.tipo = {p.add(tipo)}")
++    if inicio is not None or fim is not None:
++        where.append(_dentro(
++            BASES_DATA[base],
++            p.add(inicio) if inicio is not None else None,
++            p.add(fim) if fim is not None else None,
++        ))
++    busca = _clausula_busca(q, p)
++    if busca:
++        where.append(busca)
+     clausula = f"WHERE {' AND '.join(where)}" if where else ""
+ 
+     rows = await conn.fetch(
+-        f"{_SELECT_BASE} {clausula} ORDER BY t.prazo LIMIT ${len(params) + 1} OFFSET ${len(params) + 2}",
+-        *params, limit, offset,
++        f"{_SELECT_BASE} {clausula} ORDER BY t.prazo"
++        f" LIMIT {p.add(limit)} OFFSET {p.add(offset)}",
++        *p.valores,
+     )
+ 
+     agora = _agora()
+@@ -455,31 +579,20 @@ async def kanban(
+     primeiro, "kanban" é lido como id e a resposta vira 422. Mesma armadilha
+     que já custou um 404 em /crm/dominio/usuarios.
+     """
++    p = _Params()
+     where = [
+-        "(t.concluida_em IS NULL AND t.cancelada_em IS NULL"
+-        " OR t.concluida_em >= NOW() - ($1 || ' days')::interval)"
++        f"(t.concluida_em IS NULL AND t.cancelada_em IS NULL"
++        f" OR t.concluida_em >= NOW() - ({p.add(str(dias_concluidas))} || ' days')::interval)"
+     ]
+-    params: list = [str(dias_concluidas)]
+-
+     if responsavel_id is not None:
+-        params.append(responsavel_id)
+-        where.append(f"t.responsavel_id = ${len(params)}")
+-    if q:
+-        params.append(f"%{q.strip()}%")
+-        n = len(params)
+-        # COALESCE em vez de `co.razao_social`: com o LEFT JOIN da 006, a
+-        # tarefa de parceiro tem `co` inteiro nulo, e `co.razao_social ILIKE`
+-        # devolve NULL — que numa cláusula OR não é falso, é ausência. A
+-        # busca simplesmente nunca encontraria tarefa de parceiro.
+-        where.append(
+-            f"(t.titulo ILIKE ${n}"
+-            f" OR COALESCE(cp.razao_social, co.razao_social) ILIKE ${n}"
+-            f" OR COALESCE(o.numero, '') ILIKE ${n})"
+-        )
++        where.append(f"t.responsavel_id = {p.add(responsavel_id)}")
++    busca = _clausula_busca(q, p)
++    if busca:
++        where.append(busca)
+ 
+     rows = await conn.fetch(
+         f"{_SELECT_BASE} WHERE {' AND '.join(where)} ORDER BY t.prazo",
+-        *params,
++        *p.valores,
+     )
+ 
+     agora = _agora()
+@@ -502,6 +615,151 @@ async def kanban(
+     return colunas
+ 
+ 
++@router.get("/resumo", response_model=ResumoTarefas)
++async def resumo(
++    de: date | None = Query(None, description="Primeiro dia, no fuso da operação."),
++    ate: date | None = Query(None, description="Último dia, inclusivo."),
++    responsavel_id: UUID | None = None,
++    q: str | None = Query(None, max_length=200),
++    conn=Depends(get_conn),
++    user=Depends(usuario_atual),
++):
++    """
++    Produção do período: quantas tarefas de cada tipo foram REALIZADAS,
++    quantas estavam agendadas e quantas foram canceladas.
++
++    Existe porque "quantas reuniões tivemos em agosto" não tinha resposta no
++    HIPO. A informação estava lá desde a Sprint 5 — toda tarefa tem tipo,
++    prazo e concluída_em — mas só era alcançável tarefa a tarefa, dentro do
++    drilldown de cada oportunidade. Dado que só existe no detalhe não é dado
++    de gestão.
++
++    TRÊS NÚMEROS, TRÊS DATAS DIFERENTES, e é isso que os torna comparáveis:
++
++      * realizadas — `concluida_em` na janela. O que de fato aconteceu.
++      * agendadas  — `prazo` na janela. O que estava marcado para o período,
++                     tenha sido feito, esquecido ou ainda por fazer.
++      * canceladas — `cancelada_em` na janela. O que foi desmarcado.
++
++    Somar os três daria um número sem significado: a mesma reunião marcada e
++    feita em agosto conta nos dois primeiros. Eles respondem perguntas
++    diferentes — "produzimos quanto", "planejamos quanto", "desmarcamos
++    quanto" — e a distância entre agendadas e realizadas é a leitura que
++    interessa.
++
++    Cancelada NÃO conta como realizada mesmo se tiver concluída_em: o CHECK do
++    banco impede o par, mas o filtro é explícito porque a contagem de produção
++    é a única coisa que este endpoint promete, e ela não pode depender de um
++    invariante escrito em outro arquivo.
++
++    A janela vai para o SQL, não para Python: concluídas são fluxo e crescem
++    para sempre. Isso NÃO duplica a regra da situação — o recorte por data é
++    determinístico e não olha o relógio. Ver services/tarefa.py:janela_utc.
++
++    `por_tipo` devolve SEMPRE os sete tipos, inclusive os zerados e na ordem
++    fixa do vocabulário. Omitir o que deu zero faria a barra trocar de ordem
++    e de largura a cada mês, e o zero é informação: nenhuma visita em agosto
++    é um fato sobre agosto.
++
++    Aceita os mesmos filtros da barra da tela (responsável e busca). Agregado
++    que ignora o filtro da tela produz um número global ao lado de uma lista
++    filtrada — duas respostas para a mesma pergunta, na mesma tela.
++
++    Precisa vir declarado ANTES de /{tarefa_id}: com o wildcard primeiro,
++    "resumo" é lido como id e a resposta vira 422. Mesma armadilha do kanban.
++    """
++    try:
++        inicio, fim = regras.janela_utc(de, ate)
++    except TarefaInvalida as e:
++        raise HTTPException(422, str(e))
++
++    p = _Params()
++    ini_ref = p.add(inicio) if inicio is not None else None
++    fim_ref = p.add(fim) if fim is not None else None
++
++    feita = _dentro("t.concluida_em", ini_ref, fim_ref)
++    marcada = _dentro("t.prazo", ini_ref, fim_ref)
++    desmarcada = _dentro("t.cancelada_em", ini_ref, fim_ref)
++
++    where = [f"({feita} OR {marcada} OR {desmarcada})"]
++    if responsavel_id is not None:
++        where.append(f"t.responsavel_id = {p.add(responsavel_id)}")
++    busca = _clausula_busca(q, p)
++    if busca:
++        where.append(busca)
++
++    # Um GROUP BY nas duas dimensões de uma vez. Sete tipos vezes o punhado de
++    # usuários ativos são dezenas de linhas — agregar as duas visões em Python
++    # a partir daqui é mais barato que uma segunda ida ao banco, e garante que
++    # os totais das duas tabelas batam entre si por construção.
++    rows = await conn.fetch(
++        f"""
++        SELECT t.tipo, t.responsavel_id, u.nome AS responsavel_nome,
++               count(*) FILTER (
++                   WHERE {feita} AND t.cancelada_em IS NULL
++               ) AS realizadas,
++               count(*) FILTER (WHERE {marcada}) AS agendadas,
++               count(*) FILTER (WHERE {desmarcada}) AS canceladas
++          FROM tarefas t
++          LEFT JOIN oportunidades o ON o.id = t.oportunidade_id
++          LEFT JOIN contas co       ON co.id = o.conta_id
++          LEFT JOIN contas cp       ON cp.id = t.conta_id
++          LEFT JOIN usuarios u      ON u.id = t.responsavel_id
++         WHERE {' AND '.join(where)}
++         GROUP BY t.tipo, t.responsavel_id, u.nome
++        """,
++        *p.valores,
++    )
++
++    por_tipo = {
++        t: {"tipo": t, "rotulo": regras.ROTULOS_TIPO[t],
++            "realizadas": 0, "agendadas": 0, "canceladas": 0}
++        for t in regras.TIPOS
++    }
++    por_responsavel: dict[str, dict] = {}
++
++    for r in rows:
++        alvo = por_tipo.get(r["tipo"])
++        if alvo is None:  # tipo fora do vocabulário atual, gravado antes
++            alvo = por_tipo.setdefault(r["tipo"], {
++                "tipo": r["tipo"], "rotulo": r["tipo"],
++                "realizadas": 0, "agendadas": 0, "canceladas": 0,
++            })
++        alvo["realizadas"] += r["realizadas"]
++        alvo["agendadas"] += r["agendadas"]
++        alvo["canceladas"] += r["canceladas"]
++
++        chave = str(r["responsavel_id"])
++        pessoa = por_responsavel.setdefault(chave, {
++            "usuario_id": r["responsavel_id"],
++            "nome": r["responsavel_nome"],
++            "realizadas": 0,
++            "agendadas": 0,
++        })
++        pessoa["realizadas"] += r["realizadas"]
++        pessoa["agendadas"] += r["agendadas"]
++
++    linhas_tipo = [por_tipo[t] for t in regras.TIPOS] + [
++        v for k, v in por_tipo.items() if k not in regras.TIPOS
++    ]
++
++    return {
++        "de": de,
++        "ate": ate,
++        "realizadas": sum(x["realizadas"] for x in linhas_tipo),
++        "agendadas": sum(x["agendadas"] for x in linhas_tipo),
++        "canceladas": sum(x["canceladas"] for x in linhas_tipo),
++        "por_tipo": linhas_tipo,
++        # Quem não fez nem tinha nada marcado no período não aparece: a lista
++        # existe para comparar produção, não para enfileirar zeros.
++        "por_responsavel": sorted(
++            (v for v in por_responsavel.values()
++             if v["realizadas"] or v["agendadas"]),
++            key=lambda x: (-x["realizadas"], -x["agendadas"], x["nome"] or ""),
++        ),
++    }
++
++
+ @router.get("/{tarefa_id}", response_model=TarefaOut)
+ async def obter(tarefa_id: UUID, conn=Depends(get_conn), user=Depends(usuario_atual)):
+     return await _obter(conn, tarefa_id)
+diff --git a/api/services/tarefa.py b/api/services/tarefa.py
+index 9737d25..e799c7a 100644
+--- a/api/services/tarefa.py
++++ b/api/services/tarefa.py
+@@ -24,7 +24,7 @@ Três regras moram aqui:
+ from __future__ import annotations
+ 
+ from dataclasses import dataclass
+-from datetime import datetime, timezone
++from datetime import date, datetime, time, timedelta, timezone
+ from zoneinfo import ZoneInfo
+ 
+ # O dia de calendário que interessa é o do escritório, não o de Greenwich.
+@@ -249,6 +249,64 @@ def chave_ordenacao(situacao_atual: str, prazo: datetime) -> tuple[int, datetime
+     return (ORDEM_SITUACAO.get(situacao_atual, 99), _com_fuso(prazo))
+ 
+ 
++# ── Janela de datas ──────────────────────────────────────────────────
++#
++# "Quantas reuniões em agosto" pergunta pelo agosto do ESCRITÓRIO: de 01/08
++# 00:00 a 01/09 00:00 no fuso da operação, não em UTC. Comparando direto com
++# as datas em UTC, a janela começaria às 03:00 do dia 1 e engoliria as três
++# últimas horas de 31 de julho — uma reunião das 22h do dia 31 apareceria no
++# mês seguinte, e o número do mês fechado mudaria de valor conforme a hora
++# em que alguém trabalhou.
++#
++# Diferente da situação ('hoje', 'atrasada'), este recorte NÃO depende do
++# relógio: dadas duas datas, o par de instantes é sempre o mesmo. É por isso
++# que ele pode ir para o SQL sem criar uma segunda fonte de verdade — e
++# precisa ir, porque concluídas são fluxo e crescem para sempre; filtrar em
++# Python obrigaria a varrer a tabela inteira a cada carga do resumo.
++#
++# A janela é MEIA-ABERTA, [início, fim). Fechar em 31/08 23:59:59 perde o que
++# caiu no último segundo do dia, e '<=' contra timestamp de precisão de
++# microssegundo é a classe de bug que só aparece em produção.
++#
++# Horário de verão não é caso especial: cada extremo é convertido por conta
++# própria, então uma janela que atravessa a virada tem uma hora a mais ou a
++# menos — exatamente quanto o mês durou no relógio de quem trabalhou nele.
++
++
++def validar_janela(de: date | None, ate: date | None) -> None:
++    if de is not None and ate is not None and de > ate:
++        raise TarefaInvalida(
++            "A data inicial não pode ser depois da data final."
++        )
++
++
++def janela_utc(
++    de: date | None,
++    ate: date | None,
++    fuso: ZoneInfo = FUSO_OPERACAO,
++) -> tuple[datetime | None, datetime | None]:
++    """
++    Converte o intervalo de DIAS `de..ate` (inclusivo nos dois extremos, no
++    fuso da operação) no par de instantes UTC `[início, fim)`.
++
++    Qualquer extremo pode ser None, e aí aquele lado fica aberto: `de=None`
++    é "desde sempre", `ate=None` é "até hoje e além".
++    """
++    validar_janela(de, ate)
++
++    inicio = (
++        datetime.combine(de, time.min, tzinfo=fuso).astimezone(timezone.utc)
++        if de is not None else None
++    )
++    # `ate + 1 dia` à meia-noite: o fim exclusivo do último dia pedido.
++    fim = (
++        datetime.combine(ate + timedelta(days=1), time.min, tzinfo=fuso)
++        .astimezone(timezone.utc)
++        if ate is not None else None
++    )
++    return inicio, fim
++
++
+ def _com_fuso(d: datetime) -> datetime:
+     """
+     asyncpg devolve TIMESTAMPTZ com fuso, mas teste puro costuma montar
+diff --git a/api/tests/test_crm_tarefas.py b/api/tests/test_crm_tarefas.py
+index 2025040..1c6806c 100644
+--- a/api/tests/test_crm_tarefas.py
++++ b/api/tests/test_crm_tarefas.py
+@@ -742,3 +742,439 @@ class TestSchemaBateComOCodigo:
+             " WHERE tablename = 'tarefas' AND indexname = 'idx_tarefas_abertas'"
+         )
+         assert existe == 1
++
++
++# ── Resumo de produção ───────────────────────────────────────────────
++#
++# "Quantas reuniões tivemos em agosto" era a pergunta que o HIPO não
++# respondia: o dado existia desde a Sprint 5, mas só tarefa a tarefa, dentro
++# do drilldown de cada oportunidade.
++#
++# Os carimbos são gravados direto no banco, e não pela rota de concluir,
++# porque concluir usa NOW(). Sem escrever a data à mão não dá para montar um
++# mês fechado, e um teste que só sabe testar "hoje" não trava justamente o
++# que este endpoint promete: recortar um período que já passou.
++
++
++async def concluir_em(db_conn, tarefa_id, quando: datetime):
++    await db_conn.execute(
++        "UPDATE tarefas SET concluida_em = $2 WHERE id = $1",
++        uuid.UUID(tarefa_id), quando,
++    )
++
++
++async def cancelar_em(db_conn, tarefa_id, quando: datetime):
++    await db_conn.execute(
++        "UPDATE tarefas SET cancelada_em = $2 WHERE id = $1",
++        uuid.UUID(tarefa_id), quando,
++    )
++
++
++def utc(dia, hora=14, mes=8, ano=2026):
++    return datetime(ano, mes, dia, hora, tzinfo=timezone.utc)
++
++
++def iso(dia, hora=14, mes=8, ano=2026):
++    return utc(dia, hora, mes, ano).isoformat()
++
++
++AGOSTO = {"de": "2026-08-01", "ate": "2026-08-31"}
++
++
++def linha_tipo(corpo, tipo):
++    return next(t for t in corpo["por_tipo"] if t["tipo"] == tipo)
++
++
++class TestResumo:
++    async def test_conta_as_reunioes_realizadas_no_mes(self, db_conn, client, cenario):
++        """A pergunta que originou o endpoint, no caminho mais curto."""
++        for dia in (5, 12, 27):
++            t = await nova_tarefa(
++                client, cenario["headers"], cenario["opp"]["id"],
++                cenario["usuario_id"], tipo="reuniao", prazo=iso(dia),
++            )
++            await concluir_em(db_conn, t["id"], utc(dia, 16))
++
++        resp = await client.get(
++            "/crm/tarefas/resumo", params=AGOSTO, headers=cenario["headers"]
++        )
++        assert resp.status_code == 200, resp.text
++        corpo = resp.json()
++        assert corpo["realizadas"] == 3
++        assert linha_tipo(corpo, "reuniao")["realizadas"] == 3
++
++    async def test_ignora_o_que_caiu_fora_do_mes(self, db_conn, client, cenario):
++        dentro = await nova_tarefa(
++            client, cenario["headers"], cenario["opp"]["id"],
++            cenario["usuario_id"], tipo="reuniao", prazo=iso(20),
++        )
++        fora = await nova_tarefa(
++            client, cenario["headers"], cenario["opp"]["id"],
++            cenario["usuario_id"], tipo="reuniao", prazo=iso(3, mes=9),
++        )
++        await concluir_em(db_conn, dentro["id"], utc(20, 16))
++        await concluir_em(db_conn, fora["id"], utc(3, 16, mes=9))
++
++        corpo = (await client.get(
++            "/crm/tarefas/resumo", params=AGOSTO, headers=cenario["headers"]
++        )).json()
++        assert corpo["realizadas"] == 1
++
++    async def test_o_ultimo_dia_do_mes_entra_inteiro(self, db_conn, client, cenario):
++        """
++        23:30 de 31/08 em Brasília é 02:30Z de 01/09. Um filtro montado em UTC
++        jogaria essa reunião para setembro — e o número de agosto mudaria de
++        valor conforme a hora em que alguém trabalhou.
++        """
++        t = await nova_tarefa(
++            client, cenario["headers"], cenario["opp"]["id"],
++            cenario["usuario_id"], tipo="reuniao", prazo=iso(31),
++        )
++        await concluir_em(db_conn, t["id"], datetime(2026, 9, 1, 2, 30, tzinfo=timezone.utc))
++
++        corpo = (await client.get(
++            "/crm/tarefas/resumo", params=AGOSTO, headers=cenario["headers"]
++        )).json()
++        assert corpo["realizadas"] == 1
++
++    async def test_a_virada_do_mes_nao_entra(self, db_conn, client, cenario):
++        """00:00 de 01/09 em Brasília (03:00Z) já é setembro."""
++        t = await nova_tarefa(
++            client, cenario["headers"], cenario["opp"]["id"],
++            cenario["usuario_id"], tipo="reuniao", prazo=iso(31),
++        )
++        await concluir_em(db_conn, t["id"], datetime(2026, 9, 1, 3, tzinfo=timezone.utc))
++
++        corpo = (await client.get(
++            "/crm/tarefas/resumo", params=AGOSTO, headers=cenario["headers"]
++        )).json()
++        assert corpo["realizadas"] == 0
++
++    async def test_realizada_e_agendada_sao_datas_diferentes(self, db_conn, client, cenario):
++        """
++        Reunião marcada para 28/08 e feita em 02/09: é de agosto na agenda e
++        de setembro na produção. Um único filtro de data teria que escolher
++        uma das duas e mentir na outra.
++        """
++        t = await nova_tarefa(
++            client, cenario["headers"], cenario["opp"]["id"],
++            cenario["usuario_id"], tipo="reuniao", prazo=iso(28),
++        )
++        await concluir_em(db_conn, t["id"], utc(2, 10, mes=9))
++
++        agosto = (await client.get(
++            "/crm/tarefas/resumo", params=AGOSTO, headers=cenario["headers"]
++        )).json()
++        assert agosto["agendadas"] == 1
++        assert agosto["realizadas"] == 0
++
++        setembro = (await client.get(
++            "/crm/tarefas/resumo",
++            params={"de": "2026-09-01", "ate": "2026-09-30"},
++            headers=cenario["headers"],
++        )).json()
++        assert setembro["realizadas"] == 1
++        assert setembro["agendadas"] == 0
++
++    async def test_cancelada_nao_conta_como_realizada(self, db_conn, client, cenario):
++        t = await nova_tarefa(
++            client, cenario["headers"], cenario["opp"]["id"],
++            cenario["usuario_id"], tipo="reuniao", prazo=iso(10),
++        )
++        await cancelar_em(db_conn, t["id"], utc(9, 11))
++
++        corpo = (await client.get(
++            "/crm/tarefas/resumo", params=AGOSTO, headers=cenario["headers"]
++        )).json()
++        assert corpo["realizadas"] == 0
++        assert corpo["canceladas"] == 1
++        assert linha_tipo(corpo, "reuniao")["canceladas"] == 1
++
++    async def test_separa_por_tipo(self, db_conn, client, cenario):
++        for tipo, dia in (("reuniao", 4), ("reuniao", 6), ("ligacao", 7)):
++            t = await nova_tarefa(
++                client, cenario["headers"], cenario["opp"]["id"],
++                cenario["usuario_id"], tipo=tipo, prazo=iso(dia),
++            )
++            await concluir_em(db_conn, t["id"], utc(dia, 16))
++
++        corpo = (await client.get(
++            "/crm/tarefas/resumo", params=AGOSTO, headers=cenario["headers"]
++        )).json()
++        assert linha_tipo(corpo, "reuniao")["realizadas"] == 2
++        assert linha_tipo(corpo, "ligacao")["realizadas"] == 1
++        assert linha_tipo(corpo, "visita")["realizadas"] == 0
++
++    async def test_devolve_sempre_os_sete_tipos_na_ordem_do_vocabulario(
++        self, db_conn, client, cenario
++    ):
++        """
++        Omitir o que deu zero faria a barra da tela trocar de ordem e de
++        largura a cada mês. E o zero é informação: nenhuma visita em agosto é
++        um fato sobre agosto.
++        """
++        corpo = (await client.get(
++            "/crm/tarefas/resumo", params=AGOSTO, headers=cenario["headers"]
++        )).json()
++        assert [t["tipo"] for t in corpo["por_tipo"]] == list(regras.TIPOS)
++        assert linha_tipo(corpo, "reuniao")["rotulo"] == "Reunião"
++
++    async def test_quebra_por_responsavel(self, db_conn, client, cenario):
++        outro = await criar_usuario(db_conn, client, "EV", "ev-resumo@teste.com")
++        outro_id = await id_do_usuario(db_conn, outro["email"])
++
++        for dono, dia in ((cenario["usuario_id"], 5), (cenario["usuario_id"], 6), (outro_id, 7)):
++            t = await nova_tarefa(
++                client, cenario["headers"], cenario["opp"]["id"], dono,
++                tipo="reuniao", prazo=iso(dia),
++            )
++            await concluir_em(db_conn, t["id"], utc(dia, 16))
++
++        corpo = (await client.get(
++            "/crm/tarefas/resumo", params=AGOSTO, headers=cenario["headers"]
++        )).json()
++        # Mais produtivo primeiro: a lista existe para comparar carga.
++        assert [p["realizadas"] for p in corpo["por_responsavel"]] == [2, 1]
++        assert sum(p["realizadas"] for p in corpo["por_responsavel"]) == corpo["realizadas"]
++
++    async def test_quem_nao_fez_nada_no_periodo_nao_aparece(self, db_conn, client, cenario):
++        await criar_usuario(db_conn, client, "EV", "ocioso@teste.com")
++        t = await nova_tarefa(
++            client, cenario["headers"], cenario["opp"]["id"],
++            cenario["usuario_id"], tipo="reuniao", prazo=iso(5),
++        )
++        await concluir_em(db_conn, t["id"], utc(5, 16))
++
++        corpo = (await client.get(
++            "/crm/tarefas/resumo", params=AGOSTO, headers=cenario["headers"]
++        )).json()
++        assert len(corpo["por_responsavel"]) == 1
++
++    async def test_filtra_por_responsavel(self, db_conn, client, cenario):
++        outro = await criar_usuario(db_conn, client, "EV", "ev-filtro@teste.com")
++        outro_id = await id_do_usuario(db_conn, outro["email"])
++        for dono, dia in ((cenario["usuario_id"], 5), (outro_id, 6)):
++            t = await nova_tarefa(
++                client, cenario["headers"], cenario["opp"]["id"], dono,
++                tipo="reuniao", prazo=iso(dia),
++            )
++            await concluir_em(db_conn, t["id"], utc(dia, 16))
++
++        corpo = (await client.get(
++            "/crm/tarefas/resumo",
++            params={**AGOSTO, "responsavel_id": outro_id},
++            headers=cenario["headers"],
++        )).json()
++        assert corpo["realizadas"] == 1
++
++    async def test_a_busca_da_barra_tambem_recorta_o_agregado(
++        self, db_conn, client, cenario
++    ):
++        """
++        Agregado que ignora o filtro da tela produz um número global ao lado
++        de uma lista filtrada — duas respostas para a mesma pergunta.
++        """
++        t = await nova_tarefa(
++            client, cenario["headers"], cenario["opp"]["id"],
++            cenario["usuario_id"], tipo="reuniao", prazo=iso(5),
++        )
++        await concluir_em(db_conn, t["id"], utc(5, 16))
++
++        achou = (await client.get(
++            "/crm/tarefas/resumo",
++            params={**AGOSTO, "q": "Metalurgica"},
++            headers=cenario["headers"],
++        )).json()
++        assert achou["realizadas"] == 1
++
++        vazio = (await client.get(
++            "/crm/tarefas/resumo",
++            params={**AGOSTO, "q": "Empresa Que Nao Existe"},
++            headers=cenario["headers"],
++        )).json()
++        assert vazio["realizadas"] == 0
++
++    async def test_sem_periodo_conta_a_historia_inteira(self, db_conn, client, cenario):
++        for dia, mes in ((5, 8), (5, 9)):
++            t = await nova_tarefa(
++                client, cenario["headers"], cenario["opp"]["id"],
++                cenario["usuario_id"], tipo="reuniao", prazo=iso(dia, mes=mes),
++            )
++            await concluir_em(db_conn, t["id"], utc(dia, 16, mes=mes))
++
++        corpo = (await client.get(
++            "/crm/tarefas/resumo", headers=cenario["headers"]
++        )).json()
++        assert corpo["realizadas"] == 2
++        assert corpo["de"] is None and corpo["ate"] is None
++
++    async def test_periodo_invertido_e_422(self, db_conn, client, cenario):
++        resp = await client.get(
++            "/crm/tarefas/resumo",
++            params={"de": "2026-08-31", "ate": "2026-08-01"},
++            headers=cenario["headers"],
++        )
++        assert resp.status_code == 422
++        assert "depois" in resp.json()["detail"]
++
++    async def test_resumo_nao_e_lido_como_id_de_tarefa(self, db_conn, client, cenario):
++        """
++        A rota precisa vir declarada antes de /{tarefa_id}. Com o wildcard
++        primeiro, "resumo" vira id e a resposta é 422 — a mesma armadilha que
++        já custou um 404 no kanban.
++        """
++        resp = await client.get("/crm/tarefas/resumo", headers=cenario["headers"])
++        assert resp.status_code == 200
++
++    async def test_tarefa_de_parceiro_entra_no_resumo(self, db_conn, client, usuario_adm):
++        """
++        Os JOINs do resumo são LEFT pelo mesmo motivo dos da listagem: com
++        INNER, toda tarefa de parceiro sumiria da contagem em silêncio.
++        """
++        headers = usuario_adm["headers"]
++        usuario_id = await id_do_usuario(db_conn, usuario_adm["email"])
++        conta = await nova_conta(client, headers)
++        await db_conn.execute(
++            "UPDATE contas SET eh_finder = true WHERE id = $1",
++            uuid.UUID(conta["id"]),
++        )
++        resp = await client.post(
++            "/crm/tarefas",
++            json={
++                "conta_id": conta["id"], "tipo": "reuniao",
++                "titulo": "Café com o contador", "responsavel_id": usuario_id,
++                "prazo": iso(11),
++            },
++            headers=headers,
++        )
++        assert resp.status_code == 201, resp.text
++        await concluir_em(db_conn, resp.json()["id"], utc(11, 16))
++
++        corpo = (await client.get(
++            "/crm/tarefas/resumo", params=AGOSTO, headers=headers
++        )).json()
++        assert corpo["realizadas"] == 1
++
++
++class TestDrilldownDoResumo:
++    """
++    Clicar em "3 reuniões realizadas em agosto" tem que abrir exatamente
++    aquelas três. O recorte é o mesmo dos dois lados; estes testes são o que
++    impede os dois números de divergirem.
++    """
++
++    async def test_lista_as_mesmas_tarefas_que_o_resumo_contou(
++        self, db_conn, client, cenario
++    ):
++        for dia in (5, 12, 27):
++            t = await nova_tarefa(
++                client, cenario["headers"], cenario["opp"]["id"],
++                cenario["usuario_id"], tipo="reuniao", prazo=iso(dia),
++            )
++            await concluir_em(db_conn, t["id"], utc(dia, 16))
++        outra = await nova_tarefa(
++            client, cenario["headers"], cenario["opp"]["id"],
++            cenario["usuario_id"], tipo="ligacao", prazo=iso(9),
++        )
++        await concluir_em(db_conn, outra["id"], utc(9, 16))
++
++        params = {**AGOSTO, "tipo": "reuniao", "base": "conclusao"}
++        lista = (await client.get(
++            "/crm/tarefas", params=params, headers=cenario["headers"]
++        )).json()
++        resumo = (await client.get(
++            "/crm/tarefas/resumo", params=AGOSTO, headers=cenario["headers"]
++        )).json()
++
++        assert lista["total"] == linha_tipo(resumo, "reuniao")["realizadas"] == 3
++        assert all(i["tipo"] == "reuniao" for i in lista["itens"])
++
++    async def test_base_prazo_e_base_conclusao_dao_listas_diferentes(
++        self, db_conn, client, cenario
++    ):
++        t = await nova_tarefa(
++            client, cenario["headers"], cenario["opp"]["id"],
++            cenario["usuario_id"], tipo="reuniao", prazo=iso(28),
++        )
++        await concluir_em(db_conn, t["id"], utc(2, 10, mes=9))
++
++        por_prazo = (await client.get(
++            "/crm/tarefas", params={**AGOSTO, "base": "prazo"},
++            headers=cenario["headers"],
++        )).json()
++        por_conclusao = (await client.get(
++            "/crm/tarefas", params={**AGOSTO, "base": "conclusao"},
++            headers=cenario["headers"],
++        )).json()
++        assert por_prazo["total"] == 1
++        assert por_conclusao["total"] == 0
++
++    async def test_base_desconhecida_e_422(self, db_conn, client, cenario):
++        resp = await client.get(
++            "/crm/tarefas", params={"base": "criacao"}, headers=cenario["headers"]
++        )
++        assert resp.status_code == 422
++
++    async def test_tipo_desconhecido_no_filtro_e_422(self, db_conn, client, cenario):
++        resp = await client.get(
++            "/crm/tarefas", params={"tipo": "cafezinho"}, headers=cenario["headers"]
++        )
++        assert resp.status_code == 422
++
++    async def test_periodo_invertido_na_listagem_e_422(self, db_conn, client, cenario):
++        resp = await client.get(
++            "/crm/tarefas",
++            params={"de": "2026-08-31", "ate": "2026-08-01"},
++            headers=cenario["headers"],
++        )
++        assert resp.status_code == 422
++
++    async def test_busca_na_listagem(self, db_conn, client, cenario):
++        await nova_tarefa(
++            client, cenario["headers"], cenario["opp"]["id"],
++            cenario["usuario_id"], titulo="Ligar para o RH", prazo=iso(5),
++        )
++        achou = (await client.get(
++            "/crm/tarefas", params={"q": "RH"}, headers=cenario["headers"]
++        )).json()
++        assert achou["total"] == 1
++        vazio = (await client.get(
++            "/crm/tarefas", params={"q": "zzzz"}, headers=cenario["headers"]
++        )).json()
++        assert vazio["total"] == 0
++
++    async def test_os_filtros_novos_nao_deslocam_os_antigos(
++        self, db_conn, client, cenario
++    ):
++        """
++        Numeração de parâmetro posicional é o tipo de erro que não levanta
++        exceção: devolve a linha errada. Este teste combina TODOS os filtros
++        de uma vez, que é quando o deslocamento apareceria.
++        """
++        alvo = await nova_tarefa(
++            client, cenario["headers"], cenario["opp"]["id"],
++            cenario["usuario_id"], tipo="reuniao",
++            titulo="Reuniao de fechamento", prazo=iso(15),
++        )
++        await concluir_em(db_conn, alvo["id"], utc(15, 16))
++        ruido = await nova_tarefa(
++            client, cenario["headers"], cenario["opp"]["id"],
++            cenario["usuario_id"], tipo="ligacao",
++            titulo="Outra coisa", prazo=iso(15),
++        )
++        await concluir_em(db_conn, ruido["id"], utc(15, 17))
++
++        corpo = (await client.get(
++            "/crm/tarefas",
++            params={
++                "oportunidade_id": cenario["opp"]["id"],
++                "responsavel_id": cenario["usuario_id"],
++                "tipo": "reuniao",
++                "de": "2026-08-01", "ate": "2026-08-31",
++                "base": "conclusao",
++                "q": "fechamento",
++                "situacao": ["concluida"],
++            },
++            headers=cenario["headers"],
++        )).json()
++        assert [i["id"] for i in corpo["itens"]] == [alvo["id"]]
+diff --git a/api/tests/test_tarefa_regras.py b/api/tests/test_tarefa_regras.py
+index 1b27bca..46dadfd 100644
+--- a/api/tests/test_tarefa_regras.py
++++ b/api/tests/test_tarefa_regras.py
+@@ -9,7 +9,7 @@ Duas regras que estes testes documentam e travam:
+ Todo teste passa `agora` explicitamente. Nenhum mock de tempo, nenhum teste
+ que quebra à meia-noite ou na virada do ano.
+ """
+-from datetime import datetime, timedelta, timezone
++from datetime import date, datetime, timedelta, timezone
+ 
+ import pytest
+ 
+@@ -321,3 +321,57 @@ class TestExigeProximaNoParceiro:
+         estado = EstadoTarefa(prazo=datetime(2026, 8, 12, 9, tzinfo=timezone.utc))
+         with pytest.raises(TarefaInvalida, match="finalize a oportunidade"):
+             regras.validar_conclusao(estado, "ativa", tem_proxima=False)
++
++
++# ── A janela de datas do resumo ──────────────────────────────────────
++#
++# O recorte por período é a única parte da regra de tarefa que vai para o
++# SQL. Pode ir porque é determinístico: não olha o relógio, só as duas datas.
++# Estes testes são o que garante que o agosto do resumo e o agosto do
++# drilldown são o mesmo agosto.
++
++
++class TestJanelaUtc:
++    def test_o_mes_comeca_e_termina_no_fuso_do_escritorio(self):
++        """
++        Agosto de 2026 em Brasília (UTC-3) vai de 01/08 03:00Z a 01/09 03:00Z.
++
++        Se a janela fosse montada em UTC direto, começaria três horas antes e
++        uma reunião das 22h de 31/07 apareceria em agosto.
++        """
++        inicio, fim = regras.janela_utc(date(2026, 8, 1), date(2026, 8, 31))
++        assert inicio == datetime(2026, 8, 1, 3, tzinfo=timezone.utc)
++        assert fim == datetime(2026, 9, 1, 3, tzinfo=timezone.utc)
++
++    def test_o_fim_e_exclusivo_e_cobre_o_ultimo_dia_inteiro(self):
++        """
++        A tarefa concluída às 23:59 de 31/08 tem que entrar em agosto, e a
++        das 00:00 de 01/09 não. É o que a janela meia-aberta garante sem
++        depender de precisão de segundo.
++        """
++        _, fim = regras.janela_utc(date(2026, 8, 1), date(2026, 8, 31))
++        ultimo_instante = datetime(2026, 9, 1, 2, 59, 59, tzinfo=timezone.utc)
++        primeiro_de_setembro = datetime(2026, 9, 1, 3, tzinfo=timezone.utc)
++        assert ultimo_instante < fim
++        assert not primeiro_de_setembro < fim
++
++    def test_um_unico_dia(self):
++        inicio, fim = regras.janela_utc(date(2026, 8, 14), date(2026, 8, 14))
++        assert (fim - inicio) == timedelta(days=1)
++
++    def test_extremos_abertos(self):
++        assert regras.janela_utc(None, None) == (None, None)
++        assert regras.janela_utc(date(2026, 8, 1), None)[1] is None
++        assert regras.janela_utc(None, date(2026, 8, 31))[0] is None
++
++    def test_data_inicial_depois_da_final_e_recusada(self):
++        with pytest.raises(TarefaInvalida, match="não pode ser depois"):
++            regras.janela_utc(date(2026, 8, 31), date(2026, 8, 1))
++
++    def test_o_mesmo_dia_nos_dois_extremos_passa(self):
++        """Um dia só é intervalo válido, não inversão."""
++        regras.validar_janela(date(2026, 8, 14), date(2026, 8, 14))
++
++    def test_extremo_faltando_nao_dispara_a_validacao(self):
++        regras.validar_janela(None, date(2026, 1, 1))
++        regras.validar_janela(date(2026, 12, 31), None)
+diff --git a/web/src/components/crm/ProducaoDoMes.jsx b/web/src/components/crm/ProducaoDoMes.jsx
+new file mode 100644
+index 0000000..e437087
+--- /dev/null
++++ b/web/src/components/crm/ProducaoDoMes.jsx
+@@ -0,0 +1,392 @@
++// web/src/components/crm/ProducaoDoMes.jsx
++//
++// "Quantas reuniões tivemos em agosto?"
++//
++// A informação existia desde a Sprint 5 — toda tarefa tem tipo, prazo e
++// concluída_em — mas só era alcançável tarefa a tarefa, dentro do drilldown
++// de cada oportunidade. Dado que só existe no detalhe não é dado de gestão.
++//
++// ── Por que três colunas e não uma ───────────────────────────────────
++// Realizadas, agendadas e canceladas usam DATAS DIFERENTES de propósito:
++// quando foi feita, quando estava marcada, quando foi desmarcada. Uma
++// reunião marcada para 28/08 e feita em 02/09 é de agosto na agenda e de
++// setembro na produção. Somar as três daria um número sem significado; o que
++// interessa é a distância entre as duas primeiras.
++//
++// ── Por que um modal e não uma faixa na tela ─────────────────────────
++// A tela de Tarefas é um kanban de quatro colunas, e a regra de layout das
++// telas operacionais é que tudo que não é o conteúdo cabe em ~25% da altura.
++// Uma segunda linha de KPIs empurraria as colunas para baixo da dobra. O
++// número do mês fica numa pílula de 40px na barra que já existe, e o detalhe
++// abre por cima quando alguém pergunta.
++//
++// ── O drilldown é a razão do componente existir ──────────────────────
++// Clicar em "12 reuniões" abre exatamente aquelas doze. É a diretriz do
++// dashboard operacional: o número leva ao item, não termina em si mesmo. O
++// recorte é o MESMO dos dois lados (services/tarefa.py:janela_utc), então a
++// lista não pode divergir da contagem.
++//
++// Sem ações na lista: tarefa concluída é histórico imutável.
++
++import { useCallback, useEffect, useMemo, useState } from 'react';
++import { ChevronLeft, ChevronRight, CircleDot, Inbox } from 'lucide-react';
++
++import api from '../../api';
++import Modal from '../ui/Modal';
++import Badge from '../ui/Badge';
++import AlertMessage from '../ui/AlertMessage';
++import Table, { Th, Tr, Td } from '../ui/Table';
++import { ICONE_TIPO, dataCompleta, mensagemDeErro } from './tarefaComum';
++
++const MESES = [
++  'janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho',
++  'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro',
++];
++
++const MESES_CURTOS = [
++  'jan', 'fev', 'mar', 'abr', 'mai', 'jun',
++  'jul', 'ago', 'set', 'out', 'nov', 'dez',
++];
++
++/*
++  Datas montadas campo a campo, nunca por toISOString(). O ISO converte para
++  UTC antes de formatar: 01/08 00:00 em Brasília vira "2026-07-31" e o mês
++  inteiro sai deslocado em um dia. O backend já faz a conversão de fuso — o
++  que ele espera aqui é o dia de calendário, cru.
++*/
++function diaIso(d) {
++  const mes = String(d.getMonth() + 1).padStart(2, '0');
++  const dia = String(d.getDate()).padStart(2, '0');
++  return `${d.getFullYear()}-${mes}-${dia}`;
++}
++
++// Dia 0 do mês seguinte é o último dia deste — e acerta fevereiro bissexto
++// sem tabela de dias.
++export function limitesDoMes(ano, mes) {
++  return {
++    de: diaIso(new Date(ano, mes, 1)),
++    ate: diaIso(new Date(ano, mes + 1, 0)),
++  };
++}
++
++export function rotuloDoMes(ano, mes) {
++  return `${MESES[mes]} de ${ano}`;
++}
++
++export function rotuloCurto(ano, mes) {
++  const agora = new Date();
++  const esteAno = ano === agora.getFullYear();
++  return esteAno ? MESES_CURTOS[mes] : `${MESES_CURTOS[mes]}/${String(ano).slice(2)}`;
++}
++
++// ── Uma linha de tipo ────────────────────────────────────────────────
++
++function LinhaTipo({ linha, aberta, onAbrir }) {
++  const Icone = ICONE_TIPO[linha.tipo] || CircleDot;
++  const vazia = linha.realizadas === 0;
++
++  return (
++    <Tr
++      onClick={vazia ? undefined : () => onAbrir(linha)}
++      aria-expanded={vazia ? undefined : aberta}
++      className={aberta ? 'bg-hipo-blueSoft' : ''}
++    >
++      <Td>
++        <span className="flex items-center gap-2">
++          <Icone
++            size={14}
++            className={vazia ? 'text-hipo-muted' : 'text-hipo-blue'}
++            aria-hidden="true"
++          />
++          <span className={vazia ? 'text-hipo-muted' : ''}>{linha.rotulo}</span>
++        </span>
++      </Td>
++      <Td align="right" className="tabular-nums font-semibold">
++        {/*
++          Zero em cinza, não em preto. A linha existe para dizer que ninguém
++          fez nenhuma visita em agosto — e isso é informação —, mas ela não
++          pode competir visualmente com os números que têm conteúdo.
++        */}
++        <span className={vazia ? 'text-hipo-muted font-normal' : 'text-hipo-ink'}>
++          {linha.realizadas}
++        </span>
++      </Td>
++      <Td align="right" className="tabular-nums text-hipo-slate">{linha.agendadas}</Td>
++      <Td align="right" className="tabular-nums text-hipo-slate">{linha.canceladas}</Td>
++    </Tr>
++  );
++}
++
++// ── O modal ──────────────────────────────────────────────────────────
++
++export default function ProducaoDoMes({ aberto, onFechar, filtros = {} }) {
++  const hoje = useMemo(() => new Date(), []);
++  const [ano, setAno] = useState(hoje.getFullYear());
++  const [mes, setMes] = useState(hoje.getMonth());
++
++  const [resumo, setResumo] = useState(null);
++  const [carregando, setCarregando] = useState(false);
++  const [erro, setErro] = useState(null);
++
++  const [tipoAberto, setTipoAberto] = useState(null);
++  const [itens, setItens] = useState([]);
++  const [carregandoItens, setCarregandoItens] = useState(false);
++
++  const { responsavel_id: responsavelId, q } = filtros;
++
++  const periodo = useMemo(() => limitesDoMes(ano, mes), [ano, mes]);
++
++  const params = useMemo(() => {
++    const p = { ...periodo };
++    if (responsavelId) p.responsavel_id = responsavelId;
++    if (q) p.q = q;
++    return p;
++  }, [periodo, responsavelId, q]);
++
++  useEffect(() => {
++    if (!aberto) return undefined;
++    let vivo = true;
++    setCarregando(true);
++    setErro(null);
++    api.get('/crm/tarefas/resumo', { params })
++      .then(({ data }) => { if (vivo) setResumo(data); })
++      .catch((err) => {
++        if (vivo) setErro(mensagemDeErro(err, 'Não foi possível carregar a produção do mês.'));
++      })
++      .finally(() => { if (vivo) setCarregando(false); });
++    return () => { vivo = false; };
++  }, [aberto, params]);
++
++  // Trocar de mês fecha o drilldown: a lista aberta é de um mês que não está
++  // mais na tela, e uma lista que sobrevive ao filtro que a gerou é a forma
++  // mais barata de mostrar dado errado com cara de certo.
++  useEffect(() => { setTipoAberto(null); setItens([]); }, [params]);
++
++  const abrirTipo = useCallback(async (linha) => {
++    if (tipoAberto === linha.tipo) {
++      setTipoAberto(null);
++      setItens([]);
++      return;
++    }
++    setTipoAberto(linha.tipo);
++    setItens([]);
++    setCarregandoItens(true);
++    try {
++      const { data } = await api.get('/crm/tarefas', {
++        params: {
++          ...params,
++          tipo: linha.tipo,
++          // 'conclusao' é o que faz esta lista ser as MESMAS tarefas que a
++          // coluna Realizadas contou. Com o default ('prazo') viriam as
++          // marcadas para o mês, que é outro conjunto.
++          base: 'conclusao',
++          situacao: ['concluida'],
++          ordenar: 'cronologico',
++        },
++      });
++      setItens(data.itens || []);
++    } catch (err) {
++      setErro(mensagemDeErro(err, 'Não foi possível abrir a lista.'));
++    } finally {
++      setCarregandoItens(false);
++    }
++  }, [params, tipoAberto]);
++
++  const andar = (passo) => {
++    const d = new Date(ano, mes + passo, 1);
++    setAno(d.getFullYear());
++    setMes(d.getMonth());
++  };
++
++  // Não deixa navegar para o futuro: mês que ainda não aconteceu só pode
++  // devolver zero, e zero sem causa parece defeito.
++  const noMesCorrente = ano === hoje.getFullYear() && mes === hoje.getMonth();
++
++  const temFiltro = Boolean(responsavelId || q);
++  const linhaTipoAberta = resumo?.por_tipo?.find((t) => t.tipo === tipoAberto);
++
++  return (
++    <Modal
++      aberto={aberto}
++      onFechar={onFechar}
++      titulo="Produção do mês"
++      subtitulo={
++        temFiltro
++          ? 'Com os filtros da tela aplicados.'
++          : 'Tarefas realizadas, agendadas e canceladas no período.'
++      }
++      size="lg"
++    >
++      <div className="space-y-4">
++
++        {/* ── Navegação de mês ── */}
++        <div className="flex items-center justify-center gap-2">
++          <button
++            type="button"
++            onClick={() => andar(-1)}
++            aria-label="Mês anterior"
++            className="h-8 w-8 inline-flex items-center justify-center rounded-lg border border-hipo-border text-hipo-slate hover:bg-hipo-bg transition-colors"
++          >
++            <ChevronLeft size={16} />
++          </button>
++          <span className="min-w-[10rem] text-center text-sm font-semibold text-hipo-ink">
++            {rotuloDoMes(ano, mes)}
++          </span>
++          <button
++            type="button"
++            onClick={() => andar(1)}
++            disabled={noMesCorrente}
++            aria-label="Mês seguinte"
++            className="h-8 w-8 inline-flex items-center justify-center rounded-lg border border-hipo-border text-hipo-slate hover:bg-hipo-bg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
++          >
++            <ChevronRight size={16} />
++          </button>
++        </div>
++
++        {erro && <AlertMessage tipo="erro">{erro}</AlertMessage>}
++
++        {carregando && !resumo ? (
++          <p className="py-10 text-center text-sm text-hipo-slate">Carregando…</p>
++        ) : resumo && (
++          <>
++            {/* ── Os três números ── */}
++            <div className="grid grid-cols-3 gap-2">
++              {[
++                { rotulo: 'Realizadas', valor: resumo.realizadas, forte: true,
++                  dica: 'Concluídas dentro do mês.' },
++                { rotulo: 'Agendadas', valor: resumo.agendadas, forte: false,
++                  dica: 'Com prazo dentro do mês, feitas ou não.' },
++                { rotulo: 'Canceladas', valor: resumo.canceladas, forte: false,
++                  dica: 'Desmarcadas dentro do mês.' },
++              ].map((n) => (
++                <div
++                  key={n.rotulo}
++                  title={n.dica}
++                  className="rounded-lg border border-hipo-border bg-hipo-bg/40 px-3 py-2"
++                >
++                  <p className="text-[10px] uppercase tracking-wide text-hipo-slate">
++                    {n.rotulo}
++                  </p>
++                  <p className={
++                    'tabular-nums leading-tight ' +
++                    (n.forte
++                      ? 'text-2xl font-semibold text-hipo-ink'
++                      : 'text-2xl font-normal text-hipo-slate')
++                  }>
++                    {n.valor}
++                  </p>
++                </div>
++              ))}
++            </div>
++
++            {/* ── Por tipo ── */}
++            <div>
++              <h3 className="text-xs font-semibold text-hipo-slate uppercase tracking-wide mb-1.5">
++                Por tipo
++              </h3>
++              <Table>
++                <thead>
++                  <tr>
++                    <Th>Tipo</Th>
++                    <Th align="right">Realizadas</Th>
++                    <Th align="right">Agendadas</Th>
++                    <Th align="right">Canceladas</Th>
++                  </tr>
++                </thead>
++                <tbody>
++                  {resumo.por_tipo.map((linha) => (
++                    <LinhaTipo
++                      key={linha.tipo}
++                      linha={linha}
++                      aberta={tipoAberto === linha.tipo}
++                      onAbrir={abrirTipo}
++                    />
++                  ))}
++                </tbody>
++              </Table>
++              <p className="mt-1.5 text-[11px] text-hipo-muted">
++                Clique num tipo para ver as tarefas realizadas.
++              </p>
++            </div>
++
++            {/* ── Drilldown ── */}
++            {tipoAberto && (
++              <section
++                aria-label={`Realizadas — ${linhaTipoAberta?.rotulo || tipoAberto}`}
++                className="rounded-lg border border-hipo-border bg-hipo-bg/40 p-3"
++              >
++                <h3 className="text-xs font-semibold text-hipo-ink mb-2">
++                  {linhaTipoAberta?.rotulo} — realizadas em {rotuloDoMes(ano, mes)}
++                  <Badge tone="success" className="ml-2">{itens.length}</Badge>
++                </h3>
++                {carregandoItens ? (
++                  <p className="py-4 text-center text-xs text-hipo-slate">Carregando…</p>
++                ) : itens.length === 0 ? (
++                  <p className="py-4 text-center text-xs text-hipo-muted">
++                    Nada para mostrar.
++                  </p>
++                ) : (
++                  <ul className="space-y-1.5 max-h-56 overflow-y-auto pr-0.5">
++                    {itens.map((t) => (
++                      <li
++                        key={t.id}
++                        className="rounded-md border border-hipo-border bg-hipo-card px-2.5 py-2"
++                      >
++                        <p className="text-sm text-hipo-ink">{t.titulo}</p>
++                        <p className="text-xs text-hipo-slate truncate">
++                          {t.conta_razao_social}
++                        </p>
++                        <p className="text-[11px] text-hipo-muted flex items-center gap-2">
++                          <span>{dataCompleta(t.concluida_em || t.prazo)}</span>
++                          {t.responsavel_nome && (
++                            <span className="ml-auto truncate">{t.responsavel_nome}</span>
++                          )}
++                        </p>
++                      </li>
++                    ))}
++                  </ul>
++                )}
++              </section>
++            )}
++
++            {/* ── Por responsável ── */}
++            <div>
++              <h3 className="text-xs font-semibold text-hipo-slate uppercase tracking-wide mb-1.5">
++                Por responsável
++              </h3>
++              {resumo.por_responsavel.length === 0 ? (
++                <p className="flex items-center gap-2 py-3 text-xs text-hipo-muted">
++                  <Inbox size={14} aria-hidden="true" />
++                  Ninguém registrou tarefa neste período.
++                </p>
++              ) : (
++                <Table>
++                  <thead>
++                    <tr>
++                      <Th>Responsável</Th>
++                      <Th align="right">Realizadas</Th>
++                      <Th align="right">Agendadas</Th>
++                    </tr>
++                  </thead>
++                  <tbody>
++                    {resumo.por_responsavel.map((p) => (
++                      <Tr key={p.usuario_id}>
++                        <Td>{p.nome || '—'}</Td>
++                        <Td align="right" className="tabular-nums font-semibold">
++                          {p.realizadas}
++                        </Td>
++                        <Td align="right" className="tabular-nums text-hipo-slate">
++                          {p.agendadas}
++                        </Td>
++                      </Tr>
++                    ))}
++                  </tbody>
++                </Table>
++              )}
++            </div>
++          </>
++        )}
++      </div>
++    </Modal>
++  );
++}
+diff --git a/web/src/pages/crm/Tarefas.jsx b/web/src/pages/crm/Tarefas.jsx
+index cfa7c35..f390b59 100644
+--- a/web/src/pages/crm/Tarefas.jsx
++++ b/web/src/pages/crm/Tarefas.jsx
+@@ -27,6 +27,7 @@
+ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+ import {
+   Search, X, CircleDot, AlarmClock, CalendarCheck, CalendarClock, CheckCircle2,
++  TrendingUp,
+ } from 'lucide-react';
+ 
+ import api from '../../api';
+@@ -34,6 +35,10 @@ import Badge from '../../components/ui/Badge';
+ import Empty from '../../components/ui/Empty';
+ import AlertMessage from '../../components/ui/AlertMessage';
+ import Modal from '../../components/ui/Modal';
++import KpiInline from '../../components/ui/KpiInline';
++import ProducaoDoMes, {
++  limitesDoMes, rotuloCurto,
++} from '../../components/crm/ProducaoDoMes';
+ import {
+   ABERTAS, ICONE_TIPO, SITUACAO, STATUS_ABERTOS,
+   PainelAcoesTarefa,
+@@ -166,6 +171,8 @@ export default function Tarefas() {
+   const [ocupado, setOcupado] = useState(false);
+   const [aberta, setAberta] = useState(null);      // tarefa no modal
+   const [painel, setPainel] = useState(null);
++  const [producao, setProducao] = useState(null);  // resumo do mês corrente
++  const [verProducao, setVerProducao] = useState(false);
+   const debounce = useRef(null);
+ 
+   // O `q === busca ? q : busca` não é microtuning: sem ele o timer dispara
+@@ -207,6 +214,33 @@ export default function Tarefas() {
+       .catch(() => setUsuarios([]));
+   }, []);
+ 
++  /*
++    O KPI do mês corrente, com os MESMOS filtros da barra. Agregado que
++    ignora o filtro da tela produz um número global ao lado de uma lista
++    filtrada — duas respostas para a mesma pergunta, na mesma tela.
++
++    Falha em silêncio de propósito: o kanban é o conteúdo, e um erro no
++    contador do mês não pode roubar a faixa de erro de quem está tentando
++    concluir uma tarefa.
++  */
++  const mesCorrente = useMemo(() => {
++    const hoje = new Date();
++    return {
++      ...limitesDoMes(hoje.getFullYear(), hoje.getMonth()),
++      rotulo: rotuloCurto(hoje.getFullYear(), hoje.getMonth()),
++    };
++  }, []);
++
++  useEffect(() => {
++    let vivo = true;
++    api.get('/crm/tarefas/resumo', {
++      params: { de: mesCorrente.de, ate: mesCorrente.ate, ...params },
++    })
++      .then(({ data }) => { if (vivo) setProducao(data); })
++      .catch(() => { if (vivo) setProducao(null); });
++    return () => { vivo = false; };
++  }, [params, mesCorrente]);
++
+   const mutar = useCallback(async (fn, padrao) => {
+     setOcupado(true);
+     setErro(null);
+@@ -272,6 +306,21 @@ export default function Tarefas() {
+             {atrasadas} atrasada{atrasadas === 1 ? '' : 's'}
+           </Badge>
+           <Badge tone="info">{emAberto} em aberto</Badge>
++
++          {/*
++            O contrapeso das duas badges acima. Elas contam o que está
++            PARADO; esta conta o que ANDOU. Uma tela que só mostra dívida
++            ensina que o trabalho nunca rende.
++          */}
++          <KpiInline
++            label={`Realizadas em ${mesCorrente.rotulo}`}
++            valor={producao?.realizadas ?? '—'}
++            titulo="Tarefas concluídas no mês corrente. Clique para abrir a produção por tipo e por responsável."
++            icone={TrendingUp}
++            tom="bg-hipo-successSoft text-hipo-success"
++            ativo={verProducao}
++            onClick={() => setVerProducao(true)}
++          />
+         </div>
+ 
+         <div className="ml-auto flex flex-wrap items-center gap-2">
+@@ -421,6 +470,12 @@ export default function Tarefas() {
+           </div>
+         )}
+       </Modal>
++
++      <ProducaoDoMes
++        aberto={verProducao}
++        onFechar={() => setVerProducao(false)}
++        filtros={params}
++      />
+     </div>
+   );
+ }
+diff --git a/web/src/tests/ProducaoDoMes.test.jsx b/web/src/tests/ProducaoDoMes.test.jsx
+new file mode 100644
+index 0000000..4297dec
+--- /dev/null
++++ b/web/src/tests/ProducaoDoMes.test.jsx
+@@ -0,0 +1,356 @@
++// web/src/tests/ProducaoDoMes.test.jsx
++//
++// "Quantas reuniões tivemos em agosto?" — a pergunta que o HIPO não
++// respondia. Quatro promessas que estes testes seguram:
++//
++//   1. o mês pedido é o mês inteiro, do dia 1 ao último — inclusive fevereiro
++//   2. realizadas, agendadas e canceladas são três números distintos, e a
++//      tela não os soma
++//   3. clicar num tipo abre EXATAMENTE as tarefas que ele contou — mesmo
++//      recorte, com base=conclusao
++//   4. os filtros da barra da tela valem também para o agregado
++import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
++import { render, screen, fireEvent, cleanup, waitFor, within } from '@testing-library/react';
++
++const mockGet = vi.fn();
++
++vi.mock('../api', () => ({
++  default: { get: (...a) => mockGet(...a) },
++}));
++
++import ProducaoDoMes, { limitesDoMes, rotuloDoMes } from '../components/crm/ProducaoDoMes';
++
++const TIPOS = [
++  ['ligacao', 'Ligação'], ['reuniao', 'Reunião'], ['visita', 'Visita'],
++  ['proposta', 'Proposta'], ['email', 'E-mail'], ['whatsapp', 'WhatsApp'],
++  ['outro', 'Outro'],
++];
++
++function resumo(extra = {}) {
++  const contagens = { reuniao: [12, 15, 2], ligacao: [30, 33, 1], ...extra.contagens };
++  return {
++    de: '2026-08-01',
++    ate: '2026-08-31',
++    realizadas: 42,
++    agendadas: 48,
++    canceladas: 3,
++    por_tipo: TIPOS.map(([tipo, rotulo]) => {
++      const [realizadas, agendadas, canceladas] = contagens[tipo] || [0, 0, 0];
++      return { tipo, rotulo, realizadas, agendadas, canceladas };
++    }),
++    por_responsavel: [
++      { usuario_id: 'u1', nome: 'Jakeline Santana', realizadas: 25, agendadas: 28 },
++      { usuario_id: 'u2', nome: 'Bruno Gonçalo', realizadas: 17, agendadas: 20 },
++    ],
++    ...extra.raiz,
++  };
++}
++
++function itensDeReuniao() {
++  return {
++    total: 2,
++    abertas: 0,
++    atrasadas: 0,
++    itens: [
++      {
++        id: 't1', tipo: 'reuniao', tipo_rotulo: 'Reunião',
++        titulo: 'Apresentacao do PCMSO', conta_razao_social: 'Metalurgica Alfa LTDA',
++        responsavel_nome: 'Jakeline Santana', situacao: 'concluida',
++        prazo: '2026-08-12T13:00:00Z', concluida_em: '2026-08-12T16:00:00Z',
++      },
++      {
++        id: 't2', tipo: 'reuniao', tipo_rotulo: 'Reunião',
++        titulo: 'Fechamento do contrato', conta_razao_social: 'Transportadora Beta LTDA',
++        responsavel_nome: 'Bruno Gonçalo', situacao: 'concluida',
++        prazo: '2026-08-27T13:00:00Z', concluida_em: '2026-08-27T18:00:00Z',
++      },
++    ],
++  };
++}
++
++function respostas({ resumoDados = resumo(), lista = itensDeReuniao() } = {}) {
++  return (url) => {
++    if (url === '/crm/tarefas/resumo') return Promise.resolve({ data: resumoDados });
++    if (url === '/crm/tarefas') return Promise.resolve({ data: lista });
++    return Promise.resolve({ data: {} });
++  };
++}
++
++function montar(props = {}) {
++  return render(
++    <ProducaoDoMes aberto onFechar={() => {}} {...props} />
++  );
++}
++
++const chamadasDe = (url) => mockGet.mock.calls.filter((c) => c[0] === url);
++const ultimaChamada = (url) => chamadasDe(url).at(-1);
++
++beforeEach(() => {
++  // Só o relógio. Com os timers inteiros falsos, o waitFor do testing-library
++  // nunca avança e todo teste assíncrono estoura por timeout.
++  vi.useFakeTimers({ toFake: ['Date'] });
++  vi.setSystemTime(new Date(2026, 7, 14, 12, 0, 0));
++  mockGet.mockReset();
++  mockGet.mockImplementation(respostas());
++});
++
++afterEach(() => {
++  cleanup();
++  vi.useRealTimers();
++});
++
++describe('limitesDoMes — o mês inteiro, do dia 1 ao último', () => {
++  it('agosto vai de 01 a 31', () => {
++    expect(limitesDoMes(2026, 7)).toEqual({ de: '2026-08-01', ate: '2026-08-31' });
++  });
++
++  it('fevereiro comum termina em 28', () => {
++    expect(limitesDoMes(2026, 1).ate).toBe('2026-02-28');
++  });
++
++  it('fevereiro bissexto termina em 29', () => {
++    /* Dia 0 do mês seguinte é o último deste — acerta bissexto sem tabela. */
++    expect(limitesDoMes(2024, 1).ate).toBe('2024-02-29');
++  });
++
++  it('dezembro não vaza para o ano seguinte', () => {
++    expect(limitesDoMes(2026, 11)).toEqual({ de: '2026-12-01', ate: '2026-12-31' });
++  });
++
++  it('todo mês começa no dia 1', () => {
++    for (let m = 0; m < 12; m += 1) {
++      expect(limitesDoMes(2026, m).de.endsWith('-01')).toBe(true);
++    }
++  });
++
++  it('o rótulo é o mês por extenso', () => {
++    expect(rotuloDoMes(2026, 7)).toBe('agosto de 2026');
++  });
++});
++
++describe('ProducaoDoMes — o resumo', () => {
++  it('abre no mês corrente e pede o mês inteiro', async () => {
++    montar();
++    await waitFor(() => expect(chamadasDe('/crm/tarefas/resumo').length).toBe(1));
++    expect(ultimaChamada('/crm/tarefas/resumo')[1].params).toMatchObject({
++      de: '2026-08-01', ate: '2026-08-31',
++    });
++    expect(screen.getByText('agosto de 2026')).toBeInTheDocument();
++  });
++
++  it('mostra os três números separados, sem somá-los', async () => {
++    /*
++      Realizadas, agendadas e canceladas usam datas diferentes. A mesma
++      reunião marcada e feita em agosto conta nas duas primeiras — somar daria
++      um número sem significado.
++    */
++    montar();
++    expect(await screen.findByText('42')).toBeInTheDocument();
++    expect(screen.getByText('48')).toBeInTheDocument();
++    expect(screen.getByText('3')).toBeInTheDocument();
++    expect(screen.queryByText('93')).not.toBeInTheDocument();
++  });
++
++  it('lista os sete tipos, inclusive os zerados', async () => {
++    /* Zero é informação: nenhuma visita em agosto é um fato sobre agosto. */
++    montar();
++    await screen.findByText('Reunião');
++    for (const [, rotulo] of TIPOS) {
++      expect(screen.getByText(rotulo)).toBeInTheDocument();
++    }
++  });
++
++  it('mostra a quebra por responsável', async () => {
++    montar();
++    expect(await screen.findByText('Jakeline Santana')).toBeInTheDocument();
++    expect(screen.getByText('Bruno Gonçalo')).toBeInTheDocument();
++  });
++
++  it('avisa quando ninguém registrou nada no período', async () => {
++    mockGet.mockImplementation(respostas({
++      resumoDados: resumo({ raiz: { por_responsavel: [] } }),
++    }));
++    montar();
++    expect(
++      await screen.findByText('Ninguém registrou tarefa neste período.')
++    ).toBeInTheDocument();
++  });
++
++  it('erro da API aparece na tela', async () => {
++    mockGet.mockImplementation((url) => {
++      if (url === '/crm/tarefas/resumo') {
++        return Promise.reject({ response: { data: { detail: 'Boom' } } });
++      }
++      return respostas()(url);
++    });
++    montar();
++    expect(await screen.findByText('Boom')).toBeInTheDocument();
++  });
++});
++
++describe('ProducaoDoMes — navegação de mês', () => {
++  it('o mês anterior refaz a consulta com a janela nova', async () => {
++    montar();
++    await waitFor(() => expect(chamadasDe('/crm/tarefas/resumo').length).toBe(1));
++
++    fireEvent.click(screen.getByLabelText('Mês anterior'));
++
++    await waitFor(() => expect(chamadasDe('/crm/tarefas/resumo').length).toBe(2));
++    expect(ultimaChamada('/crm/tarefas/resumo')[1].params).toMatchObject({
++      de: '2026-07-01', ate: '2026-07-31',
++    });
++    expect(screen.getByText('julho de 2026')).toBeInTheDocument();
++  });
++
++  it('atravessa a virada do ano para trás', async () => {
++    vi.setSystemTime(new Date(2026, 0, 15, 12, 0, 0));
++    montar();
++    await screen.findByText('janeiro de 2026');
++
++    fireEvent.click(screen.getByLabelText('Mês anterior'));
++
++    await screen.findByText('dezembro de 2025');
++    await waitFor(() =>
++      expect(ultimaChamada('/crm/tarefas/resumo')[1].params).toMatchObject({
++        de: '2025-12-01', ate: '2025-12-31',
++      })
++    );
++  });
++
++  it('não deixa navegar para o futuro', async () => {
++    /* Mês que ainda não aconteceu só pode devolver zero, e zero sem causa
++       parece defeito. */
++    montar();
++    await screen.findByText('agosto de 2026');
++    expect(screen.getByLabelText('Mês seguinte')).toBeDisabled();
++  });
++
++  it('depois de voltar, o mês seguinte volta a funcionar', async () => {
++    montar();
++    await screen.findByText('agosto de 2026');
++    fireEvent.click(screen.getByLabelText('Mês anterior'));
++    await screen.findByText('julho de 2026');
++
++    const seguinte = screen.getByLabelText('Mês seguinte');
++    expect(seguinte).not.toBeDisabled();
++    fireEvent.click(seguinte);
++    await screen.findByText('agosto de 2026');
++  });
++});
++
++describe('ProducaoDoMes — drilldown', () => {
++  const abrirReuniao = () => fireEvent.click(screen.getByText('Reunião'));
++
++  it('clicar num tipo abre exatamente as tarefas que ele contou', async () => {
++    montar();
++    await screen.findByText('Reunião');
++    abrirReuniao();
++
++    await waitFor(() => expect(chamadasDe('/crm/tarefas').length).toBe(1));
++    const { params } = ultimaChamada('/crm/tarefas')[1];
++    expect(params).toMatchObject({
++      tipo: 'reuniao',
++      de: '2026-08-01',
++      ate: '2026-08-31',
++      // Sem isto viriam as MARCADAS para o mês, que é outro conjunto.
++      base: 'conclusao',
++      situacao: ['concluida'],
++    });
++  });
++
++  it('mostra os itens com empresa e responsável', async () => {
++    montar();
++    await screen.findByText('Reunião');
++    abrirReuniao();
++
++    const lista = within(
++      await screen.findByRole('region', { name: /Realizadas — Reunião/ })
++    );
++    expect(lista.getByText('Apresentacao do PCMSO')).toBeInTheDocument();
++    expect(lista.getByText('Transportadora Beta LTDA')).toBeInTheDocument();
++    expect(lista.getByText('Bruno Gonçalo')).toBeInTheDocument();
++  });
++
++  it('clicar de novo fecha', async () => {
++    montar();
++    await screen.findByText('Reunião');
++    abrirReuniao();
++    await screen.findByRole('region', { name: /Realizadas — Reunião/ });
++
++    abrirReuniao();
++    await waitFor(() =>
++      expect(screen.queryByRole('region', { name: /Realizadas — Reunião/ }))
++        .not.toBeInTheDocument()
++    );
++  });
++
++  it('tipo zerado não abre lista nenhuma', async () => {
++    /* Não há o que mostrar, e a linha que reage ao clique sem produzir nada
++       ensina que a tela está quebrada. */
++    montar();
++    await screen.findByText('Visita');
++    fireEvent.click(screen.getByText('Visita'));
++
++    await waitFor(() => expect(chamadasDe('/crm/tarefas').length).toBe(0));
++  });
++
++  it('trocar de mês fecha o drilldown', async () => {
++    /* A lista aberta é de um mês que não está mais na tela — dado errado com
++       cara de certo. */
++    montar();
++    await screen.findByText('Reunião');
++    abrirReuniao();
++    await screen.findByRole('region', { name: /Realizadas — Reunião/ });
++
++    fireEvent.click(screen.getByLabelText('Mês anterior'));
++
++    await waitFor(() =>
++      expect(screen.queryByRole('region', { name: /Realizadas — Reunião/ }))
++        .not.toBeInTheDocument()
++    );
++  });
++});
++
++describe('ProducaoDoMes — os filtros da tela', () => {
++  it('o agregado respeita responsável e busca', async () => {
++    /*
++      Agregado que ignora o filtro da tela produz um número global ao lado de
++      uma lista filtrada — duas respostas para a mesma pergunta.
++    */
++    montar({ filtros: { responsavel_id: 'u2', q: 'Beta' } });
++    await waitFor(() => expect(chamadasDe('/crm/tarefas/resumo').length).toBe(1));
++    expect(ultimaChamada('/crm/tarefas/resumo')[1].params).toMatchObject({
++      responsavel_id: 'u2', q: 'Beta', de: '2026-08-01', ate: '2026-08-31',
++    });
++  });
++
++  it('o drilldown herda os mesmos filtros', async () => {
++    montar({ filtros: { responsavel_id: 'u2' } });
++    await screen.findByText('Reunião');
++    fireEvent.click(screen.getByText('Reunião'));
++
++    await waitFor(() => expect(chamadasDe('/crm/tarefas').length).toBe(1));
++    expect(ultimaChamada('/crm/tarefas')[1].params).toMatchObject({
++      responsavel_id: 'u2', tipo: 'reuniao', base: 'conclusao',
++    });
++  });
++
++  it('avisa no subtítulo que há filtro aplicado', async () => {
++    montar({ filtros: { q: 'Beta' } });
++    expect(
++      await screen.findByText('Com os filtros da tela aplicados.')
++    ).toBeInTheDocument();
++  });
++
++  it('sem filtro, o subtítulo explica os três números', async () => {
++    montar();
++    expect(
++      await screen.findByText('Tarefas realizadas, agendadas e canceladas no período.')
++    ).toBeInTheDocument();
++  });
++
++  it('não consulta nada enquanto está fechado', async () => {
++    render(<ProducaoDoMes aberto={false} onFechar={() => {}} />);
++    await waitFor(() => expect(chamadasDe('/crm/tarefas/resumo').length).toBe(0));
++  });
++});
+diff --git a/web/src/tests/Tarefas.test.jsx b/web/src/tests/Tarefas.test.jsx
+index 67b1c3e..b792385 100644
+--- a/web/src/tests/Tarefas.test.jsx
++++ b/web/src/tests/Tarefas.test.jsx
+@@ -82,10 +82,35 @@ const USUARIOS = [
+   { id: 'u2', nome: 'Bruno Gonçalo', cargo: 'EV' },
+ ];
+ 
++const TIPOS_RESUMO = [
++  ['ligacao', 'Ligação'], ['reuniao', 'Reunião'], ['visita', 'Visita'],
++  ['proposta', 'Proposta'], ['email', 'E-mail'], ['whatsapp', 'WhatsApp'],
++  ['outro', 'Outro'],
++];
++
++const RESUMO = {
++  de: '2026-08-01',
++  ate: '2026-08-31',
++  realizadas: 42,
++  agendadas: 48,
++  canceladas: 3,
++  por_tipo: TIPOS_RESUMO.map(([tipo, rotulo]) => ({
++    tipo, rotulo,
++    realizadas: tipo === 'reuniao' ? 12 : 0,
++    agendadas: tipo === 'reuniao' ? 15 : 0,
++    canceladas: 0,
++  })),
++  por_responsavel: [
++    { usuario_id: 'u1', nome: 'Jakeline Santana', realizadas: 42, agendadas: 48 },
++  ],
++};
++
+ function respostas(colunas = COLUNAS) {
+   return (url) => {
+     if (url === '/crm/tarefas/kanban') return Promise.resolve({ data: colunas });
+     if (url === '/crm/dominio/usuarios') return Promise.resolve({ data: USUARIOS });
++    if (url === '/crm/tarefas/resumo') return Promise.resolve({ data: RESUMO });
++    if (url === '/crm/tarefas') return Promise.resolve({ data: { total: 0, abertas: 0, atrasadas: 0, itens: [] } });
+     return Promise.resolve({ data: [] });
+   };
+ }
+@@ -338,3 +363,78 @@ describe('Tarefas — o detalhe', () => {
+       .toBeInTheDocument();
+   });
+ });
++
++// ── Produção do mês ──────────────────────────────────────────────────
++//
++// A barra contava só o que está PARADO — atrasadas e em aberto. Uma tela que
++// só mostra dívida ensina que o trabalho nunca rende. O KPI do mês é o
++// contrapeso, e é por onde se chega à resposta de "quantas reuniões tivemos
++// em agosto".
++
++describe('Tarefas — a produção do mês', () => {
++  beforeEach(() => {
++    // Só o relógio: com os timers inteiros falsos o debounce da busca nunca
++    // dispara e o waitFor estoura por timeout.
++    vi.useFakeTimers({ toFake: ['Date'] });
++    vi.setSystemTime(new Date(2026, 7, 14, 12, 0, 0));
++  });
++
++  afterEach(() => vi.useRealTimers());
++
++  const chamadasDe = (url) => mockGet.mock.calls.filter((c) => c[0] === url);
++
++  it('pede o resumo do mês corrente', async () => {
++    montar();
++    await waitFor(() => expect(chamadasDe('/crm/tarefas/resumo').length).toBe(1));
++    expect(chamadasDe('/crm/tarefas/resumo')[0][1].params).toMatchObject({
++      de: '2026-08-01', ate: '2026-08-31',
++    });
++  });
++
++  it('mostra o total realizado na barra', async () => {
++    montar();
++    expect(await screen.findByText('42')).toBeInTheDocument();
++    expect(screen.getByText('Realizadas em ago')).toBeInTheDocument();
++  });
++
++  it('o agregado usa os MESMOS filtros da barra', async () => {
++    /*
++      Número global ao lado de uma lista filtrada são duas respostas para a
++      mesma pergunta, na mesma tela.
++    */
++    montar();
++    await screen.findByRole('region', { name: 'Atrasadas' });
++
++    fireEvent.change(screen.getByLabelText('Responsável'), { target: { value: 'u2' } });
++
++    await waitFor(() => {
++      const ultima = chamadasDe('/crm/tarefas/resumo').at(-1);
++      expect(ultima[1].params).toMatchObject({ responsavel_id: 'u2' });
++    });
++  });
++
++  it('clicar abre a produção por tipo e por responsável', async () => {
++    montar();
++    fireEvent.click(await screen.findByText('Realizadas em ago'));
++
++    expect(await screen.findByText('Produção do mês')).toBeInTheDocument();
++    expect(screen.getByText('agosto de 2026')).toBeInTheDocument();
++    expect(screen.getByText('Reunião')).toBeInTheDocument();
++  });
++
++  it('falha do resumo não derruba o kanban nem rouba a faixa de erro', async () => {
++    /*
++      O kanban é o conteúdo. Um erro no contador do mês não pode aparecer no
++      lugar do erro de quem está tentando concluir uma tarefa.
++    */
++    mockGet.mockImplementation((url) => {
++      if (url === '/crm/tarefas/resumo') return Promise.reject(new Error('502'));
++      return respostas()(url);
++    });
++    montar();
++
++    await screen.findByRole('region', { name: 'Atrasadas' });
++    expect(screen.getByText('Cobrar proposta')).toBeInTheDocument();
++    expect(screen.getByText('—')).toBeInTheDocument();
++  });
++});
+-- 
+2.43.0
+

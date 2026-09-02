@@ -26,7 +26,7 @@ O que este módulo materializa:
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status as http
@@ -182,6 +182,31 @@ class ColunaTarefas(BaseModel):
     somente_leitura: bool = False
 
 
+class ProducaoTipo(BaseModel):
+    tipo: str
+    rotulo: str
+    realizadas: int
+    agendadas: int
+    canceladas: int
+
+
+class ProducaoResponsavel(BaseModel):
+    usuario_id: UUID
+    nome: str | None
+    realizadas: int
+    agendadas: int
+
+
+class ResumoTarefas(BaseModel):
+    de: date | None
+    ate: date | None
+    realizadas: int
+    agendadas: int
+    canceladas: int
+    por_tipo: list[ProducaoTipo]
+    por_responsavel: list[ProducaoResponsavel]
+
+
 # ── SQL compartilhado ────────────────────────────────────────────────
 
 _SELECT_BASE = """
@@ -324,13 +349,76 @@ def _agora() -> datetime:
     return datetime.now(timezone.utc)
 
 
+class _Params:
+    """
+    Acumulador de parâmetros posicionais do asyncpg.
+
+    Existe porque a numeração manual (`f"${len(params) + 1}"`) já produziu
+    dois bugs neste arquivo: um filtro novo no meio da lista desloca todos os
+    índices abaixo dele, e o erro não aparece como exceção — aparece como
+    consulta que devolve a linha errada. Aqui o número sai do próprio append.
+    """
+
+    def __init__(self) -> None:
+        self.valores: list = []
+
+    def add(self, valor) -> str:
+        self.valores.append(valor)
+        return f"${len(self.valores)}"
+
+
+def _clausula_busca(q: str | None, p: _Params) -> str | None:
+    """
+    Busca livre por título, empresa ou número da oportunidade.
+
+    COALESCE em vez de `co.razao_social`: com o LEFT JOIN da 006, a tarefa de
+    parceiro tem `co` inteiro nulo, e `co.razao_social ILIKE` devolve NULL —
+    que numa cláusula OR não é falso, é ausência. A busca simplesmente nunca
+    encontraria tarefa de parceiro.
+    """
+    if not q or not q.strip():
+        return None
+    n = p.add(f"%{q.strip()}%")
+    return (
+        f"(t.titulo ILIKE {n}"
+        f" OR COALESCE(cp.razao_social, co.razao_social) ILIKE {n}"
+        f" OR COALESCE(o.numero, '') ILIKE {n})"
+    )
+
+
+def _dentro(coluna: str, ini: str | None, fim: str | None) -> str:
+    """
+    Fragmento SQL "esta coluna de data caiu na janela".
+
+    Sem janela, a resposta é "a coluna está preenchida" — que é o que faz
+    `realizadas` continuar significando "concluídas" quando o período pedido
+    é 'desde sempre', em vez de virar a contagem de todas as tarefas.
+    """
+    if ini is None and fim is None:
+        return f"{coluna} IS NOT NULL"
+    partes = [f"{coluna} IS NOT NULL"]
+    if ini is not None:
+        partes.append(f"{coluna} >= {ini}")
+    if fim is not None:
+        partes.append(f"{coluna} < {fim}")
+    return "(" + " AND ".join(partes) + ")"
+
+
 # ── Leitura ──────────────────────────────────────────────────────────
+
+BASES_DATA = {"prazo": "t.prazo", "conclusao": "t.concluida_em"}
+
 
 @router.get("", response_model=TarefaLista)
 async def listar(
     oportunidade_id: UUID | None = None,
     conta_id: UUID | None = None,
     responsavel_id: UUID | None = None,
+    tipo: str | None = Query(None),
+    de: date | None = Query(None),
+    ate: date | None = Query(None),
+    base: str = Query("prazo"),
+    q: str | None = Query(None, max_length=200),
     situacao: list[str] | None = Query(None),
     ordenar: str = Query("urgencia"),
     limit: int = Query(200, ge=1, le=500),
@@ -341,6 +429,20 @@ async def listar(
     """
     Tarefas de uma oportunidade ou de um parceiro — passadas, em aberto e
     futuras, na mesma lista.
+
+    `tipo`, `de`, `ate` e `base` existem para o drilldown do resumo: clicar em
+    "12 reuniões realizadas em agosto" tem que abrir exatamente aquelas doze,
+    e não uma lista parecida. Por isso o recorte é o MESMO dos dois lados —
+    services/tarefa.py:janela_utc.
+
+    `base` diz QUAL data a janela recorta, e o default não é inocente:
+
+      * 'prazo'     — quando a tarefa está marcada. É a pergunta da agenda.
+      * 'conclusao' — quando ela foi feita. É a pergunta da produção.
+
+    São números diferentes de propósito. Uma reunião marcada para 28/08 e
+    feita em 02/09 é de agosto na agenda e de setembro na produção; um único
+    filtro de data teria que escolher uma das duas e mentir na outra.
 
     `conta_id` recorta as tarefas de um PARCEIRO (t.conta_id), não as da
     conta por trás de uma oportunidade. São duas perguntas diferentes: a
@@ -370,27 +472,49 @@ async def listar(
         raise HTTPException(
             422, "ordenar inválido. Use: urgencia, cronologico."
         )
+    if base not in BASES_DATA:
+        raise HTTPException(
+            422, f"base inválida. Use: {', '.join(BASES_DATA)}."
+        )
+    if tipo is not None and tipo not in regras.TIPOS:
+        raise HTTPException(
+            422, f"Tipo inválido: '{tipo}'. Use: {', '.join(regras.TIPOS)}."
+        )
     for s in situacao or []:
         if s not in regras.SITUACOES:
             raise HTTPException(
                 422, f"Situação inválida: '{s}'. Use: {', '.join(regras.SITUACOES)}."
             )
+    try:
+        inicio, fim = regras.janela_utc(de, ate)
+    except TarefaInvalida as e:
+        raise HTTPException(422, str(e))
 
-    where, params = [], []
+    p = _Params()
+    where = []
     if oportunidade_id is not None:
-        params.append(oportunidade_id)
-        where.append(f"t.oportunidade_id = ${len(params)}")
+        where.append(f"t.oportunidade_id = {p.add(oportunidade_id)}")
     if conta_id is not None:
-        params.append(conta_id)
-        where.append(f"t.conta_id = ${len(params)}")
+        where.append(f"t.conta_id = {p.add(conta_id)}")
     if responsavel_id is not None:
-        params.append(responsavel_id)
-        where.append(f"t.responsavel_id = ${len(params)}")
+        where.append(f"t.responsavel_id = {p.add(responsavel_id)}")
+    if tipo is not None:
+        where.append(f"t.tipo = {p.add(tipo)}")
+    if inicio is not None or fim is not None:
+        where.append(_dentro(
+            BASES_DATA[base],
+            p.add(inicio) if inicio is not None else None,
+            p.add(fim) if fim is not None else None,
+        ))
+    busca = _clausula_busca(q, p)
+    if busca:
+        where.append(busca)
     clausula = f"WHERE {' AND '.join(where)}" if where else ""
 
     rows = await conn.fetch(
-        f"{_SELECT_BASE} {clausula} ORDER BY t.prazo LIMIT ${len(params) + 1} OFFSET ${len(params) + 2}",
-        *params, limit, offset,
+        f"{_SELECT_BASE} {clausula} ORDER BY t.prazo"
+        f" LIMIT {p.add(limit)} OFFSET {p.add(offset)}",
+        *p.valores,
     )
 
     agora = _agora()
@@ -455,31 +579,20 @@ async def kanban(
     primeiro, "kanban" é lido como id e a resposta vira 422. Mesma armadilha
     que já custou um 404 em /crm/dominio/usuarios.
     """
+    p = _Params()
     where = [
-        "(t.concluida_em IS NULL AND t.cancelada_em IS NULL"
-        " OR t.concluida_em >= NOW() - ($1 || ' days')::interval)"
+        f"(t.concluida_em IS NULL AND t.cancelada_em IS NULL"
+        f" OR t.concluida_em >= NOW() - ({p.add(str(dias_concluidas))} || ' days')::interval)"
     ]
-    params: list = [str(dias_concluidas)]
-
     if responsavel_id is not None:
-        params.append(responsavel_id)
-        where.append(f"t.responsavel_id = ${len(params)}")
-    if q:
-        params.append(f"%{q.strip()}%")
-        n = len(params)
-        # COALESCE em vez de `co.razao_social`: com o LEFT JOIN da 006, a
-        # tarefa de parceiro tem `co` inteiro nulo, e `co.razao_social ILIKE`
-        # devolve NULL — que numa cláusula OR não é falso, é ausência. A
-        # busca simplesmente nunca encontraria tarefa de parceiro.
-        where.append(
-            f"(t.titulo ILIKE ${n}"
-            f" OR COALESCE(cp.razao_social, co.razao_social) ILIKE ${n}"
-            f" OR COALESCE(o.numero, '') ILIKE ${n})"
-        )
+        where.append(f"t.responsavel_id = {p.add(responsavel_id)}")
+    busca = _clausula_busca(q, p)
+    if busca:
+        where.append(busca)
 
     rows = await conn.fetch(
         f"{_SELECT_BASE} WHERE {' AND '.join(where)} ORDER BY t.prazo",
-        *params,
+        *p.valores,
     )
 
     agora = _agora()
@@ -500,6 +613,151 @@ async def kanban(
             "somente_leitura": chave == "concluida",
         })
     return colunas
+
+
+@router.get("/resumo", response_model=ResumoTarefas)
+async def resumo(
+    de: date | None = Query(None, description="Primeiro dia, no fuso da operação."),
+    ate: date | None = Query(None, description="Último dia, inclusivo."),
+    responsavel_id: UUID | None = None,
+    q: str | None = Query(None, max_length=200),
+    conn=Depends(get_conn),
+    user=Depends(usuario_atual),
+):
+    """
+    Produção do período: quantas tarefas de cada tipo foram REALIZADAS,
+    quantas estavam agendadas e quantas foram canceladas.
+
+    Existe porque "quantas reuniões tivemos em agosto" não tinha resposta no
+    HIPO. A informação estava lá desde a Sprint 5 — toda tarefa tem tipo,
+    prazo e concluída_em — mas só era alcançável tarefa a tarefa, dentro do
+    drilldown de cada oportunidade. Dado que só existe no detalhe não é dado
+    de gestão.
+
+    TRÊS NÚMEROS, TRÊS DATAS DIFERENTES, e é isso que os torna comparáveis:
+
+      * realizadas — `concluida_em` na janela. O que de fato aconteceu.
+      * agendadas  — `prazo` na janela. O que estava marcado para o período,
+                     tenha sido feito, esquecido ou ainda por fazer.
+      * canceladas — `cancelada_em` na janela. O que foi desmarcado.
+
+    Somar os três daria um número sem significado: a mesma reunião marcada e
+    feita em agosto conta nos dois primeiros. Eles respondem perguntas
+    diferentes — "produzimos quanto", "planejamos quanto", "desmarcamos
+    quanto" — e a distância entre agendadas e realizadas é a leitura que
+    interessa.
+
+    Cancelada NÃO conta como realizada mesmo se tiver concluída_em: o CHECK do
+    banco impede o par, mas o filtro é explícito porque a contagem de produção
+    é a única coisa que este endpoint promete, e ela não pode depender de um
+    invariante escrito em outro arquivo.
+
+    A janela vai para o SQL, não para Python: concluídas são fluxo e crescem
+    para sempre. Isso NÃO duplica a regra da situação — o recorte por data é
+    determinístico e não olha o relógio. Ver services/tarefa.py:janela_utc.
+
+    `por_tipo` devolve SEMPRE os sete tipos, inclusive os zerados e na ordem
+    fixa do vocabulário. Omitir o que deu zero faria a barra trocar de ordem
+    e de largura a cada mês, e o zero é informação: nenhuma visita em agosto
+    é um fato sobre agosto.
+
+    Aceita os mesmos filtros da barra da tela (responsável e busca). Agregado
+    que ignora o filtro da tela produz um número global ao lado de uma lista
+    filtrada — duas respostas para a mesma pergunta, na mesma tela.
+
+    Precisa vir declarado ANTES de /{tarefa_id}: com o wildcard primeiro,
+    "resumo" é lido como id e a resposta vira 422. Mesma armadilha do kanban.
+    """
+    try:
+        inicio, fim = regras.janela_utc(de, ate)
+    except TarefaInvalida as e:
+        raise HTTPException(422, str(e))
+
+    p = _Params()
+    ini_ref = p.add(inicio) if inicio is not None else None
+    fim_ref = p.add(fim) if fim is not None else None
+
+    feita = _dentro("t.concluida_em", ini_ref, fim_ref)
+    marcada = _dentro("t.prazo", ini_ref, fim_ref)
+    desmarcada = _dentro("t.cancelada_em", ini_ref, fim_ref)
+
+    where = [f"({feita} OR {marcada} OR {desmarcada})"]
+    if responsavel_id is not None:
+        where.append(f"t.responsavel_id = {p.add(responsavel_id)}")
+    busca = _clausula_busca(q, p)
+    if busca:
+        where.append(busca)
+
+    # Um GROUP BY nas duas dimensões de uma vez. Sete tipos vezes o punhado de
+    # usuários ativos são dezenas de linhas — agregar as duas visões em Python
+    # a partir daqui é mais barato que uma segunda ida ao banco, e garante que
+    # os totais das duas tabelas batam entre si por construção.
+    rows = await conn.fetch(
+        f"""
+        SELECT t.tipo, t.responsavel_id, u.nome AS responsavel_nome,
+               count(*) FILTER (
+                   WHERE {feita} AND t.cancelada_em IS NULL
+               ) AS realizadas,
+               count(*) FILTER (WHERE {marcada}) AS agendadas,
+               count(*) FILTER (WHERE {desmarcada}) AS canceladas
+          FROM tarefas t
+          LEFT JOIN oportunidades o ON o.id = t.oportunidade_id
+          LEFT JOIN contas co       ON co.id = o.conta_id
+          LEFT JOIN contas cp       ON cp.id = t.conta_id
+          LEFT JOIN usuarios u      ON u.id = t.responsavel_id
+         WHERE {' AND '.join(where)}
+         GROUP BY t.tipo, t.responsavel_id, u.nome
+        """,
+        *p.valores,
+    )
+
+    por_tipo = {
+        t: {"tipo": t, "rotulo": regras.ROTULOS_TIPO[t],
+            "realizadas": 0, "agendadas": 0, "canceladas": 0}
+        for t in regras.TIPOS
+    }
+    por_responsavel: dict[str, dict] = {}
+
+    for r in rows:
+        alvo = por_tipo.get(r["tipo"])
+        if alvo is None:  # tipo fora do vocabulário atual, gravado antes
+            alvo = por_tipo.setdefault(r["tipo"], {
+                "tipo": r["tipo"], "rotulo": r["tipo"],
+                "realizadas": 0, "agendadas": 0, "canceladas": 0,
+            })
+        alvo["realizadas"] += r["realizadas"]
+        alvo["agendadas"] += r["agendadas"]
+        alvo["canceladas"] += r["canceladas"]
+
+        chave = str(r["responsavel_id"])
+        pessoa = por_responsavel.setdefault(chave, {
+            "usuario_id": r["responsavel_id"],
+            "nome": r["responsavel_nome"],
+            "realizadas": 0,
+            "agendadas": 0,
+        })
+        pessoa["realizadas"] += r["realizadas"]
+        pessoa["agendadas"] += r["agendadas"]
+
+    linhas_tipo = [por_tipo[t] for t in regras.TIPOS] + [
+        v for k, v in por_tipo.items() if k not in regras.TIPOS
+    ]
+
+    return {
+        "de": de,
+        "ate": ate,
+        "realizadas": sum(x["realizadas"] for x in linhas_tipo),
+        "agendadas": sum(x["agendadas"] for x in linhas_tipo),
+        "canceladas": sum(x["canceladas"] for x in linhas_tipo),
+        "por_tipo": linhas_tipo,
+        # Quem não fez nem tinha nada marcado no período não aparece: a lista
+        # existe para comparar produção, não para enfileirar zeros.
+        "por_responsavel": sorted(
+            (v for v in por_responsavel.values()
+             if v["realizadas"] or v["agendadas"]),
+            key=lambda x: (-x["realizadas"], -x["agendadas"], x["nome"] or ""),
+        ),
+    }
 
 
 @router.get("/{tarefa_id}", response_model=TarefaOut)

@@ -20,6 +20,11 @@ from __future__ import annotations
 
 from datetime import date
 
+_DIAS_SEMANA = (
+    "segunda-feira", "terça-feira", "quarta-feira", "quinta-feira",
+    "sexta-feira", "sábado", "domingo",
+)
+
 from services import relatorio_conteudo
 
 FUSO_OPERACAO = "America/Sao_Paulo"
@@ -261,6 +266,13 @@ async def comparativo(conn, dia: date) -> dict:
     return {
         "disponivel": True,
         "dia": anterior["dia"].isoformat(),
+        # O DIA DA SEMANA VAI PRONTO, e nao deduzido do ISO pela IA.
+        #
+        # O fechamento de 31/08 chamou 28/08 de "segunda-feira" -- era sexta.
+        # Todo numero da frase estava certo, entao a guarda numerica nao viu
+        # nada, e a comparacao inteira ficou falsa. Errar dia da semana e
+        # facil e passa despercebido; entregar o dado remove a tentacao.
+        "dia_semana": _DIAS_SEMANA[anterior["dia"].weekday()],
         "acoes": ad.get("acoes"),
         "pessoas_ativas": ad.get("pessoas_ativas"),
         "oportunidades_criadas": op.get("oportunidades_criadas"),

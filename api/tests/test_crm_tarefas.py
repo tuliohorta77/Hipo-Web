@@ -23,7 +23,22 @@ CNPJ_A = "11.222.333/0001-81"
 # ── Helpers ──────────────────────────────────────────────────────────
 
 def em(dias, hora=10):
-    d = datetime.now(timezone.utc) + timedelta(days=dias)
+    """
+    Prazo a N dias de hoje, às `hora` — no FUSO DA OPERAÇÃO.
+
+    O fuso aqui não é detalhe: `regras.situacao()` decide 'atrasada', 'hoje'
+    e 'futura' pelo dia de calendário em America/Sao_Paulo, e o runner do CI
+    roda em UTC. Ancorado em `now(timezone.utc)`, este helper devolvia o dia
+    UTC — igual ao de Brasília durante quase todo o dia, mas DIFERENTE entre
+    21h e meia-noite: `em(0)` caía no dia seguinte e virava 'futura',
+    `em(-1)` virava 'hoje', e a suíte inteira de situações ficava vermelha
+    sem ninguém ter mexido em nada. Aconteceu num run das 00:49 UTC.
+
+    Ancorado no fuso da operação, o dia do prazo é o mesmo dia que a regra
+    calcula, a qualquer hora do relógio. Mesmo cuidado do `carimbar` de
+    test_tarefas_parceiro.py.
+    """
+    d = datetime.now(regras.FUSO_OPERACAO) + timedelta(days=dias)
     return d.replace(hour=hora, minute=0, second=0, microsecond=0).isoformat()
 
 
@@ -742,3 +757,439 @@ class TestSchemaBateComOCodigo:
             " WHERE tablename = 'tarefas' AND indexname = 'idx_tarefas_abertas'"
         )
         assert existe == 1
+
+
+# ── Resumo de produção ───────────────────────────────────────────────
+#
+# "Quantas reuniões tivemos em agosto" era a pergunta que o HIPO não
+# respondia: o dado existia desde a Sprint 5, mas só tarefa a tarefa, dentro
+# do drilldown de cada oportunidade.
+#
+# Os carimbos são gravados direto no banco, e não pela rota de concluir,
+# porque concluir usa NOW(). Sem escrever a data à mão não dá para montar um
+# mês fechado, e um teste que só sabe testar "hoje" não trava justamente o
+# que este endpoint promete: recortar um período que já passou.
+
+
+async def concluir_em(db_conn, tarefa_id, quando: datetime):
+    await db_conn.execute(
+        "UPDATE tarefas SET concluida_em = $2 WHERE id = $1",
+        uuid.UUID(tarefa_id), quando,
+    )
+
+
+async def cancelar_em(db_conn, tarefa_id, quando: datetime):
+    await db_conn.execute(
+        "UPDATE tarefas SET cancelada_em = $2 WHERE id = $1",
+        uuid.UUID(tarefa_id), quando,
+    )
+
+
+def utc(dia, hora=14, mes=8, ano=2026):
+    return datetime(ano, mes, dia, hora, tzinfo=timezone.utc)
+
+
+def iso(dia, hora=14, mes=8, ano=2026):
+    return utc(dia, hora, mes, ano).isoformat()
+
+
+AGOSTO = {"de": "2026-08-01", "ate": "2026-08-31"}
+
+
+def linha_tipo(corpo, tipo):
+    return next(t for t in corpo["por_tipo"] if t["tipo"] == tipo)
+
+
+class TestResumo:
+    async def test_conta_as_reunioes_realizadas_no_mes(self, db_conn, client, cenario):
+        """A pergunta que originou o endpoint, no caminho mais curto."""
+        for dia in (5, 12, 27):
+            t = await nova_tarefa(
+                client, cenario["headers"], cenario["opp"]["id"],
+                cenario["usuario_id"], tipo="reuniao", prazo=iso(dia),
+            )
+            await concluir_em(db_conn, t["id"], utc(dia, 16))
+
+        resp = await client.get(
+            "/crm/tarefas/resumo", params=AGOSTO, headers=cenario["headers"]
+        )
+        assert resp.status_code == 200, resp.text
+        corpo = resp.json()
+        assert corpo["realizadas"] == 3
+        assert linha_tipo(corpo, "reuniao")["realizadas"] == 3
+
+    async def test_ignora_o_que_caiu_fora_do_mes(self, db_conn, client, cenario):
+        dentro = await nova_tarefa(
+            client, cenario["headers"], cenario["opp"]["id"],
+            cenario["usuario_id"], tipo="reuniao", prazo=iso(20),
+        )
+        fora = await nova_tarefa(
+            client, cenario["headers"], cenario["opp"]["id"],
+            cenario["usuario_id"], tipo="reuniao", prazo=iso(3, mes=9),
+        )
+        await concluir_em(db_conn, dentro["id"], utc(20, 16))
+        await concluir_em(db_conn, fora["id"], utc(3, 16, mes=9))
+
+        corpo = (await client.get(
+            "/crm/tarefas/resumo", params=AGOSTO, headers=cenario["headers"]
+        )).json()
+        assert corpo["realizadas"] == 1
+
+    async def test_o_ultimo_dia_do_mes_entra_inteiro(self, db_conn, client, cenario):
+        """
+        23:30 de 31/08 em Brasília é 02:30Z de 01/09. Um filtro montado em UTC
+        jogaria essa reunião para setembro — e o número de agosto mudaria de
+        valor conforme a hora em que alguém trabalhou.
+        """
+        t = await nova_tarefa(
+            client, cenario["headers"], cenario["opp"]["id"],
+            cenario["usuario_id"], tipo="reuniao", prazo=iso(31),
+        )
+        await concluir_em(db_conn, t["id"], datetime(2026, 9, 1, 2, 30, tzinfo=timezone.utc))
+
+        corpo = (await client.get(
+            "/crm/tarefas/resumo", params=AGOSTO, headers=cenario["headers"]
+        )).json()
+        assert corpo["realizadas"] == 1
+
+    async def test_a_virada_do_mes_nao_entra(self, db_conn, client, cenario):
+        """00:00 de 01/09 em Brasília (03:00Z) já é setembro."""
+        t = await nova_tarefa(
+            client, cenario["headers"], cenario["opp"]["id"],
+            cenario["usuario_id"], tipo="reuniao", prazo=iso(31),
+        )
+        await concluir_em(db_conn, t["id"], datetime(2026, 9, 1, 3, tzinfo=timezone.utc))
+
+        corpo = (await client.get(
+            "/crm/tarefas/resumo", params=AGOSTO, headers=cenario["headers"]
+        )).json()
+        assert corpo["realizadas"] == 0
+
+    async def test_realizada_e_agendada_sao_datas_diferentes(self, db_conn, client, cenario):
+        """
+        Reunião marcada para 28/08 e feita em 02/09: é de agosto na agenda e
+        de setembro na produção. Um único filtro de data teria que escolher
+        uma das duas e mentir na outra.
+        """
+        t = await nova_tarefa(
+            client, cenario["headers"], cenario["opp"]["id"],
+            cenario["usuario_id"], tipo="reuniao", prazo=iso(28),
+        )
+        await concluir_em(db_conn, t["id"], utc(2, 10, mes=9))
+
+        agosto = (await client.get(
+            "/crm/tarefas/resumo", params=AGOSTO, headers=cenario["headers"]
+        )).json()
+        assert agosto["agendadas"] == 1
+        assert agosto["realizadas"] == 0
+
+        setembro = (await client.get(
+            "/crm/tarefas/resumo",
+            params={"de": "2026-09-01", "ate": "2026-09-30"},
+            headers=cenario["headers"],
+        )).json()
+        assert setembro["realizadas"] == 1
+        assert setembro["agendadas"] == 0
+
+    async def test_cancelada_nao_conta_como_realizada(self, db_conn, client, cenario):
+        t = await nova_tarefa(
+            client, cenario["headers"], cenario["opp"]["id"],
+            cenario["usuario_id"], tipo="reuniao", prazo=iso(10),
+        )
+        await cancelar_em(db_conn, t["id"], utc(9, 11))
+
+        corpo = (await client.get(
+            "/crm/tarefas/resumo", params=AGOSTO, headers=cenario["headers"]
+        )).json()
+        assert corpo["realizadas"] == 0
+        assert corpo["canceladas"] == 1
+        assert linha_tipo(corpo, "reuniao")["canceladas"] == 1
+
+    async def test_separa_por_tipo(self, db_conn, client, cenario):
+        for tipo, dia in (("reuniao", 4), ("reuniao", 6), ("ligacao", 7)):
+            t = await nova_tarefa(
+                client, cenario["headers"], cenario["opp"]["id"],
+                cenario["usuario_id"], tipo=tipo, prazo=iso(dia),
+            )
+            await concluir_em(db_conn, t["id"], utc(dia, 16))
+
+        corpo = (await client.get(
+            "/crm/tarefas/resumo", params=AGOSTO, headers=cenario["headers"]
+        )).json()
+        assert linha_tipo(corpo, "reuniao")["realizadas"] == 2
+        assert linha_tipo(corpo, "ligacao")["realizadas"] == 1
+        assert linha_tipo(corpo, "visita")["realizadas"] == 0
+
+    async def test_devolve_sempre_os_sete_tipos_na_ordem_do_vocabulario(
+        self, db_conn, client, cenario
+    ):
+        """
+        Omitir o que deu zero faria a barra da tela trocar de ordem e de
+        largura a cada mês. E o zero é informação: nenhuma visita em agosto é
+        um fato sobre agosto.
+        """
+        corpo = (await client.get(
+            "/crm/tarefas/resumo", params=AGOSTO, headers=cenario["headers"]
+        )).json()
+        assert [t["tipo"] for t in corpo["por_tipo"]] == list(regras.TIPOS)
+        assert linha_tipo(corpo, "reuniao")["rotulo"] == "Reunião"
+
+    async def test_quebra_por_responsavel(self, db_conn, client, cenario):
+        outro = await criar_usuario(db_conn, client, "EV", "ev-resumo@teste.com")
+        outro_id = await id_do_usuario(db_conn, outro["email"])
+
+        for dono, dia in ((cenario["usuario_id"], 5), (cenario["usuario_id"], 6), (outro_id, 7)):
+            t = await nova_tarefa(
+                client, cenario["headers"], cenario["opp"]["id"], dono,
+                tipo="reuniao", prazo=iso(dia),
+            )
+            await concluir_em(db_conn, t["id"], utc(dia, 16))
+
+        corpo = (await client.get(
+            "/crm/tarefas/resumo", params=AGOSTO, headers=cenario["headers"]
+        )).json()
+        # Mais produtivo primeiro: a lista existe para comparar carga.
+        assert [p["realizadas"] for p in corpo["por_responsavel"]] == [2, 1]
+        assert sum(p["realizadas"] for p in corpo["por_responsavel"]) == corpo["realizadas"]
+
+    async def test_quem_nao_fez_nada_no_periodo_nao_aparece(self, db_conn, client, cenario):
+        await criar_usuario(db_conn, client, "EV", "ocioso@teste.com")
+        t = await nova_tarefa(
+            client, cenario["headers"], cenario["opp"]["id"],
+            cenario["usuario_id"], tipo="reuniao", prazo=iso(5),
+        )
+        await concluir_em(db_conn, t["id"], utc(5, 16))
+
+        corpo = (await client.get(
+            "/crm/tarefas/resumo", params=AGOSTO, headers=cenario["headers"]
+        )).json()
+        assert len(corpo["por_responsavel"]) == 1
+
+    async def test_filtra_por_responsavel(self, db_conn, client, cenario):
+        outro = await criar_usuario(db_conn, client, "EV", "ev-filtro@teste.com")
+        outro_id = await id_do_usuario(db_conn, outro["email"])
+        for dono, dia in ((cenario["usuario_id"], 5), (outro_id, 6)):
+            t = await nova_tarefa(
+                client, cenario["headers"], cenario["opp"]["id"], dono,
+                tipo="reuniao", prazo=iso(dia),
+            )
+            await concluir_em(db_conn, t["id"], utc(dia, 16))
+
+        corpo = (await client.get(
+            "/crm/tarefas/resumo",
+            params={**AGOSTO, "responsavel_id": outro_id},
+            headers=cenario["headers"],
+        )).json()
+        assert corpo["realizadas"] == 1
+
+    async def test_a_busca_da_barra_tambem_recorta_o_agregado(
+        self, db_conn, client, cenario
+    ):
+        """
+        Agregado que ignora o filtro da tela produz um número global ao lado
+        de uma lista filtrada — duas respostas para a mesma pergunta.
+        """
+        t = await nova_tarefa(
+            client, cenario["headers"], cenario["opp"]["id"],
+            cenario["usuario_id"], tipo="reuniao", prazo=iso(5),
+        )
+        await concluir_em(db_conn, t["id"], utc(5, 16))
+
+        achou = (await client.get(
+            "/crm/tarefas/resumo",
+            params={**AGOSTO, "q": "Metalurgica"},
+            headers=cenario["headers"],
+        )).json()
+        assert achou["realizadas"] == 1
+
+        vazio = (await client.get(
+            "/crm/tarefas/resumo",
+            params={**AGOSTO, "q": "Empresa Que Nao Existe"},
+            headers=cenario["headers"],
+        )).json()
+        assert vazio["realizadas"] == 0
+
+    async def test_sem_periodo_conta_a_historia_inteira(self, db_conn, client, cenario):
+        for dia, mes in ((5, 8), (5, 9)):
+            t = await nova_tarefa(
+                client, cenario["headers"], cenario["opp"]["id"],
+                cenario["usuario_id"], tipo="reuniao", prazo=iso(dia, mes=mes),
+            )
+            await concluir_em(db_conn, t["id"], utc(dia, 16, mes=mes))
+
+        corpo = (await client.get(
+            "/crm/tarefas/resumo", headers=cenario["headers"]
+        )).json()
+        assert corpo["realizadas"] == 2
+        assert corpo["de"] is None and corpo["ate"] is None
+
+    async def test_periodo_invertido_e_422(self, db_conn, client, cenario):
+        resp = await client.get(
+            "/crm/tarefas/resumo",
+            params={"de": "2026-08-31", "ate": "2026-08-01"},
+            headers=cenario["headers"],
+        )
+        assert resp.status_code == 422
+        assert "depois" in resp.json()["detail"]
+
+    async def test_resumo_nao_e_lido_como_id_de_tarefa(self, db_conn, client, cenario):
+        """
+        A rota precisa vir declarada antes de /{tarefa_id}. Com o wildcard
+        primeiro, "resumo" vira id e a resposta é 422 — a mesma armadilha que
+        já custou um 404 no kanban.
+        """
+        resp = await client.get("/crm/tarefas/resumo", headers=cenario["headers"])
+        assert resp.status_code == 200
+
+    async def test_tarefa_de_parceiro_entra_no_resumo(self, db_conn, client, usuario_adm):
+        """
+        Os JOINs do resumo são LEFT pelo mesmo motivo dos da listagem: com
+        INNER, toda tarefa de parceiro sumiria da contagem em silêncio.
+        """
+        headers = usuario_adm["headers"]
+        usuario_id = await id_do_usuario(db_conn, usuario_adm["email"])
+        conta = await nova_conta(client, headers)
+        await db_conn.execute(
+            "UPDATE contas SET eh_finder = true WHERE id = $1",
+            uuid.UUID(conta["id"]),
+        )
+        resp = await client.post(
+            "/crm/tarefas",
+            json={
+                "conta_id": conta["id"], "tipo": "reuniao",
+                "titulo": "Café com o contador", "responsavel_id": usuario_id,
+                "prazo": iso(11),
+            },
+            headers=headers,
+        )
+        assert resp.status_code == 201, resp.text
+        await concluir_em(db_conn, resp.json()["id"], utc(11, 16))
+
+        corpo = (await client.get(
+            "/crm/tarefas/resumo", params=AGOSTO, headers=headers
+        )).json()
+        assert corpo["realizadas"] == 1
+
+
+class TestDrilldownDoResumo:
+    """
+    Clicar em "3 reuniões realizadas em agosto" tem que abrir exatamente
+    aquelas três. O recorte é o mesmo dos dois lados; estes testes são o que
+    impede os dois números de divergirem.
+    """
+
+    async def test_lista_as_mesmas_tarefas_que_o_resumo_contou(
+        self, db_conn, client, cenario
+    ):
+        for dia in (5, 12, 27):
+            t = await nova_tarefa(
+                client, cenario["headers"], cenario["opp"]["id"],
+                cenario["usuario_id"], tipo="reuniao", prazo=iso(dia),
+            )
+            await concluir_em(db_conn, t["id"], utc(dia, 16))
+        outra = await nova_tarefa(
+            client, cenario["headers"], cenario["opp"]["id"],
+            cenario["usuario_id"], tipo="ligacao", prazo=iso(9),
+        )
+        await concluir_em(db_conn, outra["id"], utc(9, 16))
+
+        params = {**AGOSTO, "tipo": "reuniao", "base": "conclusao"}
+        lista = (await client.get(
+            "/crm/tarefas", params=params, headers=cenario["headers"]
+        )).json()
+        resumo = (await client.get(
+            "/crm/tarefas/resumo", params=AGOSTO, headers=cenario["headers"]
+        )).json()
+
+        assert lista["total"] == linha_tipo(resumo, "reuniao")["realizadas"] == 3
+        assert all(i["tipo"] == "reuniao" for i in lista["itens"])
+
+    async def test_base_prazo_e_base_conclusao_dao_listas_diferentes(
+        self, db_conn, client, cenario
+    ):
+        t = await nova_tarefa(
+            client, cenario["headers"], cenario["opp"]["id"],
+            cenario["usuario_id"], tipo="reuniao", prazo=iso(28),
+        )
+        await concluir_em(db_conn, t["id"], utc(2, 10, mes=9))
+
+        por_prazo = (await client.get(
+            "/crm/tarefas", params={**AGOSTO, "base": "prazo"},
+            headers=cenario["headers"],
+        )).json()
+        por_conclusao = (await client.get(
+            "/crm/tarefas", params={**AGOSTO, "base": "conclusao"},
+            headers=cenario["headers"],
+        )).json()
+        assert por_prazo["total"] == 1
+        assert por_conclusao["total"] == 0
+
+    async def test_base_desconhecida_e_422(self, db_conn, client, cenario):
+        resp = await client.get(
+            "/crm/tarefas", params={"base": "criacao"}, headers=cenario["headers"]
+        )
+        assert resp.status_code == 422
+
+    async def test_tipo_desconhecido_no_filtro_e_422(self, db_conn, client, cenario):
+        resp = await client.get(
+            "/crm/tarefas", params={"tipo": "cafezinho"}, headers=cenario["headers"]
+        )
+        assert resp.status_code == 422
+
+    async def test_periodo_invertido_na_listagem_e_422(self, db_conn, client, cenario):
+        resp = await client.get(
+            "/crm/tarefas",
+            params={"de": "2026-08-31", "ate": "2026-08-01"},
+            headers=cenario["headers"],
+        )
+        assert resp.status_code == 422
+
+    async def test_busca_na_listagem(self, db_conn, client, cenario):
+        await nova_tarefa(
+            client, cenario["headers"], cenario["opp"]["id"],
+            cenario["usuario_id"], titulo="Ligar para o RH", prazo=iso(5),
+        )
+        achou = (await client.get(
+            "/crm/tarefas", params={"q": "RH"}, headers=cenario["headers"]
+        )).json()
+        assert achou["total"] == 1
+        vazio = (await client.get(
+            "/crm/tarefas", params={"q": "zzzz"}, headers=cenario["headers"]
+        )).json()
+        assert vazio["total"] == 0
+
+    async def test_os_filtros_novos_nao_deslocam_os_antigos(
+        self, db_conn, client, cenario
+    ):
+        """
+        Numeração de parâmetro posicional é o tipo de erro que não levanta
+        exceção: devolve a linha errada. Este teste combina TODOS os filtros
+        de uma vez, que é quando o deslocamento apareceria.
+        """
+        alvo = await nova_tarefa(
+            client, cenario["headers"], cenario["opp"]["id"],
+            cenario["usuario_id"], tipo="reuniao",
+            titulo="Reuniao de fechamento", prazo=iso(15),
+        )
+        await concluir_em(db_conn, alvo["id"], utc(15, 16))
+        ruido = await nova_tarefa(
+            client, cenario["headers"], cenario["opp"]["id"],
+            cenario["usuario_id"], tipo="ligacao",
+            titulo="Outra coisa", prazo=iso(15),
+        )
+        await concluir_em(db_conn, ruido["id"], utc(15, 17))
+
+        corpo = (await client.get(
+            "/crm/tarefas",
+            params={
+                "oportunidade_id": cenario["opp"]["id"],
+                "responsavel_id": cenario["usuario_id"],
+                "tipo": "reuniao",
+                "de": "2026-08-01", "ate": "2026-08-31",
+                "base": "conclusao",
+                "q": "fechamento",
+                "situacao": ["concluida"],
+            },
+            headers=cenario["headers"],
+        )).json()
+        assert [i["id"] for i in corpo["itens"]] == [alvo["id"]]

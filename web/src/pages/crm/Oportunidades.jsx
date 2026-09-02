@@ -469,12 +469,20 @@ export default function Oportunidades() {
               className="absolute left-2.5 top-1/2 -translate-y-1/2 text-hipo-muted pointer-events-none"
               aria-hidden="true"
             />
+            {/*
+              Uma caixa só para os quatro jeitos de procurar um negócio:
+              número da oportunidade, empresa, contato e CNPJ. Quatro campos
+              separados obrigariam o usuário a classificar o que tem na mão
+              antes de digitar — e ele quase nunca sabe de qual dos quatro
+              veio o dado que anotou.
+            */}
             <input
               aria-label="Buscar"
-              placeholder="Número, empresa ou descrição"
+              placeholder="Nº, empresa, contato ou CNPJ"
+              title="Busca por número da oportunidade, razão social, nome fantasia, CNPJ, nome do contato ou descrição"
               value={busca}
               onChange={(e) => setBusca(e.target.value)}
-              className={`${CLASSE_CAMPO} w-44 pl-7 pr-2 placeholder:text-hipo-muted`}
+              className={`${CLASSE_CAMPO} w-52 pl-7 pr-2 placeholder:text-hipo-muted`}
             />
           </div>
 

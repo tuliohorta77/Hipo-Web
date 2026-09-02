@@ -1,0 +1,320 @@
+{
+ "gerado_em": "2026-09-01T18:18:05",
+ "oportunidade": {
+  "id": "2fbb0aae-d6df-4287-affe-894142801ecd",
+  "numero": "OPP-2026-00001",
+  "conta_id": "ceeb6839-cf43-4641-a759-e85b3ec00ccf",
+  "contato_id": "78e3baab-ad67-41cf-8d06-696e7b5a8b53",
+  "fase": "qualificacao",
+  "status": "ativa",
+  "fase_desfecho": null,
+  "motivo_desfecho_id": null,
+  "valor_mensalidade": "10000.00",
+  "temperatura": 50,
+  "previsao_fechamento": "2026-08-28",
+  "descricao": "ligar para o bruno e ver a evolução da oportunidade",
+  "observacoes": null,
+  "origem_id": null,
+  "finder_conta_id": null,
+  "proxima_acao_em": "2026-08-20T21:34:00+00:00",
+  "proxima_acao_tipo": "fup",
+  "criado_por": "88dae9b7-5475-4b73-8407-c49189d46726",
+  "criado_em": "2026-08-07T19:24:21.740229+00:00",
+  "atualizado_em": "2026-09-01T16:47:16.454687+00:00",
+  "razao_social": "VANNUCCI IMPORT,EXPORTACAO E COMERC.DE AUTO PECAS",
+  "cnpj": "11623920000182",
+  "contato_nome": "Bruno"
+ },
+ "tarefas": [
+  {
+   "id": "43db4894-eb32-4638-97f6-c4768dc341cf",
+   "oportunidade_id": "2fbb0aae-d6df-4287-affe-894142801ecd",
+   "tipo": "ligacao",
+   "titulo": "tentar novamente",
+   "descricao": null,
+   "responsavel_id": "5dc2bd64-69b9-498f-a9f0-987ab5d6f545",
+   "prazo": "2026-08-07T12:00:00+00:00",
+   "concluida_em": "2026-08-13T19:06:37.726035+00:00",
+   "resultado": "atendeu e pediu pra ligar depois",
+   "cancelada_em": null,
+   "motivo_cancelamento": null,
+   "tarefa_anterior_id": "840ab540-2b95-4a24-b463-05bd85909393",
+   "criado_por": "88dae9b7-5475-4b73-8407-c49189d46726",
+   "criado_em": "2026-08-08T03:00:46.228936+00:00",
+   "atualizado_em": "2026-08-13T19:06:37.726035+00:00",
+   "conta_id": null
+  },
+  {
+   "id": "f5c9205f-0ea2-4e9f-9889-4fa8c61c0c22",
+   "oportunidade_id": "2fbb0aae-d6df-4287-affe-894142801ecd",
+   "tipo": "ligacao",
+   "titulo": "ligar para o rh",
+   "descricao": null,
+   "responsavel_id": "5dc2bd64-69b9-498f-a9f0-987ab5d6f545",
+   "prazo": "2026-08-08T12:00:00+00:00",
+   "concluida_em": "2026-08-08T01:39:37.588187+00:00",
+   "resultado": "atendeu e pediu para ligar semana que vem",
+   "cancelada_em": null,
+   "motivo_cancelamento": null,
+   "tarefa_anterior_id": null,
+   "criado_por": "88dae9b7-5475-4b73-8407-c49189d46726",
+   "criado_em": "2026-08-08T01:38:59.590770+00:00",
+   "atualizado_em": "2026-08-08T01:39:37.588187+00:00",
+   "conta_id": null
+  },
+  {
+   "id": "840ab540-2b95-4a24-b463-05bd85909393",
+   "oportunidade_id": "2fbb0aae-d6df-4287-affe-894142801ecd",
+   "tipo": "whatsapp",
+   "titulo": "mandar whats pro bruno",
+   "descricao": null,
+   "responsavel_id": "5dc2bd64-69b9-498f-a9f0-987ab5d6f545",
+   "prazo": "2026-08-14T12:00:00+00:00",
+   "concluida_em": "2026-08-08T03:00:46.228936+00:00",
+   "resultado": "atendeu e nao podia falar",
+   "cancelada_em": null,
+   "motivo_cancelamento": null,
+   "tarefa_anterior_id": "f5c9205f-0ea2-4e9f-9889-4fa8c61c0c22",
+   "criado_por": "88dae9b7-5475-4b73-8407-c49189d46726",
+   "criado_em": "2026-08-08T01:39:37.588187+00:00",
+   "atualizado_em": "2026-08-08T03:00:46.228936+00:00",
+   "conta_id": null
+  },
+  {
+   "id": "20817c4a-5440-4aa7-b6b5-5ed6907503cf",
+   "oportunidade_id": "2fbb0aae-d6df-4287-affe-894142801ecd",
+   "tipo": "ligacao",
+   "titulo": "ligar e fazer fup",
+   "descricao": null,
+   "responsavel_id": "5dc2bd64-69b9-498f-a9f0-987ab5d6f545",
+   "prazo": "2026-08-17T12:00:00+00:00",
+   "concluida_em": "2026-08-18T17:37:47.817555+00:00",
+   "resultado": null,
+   "cancelada_em": null,
+   "motivo_cancelamento": null,
+   "tarefa_anterior_id": "43db4894-eb32-4638-97f6-c4768dc341cf",
+   "criado_por": "88dae9b7-5475-4b73-8407-c49189d46726",
+   "criado_em": "2026-08-13T19:06:37.726035+00:00",
+   "atualizado_em": "2026-08-18T17:37:47.817555+00:00",
+   "conta_id": null
+  },
+  {
+   "id": "185f81b2-8a55-44f1-a5ee-8d7dd992f101",
+   "oportunidade_id": "2fbb0aae-d6df-4287-affe-894142801ecd",
+   "tipo": "ligacao",
+   "titulo": "ligar",
+   "descricao": null,
+   "responsavel_id": "95841d67-ad76-433c-9c18-0bef78378cb1",
+   "prazo": "2026-08-19T12:00:00+00:00",
+   "concluida_em": "2026-08-20T20:37:45.791305+00:00",
+   "resultado": "FOI UM TESTE",
+   "cancelada_em": null,
+   "motivo_cancelamento": null,
+   "tarefa_anterior_id": "20817c4a-5440-4aa7-b6b5-5ed6907503cf",
+   "criado_por": "95841d67-ad76-433c-9c18-0bef78378cb1",
+   "criado_em": "2026-08-18T17:37:47.817555+00:00",
+   "atualizado_em": "2026-08-20T20:37:45.791305+00:00",
+   "conta_id": null
+  },
+  {
+   "id": "b905c979-f4c0-47ac-a58c-869dc359e846",
+   "oportunidade_id": "2fbb0aae-d6df-4287-affe-894142801ecd",
+   "tipo": "ligacao",
+   "titulo": "TESTE",
+   "descricao": null,
+   "responsavel_id": "95841d67-ad76-433c-9c18-0bef78378cb1",
+   "prazo": "2026-08-21T12:00:00+00:00",
+   "concluida_em": "2026-08-21T17:38:15.265727+00:00",
+   "resultado": "teste",
+   "cancelada_em": null,
+   "motivo_cancelamento": null,
+   "tarefa_anterior_id": "185f81b2-8a55-44f1-a5ee-8d7dd992f101",
+   "criado_por": "95841d67-ad76-433c-9c18-0bef78378cb1",
+   "criado_em": "2026-08-20T20:37:45.791305+00:00",
+   "atualizado_em": "2026-08-21T17:38:15.265727+00:00",
+   "conta_id": null
+  },
+  {
+   "id": "9756396f-4c05-4597-8f23-c3dfd703bd57",
+   "oportunidade_id": "2fbb0aae-d6df-4287-affe-894142801ecd",
+   "tipo": "ligacao",
+   "titulo": "teste",
+   "descricao": null,
+   "responsavel_id": "95841d67-ad76-433c-9c18-0bef78378cb1",
+   "prazo": "2100-01-01T12:00:00+00:00",
+   "concluida_em": null,
+   "resultado": null,
+   "cancelada_em": null,
+   "motivo_cancelamento": null,
+   "tarefa_anterior_id": "b905c979-f4c0-47ac-a58c-869dc359e846",
+   "criado_por": "95841d67-ad76-433c-9c18-0bef78378cb1",
+   "criado_em": "2026-08-21T17:38:15.265727+00:00",
+   "atualizado_em": "2026-08-21T17:38:15.265727+00:00",
+   "conta_id": null
+  }
+ ],
+ "eventos": [
+  {
+   "id": 1,
+   "oportunidade_id": "2fbb0aae-d6df-4287-affe-894142801ecd",
+   "tipo": "criacao",
+   "de": null,
+   "para": "lead",
+   "usuario_id": "88dae9b7-5475-4b73-8407-c49189d46726",
+   "criado_em": "2026-08-07T19:24:21.740229+00:00"
+  },
+  {
+   "id": 2,
+   "oportunidade_id": "2fbb0aae-d6df-4287-affe-894142801ecd",
+   "tipo": "fase",
+   "de": "lead",
+   "para": "qualificacao",
+   "usuario_id": "88dae9b7-5475-4b73-8407-c49189d46726",
+   "criado_em": "2026-08-07T19:25:46.907184+00:00"
+  },
+  {
+   "id": 3,
+   "oportunidade_id": "2fbb0aae-d6df-4287-affe-894142801ecd",
+   "tipo": "fase",
+   "de": "qualificacao",
+   "para": "lead",
+   "usuario_id": "88dae9b7-5475-4b73-8407-c49189d46726",
+   "criado_em": "2026-08-07T19:25:49.077490+00:00"
+  },
+  {
+   "id": 4,
+   "oportunidade_id": "2fbb0aae-d6df-4287-affe-894142801ecd",
+   "tipo": "fase",
+   "de": "lead",
+   "para": "qualificacao",
+   "usuario_id": "88dae9b7-5475-4b73-8407-c49189d46726",
+   "criado_em": "2026-08-07T19:25:52.789391+00:00"
+  },
+  {
+   "id": 5,
+   "oportunidade_id": "2fbb0aae-d6df-4287-affe-894142801ecd",
+   "tipo": "fase",
+   "de": "qualificacao",
+   "para": "lead",
+   "usuario_id": "88dae9b7-5475-4b73-8407-c49189d46726",
+   "criado_em": "2026-08-07T19:25:55.792283+00:00"
+  },
+  {
+   "id": 6,
+   "oportunidade_id": "2fbb0aae-d6df-4287-affe-894142801ecd",
+   "tipo": "fase",
+   "de": "lead",
+   "para": "apresentacao",
+   "usuario_id": "88dae9b7-5475-4b73-8407-c49189d46726",
+   "criado_em": "2026-08-08T01:40:29.669911+00:00"
+  },
+  {
+   "id": 7,
+   "oportunidade_id": "2fbb0aae-d6df-4287-affe-894142801ecd",
+   "tipo": "fase",
+   "de": "apresentacao",
+   "para": "lead",
+   "usuario_id": "88dae9b7-5475-4b73-8407-c49189d46726",
+   "criado_em": "2026-08-08T01:40:45.483565+00:00"
+  },
+  {
+   "id": 8,
+   "oportunidade_id": "2fbb0aae-d6df-4287-affe-894142801ecd",
+   "tipo": "fase",
+   "de": "lead",
+   "para": "suspect",
+   "usuario_id": "88dae9b7-5475-4b73-8407-c49189d46726",
+   "criado_em": "2026-08-08T01:45:05.600295+00:00"
+  },
+  {
+   "id": 9,
+   "oportunidade_id": "2fbb0aae-d6df-4287-affe-894142801ecd",
+   "tipo": "fase",
+   "de": "suspect",
+   "para": "qualificacao",
+   "usuario_id": "88dae9b7-5475-4b73-8407-c49189d46726",
+   "criado_em": "2026-08-08T01:45:09.528623+00:00"
+  },
+  {
+   "id": 10,
+   "oportunidade_id": "2fbb0aae-d6df-4287-affe-894142801ecd",
+   "tipo": "fase",
+   "de": "qualificacao",
+   "para": "lead",
+   "usuario_id": "88dae9b7-5475-4b73-8407-c49189d46726",
+   "criado_em": "2026-08-08T02:10:25.947481+00:00"
+  },
+  {
+   "id": 11,
+   "oportunidade_id": "2fbb0aae-d6df-4287-affe-894142801ecd",
+   "tipo": "fase",
+   "de": "lead",
+   "para": "qualificacao",
+   "usuario_id": "88dae9b7-5475-4b73-8407-c49189d46726",
+   "criado_em": "2026-08-13T19:07:45.888307+00:00"
+  },
+  {
+   "id": 12,
+   "oportunidade_id": "2fbb0aae-d6df-4287-affe-894142801ecd",
+   "tipo": "fase",
+   "de": "qualificacao",
+   "para": "lead",
+   "usuario_id": "88dae9b7-5475-4b73-8407-c49189d46726",
+   "criado_em": "2026-08-20T19:41:41.489870+00:00"
+  },
+  {
+   "id": 13,
+   "oportunidade_id": "2fbb0aae-d6df-4287-affe-894142801ecd",
+   "tipo": "fase",
+   "de": "lead",
+   "para": "suspect",
+   "usuario_id": "88dae9b7-5475-4b73-8407-c49189d46726",
+   "criado_em": "2026-09-01T16:30:19.419676+00:00"
+  },
+  {
+   "id": 14,
+   "oportunidade_id": "2fbb0aae-d6df-4287-affe-894142801ecd",
+   "tipo": "fase",
+   "de": "suspect",
+   "para": "qualificacao",
+   "usuario_id": "88dae9b7-5475-4b73-8407-c49189d46726",
+   "criado_em": "2026-09-01T16:30:21.469754+00:00"
+  },
+  {
+   "id": 15,
+   "oportunidade_id": "2fbb0aae-d6df-4287-affe-894142801ecd",
+   "tipo": "status",
+   "de": "ativa",
+   "para": "suspensa",
+   "usuario_id": "88dae9b7-5475-4b73-8407-c49189d46726",
+   "criado_em": "2026-09-01T16:47:14.754774+00:00"
+  },
+  {
+   "id": 16,
+   "oportunidade_id": "2fbb0aae-d6df-4287-affe-894142801ecd",
+   "tipo": "status",
+   "de": "suspensa",
+   "para": "ativa",
+   "usuario_id": "88dae9b7-5475-4b73-8407-c49189d46726",
+   "criado_em": "2026-09-01T16:47:16.454687+00:00"
+  }
+ ],
+ "envolvidos": [
+  {
+   "papel": "EV",
+   "nome": "Jakeline Santana",
+   "email": "jakeline.santana@controllermedseg.com"
+  },
+  {
+   "papel": "SDR",
+   "nome": "Kethlleen Gomes",
+   "email": "comercial@controllermedseg.com"
+  },
+  {
+   "papel": "EC",
+   "nome": "Aline Martins",
+   "email": "aline.martins@controllermedseg.com"
+  }
+ ],
+ "concorrentes": []
+}
