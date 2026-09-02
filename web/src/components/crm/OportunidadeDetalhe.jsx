@@ -23,6 +23,7 @@ import Button from '../ui/Button';
 import Badge from '../ui/Badge';
 import Empty from '../ui/Empty';
 import AlertMessage from '../ui/AlertMessage';
+import { AcoesDoModal } from '../ui/Modal';
 import EntityPicker from '../EntityPicker';
 
 // proxima_acao_em / proxima_acao_tipo saíram: quem responde "qual o próximo
@@ -709,19 +710,29 @@ export default function OportunidadeDetalhe({
         </div>
 
         {/*
-          Uma barra só. Suspender e Finalizar são saídas desta tela, igual a
-          Fechar e Salvar — separá-las em cantos diferentes obrigava o olho a
-          procurar onde estava cada ação.
+          Uma barra só, no CABEÇALHO. Suspender e Finalizar são saídas desta
+          tela, igual a Fechar e Salvar — separá-las em cantos diferentes
+          obrigava o olho a procurar onde estava cada ação.
+
+          Ficavam no rodapé até aqui. Num modal de 92vh isso põe o Salvar a
+          uma tela de distância do campo que se acabou de editar; em cima,
+          ao lado do X, as saídas da tela ficam todas no mesmo canto.
+
+          O JSX segue no fim do componente porque é aqui que ele se lê — o
+          portal do <AcoesDoModal> é que o coloca lá em cima. Consequência
+          boa: os botões continuam vizinhos do estado que usam (`sujo`,
+          `salvando`, `acaoEmCurso`), sem canal nenhum com o pai.
         */}
+        <AcoesDoModal>
         <div
           aria-label="Ações da oportunidade"
-          className="shrink-0 flex flex-wrap items-center gap-2 px-5 py-3 border-t border-hipo-border bg-hipo-bg/40"
+          className="flex flex-wrap items-center gap-2"
         >
-          <span className="text-xs text-hipo-slate">
+          <span className="text-xs text-hipo-slate mr-1">
             {sujo ? 'Alterações não salvas' : 'Tudo salvo'}
           </span>
 
-          <div className="ml-auto flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             {finalizada ? (
               <Button
                 size="sm"
@@ -763,6 +774,7 @@ export default function OportunidadeDetalhe({
             </Button>
           </div>
         </div>
+        </AcoesDoModal>
       </div>
     </div>
   );

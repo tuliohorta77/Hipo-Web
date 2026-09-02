@@ -817,11 +817,12 @@ export default function Oportunidades() {
       />
 
       {/*
-        Sem `footer`: quem monta a barra de baixo é o próprio
+        Sem `footer` nem `acoes`: quem monta a barra é o próprio
         OportunidadeDetalhe, porque as ações de estado (Suspender, Finalizar)
-        moram lá e precisam ficar na mesma linha de Fechar e Salvar. Isso
-        também apagou o canal `registrarSalvar` — e com ele o risco de loop
-        de renderização que ele carregava.
+        moram lá e precisam ficar na mesma linha de Fechar e Salvar. Ela
+        aparece no CABEÇALHO por portal (<AcoesDoModal>), então não há canal
+        `registrarSalvar` aqui — e nem o risco de loop de renderização que
+        ele carregava.
 
         O subtítulo é o STATUS, não a fase: a fase já está no seletor do
         trilho, e o que muda a leitura da tela é saber se está ativa,
@@ -864,29 +865,28 @@ export default function Oportunidades() {
         subtitulo={contaAberta ? `CNPJ ${contaAberta.cnpj_formatado}` : undefined}
         size="full"
         bodySemPadding
-        footer={
+        acoes={
           // O aria-label não é só acessibilidade: com dois modais no DOM há
           // dois botões "Salvar", e sem um rótulo que separe as barras nem o
           // leitor de tela nem o teste sabem qual é de quem.
           <div
-            className="flex items-center justify-between gap-3"
+            className="flex items-center gap-2"
             aria-label="Ações da conta"
           >
-            <span className="text-xs text-hipo-slate">
+            <span className="text-xs text-hipo-slate mr-1">
               {acaoSalvarConta?.sujo ? 'Alterações não salvas' : 'Tudo salvo'}
             </span>
-            <div className="flex gap-2">
-              <Button variant="ghost" onClick={fecharConta}>
-                Voltar à oportunidade
-              </Button>
-              <Button
-                onClick={() => acaoSalvarConta?.salvar()}
-                disabled={!acaoSalvarConta?.sujo}
-                loading={acaoSalvarConta?.salvando}
-              >
-                Salvar
-              </Button>
-            </div>
+            <Button size="sm" variant="ghost" onClick={fecharConta}>
+              Voltar à oportunidade
+            </Button>
+            <Button
+              size="sm"
+              onClick={() => acaoSalvarConta?.salvar()}
+              disabled={!acaoSalvarConta?.sujo}
+              loading={acaoSalvarConta?.salvando}
+            >
+              Salvar
+            </Button>
           </div>
         }
       >
