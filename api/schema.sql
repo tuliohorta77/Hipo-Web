@@ -32,6 +32,9 @@ CREATE TABLE IF NOT EXISTS usuarios (
     cargo                 VARCHAR(80),
     ativo                 BOOLEAN DEFAULT TRUE,
     precisa_trocar_senha  BOOLEAN DEFAULT FALSE,
+    -- Sai no slide de fechamento da proposta comercial, junto de nome e
+    -- e-mail. Formato livre: vai para o slide como foi digitado.
+    telefone              VARCHAR(30),
     created_at            TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -580,3 +583,62 @@ CREATE INDEX IF NOT EXISTS idx_relatorios_diarios_dia
 
 COMMENT ON COLUMN relatorios_diarios.metricas IS
     'Snapshot fechado do dia. Sobrevive a retencao de uso_eventos.';
+
+
+-- ---------------------------------------------------------------------------
+-- propostas -- proposta comercial gerada a partir do modelo .pptx
+-- ---------------------------------------------------------------------------
+--
+-- Uma linha por VERSAO. O cliente pede desconto, o vendedor refaz, e duas
+-- semanas depois alguem pergunta o que foi enviado primeiro -- guardado na
+-- oportunidade, o valor antigo seria sobrescrito.
+--
+-- O ARQUIVO NAO E GUARDADO: .pptx e .pdf sao remontados sob demanda a
+-- partir de api/templates/proposta_modelo.pptx. Consequencia aceita: arte
+-- nova no modelo aparece tambem ao rebaixar uma proposta antiga.
+--
+-- nome/e-mail/telefone do executivo e a razao social do cliente sao
+-- SNAPSHOT do momento da geracao -- mesma decisao do 'cargo' em
+-- uso_eventos. Quem trocou de telefone depois nao reescreve o que ja foi
+-- enviado ao cliente.
+--
+-- mensalidade e investimento nao sao colunas: derivam de vidas x
+-- valor_por_vida e da soma com treinamentos e laudos.
+-- ---------------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS propostas (
+    id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    oportunidade_id     UUID NOT NULL REFERENCES oportunidades(id) ON DELETE CASCADE,
+    versao              INTEGER NOT NULL,
+
+    vidas               INTEGER NOT NULL,
+    valor_por_vida      NUMERIC(12,2) NOT NULL,
+    treinamentos        NUMERIC(12,2) NOT NULL DEFAULT 0,
+    laudos              NUMERIC(12,2) NOT NULL DEFAULT 0,
+
+    escopo              JSONB NOT NULL,
+
+    cidade              VARCHAR(80) NOT NULL DEFAULT 'Guarulhos',
+    data_proposta       DATE NOT NULL,
+    validade            DATE NOT NULL,
+
+    cliente_razao_social  VARCHAR(200) NOT NULL,
+    executivo_id          UUID REFERENCES usuarios(id) ON DELETE SET NULL,
+    executivo_nome        VARCHAR(150) NOT NULL,
+    executivo_email       VARCHAR(150) NOT NULL,
+    executivo_telefone    VARCHAR(30),
+
+    criado_por          UUID REFERENCES usuarios(id) ON DELETE SET NULL,
+    criado_em           TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+    CONSTRAINT uq_proposta_versao UNIQUE (oportunidade_id, versao),
+    CONSTRAINT ck_proposta_vidas        CHECK (vidas >= 1),
+    CONSTRAINT ck_proposta_valor_vida   CHECK (valor_por_vida > 0),
+    CONSTRAINT ck_proposta_treinamentos CHECK (treinamentos >= 0),
+    CONSTRAINT ck_proposta_laudos       CHECK (laudos >= 0),
+    CONSTRAINT ck_proposta_validade     CHECK (validade >= data_proposta),
+    CONSTRAINT ck_proposta_escopo       CHECK (jsonb_array_length(escopo) >= 1)
+);
+
+CREATE INDEX IF NOT EXISTS idx_propostas_oportunidade
+    ON propostas (oportunidade_id, versao DESC);

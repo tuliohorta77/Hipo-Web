@@ -16,6 +16,7 @@ import {
 
 import api from '../../api';
 import AbaTarefas from './AbaTarefas';
+import AbaProposta from './AbaProposta';
 import Tabs from '../ui/Tabs';
 import Input, { Select } from '../ui/Input';
 import Button from '../ui/Button';
@@ -668,27 +669,37 @@ export default function OportunidadeDetalhe({
           é barato, adivinhar o modelo de dados é caro.
         */}
         {aba === 'proposta' && (
-          <div className="max-w-md space-y-5">
+          <div className="space-y-5">
             {/*
-              A mensalidade veio para cá porque é resultado de proposta, não
-              atributo solto da oportunidade. Hoje é digitada; quando o
-              catálogo existir, passa a ser vidas x valor por vida.
+              A mensalidade continua digitável aqui para as oportunidades
+              que ainda não têm proposta gerada — negociação que começou no
+              telefone tem valor antes de ter documento. Gerar uma proposta
+              sobrescreve este campo com vidas x valor por vida: o funil não
+              pode somar um ticket diferente do que foi enviado ao cliente.
             */}
-            <Input
-              label="Mensalidade (R$)"
-              type="number"
-              min="0"
-              step="0.01"
-              value={form.valor_mensalidade ?? ''}
-              onChange={(e) => set('valor_mensalidade', e.target.value)}
-              hint="Por enquanto digitada. Vai ser calculada quando o catálogo de serviços existir."
-            />
+            <div className="max-w-md">
+              <Input
+                label="Mensalidade (R$)"
+                type="number"
+                min="0"
+                step="0.01"
+                value={form.valor_mensalidade ?? ''}
+                onChange={(e) => set('valor_mensalidade', e.target.value)}
+                hint="Gerar uma proposta recalcula este valor a partir das vidas."
+              />
+            </div>
 
-            <div className="border-t border-hipo-border pt-4">
-              <Empty
-                title="Versões da proposta ainda não implementadas"
-                description="Aqui vão as vidas, o valor por vida e o histórico de versões (v1, v2, v3). Depende de fechar o catálogo de serviços e a precificação."
-                icon={FileText}
+            <div className="border-t border-hipo-border pt-5">
+              <AbaProposta
+                oportunidade={oportunidade}
+                onGerada={(proposta) => {
+                  // O backend já gravou a mensalidade nova. Refletir no
+                  // form evita o campo acima mostrar o valor velho até
+                  // alguém recarregar — e um "Alterações não salvas"
+                  // fantasma se o usuário tocar em qualquer outro campo.
+                  set('valor_mensalidade', String(proposta.mensalidade));
+                  onRecarregar?.();
+                }}
               />
             </div>
           </div>
