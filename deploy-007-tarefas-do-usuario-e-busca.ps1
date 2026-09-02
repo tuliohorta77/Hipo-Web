@@ -15,7 +15,32 @@
 # arquivo novo em api\migrations, ele aborta, porque ai a ordem correta
 # seria outra (banco antes do push) e este script nao faz DDL.
 #
-# ORDEM:  testes locais -> push -> CI -> smoke test
+# ---------------------------------------------------------------------
+# PUSH NO RAMO NAO DEPLOYA. Esta e a licao da v1 deste script.
+#
+# O job de deploy do ci-cd.yml e guardado por
+#
+#     if: github.ref == 'refs/heads/main'
+#         AND (github.event_name == 'push' OR 'workflow_dispatch')
+#
+# Empurrando um ramo de feature, o Actions roda os dois jobs de teste e
+# PULA o de deploy. Pulado nao e falha: o run fecha com 'success', o
+# 'gh run watch --exit-status' devolve zero e a v1 deste script anunciava
+# "Deploy verde" com o codigo parado no repositorio. A producao continuou
+# na versao antiga e nada no terminal disse isso.
+#
+# Por isso agora sao DOIS acompanhamentos de CI -- o do ramo (testes) e o
+# da main (deploy) -- e a conclusao do job de deploy e lida uma a uma, por
+# nome, em vez de confiar no resultado global do run.
+# ---------------------------------------------------------------------
+#
+# ORDEM:
+#   0. pre-voo
+#   1. testes locais
+#   2. push do ramo
+#   3. CI do ramo (Backend Tests + Frontend Tests)
+#   4. merge na main -> CI da main -> deploy de verdade
+#   5. smoke test
 #
 # Nenhuma etapa continua se a anterior falhar.
 #
@@ -37,17 +62,21 @@
 #   .\deploy-007-tarefas-do-usuario-e-busca.ps1
 #   .\deploy-007-tarefas-do-usuario-e-busca.ps1 -PularTestes
 #   .\deploy-007-tarefas-do-usuario-e-busca.ps1 -SmokeEmail voce@empresa.com
+#   .\deploy-007-tarefas-do-usuario-e-busca.ps1 -PararNoRamo   # so testes
 #
 # O -SmokeEmail e o que vale a pena: ele bate na API de producao ja
 # autenticado e exercita a consulta NOVA. Erro de SQL na busca so aparece
-# em runtime -- HTTP 200 no /health nao prova nada sobre ela.
+# em runtime -- HTTP 200 no /health nao prova nada sobre ela. Use um e-mail
+# de verdade; o 'voce@empresa.com' do exemplo so vai falhar o login.
 # =====================================================================
 
 [CmdletBinding()]
 param(
     [switch]$PularTestes,
     [switch]$PularSmoke,
+    [switch]$PararNoRamo,
 
+    [string]$RamoAlvo   = "main",
     [string]$UrlPublica = "https://hipogestao.com.br",
     [string]$SmokeEmail = "",
     [string]$Mensagem   = "feat(crm): tarefas abrem no responsavel logado; busca do funil por numero, empresa, fantasia, contato e CNPJ; fix(tests): dia de calendario no fuso da operacao"
@@ -55,6 +84,8 @@ param(
 
 $ErrorActionPreference = "Stop"
 $ProgressPreference    = "SilentlyContinue"
+
+$REPO_URL = "https://github.com/tuliohorta77/Hipo-Web/actions"
 
 # Os arquivos desta entrega, com um marcador que prova que o conteudo novo
 # esta mesmo no disco. Pasta versionada errada (v1.3.x em vez de v1.4.0) e
@@ -118,6 +149,77 @@ function Confirmar($pergunta) {
     if ($r -ne "SIM") { Abortar "cancelado por voce." }
 }
 
+# -- Helpers do gh ----------------------------------------------------
+
+# Run mais recente do workflow NO RAMO pedido. O @() em volta e necessario:
+# no PowerShell 5.1 um ConvertFrom-Json de array com UM elemento devolve o
+# objeto solto, e ai [0] indexa o objeto em vez da lista.
+function RunMaisRecente($ramoDoRun) {
+    $bruto = & gh run list --workflow=ci-cd.yml --branch $ramoDoRun --limit 1 `
+        --json databaseId,createdAt,event,status,conclusion
+    if ($LASTEXITCODE -ne 0) { return $null }
+    $lista = @($bruto | ConvertFrom-Json)
+    if ($lista.Count -eq 0) { return $null }
+    return $lista[0]
+}
+
+# Espera nascer um run novo no ramo, comparado com o id de antes.
+function EsperarRunNovo($ramoDoRun, $idAntes, $segundos = 45) {
+    Passo "esperando ${segundos}s para o Actions acordar no ramo $ramoDoRun..."
+    Start-Sleep -Seconds $segundos
+
+    $atual = RunMaisRecente $ramoDoRun
+    if (-not $atual) { return $null }
+
+    $ehNovo = ([string]$atual.databaseId) -ne ([string]$idAntes)
+    $idade  = (Get-Date) - [datetime]$atual.createdAt
+    # Novo id OU criado agora ha pouco -- a segunda condicao cobre o caso de
+    # nao existir run anterior nenhum naquele ramo.
+    if ($ehNovo -or $idade.TotalMinutes -lt 3) { return $atual }
+    return $null
+}
+
+function AcompanharRun($runId, $oQueEsperar) {
+    # Watch do run ESPECIFICO, nunca 'gh run watch' pelado: sem o id ele abre
+    # menu para escolher quando ha mais de um run em andamento, e num script
+    # isso trava esperando tecla que ninguem vai apertar.
+    Passo "acompanhando o run $runId ($oQueEsperar)..."
+    & gh run watch $runId --exit-status
+    if ($LASTEXITCODE -ne 0) {
+        Abortar "o CI ficou vermelho no run $runId. Nada foi aplicado no banco -- a producao segue com o codigo anterior. Corrija e empurre de novo. Detalhes: $REPO_URL"
+    }
+}
+
+# A conferencia que faltava na v1 deste script.
+#
+# 'gh run watch --exit-status' devolve o resultado do RUN, e um job pulado
+# nao torna o run vermelho. Um deploy que nunca rodou e um deploy que rodou
+# e funcionou terminam iguais aos olhos do watch. Aqui a conclusao do job e
+# lida pelo nome -- 'skipped' e tratado como o que e: nao deployou.
+function ExigirDeployFeito($runId) {
+    $bruto = & gh run view $runId --json jobs
+    if ($LASTEXITCODE -ne 0) {
+        Aviso "nao consegui ler os jobs do run $runId -- confira na mao em $REPO_URL"
+        return
+    }
+    $jobs = @(($bruto | ConvertFrom-Json).jobs)
+    $deploy = @($jobs | Where-Object { $_.name -like "Deploy*" })
+
+    if ($deploy.Count -eq 0) {
+        Abortar "o run $runId nao tem job de Deploy. O ci-cd.yml mudou? Confira em $REPO_URL"
+    }
+
+    $conclusao = [string]$deploy[0].conclusion
+    if ($conclusao -eq "success") {
+        Bom "job de Deploy concluido com sucesso"
+        return
+    }
+    if ($conclusao -eq "skipped" -or $conclusao -eq "") {
+        Abortar "o job de Deploy foi PULADO no run $runId. O ci-cd.yml so deploya em push na '$RamoAlvo' -- run de pull_request ou de ramo de feature roda os testes e para por ai. O codigo esta no repositorio, mas NAO esta em producao."
+    }
+    Abortar "o job de Deploy terminou como '$conclusao' no run $runId. Veja o log em $REPO_URL"
+}
+
 # =====================================================================
 # 0. Pre-voo
 # =====================================================================
@@ -156,8 +258,21 @@ if ($migracoesNovas.Count -gt 0) {
 }
 Bom "nenhuma migration pendente -- entrega so de codigo"
 
+$temGh = $null -ne (Get-Command gh -ErrorAction SilentlyContinue)
+if (-not $temGh) {
+    Aviso "gh nao instalado -- o script empurra o codigo, mas voce vai ter que abrir o PR, mergear e conferir o deploy na mao em $REPO_URL"
+}
+
 $ramo = (& git rev-parse --abbrev-ref HEAD).Trim()
 Passo "ramo atual: $ramo"
+
+$noAlvo = ($ramo -eq $RamoAlvo)
+if ($noAlvo) {
+    Bom "voce ja esta na '$RamoAlvo' -- o push daqui deploya direto"
+}
+else {
+    Aviso "push em '$ramo' NAO deploya: o ci-cd.yml so roda o deploy na '$RamoAlvo'. Depois do CI verde, o script oferece o merge."
+}
 
 $sujos = & git status --porcelain
 if (-not $sujos) {
@@ -220,10 +335,10 @@ else {
 }
 
 # =====================================================================
-# 2. Push
+# 2. Push do ramo
 # =====================================================================
 
-Titulo "2. Push"
+Titulo "2. Push do ramo"
 
 $sujos = & git status --porcelain
 if ($sujos) {
@@ -236,84 +351,143 @@ if ($sujos) {
     Bom "commit criado"
 }
 else {
-    Aviso "arvore limpa -- nada novo para commitar, seguindo para o push."
+    Aviso "arvore limpa -- nada novo para commitar."
 }
+
+# Quantos commits o ramo tem a frente do que ja esta no GitHub. Serve para
+# saber se o push vai mesmo gerar run novo: sem isso, rodar o script de novo
+# depois de tudo empurrado faria o passo 3 esperar um run que nunca nasce e
+# disparar um workflow_dispatch inutil.
+$aFrente = "0"
+try   { $aFrente = (& git rev-list --count "origin/$ramo..$ramo").Trim() }
+catch { $aFrente = "?" }
 
 Executar "git push" { git push origin $ramo }
-Bom "codigo no repositorio"
+Bom "codigo no repositorio, no ramo $ramo"
+
+$empurrouAlgo = ($aFrente -ne "0")
 
 # =====================================================================
-# 3. CI
+# 3. CI do ramo -- os dois jobs de teste
 # =====================================================================
 
-Titulo "3. CI"
+Titulo "3. CI do ramo"
 
-$temGh = $null -ne (Get-Command gh -ErrorAction SilentlyContinue)
 if (-not $temGh) {
-    Aviso "gh nao instalado -- acompanhe em https://github.com/tuliohorta77/Hipo-Web/actions"
+    Aviso "sem gh -- acompanhe em $REPO_URL e depois mergeie na $RamoAlvo na mao"
 }
 else {
-    # Devolve o run mais recente, ou $null. O @() em volta e necessario: no
-    # PowerShell 5.1 um ConvertFrom-Json de array com UM elemento devolve o
-    # objeto solto, e ai [0] indexa o objeto em vez da lista.
-    function RunMaisRecente {
-        $bruto = & gh run list --workflow=ci-cd.yml --limit 1 --json databaseId,createdAt
-        if ($LASTEXITCODE -ne 0) { return $null }
-        $lista = @($bruto | ConvertFrom-Json)
-        if ($lista.Count -eq 0) { return $null }
-        return $lista[0]
-    }
-
-    $antes = RunMaisRecente
-    $idAntes = ""
-    if ($antes) { $idAntes = [string]$antes.databaseId }
-
-    # O gatilho 'push' do Actions as vezes adormece. A saida e o
-    # workflow_dispatch -- MAS nunca junto com o push: dois runs simultaneos
-    # colidem no deploy e o concurrency cancela um deles no meio.
-    Passo "esperando 45s para ver se o push acordou o workflow..."
-    Start-Sleep -Seconds 45
-
-    $atual = RunMaisRecente
-    $nasceu = $false
-    if ($atual) {
-        $ehNovo = ([string]$atual.databaseId) -ne $idAntes
-        $idade  = (Get-Date) - [datetime]$atual.createdAt
-        if ($ehNovo -or $idade.TotalMinutes -lt 3) { $nasceu = $true }
-    }
-
-    if (-not $nasceu) {
-        Aviso "o gatilho push parece ter adormecido -- disparando manualmente"
-        Executar "gh workflow run" { gh workflow run ci-cd.yml --ref $ramo }
-        Start-Sleep -Seconds 15
-        $atual = RunMaisRecente
+    if (-not $empurrouAlgo) {
+        Aviso "nada novo foi empurrado -- nao vai nascer run novo neste ramo. Seguindo para o merge."
     }
     else {
-        Bom "run criado pelo push"
-    }
+        $antes = RunMaisRecente $ramo
+        $idAntes = ""
+        if ($antes) { $idAntes = [string]$antes.databaseId }
 
-    if (-not $atual) {
-        Aviso "nao consegui identificar o run -- acompanhe em https://github.com/tuliohorta77/Hipo-Web/actions"
-    }
-    else {
-        # Watch do run ESPECIFICO, nunca 'gh run watch' pelado: sem o id ele
-        # abre menu para escolher quando ha mais de um run em andamento, e
-        # num script isso trava esperando tecla que ninguem vai apertar.
-        $runId = [string]$atual.databaseId
-        Passo "acompanhando o run $runId (os 3 jobs precisam ficar verdes)..."
-        & gh run watch $runId --exit-status
-        if ($LASTEXITCODE -ne 0) {
-            Abortar "o CI ficou vermelho no run $runId. Nada foi aplicado no banco -- a producao segue com o codigo anterior. Corrija e empurre de novo."
+        $atual = EsperarRunNovo $ramo $idAntes
+
+        if (-not $atual) {
+            # Nao dispara workflow_dispatch aqui de proposito: no ramo de
+            # feature ele so repetiria os testes, e dois runs simultaneos
+            # colidem no concurrency do workflow.
+            Aviso "nenhum run novo apareceu no ramo. Se ha PR aberto, o Actions pode ter rodado no evento de pull_request -- confira em $REPO_URL"
         }
-        Bom "Backend Tests + Frontend Tests + Deploy verdes"
+        else {
+            AcompanharRun ([string]$atual.databaseId) "Backend Tests + Frontend Tests"
+            Bom "testes verdes no ramo $ramo"
+            # Sem ExigirDeployFeito aqui: neste run o deploy e PULADO por
+            # projeto. Cobrar deploy do ramo seria cobrar o que o ci-cd.yml
+            # nunca prometeu.
+        }
     }
 }
 
+if ($PararNoRamo) {
+    Titulo "Fim -- parado no ramo, como voce pediu"
+    Write-Host "  O codigo esta no GitHub e passou nos testes." -ForegroundColor Gray
+    Write-Host "  NAO esta em producao: falta o merge na $RamoAlvo." -ForegroundColor Yellow
+    Write-Host "  Rode de novo sem -PararNoRamo quando quiser subir." -ForegroundColor Gray
+    Write-Host ""
+    exit 0
+}
+
 # =====================================================================
-# 4. Smoke test
+# 4. Merge na main -- e o deploy de verdade
 # =====================================================================
 
-Titulo "4. Smoke test"
+Titulo "4. Merge na $RamoAlvo e deploy"
+
+if ($noAlvo) {
+    Bom "ja estamos na $RamoAlvo -- o push do passo 2 e o gatilho do deploy"
+
+    if ($temGh -and $empurrouAlgo) {
+        $runMain = RunMaisRecente $RamoAlvo
+        if ($runMain) {
+            AcompanharRun ([string]$runMain.databaseId) "os 3 jobs, deploy incluido"
+            ExigirDeployFeito ([string]$runMain.databaseId)
+        }
+        else {
+            Aviso "nao identifiquei o run da $RamoAlvo -- confira em $REPO_URL"
+        }
+    }
+}
+elseif (-not $temGh) {
+    Abortar "sem o gh nao da para mergear daqui. Abra o PR de '$ramo' para '$RamoAlvo', mergeie, e confira em $REPO_URL que o job 'Deploy' ficou VERDE (nao pulado)."
+}
+else {
+    # Existe PR aberto para este ramo?
+    $numeroPr = ""
+    $bruto = & gh pr list --head $ramo --base $RamoAlvo --state open --json number,title
+    if ($LASTEXITCODE -eq 0) {
+        $prs = @($bruto | ConvertFrom-Json)
+        if ($prs.Count -gt 0) { $numeroPr = [string]$prs[0].number }
+    }
+
+    if ($numeroPr) {
+        Passo "PR #$numeroPr ja aberto para $RamoAlvo"
+    }
+    else {
+        Passo "nenhum PR aberto -- criando"
+        & gh pr create --base $RamoAlvo --head $ramo --title $Mensagem --body "Entrega 007. Deploy pelo deploy-007-tarefas-do-usuario-e-busca.ps1."
+        if ($LASTEXITCODE -ne 0) {
+            Abortar "nao consegui criar o PR. Abra na mao e rode o script de novo."
+        }
+        $bruto = & gh pr list --head $ramo --base $RamoAlvo --state open --json number
+        $prs = @($bruto | ConvertFrom-Json)
+        if ($prs.Count -eq 0) { Abortar "PR criado mas nao encontrado na listagem. Confira em $REPO_URL" }
+        $numeroPr = [string]$prs[0].number
+        Bom "PR #$numeroPr criado"
+    }
+
+    Write-Host ""
+    Write-Host "  O merge do PR #$numeroPr e o que coloca a 007 em producao." -ForegroundColor White
+    Confirmar "Mergear o PR #$numeroPr em $RamoAlvo agora?"
+
+    # Guarda o id do run atual da main ANTES do merge, para reconhecer o
+    # run novo depois. Sem isso, um run antigo da main passaria por novo e o
+    # script anunciaria um deploy que nao aconteceu.
+    $antesMain = RunMaisRecente $RamoAlvo
+    $idAntesMain = ""
+    if ($antesMain) { $idAntesMain = [string]$antesMain.databaseId }
+
+    Executar "gh pr merge" { gh pr merge $numeroPr --merge }
+    Bom "PR #$numeroPr mergeado na $RamoAlvo"
+
+    $runMain = EsperarRunNovo $RamoAlvo $idAntesMain 60
+    if (-not $runMain) {
+        Abortar "o merge foi feito mas nao vi run novo na $RamoAlvo. Confira em $REPO_URL antes de considerar entregue."
+    }
+
+    AcompanharRun ([string]$runMain.databaseId) "os 3 jobs, deploy incluido"
+    ExigirDeployFeito ([string]$runMain.databaseId)
+}
+
+# =====================================================================
+# 5. Smoke test
+# =====================================================================
+
+Titulo "5. Smoke test"
 
 # O passo "Verificar deploy" do CI roda
 #     curl -sf http://localhost/health || echo 'Frontend OK'
@@ -362,7 +536,10 @@ if ($PularSmoke) {
     Aviso "smoke autenticado pulado por -PularSmoke"
 }
 elseif (-not $SmokeEmail) {
-    Aviso "smoke autenticado nao rodou. Para exercitar a busca nova em producao, rode de novo com -SmokeEmail voce@empresa.com"
+    Aviso "smoke autenticado nao rodou. Para exercitar a busca nova em producao, rode de novo com -SmokeEmail seu-email-de-verdade@dominio.com"
+}
+elseif ($SmokeEmail -eq "voce@empresa.com") {
+    Aviso "'voce@empresa.com' e o placeholder do exemplo, nao um login. Rode de novo com o seu e-mail para o smoke autenticado valer."
 }
 else {
     $segura = Read-Host "  Senha de $SmokeEmail (nao aparece na tela)" -AsSecureString
@@ -427,7 +604,7 @@ if ($falhou) {
 Titulo "Entregue"
 
 Write-Host ""
-Write-Host "  A 007 esta no ar." -ForegroundColor Green
+Write-Host "  A 007 esta em producao." -ForegroundColor Green
 Write-Host ""
 Write-Host "  FACA LOGOUT E LOGIN em $UrlPublica -- e nao pule este passo." -ForegroundColor Yellow
 Write-Host ""
