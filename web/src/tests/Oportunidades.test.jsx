@@ -445,6 +445,174 @@ describe('Oportunidades — o drill da oportunidade', () => {
   });
 });
 
+// ── Drilldown da conta ───────────────────────────────────────────────
+//
+// A pergunta "quem é essa empresa" nasce dentro da negociação. Antes ela
+// custava fechar o modal, trocar de tela e buscar a razão social de novo.
+// A visão 360 da conta abre EM CIMA da oportunidade, editável, e some sem
+// levar junto o que estava aberto atrás.
+
+describe('Oportunidades — drilldown da conta', () => {
+  const DETALHE = {
+    ...OPP,
+    descricao: null, observacoes: null, origem_id: null,
+    concorrentes: [], tarefas_abertas: 0,
+  };
+
+  const CONTA = {
+    id: 'c1',
+    razao_social: 'Metalurgica Alfa LTDA',
+    nome_fantasia: 'Alfa',
+    cnpj: '11222333000181',
+    cnpj_formatado: '11.222.333/0001-81',
+    vertical_id: 1, vertical_nome: 'Metalúrgica', num_funcionarios: 120,
+    cep: '07020020', logradouro: 'Rua A', numero: '100', complemento: null,
+    bairro: 'Centro', cidade: 'Guarulhos', uf: 'SP',
+    telefone: '1130001000', telefone_2: null, email: 'contato@alfa.com',
+    observacoes: null, eh_finder: false, ativo: true,
+    vendedores: ['Ana Vendas'], qtd_oportunidades_ativas: 1,
+    criado_em: '2026-08-01T12:00:00Z', atualizado_em: '2026-08-01T12:00:00Z',
+    contatos: [],
+    oportunidades: [
+      { id: 'o1', numero: 'OPP-2026-00001', fase: 'negociacao', status: 'ativa',
+        valor_mensalidade: 2500, temperatura: 70, previsao_fechamento: '2026-09-30' },
+    ],
+  };
+
+  function respostasComConta(url) {
+    if (url === '/crm/oportunidades/o1') return Promise.resolve({ data: DETALHE });
+    if (url === '/crm/contas/c1') return Promise.resolve({ data: CONTA });
+    if (url === '/crm/dominio/verticais') {
+      return Promise.resolve({ data: [{ id: 1, nome: 'Metalúrgica', slug: 'metalurgica' }] });
+    }
+    if (url === '/crm/contatos') {
+      return Promise.resolve({ data: { total: 0, limit: 100, offset: 0, itens: [] } });
+    }
+    if (url === '/crm/tarefas') {
+      return Promise.resolve({ data: { total: 0, abertas: 0, atrasadas: 0, itens: [] } });
+    }
+    if (url.startsWith('/crm/dominio/')) return Promise.resolve({ data: [] });
+    return respostas(null)(url);
+  }
+
+  async function abrirOportunidade() {
+    mockGet.mockImplementation(respostasComConta);
+    montar();
+    await screen.findByRole('region', { name: 'Fase Suspect' });
+    fireEvent.click(screen.getByText('Metalurgica Alfa'));
+    await screen.findByTestId('tab-dados');
+  }
+
+  const botaoDaConta = () => screen.getByLabelText('Abrir a conta Metalurgica Alfa');
+
+  async function abrirConta() {
+    await abrirOportunidade();
+    fireEvent.click(botaoDaConta());
+    return screen.findByLabelText('Razão social');
+  }
+
+  it('o trilho tem a empresa como botão', async () => {
+    await abrirOportunidade();
+    expect(botaoDaConta()).toBeInTheDocument();
+  });
+
+  it('clicar abre a visão 360 da conta, editável', async () => {
+    /* Editável é o ponto: o drilldown é a MESMA tela de Contas, não uma
+       cópia só-leitura que envelheceria em paralelo. */
+    const razao = await abrirConta();
+    expect(razao.value).toBe('Metalurgica Alfa LTDA');
+    expect(razao).not.toBeDisabled();
+    expect(mockGet.mock.calls.some(([u]) => u === '/crm/contas/c1')).toBe(true);
+  });
+
+  it('a oportunidade continua aberta atrás', async () => {
+    /* Empilhar em vez de navegar é o que preserva o que já estava aqui. */
+    await abrirConta();
+    expect(screen.getByTestId('tab-dados')).toBeInTheDocument();
+  });
+
+  it('fechar o drilldown devolve a oportunidade intacta', async () => {
+    await abrirConta();
+    fireEvent.click(screen.getByText('Voltar à oportunidade'));
+    await waitFor(() =>
+      expect(screen.queryByLabelText('Razão social')).not.toBeInTheDocument()
+    );
+    expect(screen.getByTestId('tab-dados')).toBeInTheDocument();
+    expect(screen.getByLabelText('Fase')).toBeInTheDocument();
+  });
+
+  it('a edição da oportunidade sobrevive ao drilldown', async () => {
+    /*
+      O motivo de empilhar em vez de navegar. Com rota nova, o modal
+      desmontaria e o que estava digitado ia junto — sem aviso nenhum.
+    */
+    await abrirOportunidade();
+    fireEvent.change(screen.getByLabelText('Descrição'), {
+      target: { value: 'Renovacao anual' },
+    });
+
+    fireEvent.click(botaoDaConta());
+    await screen.findByLabelText('Razão social');
+    fireEvent.click(screen.getByText('Voltar à oportunidade'));
+
+    await waitFor(() =>
+      expect(screen.getByLabelText('Descrição').value).toBe('Renovacao anual')
+    );
+  });
+
+  it('as verticais são buscadas só quando o drilldown abre', async () => {
+    /* O funil não usa vertical para nada: buscar na montagem seria custo
+       fixo para um caminho que nem todo mundo percorre. */
+    await abrirOportunidade();
+    const antes = mockGet.mock.calls.filter(([u]) => u === '/crm/dominio/verticais');
+    expect(antes).toHaveLength(0);
+
+    fireEvent.click(botaoDaConta());
+    await screen.findByLabelText('Razão social');
+    expect(mockGet.mock.calls.some(([u]) => u === '/crm/dominio/verticais')).toBe(true);
+  });
+
+  it('salvar a conta recarrega o funil e a oportunidade', async () => {
+    /*
+      A razão social aparece no cartão do funil e no título do modal da
+      oportunidade. Sem recarregar as duas, renomear a empresa mostra o nome
+      antigo ao fechar — e parece que não salvou.
+    */
+    await abrirConta();
+    mockPatch.mockResolvedValue({ data: { ...CONTA, razao_social: 'Alfa Metais LTDA' } });
+
+    fireEvent.change(screen.getByLabelText('Razão social'), {
+      target: { value: 'Alfa Metais LTDA' },
+    });
+    // Escopado: com os dois modais no DOM há dois botões "Salvar".
+    const barraDaConta = within(screen.getByLabelText('Ações da conta'));
+    fireEvent.click(barraDaConta.getByText('Salvar'));
+
+    await waitFor(() => expect(mockPatch).toHaveBeenCalled());
+    expect(mockPatch.mock.calls[0][0]).toBe('/crm/contas/c1');
+    await waitFor(() => {
+      const kanban = mockGet.mock.calls.filter(([u]) => u === '/crm/oportunidades/kanban');
+      expect(kanban.length).toBeGreaterThan(1);
+    });
+    expect(mockGet.mock.calls.filter(([u]) => u === '/crm/oportunidades/o1').length)
+      .toBeGreaterThan(1);
+  });
+
+  it('erro ao abrir a conta aparece e não derruba a oportunidade', async () => {
+    await abrirOportunidade();
+    mockGet.mockImplementation((url) => {
+      if (url === '/crm/contas/c1') {
+        return Promise.reject({ response: { data: { detail: 'Conta sumiu' } } });
+      }
+      return respostasComConta(url);
+    });
+
+    fireEvent.click(botaoDaConta());
+    expect(await screen.findByText('Conta sumiu')).toBeInTheDocument();
+    expect(screen.getByTestId('tab-dados')).toBeInTheDocument();
+  });
+});
+
 describe('Oportunidades — erro de carga', () => {
   it('mostra a mensagem da API', async () => {
     mockGet.mockImplementation((url) => {

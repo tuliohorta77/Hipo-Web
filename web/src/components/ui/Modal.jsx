@@ -46,6 +46,20 @@ const ALTURAS_FIXAS = {
   full: "h-[92vh]",
 };
 
+// ── Esc fecha UM modal: o de cima ────────────────────────────────────
+//
+// Modais empilhados existem desde o drilldown da conta dentro da
+// oportunidade. Cada instância escutava `keydown` na window, então um Esc
+// chegava em todas ao mesmo tempo e derrubava a pilha inteira: o usuário
+// fechava o drilldown e perdia junto a oportunidade que estava editando
+// atrás dele.
+//
+// A pilha guarda a identidade de cada modal ABERTO, na ordem de abertura, e
+// só o último trata a tecla. É module-level de propósito: precisa ser uma
+// só entre todas as instâncias, e contexto do React seria cerimônia demais
+// para uma lista de três posições.
+const pilhaDeModais = [];
+
 export default function Modal({
   aberto,
   onFechar,
@@ -59,15 +73,36 @@ export default function Modal({
 }) {
   const containerRef = useRef(null);
 
-  // Fecha com Esc
+  // Identidade estável desta instância, para achar seu lugar na pilha.
+  const identidade = useRef(null);
+  if (identidade.current === null) identidade.current = {};
+
+  // O `onFechar` chega por ref, não pelas dependências do efeito abaixo. Um
+  // pai que recria a função a cada render faria o efeito rodar de novo, e o
+  // modal de BAIXO voltaria para o topo da pilha — passando a engolir o Esc
+  // que era do de cima. A pilha só pode mudar quando um modal abre ou fecha.
+  const fecharRef = useRef(onFechar);
+  useEffect(() => { fecharRef.current = onFechar; });
+
+  // Fecha com Esc — mas só o modal do topo da pilha.
   useEffect(() => {
     if (!aberto) return;
+    const eu = identidade.current;
+    pilhaDeModais.push(eu);
+
     function onKey(e) {
-      if (e.key === "Escape") onFechar?.();
+      if (e.key !== "Escape") return;
+      if (pilhaDeModais[pilhaDeModais.length - 1] !== eu) return;
+      fecharRef.current?.();
     }
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [aberto, onFechar]);
+
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      const i = pilhaDeModais.indexOf(eu);
+      if (i !== -1) pilhaDeModais.splice(i, 1);
+    };
+  }, [aberto]);
 
   // Trava scroll do body enquanto aberto
   useEffect(() => {

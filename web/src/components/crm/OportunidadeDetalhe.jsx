@@ -11,7 +11,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Users, Swords, History, RotateCcw, FileText,
-  PauseCircle, PlayCircle, Flag, Plus, X,
+  PauseCircle, PlayCircle, Flag, Plus, X, Building2, Maximize2,
 } from 'lucide-react';
 
 import api from '../../api';
@@ -360,6 +360,10 @@ export default function OportunidadeDetalhe({
   onSalvo,
   onDesfecho,
   onFechar,
+  // Drilldown da empresa: quem monta o modal da conta é a página, porque é
+  // ela que já tem o modal da oportunidade e sabe empilhar um sobre o outro.
+  // Opcional — sem o handler, o botão simplesmente não aparece.
+  onAbrirConta,
 }) {
   const [form, setForm] = useState({});
   const [aba, setAba] = useState('dados');
@@ -479,6 +483,39 @@ export default function OportunidadeDetalhe({
       {/* ── Trilho: estado, navegação e ações ── */}
       <aside className="shrink-0 w-52 border-r border-hipo-border bg-hipo-bg/40 flex flex-col min-h-0">
         <div className="px-3 pt-3 pb-3 space-y-2">
+          {/*
+            A empresa, no topo do trilho e clicável.
+
+            O título do modal já diz o nome, mas dizer não é o mesmo que
+            levar: quem está na negociação e precisa do cadastro — mudar a
+            vertical, corrigir o endereço, ver os contatos, ver as OUTRAS
+            oportunidades da mesma empresa — tinha que fechar tudo, ir para
+            Contas e buscar de novo pela razão social.
+
+            Abre a visão 360 da conta EM CIMA desta, e editável. Empilhar em
+            vez de navegar é o que preserva o que já estava aqui: fase,
+            aba selecionada e qualquer campo em edição continuam intactos
+            quando o drilldown fecha.
+          */}
+          {onAbrirConta && (
+            <button
+              type="button"
+              onClick={() => onAbrirConta(oportunidade.conta_id)}
+              title={`Abrir a conta: ${oportunidade.conta_razao_social}`}
+              aria-label={`Abrir a conta ${oportunidade.conta_razao_social}`}
+              className={
+                'w-full flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-xs ' +
+                'border border-hipo-border bg-hipo-card text-hipo-ink text-left ' +
+                'hover:bg-hipo-blueSoft hover:border-hipo-blue transition-colors ' +
+                'focus:outline-none focus-visible:ring-2 focus-visible:ring-hipo-blue'
+              }
+            >
+              <Building2 size={13} className="shrink-0 text-hipo-blue" aria-hidden="true" />
+              <span className="truncate font-medium">{oportunidade.conta_razao_social}</span>
+              <Maximize2 size={12} className="ml-auto shrink-0 text-hipo-slate" aria-hidden="true" />
+            </button>
+          )}
+
           {/*
             Fase é ação, não campo: mudar dispara regra e grava evento. Por
             isso o select chama o endpoint na hora, sem passar pelo Salvar.
