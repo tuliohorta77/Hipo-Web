@@ -34,6 +34,7 @@ import EntityPicker from '../../components/EntityPicker';
 import KanbanOportunidades from '../../components/crm/KanbanOportunidades';
 import FunilOportunidades from '../../components/crm/FunilOportunidades';
 import OportunidadeDetalhe from '../../components/crm/OportunidadeDetalhe';
+import ContaDetalhe from '../../components/crm/ContaDetalhe';
 import ModalDesfecho from '../../components/crm/ModalDesfecho';
 
 const POR_PAGINA = 50;
@@ -245,6 +246,13 @@ export default function Oportunidades() {
   const [detalhe, setDetalhe] = useState(null);
   const [desfechoDe, setDesfechoDe] = useState(null);
   const [kpiAtivo, setKpiAtivo] = useState(null);
+  // Drilldown da empresa, empilhado sobre a oportunidade. `verticais` só é
+  // buscada quando o drilldown abre pela primeira vez: o funil não precisa
+  // dela para nada, e uma request a mais em toda abertura da tela seria
+  // custo fixo para um caminho que nem todo mundo percorre.
+  const [contaAberta, setContaAberta] = useState(null);
+  const [acaoSalvarConta, setAcaoSalvarConta] = useState(null);
+  const [verticais, setVerticais] = useState([]);
   const debounce = useRef(null);
 
   // O `f.q === busca ? f : ...` nao e microtuning: devolver o MESMO objeto faz
@@ -375,6 +383,75 @@ export default function Oportunidades() {
     setDetalhe(atualizada);
     carregar();
   }, [carregar]);
+
+  // ── Drilldown da conta ─────────────────────────────────────────────
+  //
+  // Mesma visão 360 da tela de Contas, e editável — é o mesmo componente,
+  // com as mesmas props. Duplicar uma versão "só leitura" aqui criaria duas
+  // telas da conta para manter, e a segunda envelheceria.
+
+  /*
+    `verticaisRef` em vez de ler o estado: com `verticais` nas dependências,
+    este callback ganharia identidade nova assim que a lista chegasse, e a
+    prop `onAbrirConta` do OportunidadeDetalhe mudaria embaixo dele. Prop
+    instável passada para o detalhe já produziu loop de renderização nesta
+    tela antes — mesma nota que existe sobre as props do ContaDetalhe.
+  */
+  const verticaisRef = useRef([]);
+
+  const abrirConta = useCallback(async (contaId) => {
+    setErro(null);
+    try {
+      const [conta, verts] = await Promise.all([
+        api.get(`/crm/contas/${contaId}`),
+        verticaisRef.current.length
+          ? Promise.resolve({ data: verticaisRef.current })
+          : api.get('/crm/dominio/verticais'),
+      ]);
+      verticaisRef.current = verts.data;
+      setVerticais(verts.data);
+      setContaAberta(conta.data);
+    } catch (err) {
+      setErro(mensagemDeErro(err, 'Não foi possível abrir a conta.'));
+    }
+  }, []);
+
+  const fecharConta = useCallback(() => {
+    setContaAberta(null);
+    setAcaoSalvarConta(null);
+  }, []);
+
+  const recarregarConta = useCallback(async () => {
+    if (!contaAberta) return;
+    try {
+      const { data } = await api.get(`/crm/contas/${contaAberta.id}`);
+      setContaAberta(data);
+    } catch (err) {
+      setErro(mensagemDeErro(err, 'Não foi possível recarregar a conta.'));
+    }
+  }, [contaAberta]);
+
+  const criarVertical = useCallback(async (nome) => {
+    const { data } = await api.post('/crm/dominio/verticais', { nome });
+    setVerticais((vs) => {
+      const lista = vs.some((v) => v.id === data.id) ? vs : [...vs, data];
+      verticaisRef.current = lista;
+      return lista;
+    });
+    return data;
+  }, []);
+
+  /*
+    Salvar a conta aqui repercute em duas superfícies atrás do drilldown: a
+    razão social aparece no cartão do funil e no título do modal da
+    oportunidade. Sem recarregar as duas, o usuário renomeia a empresa e vê
+    o nome antigo assim que fecha — e conclui que não salvou.
+  */
+  const aoSalvarConta = useCallback((atualizada) => {
+    setContaAberta(atualizada);
+    carregar();
+    recarregarDetalhe();
+  }, [carregar, recarregarDetalhe]);
 
   async function mover(id, fase) {
     setErro(null);
@@ -767,6 +844,60 @@ export default function Oportunidades() {
             onSalvo={aoSalvar}
             onDesfecho={setDesfechoDe}
             onFechar={() => setDetalhe(null)}
+            onAbrirConta={abrirConta}
+          />
+        )}
+      </Modal>
+
+      {/*
+        ── Drilldown da conta ──
+        DEPOIS do modal da oportunidade no JSX, e isso não é arrumação: os
+        dois usam z-50, então quem decide o que fica por cima é a ordem no
+        DOM. Invertido, o drilldown abriria ATRÁS da oportunidade.
+
+        O Esc fecha só este, não os dois — ver a pilha em components/ui/Modal.
+      */}
+      <Modal
+        aberto={Boolean(contaAberta)}
+        onFechar={fecharConta}
+        titulo={contaAberta?.razao_social}
+        subtitulo={contaAberta ? `CNPJ ${contaAberta.cnpj_formatado}` : undefined}
+        size="full"
+        bodySemPadding
+        footer={
+          // O aria-label não é só acessibilidade: com dois modais no DOM há
+          // dois botões "Salvar", e sem um rótulo que separe as barras nem o
+          // leitor de tela nem o teste sabem qual é de quem.
+          <div
+            className="flex items-center justify-between gap-3"
+            aria-label="Ações da conta"
+          >
+            <span className="text-xs text-hipo-slate">
+              {acaoSalvarConta?.sujo ? 'Alterações não salvas' : 'Tudo salvo'}
+            </span>
+            <div className="flex gap-2">
+              <Button variant="ghost" onClick={fecharConta}>
+                Voltar à oportunidade
+              </Button>
+              <Button
+                onClick={() => acaoSalvarConta?.salvar()}
+                disabled={!acaoSalvarConta?.sujo}
+                loading={acaoSalvarConta?.salvando}
+              >
+                Salvar
+              </Button>
+            </div>
+          </div>
+        }
+      >
+        {contaAberta && (
+          <ContaDetalhe
+            conta={contaAberta}
+            verticais={verticais}
+            onCriarVertical={criarVertical}
+            onRecarregar={recarregarConta}
+            onSalvo={aoSalvarConta}
+            registrarSalvar={setAcaoSalvarConta}
           />
         )}
       </Modal>
