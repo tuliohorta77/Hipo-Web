@@ -424,18 +424,31 @@ describe('Oportunidades — o drill da oportunidade', () => {
     expect(cabecalho).not.toHaveTextContent('Negociação');
   });
 
-  it('as quatro ações ficam na mesma barra de baixo', async () => {
+  it('as quatro ações ficam numa barra só, no cabeçalho', async () => {
     /*
       Suspender e Finalizar são saídas desta tela, igual a Fechar e Salvar.
       Espalhá-las em cantos diferentes obrigava o olho a procurar.
+
+      No cabeçalho, e não no rodapé: o modal tem 92vh de altura, então um
+      Salvar lá embaixo fica a uma tela de distância do campo que se acabou
+      de editar. Em cima, as saídas ficam todas no mesmo canto — junto do X,
+      que é a saída que o usuário já procura ali.
     */
     await abrir();
     // Escopado na barra: 'Fechar' também é o rótulo do botão de desfecho no
     // cartão do kanban, e 'Finalizar' aparece no X do modal.
-    const barra = within(screen.getByLabelText('Ações da oportunidade'));
+    const barra = screen.getByLabelText('Ações da oportunidade');
     for (const acao of ['Suspender', 'Finalizar', 'Fechar', 'Salvar']) {
-      expect(barra.getByText(acao)).toBeInTheDocument();
+      expect(within(barra).getByText(acao)).toBeInTheDocument();
     }
+
+    // Mesma caixa do título e do X — é isso que o portal do <AcoesDoModal>
+    // garante, e o que quebraria em silêncio se alguém voltasse a barra
+    // para o rodapé.
+    const cabecalho = screen.getByRole('heading', { name: /OPP-2026-00001/ })
+      .closest('div').parentElement;
+    expect(cabecalho).toContainElement(barra);
+    expect(within(cabecalho).getByLabelText('Fechar')).toBeInTheDocument();
   });
 
   it('fase e temperatura ficam no trilho, com o rótulo na mesma linha', async () => {

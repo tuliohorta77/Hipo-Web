@@ -5,6 +5,8 @@
 //   - Esc fecha
 //   - Foco preso dentro do modal (Tab/Shift+Tab — implementação básica)
 //   - Botão X no canto superior direito
+//   - Ações da tela na mesma linha do título, à esquerda do X (ver
+//     SlotDeAcoes / AcoesDoModal mais abaixo)
 //   - Body com scroll interno se necessário
 //
 // Uso:
@@ -28,7 +30,8 @@
 // confirmação com 90vh de altura seria pior que o problema que resolve. Use
 // alturaFixa para forçar em casos específicos.
 
-import { useEffect, useRef } from "react";
+import { createContext, useContext, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 
 const TAMANHOS = {
@@ -60,6 +63,40 @@ const ALTURAS_FIXAS = {
 // para uma lista de três posições.
 const pilhaDeModais = [];
 
+// ── Ações no cabeçalho, ao lado do X ─────────────────────────────────
+//
+// As ações de uma tela (Salvar, Fechar, e o que mais a tela ofereça)
+// moram na MESMA linha do título. Num modal alto — os `xl` e `full` têm
+// 92vh — o rodapé fica longe do que se está editando: quem mexe num campo
+// do topo precisa percorrer a tela inteira com os olhos para achar Salvar,
+// e em notebook de tela curta o rodapé disputa espaço com o conteúdo.
+//
+// Há dois caminhos para preencher esse espaço, e a diferença é só de quem
+// tem o estado:
+//
+//   `acoes`        — o PAI monta os botões (quando é ele quem sabe se há
+//                    alteração pendente, via um canal tipo registrarSalvar).
+//   <AcoesDoModal> — o FILHO monta os botões e eles aparecem no cabeçalho
+//                    por portal. É o caminho preferido: o componente que
+//                    tem o estado é o mesmo que desenha o botão, sem canal
+//                    nenhum entre eles.
+//
+// Os dois moram em divs irmãos de propósito. Um portal apontando para um
+// container que o React também popula é receita de nó removido na
+// reconciliação.
+const SlotDeAcoes = createContext(null);
+
+/**
+ * Envolve botões que devem aparecer no cabeçalho do Modal mais próximo.
+ * Fora de um Modal — ou num Modal sem título, que não desenha cabeçalho —
+ * não renderiza nada.
+ */
+export function AcoesDoModal({ children }) {
+  const slot = useContext(SlotDeAcoes);
+  if (!slot) return null;
+  return createPortal(children, slot);
+}
+
 export default function Modal({
   aberto,
   onFechar,
@@ -67,11 +104,19 @@ export default function Modal({
   subtitulo,
   size = "md",
   children,
+  acoes,
   footer,
   bodySemPadding = false,
   alturaFixa = false,
 }) {
   const containerRef = useRef(null);
+
+  // O div do cabeçalho que recebe o portal. Guardado em estado, e não em
+  // ref, porque o portal só pode ser criado depois que o nó existe — e um
+  // ref puro não avisa ninguém quando isso acontece. `setSlotAcoes` do
+  // useState é estável entre renders, então dá para passá-lo direto como
+  // ref callback sem o React desmontar e remontar o slot a cada render.
+  const [slotAcoes, setSlotAcoes] = useState(null);
 
   // Identidade estável desta instância, para achar seu lugar na pilha.
   const identidade = useRef(null);
@@ -162,14 +207,27 @@ export default function Modal({
                 <p className="text-xs text-hipo-slate mt-0.5">{subtitulo}</p>
               )}
             </div>
-            <button
-              type="button"
-              onClick={onFechar}
-              className="text-hipo-slate hover:text-hipo-ink p-1 rounded shrink-0"
-              aria-label="Fechar"
-            >
-              <X size={18} />
-            </button>
+            <div className="flex items-center gap-2 shrink-0">
+              {acoes && (
+                <div className="flex flex-wrap items-center justify-end gap-2">
+                  {acoes}
+                </div>
+              )}
+              {/* empty:hidden para não abrir um gap fantasma quando ninguém
+                  usa o portal. */}
+              <div
+                ref={setSlotAcoes}
+                className="flex flex-wrap items-center justify-end gap-2 empty:hidden"
+              />
+              <button
+                type="button"
+                onClick={onFechar}
+                className="text-hipo-slate hover:text-hipo-ink p-1 rounded shrink-0"
+                aria-label="Fechar"
+              >
+                <X size={18} />
+              </button>
+            </div>
           </div>
         )}
 
@@ -184,7 +242,9 @@ export default function Modal({
             (bodySemPadding ? "overflow-hidden" : "overflow-y-auto")
           }
         >
-          {children}
+          <SlotDeAcoes.Provider value={slotAcoes}>
+            {children}
+          </SlotDeAcoes.Provider>
         </div>
 
         {/* Footer */}

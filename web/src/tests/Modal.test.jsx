@@ -1,18 +1,21 @@
 // web/src/tests/Modal.test.jsx
 //
-// O Esc do modal — a regra que só aparece quando há DOIS abertos.
+// Duas regras do Modal que só aparecem em uso real:
 //
-// O drilldown da conta dentro da oportunidade empilhou modais pela primeira
-// vez. Cada instância escutava `keydown` na window, então um Esc chegava em
-// todas ao mesmo tempo: o usuário fechava o drilldown e perdia junto a
-// oportunidade que estava editando atrás dele — sem entender por quê.
+//   1. o Esc com DOIS modais abertos. O drilldown da conta dentro da
+//      oportunidade empilhou modais pela primeira vez, e cada instância
+//      escutava `keydown` na window: um Esc chegava em todas ao mesmo
+//      tempo: o usuário fechava o drilldown e perdia junto a oportunidade
+//      que estava editando atrás dele — sem entender por quê.
 //
-// Estes testes seguram a pilha: só o modal do topo responde à tecla.
+//   2. as ações da tela no cabeçalho, ao lado do X, vindas de dois lugares
+//      diferentes (prop `acoes`, do pai; <AcoesDoModal>, do filho por
+//      portal).
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { render, screen, fireEvent, cleanup } from '@testing-library/react';
+import { render, screen, fireEvent, cleanup, within } from '@testing-library/react';
 import { useState } from 'react';
 
-import Modal from '../components/ui/Modal';
+import Modal, { AcoesDoModal } from '../components/ui/Modal';
 
 afterEach(cleanup);
 
@@ -116,5 +119,73 @@ describe('Modal — Esc com modais empilhados', () => {
     render(<Modal aberto={false} onFechar={fechar} titulo="Fechado"><p>x</p></Modal>);
     esc();
     expect(fechar).not.toHaveBeenCalled();
+  });
+});
+
+describe('Modal — ações no cabeçalho', () => {
+  // O cabeçalho é o pai do <h2>: a caixa que tem título, ações e X.
+  const cabecalho = (nome) =>
+    screen.getByRole('heading', { name: nome }).closest('div').parentElement;
+
+  it('a prop `acoes` desenha os botões na linha do título, junto do X', () => {
+    render(
+      <Modal aberto onFechar={() => {}} titulo="Conta"
+        acoes={<button type="button">Salvar</button>}>
+        <p>corpo</p>
+      </Modal>
+    );
+
+    const topo = within(cabecalho('Conta'));
+    expect(topo.getByText('Salvar')).toBeInTheDocument();
+    expect(topo.getByLabelText('Fechar')).toBeInTheDocument(); // o X
+  });
+
+  it('<AcoesDoModal> leva os botões do filho para o cabeçalho', () => {
+    /*
+      O ponto do portal: o botão nasce lá embaixo, junto do estado que ele
+      usa, e aparece em cima. Sem isso, o componente filho teria de
+      publicar `sujo`/`salvando`/`salvar` para o pai só para desenhar um
+      botão — o canal que já causou loop de renderização uma vez.
+    */
+    function Filho() {
+      const [n, setN] = useState(0);
+      return (
+        <>
+          <p>corpo do filho</p>
+          <AcoesDoModal>
+            <button type="button" onClick={() => setN(n + 1)}>
+              Salvar ({n})
+            </button>
+          </AcoesDoModal>
+        </>
+      );
+    }
+
+    render(
+      <Modal aberto onFechar={() => {}} titulo="Oportunidade">
+        <Filho />
+      </Modal>
+    );
+
+    const topo = within(cabecalho('Oportunidade'));
+    const botao = topo.getByText('Salvar (0)');
+
+    // O estado continua sendo do filho, mesmo com o botão renderizado em
+    // outro lugar da árvore do DOM.
+    fireEvent.click(botao);
+    expect(topo.getByText('Salvar (1)')).toBeInTheDocument();
+  });
+
+  it('sem ações, o cabeçalho não ganha espaço vazio', () => {
+    render(
+      <Modal aberto onFechar={() => {}} titulo="Simples"><p>corpo</p></Modal>
+    );
+    // Só o X.
+    expect(within(cabecalho('Simples')).getAllByRole('button')).toHaveLength(1);
+  });
+
+  it('<AcoesDoModal> fora de um Modal não quebra nem renderiza nada', () => {
+    render(<AcoesDoModal><button type="button">Salvar</button></AcoesDoModal>);
+    expect(screen.queryByText('Salvar')).not.toBeInTheDocument();
   });
 });

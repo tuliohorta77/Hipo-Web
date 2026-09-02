@@ -609,23 +609,27 @@ export default function Contas() {
         subtitulo={detalhe ? `CNPJ ${detalhe.cnpj_formatado}` : undefined}
         size="full"
         bodySemPadding
-        footer={
-          <div className="flex items-center justify-between gap-3">
-            <span className="text-xs text-hipo-slate">
+        acoes={
+          // `acoes`, não `footer`: as saídas da tela ficam na linha do
+          // título, ao lado do X. Aqui é o PAI quem monta os botões porque é
+          // ele quem tem o estado do salvamento, que chega do ContaDetalhe
+          // pelo canal registrarSalvar.
+          <div className="flex items-center gap-2" aria-label="Ações da conta">
+            <span className="text-xs text-hipo-slate mr-1">
               {acaoSalvar?.sujo ? 'Alterações não salvas' : 'Tudo salvo'}
             </span>
-            <div className="flex gap-2">
-              <Button variant="ghost" onClick={() => { setDetalhe(null); setAcaoSalvar(null); }}>
-                Fechar
-              </Button>
-              <Button
-                onClick={() => acaoSalvar?.salvar()}
-                disabled={!acaoSalvar?.sujo}
-                loading={acaoSalvar?.salvando}
-              >
-                Salvar
-              </Button>
-            </div>
+            <Button size="sm" variant="ghost"
+              onClick={() => { setDetalhe(null); setAcaoSalvar(null); }}>
+              Fechar
+            </Button>
+            <Button
+              size="sm"
+              onClick={() => acaoSalvar?.salvar()}
+              disabled={!acaoSalvar?.sujo}
+              loading={acaoSalvar?.salvando}
+            >
+              Salvar
+            </Button>
           </div>
         }
       >
