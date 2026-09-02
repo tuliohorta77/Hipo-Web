@@ -13,6 +13,9 @@ import { render, screen, fireEvent, cleanup, waitFor, within } from '@testing-li
 const mockGet = vi.fn();
 const mockPost = vi.fn();
 const mockPatch = vi.fn();
+// Usuário logado: a tela abre filtrando o próprio responsável, e é daqui que
+// ela descobre quem é. `null` reproduz a sessão sem usuário gravado.
+const mockGetUser = vi.fn(() => null);
 
 vi.mock('../api', () => ({
   default: {
@@ -20,6 +23,7 @@ vi.mock('../api', () => ({
     post: (...a) => mockPost(...a),
     patch: (...a) => mockPatch(...a),
   },
+  getUser: (...a) => mockGetUser(...a),
 }));
 
 import Tarefas from '../pages/crm/Tarefas';
@@ -125,6 +129,8 @@ beforeEach(() => {
   mockGet.mockReset();
   mockPost.mockReset();
   mockPatch.mockReset();
+  mockGetUser.mockReset();
+  mockGetUser.mockReturnValue(null);
   mockGet.mockImplementation(respostas());
   mockPost.mockResolvedValue({ data: {} });
   mockPatch.mockResolvedValue({ data: {} });
@@ -224,6 +230,106 @@ describe('Tarefas — as quatro colunas', () => {
     });
     montar();
     expect(await screen.findByText('Boom')).toBeInTheDocument();
+  });
+});
+
+// ── O recorte de quem entrou ─────────────────────────────────────────
+//
+// Aberta em "todos", a primeira coisa que qualquer pessoa fazia era procurar
+// o próprio nome no seletor — e, enquanto não achava, lia a carga da equipe
+// inteira como se fosse a dela.
+
+describe('Tarefas — abre nas tarefas de quem entrou', () => {
+  beforeEach(() => {
+    mockGetUser.mockReturnValue({ id: 'u1', nome: 'Jakeline Santana', cargo: 'EV' });
+  });
+
+  it('a primeira carga já vem filtrada pelo usuário logado', async () => {
+    montar();
+    await waitFor(() =>
+      expect(mockGet).toHaveBeenCalledWith('/crm/tarefas/kanban', {
+        params: { responsavel_id: 'u1' },
+      })
+    );
+  });
+
+  it('o seletor mostra o próprio usuário selecionado, marcado como você', async () => {
+    montar();
+    await screen.findByRole('region', { name: 'Atrasadas' });
+    const select = screen.getByLabelText('Responsável');
+    expect(select.value).toBe('u1');
+    expect(within(select).getByRole('option', { name: 'Jakeline Santana (você)' }))
+      .toBeInTheDocument();
+  });
+
+  it('trocar para "Todos os responsáveis" tira o recorte', async () => {
+    montar();
+    await screen.findByRole('region', { name: 'Atrasadas' });
+    fireEvent.change(screen.getByLabelText('Responsável'), { target: { value: '' } });
+    await waitFor(() =>
+      expect(mockGet).toHaveBeenCalledWith('/crm/tarefas/kanban', { params: {} })
+    );
+  });
+
+  it('o agregado do mês nasce com o mesmo recorte', async () => {
+    /* Número global ao lado de um kanban filtrado seriam duas respostas. */
+    montar();
+    await waitFor(() => {
+      const ultima = mockGet.mock.calls
+        .filter((c) => c[0] === '/crm/tarefas/resumo').at(-1);
+      expect(ultima[1].params).toMatchObject({ responsavel_id: 'u1' });
+    });
+  });
+
+  it('sem outro filtro, o botão de limpar nem aparece', async () => {
+    /* O padrão da tela não é filtro a limpar. */
+    montar();
+    await screen.findByRole('region', { name: 'Atrasadas' });
+    expect(screen.queryByLabelText('Limpar filtros')).not.toBeInTheDocument();
+  });
+
+  it('limpar devolve ao padrão — as minhas —, não a todos', async () => {
+    montar();
+    await screen.findByRole('region', { name: 'Atrasadas' });
+    fireEvent.change(screen.getByLabelText('Responsável'), { target: { value: 'u2' } });
+
+    fireEvent.click(await screen.findByLabelText('Limpar filtros'));
+    expect(screen.getByLabelText('Responsável').value).toBe('u1');
+  });
+
+  it('o usuário logado entra no seletor mesmo se a lista de domínio falhar', async () => {
+    /*
+      Filtro aplicado com o seletor mostrando outra coisa faria a tela mentir
+      sobre o próprio recorte.
+    */
+    mockGet.mockImplementation((url) => {
+      if (url === '/crm/dominio/usuarios') return Promise.reject(new Error('502'));
+      return respostas()(url);
+    });
+    montar();
+    await screen.findByRole('region', { name: 'Atrasadas' });
+    expect(screen.getByLabelText('Responsável').value).toBe('u1');
+  });
+
+  it('vazio das minhas oferece ver as da equipe', async () => {
+    mockGet.mockImplementation(respostas(
+      COLUNAS.map((c) => ({ ...c, quantidade: 0, itens: [] }))
+    ));
+    montar();
+    expect(await screen.findByText('Nenhuma tarefa sua em aberto')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText('Ver de todos'));
+    await waitFor(() =>
+      expect(mockGet).toHaveBeenCalledWith('/crm/tarefas/kanban', { params: {} })
+    );
+  });
+
+  it('sessão sem usuário gravado continua abrindo em todos', async () => {
+    mockGetUser.mockReturnValue(null);
+    montar();
+    await waitFor(() =>
+      expect(mockGet).toHaveBeenCalledWith('/crm/tarefas/kanban', { params: {} })
+    );
   });
 });
 

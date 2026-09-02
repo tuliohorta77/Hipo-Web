@@ -11,6 +11,7 @@ import uuid
 
 import pytest
 
+from routers import crm_oportunidades
 from services import oportunidade as regras
 from tests.conftest import criar_usuario
 
@@ -1089,6 +1090,112 @@ class TestListagem:
         )).json()
         assert body["total"] == 1
 
+    async def test_busca_por_cnpj_formatado(self, db_conn, client, usuario_adm):
+        """
+        A coluna é CHAR(14) sem pontuação. Quem copia o CNPJ de um contrato
+        cola com ponto e barra — e tem que achar a mesma oportunidade.
+        """
+        a = await nova_conta(client, usuario_adm["headers"], CNPJ_A, "Metalurgica Alfa")
+        b = await nova_conta(client, usuario_adm["headers"], CNPJ_B, "Padaria Beta")
+        alvo = await nova_oportunidade(client, usuario_adm["headers"], a["id"])
+        await nova_oportunidade(client, usuario_adm["headers"], b["id"])
+        body = (await client.get(
+            f"/crm/oportunidades?q={CNPJ_A}", headers=usuario_adm["headers"]
+        )).json()
+        assert body["total"] == 1
+        assert body["itens"][0]["id"] == alvo["id"]
+
+    async def test_busca_por_cnpj_so_digitos_parcial(self, db_conn, client, usuario_adm):
+        """Raiz do CNPJ, sem os dígitos da filial, também acha."""
+        a = await nova_conta(client, usuario_adm["headers"], CNPJ_A, "Metalurgica Alfa")
+        alvo = await nova_oportunidade(client, usuario_adm["headers"], a["id"])
+        body = (await client.get(
+            "/crm/oportunidades?q=11222333", headers=usuario_adm["headers"]
+        )).json()
+        assert [i["id"] for i in body["itens"]] == [alvo["id"]]
+
+    async def test_busca_pelo_contato_da_oportunidade(self, db_conn, client, usuario_adm):
+        """
+        "Aquela negociação da Maria" é como o vendedor lembra do negócio —
+        antes de lembrar da razão social ou do número.
+        """
+        a = await nova_conta(client, usuario_adm["headers"], CNPJ_A, "Metalurgica Alfa")
+        b = await nova_conta(client, usuario_adm["headers"], CNPJ_B, "Padaria Beta")
+        contato = (await client.post(
+            "/crm/contatos",
+            json={"nome": "Maria Aparecida", "conta_id": a["id"]},
+            headers=usuario_adm["headers"],
+        )).json()
+        alvo = await nova_oportunidade(
+            client, usuario_adm["headers"], a["id"], contato_id=contato["id"]
+        )
+        await nova_oportunidade(client, usuario_adm["headers"], b["id"])
+
+        body = (await client.get(
+            "/crm/oportunidades?q=aparecida", headers=usuario_adm["headers"]
+        )).json()
+        assert [i["id"] for i in body["itens"]] == [alvo["id"]]
+
+    async def test_busca_por_contato_da_conta_sem_contato_na_oportunidade(
+        self, db_conn, client, usuario_adm
+    ):
+        """
+        Oportunidade sem contato preenchido continua achável pelo nome de
+        quem atende naquela empresa — senão o campo em branco esconderia o
+        negócio de quem só sabe o nome da pessoa.
+        """
+        a = await nova_conta(client, usuario_adm["headers"], CNPJ_A, "Metalurgica Alfa")
+        await client.post(
+            "/crm/contatos",
+            json={"nome": "Joana Ribeiro", "conta_id": a["id"]},
+            headers=usuario_adm["headers"],
+        )
+        alvo = await nova_oportunidade(client, usuario_adm["headers"], a["id"])
+
+        body = (await client.get(
+            "/crm/oportunidades?q=joana", headers=usuario_adm["headers"]
+        )).json()
+        assert [i["id"] for i in body["itens"]] == [alvo["id"]]
+
+    async def test_busca_por_nome_fantasia(self, db_conn, client, usuario_adm):
+        """A empresa é conhecida pelo fantasia; a razão social só aparece na nota."""
+        conta = (await client.post(
+            "/crm/contas",
+            json={
+                "razao_social": "Comercio de Alimentos Sigma LTDA",
+                "nome_fantasia": "Padaria do Ze",
+                "cnpj": CNPJ_C,
+            },
+            headers=usuario_adm["headers"],
+        )).json()
+        alvo = await nova_oportunidade(client, usuario_adm["headers"], conta["id"])
+        body = (await client.get(
+            "/crm/oportunidades?q=padaria do ze", headers=usuario_adm["headers"]
+        )).json()
+        assert [i["id"] for i in body["itens"]] == [alvo["id"]]
+
+    async def test_busca_textual_vale_no_resumo(self, db_conn, client, usuario_adm):
+        """
+        Os KPIs do topo usam o MESMO `_montar_filtros`. Se a busca por contato
+        valesse só na lista, o funil mostraria um total e a lista, outro.
+        """
+        a = await nova_conta(client, usuario_adm["headers"], CNPJ_A, "Metalurgica Alfa")
+        b = await nova_conta(client, usuario_adm["headers"], CNPJ_B, "Padaria Beta")
+        contato = (await client.post(
+            "/crm/contatos",
+            json={"nome": "Maria Aparecida", "conta_id": a["id"]},
+            headers=usuario_adm["headers"],
+        )).json()
+        await nova_oportunidade(
+            client, usuario_adm["headers"], a["id"], contato_id=contato["id"]
+        )
+        await nova_oportunidade(client, usuario_adm["headers"], b["id"])
+
+        body = (await client.get(
+            "/crm/oportunidades/resumo?q=aparecida", headers=usuario_adm["headers"]
+        )).json()
+        assert body["abertas"] == 1
+
     async def test_fase_invalida_no_filtro(self, db_conn, client, usuario_adm):
         resp = await client.get(
             "/crm/oportunidades?fase=inventada", headers=usuario_adm["headers"]
@@ -1230,3 +1337,45 @@ class TestPermissoes:
 
     async def test_sem_token_401(self, db_conn, client):
         assert (await client.get("/crm/oportunidades")).status_code == 401
+
+
+# ── Montagem do filtro textual (sem banco) ───────────────────────────
+#
+# Rodam no pytest local do Windows: `_montar_filtros` é função pura. O que
+# elas seguram é a decisão de quando o termo digitado TAMBÉM vale como CNPJ.
+
+class TestMontagemDaBuscaTextual:
+    def _filtro(self, q):
+        return crm_oportunidades._montar_filtros(
+            q, None, None, None, None, None, None, None, None, False,
+        )
+
+    def test_cnpj_formatado_vira_digitos(self):
+        """A coluna guarda só dígitos; comparar o texto digitado nunca casaria."""
+        _, params = self._filtro(CNPJ_A)
+        assert params[1] == "%11222333000181%"
+
+    def test_termo_curto_nao_vira_busca_de_cnpj(self):
+        """
+        "22" casaria com quase toda a base pelo documento e afogaria o
+        resultado que o usuário procurava pelo nome.
+        """
+        _, params = self._filtro("22")
+        assert params[1] is None
+
+    def test_termo_sem_digito_nao_consulta_cnpj(self):
+        _, params = self._filtro("Metalurgica")
+        assert params[0] == "%Metalurgica%"
+        assert params[1] is None
+
+    def test_um_unico_where_para_todos_os_caminhos(self):
+        """
+        Número, razão social, fantasia, descrição, CNPJ e contato entram como
+        UMA cláusula em OR. Quebrada em várias, viraria AND e a busca não
+        acharia nada.
+        """
+        where, _ = self._filtro("alfa")
+        assert len(where) == 1
+        for campo in ("o.numero", "c.razao_social", "c.nome_fantasia",
+                      "o.descricao", "c.cnpj", "ct_o.nome", "ct_q.nome"):
+            assert campo in where[0]

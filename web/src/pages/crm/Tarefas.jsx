@@ -22,6 +22,12 @@
 // fluxo e cresce para sempre. O histórico completo de cada negociação
 // continua na aba da oportunidade.
 //
+// ── Abre no recorte de quem entrou ───────────────────────────────────
+// O filtro de responsável já vem preenchido com o usuário logado. A pergunta
+// que a tela responde primeiro é "o que é meu"; a carga da equipe fica a um
+// clique no mesmo seletor, com "Todos os responsáveis". É o passo possível
+// hoje na direção da diretriz da "próxima tarefa".
+//
 // Canceladas não têm coluna: são ruído para quem está medindo carga.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -30,8 +36,9 @@ import {
   TrendingUp,
 } from 'lucide-react';
 
-import api from '../../api';
+import api, { getUser } from '../../api';
 import Badge from '../../components/ui/Badge';
+import Button from '../../components/ui/Button';
 import Empty from '../../components/ui/Empty';
 import AlertMessage from '../../components/ui/AlertMessage';
 import Modal from '../../components/ui/Modal';
@@ -161,9 +168,26 @@ function Coluna({ coluna, onAbrir }) {
 // ── Tela ─────────────────────────────────────────────────────────────
 
 export default function Tarefas() {
+  /*
+    A tela abre nas tarefas de QUEM ENTROU, não nas de todo mundo.
+
+    Aberta em "todos", a primeira coisa que qualquer pessoa fazia era
+    procurar o próprio nome no seletor — e, enquanto não achava, lia a carga
+    da equipe inteira como se fosse a dela. O caminho para a diretriz da
+    "próxima tarefa" passa por aqui: a tela precisa responder "o que é meu"
+    antes de responder "o que existe". Ver a carga dos outros continua a um
+    clique no mesmo seletor.
+
+    `getUser()` lê o usuário gravado no login (localStorage). Sessão sem
+    usuário gravado — teste, ou localStorage limpo com token vivo — cai em
+    string vazia e a tela se comporta como antes: todos os responsáveis.
+  */
+  const usuarioLogado = useMemo(() => getUser(), []);
+  const padraoResponsavel = usuarioLogado?.id ? String(usuarioLogado.id) : '';
+
   const [colunas, setColunas] = useState([]);
   const [usuarios, setUsuarios] = useState([]);
-  const [responsavel, setResponsavel] = useState('');
+  const [responsavel, setResponsavel] = useState(padraoResponsavel);
   const [busca, setBusca] = useState('');
   const [q, setQ] = useState('');
   const [carregando, setCarregando] = useState(true);
@@ -213,6 +237,25 @@ export default function Tarefas() {
       .then(({ data }) => setUsuarios(data))
       .catch(() => setUsuarios([]));
   }, []);
+
+  /*
+    O usuário logado é garantido na lista mesmo que a chamada de domínio falhe
+    ou não o traga. Sem isso o filtro estaria aplicado com o seletor mostrando
+    a opção errada — a tela mentiria sobre o próprio recorte.
+  */
+  const opcoesResponsavel = useMemo(() => {
+    const lista = usuarios.map((u) => ({
+      id: String(u.id),
+      nome: String(u.id) === padraoResponsavel ? `${u.nome} (você)` : u.nome,
+    }));
+    if (padraoResponsavel && !lista.some((u) => u.id === padraoResponsavel)) {
+      lista.unshift({
+        id: padraoResponsavel,
+        nome: `${usuarioLogado?.nome || 'Você'} (você)`,
+      });
+    }
+    return lista;
+  }, [usuarios, padraoResponsavel, usuarioLogado]);
 
   /*
     O KPI do mês corrente, com os MESMOS filtros da barra. Agregado que
@@ -282,7 +325,19 @@ export default function Tarefas() {
   const emAberto = colunas
     .filter((c) => ABERTAS.includes(c.situacao))
     .reduce((soma, c) => soma + c.quantidade, 0);
-  const temFiltro = Boolean(q || responsavel);
+  /*
+    "Tem filtro" é o que difere do PADRÃO da tela, não do vazio absoluto. Com
+    o responsável já vindo preenchido, comparar com vazio deixaria o botão de
+    limpar aceso o tempo todo sem nada para limpar.
+  */
+  const temFiltro = Boolean(q) || responsavel !== padraoResponsavel;
+
+  // Sem filtro extra e olhando só as próprias tarefas: o vazio aqui não é
+  // "não há tarefas no sistema", é "não há tarefa sua" — e a saída é ver as
+  // dos outros, não ajustar filtro nenhum.
+  const soAsMinhas = Boolean(padraoResponsavel) && responsavel === padraoResponsavel && !q;
+
+  const limpar = () => { setBusca(''); setResponsavel(padraoResponsavel); };
 
   /*
     Concluir exige a próxima enquanto a oportunidade está viva. O status vem
@@ -346,13 +401,15 @@ export default function Tarefas() {
             className={`${CLASSE_CAMPO} px-1.5 max-w-[11rem]`}
           >
             <option value="">Todos os responsáveis</option>
-            {usuarios.map((u) => <option key={u.id} value={u.id}>{u.nome}</option>)}
+            {opcoesResponsavel.map((u) => (
+              <option key={u.id} value={u.id}>{u.nome}</option>
+            ))}
           </select>
 
           {temFiltro && (
             <button
               type="button"
-              onClick={() => { setBusca(''); setResponsavel(''); }}
+              onClick={limpar}
               aria-label="Limpar filtros"
               title="Limpar filtros"
               className="h-8 w-8 inline-flex items-center justify-center rounded-lg border border-hipo-border text-hipo-slate hover:bg-hipo-bg transition-colors"
@@ -377,13 +434,28 @@ export default function Tarefas() {
           <p className="py-16 text-center text-sm text-hipo-slate">Carregando tarefas…</p>
         ) : colunas.every((c) => c.quantidade === 0) ? (
           <Empty
-            title={temFiltro ? 'Nenhuma tarefa com esses filtros' : 'Nenhuma tarefa agendada'}
+            title={
+              temFiltro
+                ? 'Nenhuma tarefa com esses filtros'
+                : soAsMinhas
+                  ? 'Nenhuma tarefa sua em aberto'
+                  : 'Nenhuma tarefa agendada'
+            }
             description={
               temFiltro
                 ? 'Ajuste a busca ou o responsável.'
-                : 'As tarefas são criadas dentro de cada oportunidade.'
+                : soAsMinhas
+                  ? 'A tela abre nas suas tarefas. Veja as da equipe pelo seletor de responsável.'
+                  : 'As tarefas são criadas dentro de cada oportunidade.'
             }
             icon={CircleDot}
+            action={
+              soAsMinhas ? (
+                <Button variant="secondary" size="sm" onClick={() => setResponsavel('')}>
+                  Ver de todos
+                </Button>
+              ) : undefined
+            }
           />
         ) : (
           <div className="h-full flex gap-2 overflow-x-auto overflow-y-hidden pb-1">

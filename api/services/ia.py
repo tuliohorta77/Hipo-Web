@@ -81,6 +81,10 @@ Regras:
 - Refira-se ao dia pela data ou pelo dia da semana, nunca como "ontem" ou
   "hoje". O fechamento pode ser gerado dias depois do dia que ele descreve, e
   aí "ontem" aponta para o dia errado.
+- NÃO DEDUZA o dia da semana a partir de uma data. Use `dia_semana` quando ele
+  vier no JSON e, se não vier, cite só a data. O fechamento de 31/08 chamou
+  28/08 de "segunda-feira" — era sexta. Nenhum número estava errado, então a
+  verificação automática não pegou, e a frase inteira ficou falsa.
 - Se adocao.disponivel for false, a captura de uso NÃO estava ativa nesse dia.
   Nesse caso não diga que ninguém acessou nem cite ausentes: diga que não há
   telemetria para o dia e comente apenas o bloco de operação.
@@ -89,6 +93,53 @@ Regras:
 - Sem saudação, sem despedida, sem markdown. Só os parágrafos.
 - Cite nomes de pessoas quando for relevante para a ação.
 """
+
+
+# Campos que o e-mail deixou de mostrar em 31/08 e que, por isso, a narrativa
+# tambem nao pode citar.
+_CAMPOS_OCULTOS = ("rotas_mais_usadas", "erros_por_rota")
+
+
+def metricas_para_narrar(metricas: dict) -> dict:
+    """
+    Copia das metricas SEM o detalhe de rota.
+
+    POR QUE ISTO PRECISA EXISTIR
+
+    As tabelas "Telas mais usadas" e "Erros do dia" sairam do e-mail, mas os
+    dados continuaram no payload -- e o modelo continuou narrando a partir
+    deles. O fechamento de 31/08 saiu dizendo "consultou 117 vezes dados de
+    contas especificas" e "a rota de vincular contatos mostrou 33 falhas":
+    numeros corretos, verificaveis por ninguem, porque nao existe mais tabela
+    onde conferi-los.
+
+    O rodape do bloco promete "os numeros vem do banco" e aponta para os
+    numeros ABAIXO. Numero citado que nao esta em lugar nenhum quebra essa
+    promessa -- e e pior que numero inventado, porque parece conferivel.
+
+    A regra que isto materializa: A NARRATIVA SO FALA DO QUE O LEITOR VE.
+
+    Vale tambem para a guarda numerica, que passa a validar contra esta mesma
+    copia: citar um numero de rota deixa de ser permitido e passa a descartar
+    a narrativa, que e o comportamento certo.
+
+    NAO MUTA a original. O dicionario recebido e o mesmo que vai para o
+    `relatorio_render` depois; esvaziar as listas aqui apagaria dado de quem
+    consulta a API.
+
+    >>> m = {"adocao": {"acoes": 10, "rotas_mais_usadas": [1], "erros_por_rota": [2]}}
+    >>> metricas_para_narrar(m)["adocao"]
+    {'acoes': 10}
+    >>> m["adocao"]["rotas_mais_usadas"]
+    [1]
+    """
+    copia = dict(metricas)
+    adocao = copia.get("adocao")
+    if isinstance(adocao, dict):
+        copia["adocao"] = {
+            k: v for k, v in adocao.items() if k not in _CAMPOS_OCULTOS
+        }
+    return copia
 
 
 def configurada() -> bool:
@@ -105,7 +156,8 @@ def _payload(metricas: dict) -> dict:
             "role": "user",
             "content": (
                 "Telemetria do dia (JSON):\n\n"
-                + json.dumps(metricas, ensure_ascii=False, indent=2)
+                + json.dumps(metricas_para_narrar(metricas),
+                             ensure_ascii=False, indent=2)
             ),
         }],
     }
@@ -150,7 +202,10 @@ async def narrar(metricas: dict) -> tuple[str | None, str | None]:
             # verifica. Pedido em prompt nao e garantia, e este e o unico
             # ponto do fechamento onde um defeito produz saida plausivel e
             # errada em vez de erro.
-            inventados = numeros_invalidos(texto, numeros_permitidos(metricas))
+            # Valida contra a MESMA copia que o modelo recebeu: numero de
+            # rota deixa de ser permitido, e citar um passa a descartar.
+            inventados = numeros_invalidos(
+                texto, numeros_permitidos(metricas_para_narrar(metricas)))
             if inventados:
                 # ERROR, nao WARNING: se isto aparece direto no journal, o
                 # relatorio esta saindo sem narrativa todo dia e ninguem viu.
