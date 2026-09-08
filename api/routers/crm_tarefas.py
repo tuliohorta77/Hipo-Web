@@ -9,9 +9,11 @@ O que este módulo materializa:
     a primeira métrica que somasse os dois contaria a mesma tarefa duas
     vezes.
 
-  * A tarefa de parceiro NÃO exige a próxima ao concluir. A regra da
-    oportunidade se apoia num estado final; parceria não tem um. Ver
-    services/tarefa.py: quem cobra cadência do parceiro é o farol semanal.
+  * A tarefa de parceiro exige a próxima SEMPRE ao concluir. A regra da
+    oportunidade se apoia num estado final que dispensa o próximo passo;
+    parceria não tem um, e sem próximo contato marcado a relação some da
+    agenda de todo mundo. Quem não tem próximo passo cancela a tarefa ou
+    tira o parceiro da carteira. Ver services/tarefa.exige_proxima.
 
   * A situação (atrasada / hoje / futura / concluída / cancelada) é DERIVADA
     e calculada no servidor, não no navegador. Duas razões: o relógio do
@@ -122,6 +124,28 @@ class ProximaTarefa(TarefaBase):
     """
 
 
+class TarefaDeFinalizacao(TarefaBase):
+    """
+    O registro do fechamento de uma oportunidade: a tarefa que POST
+    /crm/oportunidades/{id}/desfecho cria já concluída.
+
+    Vive aqui, e não no router de oportunidades, porque é uma tarefa — o dia
+    em que o vocabulário de tipo mudar, ela muda junto sem ninguém precisar
+    lembrar que existe uma segunda definição do outro lado.
+
+    Dois campos são opcionais, e por motivos diferentes dos da tarefa comum:
+
+      responsavel_id — em branco, é quem está finalizando. Quem fecha o
+                       negócio é quase sempre quem esteve na reunião, e um
+                       seletor obrigatório nesse momento é atrito puro.
+      prazo          — em branco, é agora. O registro é relato do que acabou
+                       de acontecer, não compromisso futuro.
+    """
+
+    responsavel_id: UUID | None = None
+    prazo: datetime | None = None
+
+
 class Conclusao(BaseModel):
     resultado: str | None = None
     proxima: ProximaTarefa | None = None
@@ -143,8 +167,11 @@ class TarefaOut(BaseModel):
     # O status da oportunidade vem junto porque a tela de gestão precisa
     # saber, ANTES de abrir o formulário, se aquela conclusão vai exigir a
     # próxima tarefa. Buscar por tarefa seria N+1; o JOIN já existe.
-    # None em tarefa de parceiro — e é esse None que faz `exige_proxima`
-    # devolver False.
+    #
+    # None em tarefa de parceiro — e `exige_proxima(None)` devolve True, não
+    # False. A tela precisa ler `alvo` junto com este campo: olhar só para o
+    # status e tratar o nulo como "não exige" foi o bug que travou a
+    # conclusão de tarefa de parceiro no módulo de tarefas.
     status_oportunidade: str | None
     conta_id: UUID
     # A empresa: a conta da oportunidade, ou o próprio parceiro.
@@ -295,7 +322,7 @@ async def _estado_e_alvo(
     )
 
 
-async def _validar_referencias(
+async def validar_referencias(
     conn,
     oportunidade_id: UUID | None,
     conta_id: UUID | None,
@@ -342,6 +369,47 @@ async def _inserir(conn, dados, oportunidade_id: UUID | None,
         oportunidade_id, conta_id, dados.tipo, dados.titulo,
         (dados.descricao or "").strip() or None,
         dados.responsavel_id, dados.prazo, anterior_id, criado_por,
+    )
+
+
+async def inserir_tarefa_concluida(
+    conn,
+    dados: TarefaDeFinalizacao,
+    *,
+    oportunidade_id: UUID,
+    criado_por,
+) -> UUID:
+    """
+    Grava o registro do fechamento: tarefa que NASCE concluída.
+
+    Chamada por POST /crm/oportunidades/{id}/desfecho, dentro da transação
+    dele. Mora aqui, junto do resto da escrita de tarefa, para o INSERT ter
+    uma versão só — duas cópias do mesmo INSERT divergem na primeira coluna
+    nova, e a que divergir vai ser a que ninguém está olhando.
+
+    `concluida_em` é NOW() e não o prazo informado de propósito: prazo é
+    QUANDO a coisa aconteceu (a pessoa pode registrar hoje a reunião de
+    ontem), e concluída_em é quando o sistema soube. Misturar os dois faria
+    a produção do mês mudar conforme a data que alguém digitou.
+
+    Sem `tarefa_anterior_id`: o registro do fechamento não continua corrente
+    de follow-up nenhuma. Ele a encerra.
+    """
+    responsavel_id = dados.responsavel_id or criado_por
+    prazo = dados.prazo or _agora()
+    return await conn.fetchval(
+        """
+        INSERT INTO tarefas (
+            oportunidade_id, conta_id, tipo, titulo, descricao,
+            responsavel_id, prazo, tarefa_anterior_id, criado_por,
+            concluida_em
+        )
+        VALUES ($1, NULL, $2, $3, $4, $5, $6, NULL, $7, NOW())
+        RETURNING id
+        """,
+        oportunidade_id, dados.tipo, dados.titulo,
+        (dados.descricao or "").strip() or None,
+        responsavel_id, prazo, criado_por,
     )
 
 
@@ -773,7 +841,7 @@ async def criar(
     conn=Depends(get_conn),
     user=Depends(usuario_atual),
 ):
-    await _validar_referencias(
+    await validar_referencias(
         conn, payload.oportunidade_id, payload.conta_id, payload.responsavel_id
     )
     novo_id = await _inserir(
@@ -830,11 +898,11 @@ async def concluir(
     """
     Conclui a tarefa e agenda a próxima na MESMA transação.
 
-    A próxima é obrigatória enquanto a oportunidade está aberta. Quando ela
-    já foi finalizada, o campo pode vir nulo — não há próximo passo. Em
-    tarefa de PARCEIRO nunca é obrigatória, e continua sendo aceita: quem
-    já sabe o próximo contato agenda ali mesmo, e quem não sabe não é
-    forçado a inventar um.
+    A próxima é obrigatória enquanto a oportunidade está aberta, e SEMPRE em
+    tarefa de parceiro. Só a oportunidade já finalizada aceita o campo nulo —
+    acabou, não há próximo passo. Quem não tem próximo passo com um parceiro
+    cancela a tarefa (que é dizer "isso não ia acontecer") ou tira o parceiro
+    da carteira; nenhuma das duas saídas exige próxima.
 
     Devolve a tarefa CONCLUÍDA, não a nova. Quem chamou está fechando um
     item; a lista recarrega e mostra as duas.
@@ -849,7 +917,7 @@ async def concluir(
         raise HTTPException(422, str(e))
 
     if payload.proxima is not None:
-        await _validar_referencias(
+        await validar_referencias(
             conn, oportunidade_id, conta_id, payload.proxima.responsavel_id
         )
 

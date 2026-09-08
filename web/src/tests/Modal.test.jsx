@@ -189,3 +189,47 @@ describe('Modal — ações no cabeçalho', () => {
     expect(screen.queryByText('Salvar')).not.toBeInTheDocument();
   });
 });
+
+describe('Modal — empilhamento por nível', () => {
+  /*
+    Todo modal usava z-50, e com z-index empatado quem ganha é o último no
+    DOM. Como o Modal renderiza no lugar em que foi escrito, isso amarrava o
+    empilhamento à ordem do JSX — e foi assim que o modal de desfecho passou
+    a abrir ATRÁS da oportunidade: bastou alguém escrevê-lo antes.
+
+    O nível é a informação que a ordem do arquivo não consegue carregar.
+  */
+  const camada = (nome) =>
+    screen.getByRole('heading', { name: nome }).closest('[role="dialog"]');
+
+  it('sem nível declarado, fica na camada base', () => {
+    render(<Modal aberto onFechar={() => {}} titulo="Base"><p>x</p></Modal>);
+    expect(camada('Base').className).toContain('z-50');
+  });
+
+  it('nivel 2 fica acima da base, independente da ordem no JSX', () => {
+    render(
+      <>
+        {/* De propósito: o de cima está escrito PRIMEIRO. */}
+        <Modal aberto onFechar={() => {}} titulo="Desfecho" nivel={2}>
+          <p>desfecho</p>
+        </Modal>
+        <Modal aberto onFechar={() => {}} titulo="Oportunidade">
+          <p>oportunidade</p>
+        </Modal>
+      </>
+    );
+    expect(camada('Desfecho').className).toContain('z-[60]');
+    expect(camada('Oportunidade').className).toContain('z-50');
+  });
+
+  it('nivel 3 existe para confirmação sobre um modal de nível 2', () => {
+    render(<Modal aberto onFechar={() => {}} titulo="Confirma" nivel={3}><p>x</p></Modal>);
+    expect(camada('Confirma').className).toContain('z-[70]');
+  });
+
+  it('nível desconhecido cai na base em vez de ficar sem camada', () => {
+    render(<Modal aberto onFechar={() => {}} titulo="Estranho" nivel={99}><p>x</p></Modal>);
+    expect(camada('Estranho').className).toContain('z-50');
+  });
+});

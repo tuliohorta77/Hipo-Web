@@ -17,6 +17,12 @@ import pytest
 from services import tarefa as regras
 from tests.conftest import criar_usuario
 
+# Todo desfecho exige o registro do fechamento — a tarefa que conta O QUE
+# fechou o negócio, gravada já concluída na mesma transação. Constante aqui
+# para os testes que apenas PRECISAM finalizar uma oportunidade não repetirem
+# o payload; os testes da regra em si montam o seu próprio.
+TAREFA_FIM = {"tipo": "reuniao", "titulo": "Reunião de fechamento"}
+
 CNPJ_A = "11.222.333/0001-81"
 
 
@@ -528,7 +534,7 @@ class TestConcluir:
         t = await nova_tarefa(client, h, o, u)
         await client.post(
             f"/crm/oportunidades/{o}/desfecho",
-            json={"status": "conquistado"}, headers=h,
+            json={"tarefa": TAREFA_FIM, "status": "conquistado"}, headers=h,
         )
         resp = await client.post(
             f"/crm/tarefas/{t['id']}/concluir",

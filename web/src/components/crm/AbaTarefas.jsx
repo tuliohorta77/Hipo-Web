@@ -40,9 +40,9 @@ import Badge from '../ui/Badge';
 import Empty from '../ui/Empty';
 import AlertMessage from '../ui/AlertMessage';
 import {
-  ABERTAS, ICONE_TIPO, SITUACAO, STATUS_ABERTOS,
+  ABERTAS, ICONE_TIPO, SITUACAO,
   CamposTarefa, PainelAcoesTarefa,
-  corpoDaTarefa, dataCompleta, dataCurta, formIncompleto,
+  corpoDaTarefa, dataCompleta, dataCurta, exigeProximaTarefa, formIncompleto,
   mensagemDeErro, tarefaVazia,
 } from './tarefaComum';
 
@@ -196,7 +196,12 @@ export default function AbaTarefas({ oportunidade, parceiro, onMudou }) {
   // que dispense, e sem próximo contato marcado a relação some da agenda de
   // todo mundo. Mesma regra do backend (services/tarefa.exige_proxima), e o
   // 422 de lá é a rede embaixo desta linha.
-  const exigeProxima = ehParceiro || STATUS_ABERTOS.includes(oportunidade?.status);
+  //
+  // A função é compartilhada com a tela de gestão de propósito: as duas já
+  // divergiram uma vez, e a que divergiu era a que o usuário estava usando.
+  const exigeProxima = exigeProximaTarefa(
+    ehParceiro ? 'parceiro' : 'oportunidade', oportunidade?.status,
+  );
 
   const filtro = ehParceiro ? { conta_id: alvoId } : { oportunidade_id: alvoId };
 

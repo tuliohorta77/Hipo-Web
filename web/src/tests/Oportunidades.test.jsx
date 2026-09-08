@@ -19,7 +19,13 @@ vi.mock('../api', () => ({
     patch: (...a) => mockPatch(...a),
     put: (...a) => mockPut(...a),
   },
+  // O ModalDesfecho lê o usuário logado para pré-preencher quem fez o
+  // registro do fechamento. Sem este export o mock quebra a árvore inteira,
+  // e o erro aparece em toda a suíte de Oportunidades em vez de no modal.
+  getUser: () => USUARIO_LOGADO,
 }));
+
+const USUARIO_LOGADO = { id: 'u-logado', nome: 'Aline Martins' };
 
 import Oportunidades from '../pages/crm/Oportunidades';
 

@@ -19,6 +19,9 @@ Decisões que este módulo materializa:
   * eh_finder é ligado automaticamente na conta indicadora. O usuário não
     precisa marcar "esta conta é parceira" antes de usá-la como finder — o
     sistema aprende do uso.
+
+  * Finalizar exige registrar O QUE fechou o negócio, como tarefa já
+    concluída, na mesma transação do desfecho. Ver o schema Desfecho.
 """
 from __future__ import annotations
 
@@ -31,6 +34,15 @@ from pydantic import BaseModel, Field, field_validator
 
 from database import get_conn
 from routers.auth import usuario_atual
+# O registro do fechamento é uma TAREFA, e o schema e o INSERT dela moram no
+# router de tarefas. Importar de lá é o preço de não ter duas definições da
+# mesma coisa — e é importação de mão única: crm_tarefas não conhece este
+# módulo, então não há ciclo.
+from routers.crm_tarefas import (
+    TarefaDeFinalizacao,
+    inserir_tarefa_concluida,
+    validar_referencias as validar_referencias_tarefa,
+)
 from services import cnpj as cnpj_svc
 from services import oportunidade as regras
 from services.oportunidade import Estado, TransicaoInvalida
@@ -146,9 +158,32 @@ class MoverFase(BaseModel):
 
 
 class Desfecho(BaseModel):
+    """
+    Fechar a oportunidade. `tarefa` é OBRIGATÓRIA.
+
+    A regra do módulo de tarefas é que concluir uma exige agendar a próxima —
+    e a oportunidade finalizada é a única exceção, porque não há próximo
+    passo. Era por essa exceção que o histórico vazava: o negócio fechava e
+    ficava registrado o status mais um motivo de lista fechada. Isso
+    classifica o desfecho; não conta o que aconteceu.
+
+    Então finalizar passa a exigir o registro do ato do fechamento — a
+    reunião, a ligação, a conferência de cadastro — como tarefa JÁ CONCLUÍDA.
+    Não cria pendência: nasce fechada, entra na linha do tempo da
+    oportunidade e conta na produção do mês, porque foi trabalho feito.
+
+    Vale para os três desfechos, cancelado incluído. Cancelar é erro nosso de
+    cadastro, e saber quem descobriu — e como — é o que impede o mesmo erro
+    de entrar de novo pela mesma porta.
+
+    Obrigatória NO SCHEMA, e não só na tela: regra que mora só no front vira
+    opcional no dia em que alguém chamar a API de outro lugar.
+    """
+
     status: str
     motivo_desfecho_id: int | None = None
     observacoes: str | None = None
+    tarefa: TarefaDeFinalizacao
 
 
 class Reabertura(BaseModel):
@@ -978,7 +1013,20 @@ async def desfecho(
     conn=Depends(get_conn),
     user=Depends(usuario_atual),
 ):
-    """Fecha a oportunidade e guarda de qual fase ela saiu."""
+    """
+    Fecha a oportunidade, guarda de qual fase ela saiu e grava o registro do
+    fechamento — tudo na mesma transação.
+
+    A tarefa é criada AQUI, e não por uma segunda chamada do navegador, pela
+    mesma razão que concluir-e-agendar-a-próxima é uma transação só: se o
+    segundo passo falhasse, sobraria oportunidade finalizada sem registro do
+    que a fechou, que é exatamente o buraco que a regra existe para tapar.
+
+    Ordem importa: valida o responsável ANTES de abrir a transação. Descobrir
+    responsável inativo já com o UPDATE do desfecho aplicado obrigaria a
+    desfazer, e o erro que o usuário lê seria sobre a tarefa depois de a
+    oportunidade ter parecido fechar.
+    """
     _, estado = await _estado_atual(conn, oportunidade_id)
     await _validar_referencias(conn, None, None, None, None, payload.motivo_desfecho_id)
 
@@ -986,6 +1034,13 @@ async def desfecho(
         novo = regras.finalizar(estado, payload.status, payload.motivo_desfecho_id)
     except TransicaoInvalida as e:
         raise HTTPException(422, str(e))
+
+    # Sem responsável informado, é quem está finalizando — e esse já passou
+    # pela autenticação, então não há o que validar.
+    if payload.tarefa.responsavel_id is not None:
+        await validar_referencias_tarefa(
+            conn, oportunidade_id, None, payload.tarefa.responsavel_id
+        )
 
     async with conn.transaction():
         await _aplicar(conn, oportunidade_id, novo, user["id"], estado, "status")
@@ -998,6 +1053,11 @@ async def desfecho(
                 """,
                 oportunidade_id, payload.observacoes,
             )
+        await inserir_tarefa_concluida(
+            conn, payload.tarefa,
+            oportunidade_id=oportunidade_id,
+            criado_por=user["id"],
+        )
     return await _detalhe(conn, oportunidade_id)
 
 

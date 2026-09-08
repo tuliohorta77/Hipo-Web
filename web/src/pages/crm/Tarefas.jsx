@@ -47,9 +47,9 @@ import ProducaoDoMes, {
   limitesDoMes, rotuloCurto,
 } from '../../components/crm/ProducaoDoMes';
 import {
-  ABERTAS, ICONE_TIPO, SITUACAO, STATUS_ABERTOS,
+  ABERTAS, ICONE_TIPO, SITUACAO,
   PainelAcoesTarefa,
-  corpoDaTarefa, dataCompleta, dataCurta, mensagemDeErro,
+  corpoDaTarefa, dataCompleta, dataCurta, exigeProximaTarefa, mensagemDeErro,
 } from '../../components/crm/tarefaComum';
 
 const CLASSE_CAMPO =
@@ -340,13 +340,18 @@ export default function Tarefas() {
   const limpar = () => { setBusca(''); setResponsavel(padraoResponsavel); };
 
   /*
-    Concluir exige a próxima enquanto a oportunidade está viva. O status vem
-    no próprio payload da tarefa (o JOIN já existia no backend) — buscar por
-    tarefa aberta seria N+1, e assumir "sempre exige" faria a tela pedir uma
-    próxima tarefa para negócio já fechado.
+    Concluir exige a próxima enquanto a oportunidade está viva — e SEMPRE em
+    tarefa de parceiro. Alvo e status vêm no próprio payload da tarefa (o
+    JOIN já existia no backend); buscar por tarefa aberta seria N+1.
+
+    O `alvo` não pode faltar aqui. Olhar só para `status_oportunidade` foi o
+    que quebrou a conclusão de tarefa de parceiro nesta tela: o campo chega
+    nulo, a regra devolvia "não exige", o formulário da próxima não abria e
+    o backend recusava com 422 — sem saída dentro do módulo de tarefas. A
+    regra mora em `exigeProximaTarefa`, uma só, compartilhada com a aba.
   */
   const exigeProxima = aberta
-    ? STATUS_ABERTOS.includes(aberta.status_oportunidade)
+    ? exigeProximaTarefa(aberta.alvo, aberta.status_oportunidade)
     : false;
 
   return (

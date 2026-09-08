@@ -806,16 +806,6 @@ export default function Oportunidades() {
         onCriada={(o) => { setNovaAberta(false); setDetalhe(o); carregar(); }}
       />
 
-      <ModalDesfecho
-        oportunidade={desfechoDe}
-        onFechar={() => setDesfechoDe(null)}
-        onConcluido={(o) => {
-          setDesfechoDe(null);
-          if (detalhe?.id === o.id) setDetalhe(o);
-          carregar();
-        }}
-      />
-
       {/*
         Sem `footer` nem `acoes`: quem monta a barra é o próprio
         OportunidadeDetalhe, porque as ações de estado (Suspender, Finalizar)
@@ -852,9 +842,11 @@ export default function Oportunidades() {
 
       {/*
         ── Drilldown da conta ──
-        DEPOIS do modal da oportunidade no JSX, e isso não é arrumação: os
-        dois usam z-50, então quem decide o que fica por cima é a ordem no
-        DOM. Invertido, o drilldown abriria ATRÁS da oportunidade.
+        Abre de dentro da oportunidade, então é nível 2 — declarado na
+        chamada, não deduzido da posição no arquivo. Antes o empilhamento
+        vinha da ordem do JSX (todo modal com z-50, ganha o último no DOM),
+        e foi assim que o modal de desfecho passou a abrir ATRÁS da
+        oportunidade: bastou alguém escrevê-lo antes.
 
         O Esc fecha só este, não os dois — ver a pilha em components/ui/Modal.
       */}
@@ -864,6 +856,7 @@ export default function Oportunidades() {
         titulo={contaAberta?.razao_social}
         subtitulo={contaAberta ? `CNPJ ${contaAberta.cnpj_formatado}` : undefined}
         size="full"
+        nivel={2}
         bodySemPadding
         acoes={
           // O aria-label não é só acessibilidade: com dois modais no DOM há
@@ -901,6 +894,22 @@ export default function Oportunidades() {
           />
         )}
       </Modal>
+
+      {/*
+        ── Finalizar a oportunidade ──
+        Ele próprio se declara nivel={2} (ver ModalDesfecho), então abre por
+        cima da oportunidade mesmo estando no fim do arquivo. Fica por último
+        por ser o único modal que pode aparecer sobre qualquer um dos outros.
+      */}
+      <ModalDesfecho
+        oportunidade={desfechoDe}
+        onFechar={() => setDesfechoDe(null)}
+        onConcluido={(o) => {
+          setDesfechoDe(null);
+          if (detalhe?.id === o.id) setDetalhe(o);
+          carregar();
+        }}
+      />
     </div>
   );
 }

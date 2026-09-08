@@ -13,6 +13,12 @@ import pytest
 
 from tests.conftest import criar_usuario
 
+# Todo desfecho exige o registro do fechamento — a tarefa que conta O QUE
+# fechou o negócio, gravada já concluída na mesma transação. Constante aqui
+# para os testes que apenas PRECISAM finalizar uma oportunidade não repetirem
+# o payload; os testes da regra em si montam o seu próprio.
+TAREFA_FIM = {"tipo": "reuniao", "titulo": "Reunião de fechamento"}
+
 CNPJ_PARCEIRO = "11.111.111/0001-91"
 CNPJ_PARCEIRO_2 = "22.222.222/0001-91"
 CNPJ_PARCEIRO_3 = "33.333.333/0001-91"
@@ -50,7 +56,7 @@ async def novo_motivo(client, headers, tipo, nome):
 
 
 async def desfechar(client, headers, oportunidade_id, status_final, motivo_id=None):
-    corpo = {"status": status_final}
+    corpo = {"status": status_final, "tarefa": TAREFA_FIM}
     if motivo_id is not None:
         corpo["motivo_desfecho_id"] = motivo_id
     resp = await client.post(
