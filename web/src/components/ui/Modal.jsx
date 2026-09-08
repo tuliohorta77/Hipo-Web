@@ -8,6 +8,7 @@
 //   - Ações da tela na mesma linha do título, à esquerda do X (ver
 //     SlotDeAcoes / AcoesDoModal mais abaixo)
 //   - Body com scroll interno se necessário
+//   - Empilhamento explícito por `nivel` (ver CAMADAS mais abaixo)
 //
 // Uso:
 //   <Modal aberto={modalAberto} onFechar={() => setModalAberto(false)} titulo="Foo">
@@ -47,6 +48,32 @@ const TAMANHOS = {
 const ALTURAS_FIXAS = {
   xl: "h-[92vh]",
   full: "h-[92vh]",
+};
+
+// ── Quem fica por cima de quem ───────────────────────────────────────
+//
+// Todo modal usava `z-50`, e com z-index empatado quem ganha é o último no
+// DOM. Como o Modal renderiza no lugar em que foi escrito (sem portal),
+// isso amarrava o empilhamento à ORDEM DO JSX: o modal de desfecho estava
+// escrito antes do modal da oportunidade e abria ATRÁS dele — o usuário
+// clicava em "Finalizar", nada parecia acontecer, e ele precisava fechar a
+// oportunidade para achar o formulário.
+//
+// Ordem de JSX é a pior coisa possível para carregar essa informação: não
+// aparece na chamada do componente, ninguém lembra dela ao mover um bloco, e
+// quando quebra o sintoma é visual, não erro. Então o nível é EXPLÍCITO.
+//
+//   nivel={1} (padrão) — modal de primeiro plano
+//   nivel={2}          — modal aberto DE DENTRO de outro (desfecho,
+//                        drilldown de conta a partir da oportunidade)
+//   nivel={3}          — confirmação sobre um modal de nível 2
+//
+// As classes estão escritas por extenso porque o Tailwind varre o código
+// fonte procurando literais: `z-[${n}]` montado em runtime não gera CSS.
+const CAMADAS = {
+  1: "z-50",
+  2: "z-[60]",
+  3: "z-[70]",
 };
 
 // ── Esc fecha UM modal: o de cima ────────────────────────────────────
@@ -108,6 +135,7 @@ export default function Modal({
   footer,
   bodySemPadding = false,
   alturaFixa = false,
+  nivel = 1,
 }) {
   const containerRef = useRef(null);
 
@@ -170,7 +198,10 @@ export default function Modal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      className={
+        `fixed inset-0 ${CAMADAS[nivel] || CAMADAS[1]} ` +
+        "flex items-center justify-center p-4"
+      }
       role="dialog"
       aria-modal="true"
       aria-labelledby={titulo ? "modal-titulo" : undefined}

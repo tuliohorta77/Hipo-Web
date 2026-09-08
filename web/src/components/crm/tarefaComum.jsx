@@ -76,6 +76,33 @@ export const SITUACAO = {
 export const ABERTAS = ['atrasada', 'hoje', 'futura'];
 export const STATUS_ABERTOS = ['ativa', 'suspensa'];
 
+/**
+ * Concluir esta tarefa obriga a agendar a próxima?
+ *
+ * Espelha `services/tarefa.exige_proxima` do backend — e existe como função
+ * única justamente porque NÃO espelhava: a tela de gestão calculava só
+ * `STATUS_ABERTOS.includes(status_oportunidade)`, e em tarefa de parceiro
+ * esse campo chega nulo. Resultado: o formulário da próxima nem aparecia, a
+ * tela ainda dizia "oportunidade finalizada", e o backend recusava a
+ * conclusão com 422. A pessoa ficava sem saída — era preciso abrir o
+ * parceiro pelo módulo de Parceiros para conseguir concluir.
+ *
+ * A regra, agora num lugar só:
+ *
+ *   parceiro                    -> SEMPRE exige. Parceria não tem estado
+ *                                  final que dispense; sem próximo contato
+ *                                  marcado a relação some da agenda.
+ *   oportunidade viva           -> exige (ativa ou suspensa).
+ *   oportunidade finalizada     -> não exige. Acabou, não há próximo passo.
+ *
+ * `alvo` vem pronto do servidor em toda tarefa. Inferir de campo nulo aqui
+ * seria recriar exatamente o bug que esta função conserta.
+ */
+export function exigeProximaTarefa(alvo, statusOportunidade) {
+  if (alvo === 'parceiro') return true;
+  return STATUS_ABERTOS.includes(statusOportunidade);
+}
+
 export function mensagemDeErro(err, padrao) {
   const d = err?.response?.data?.detail;
   if (typeof d === 'string') return d;

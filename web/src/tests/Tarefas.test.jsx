@@ -31,6 +31,10 @@ import Tarefas from '../pages/crm/Tarefas';
 function tarefa(id, extra = {}) {
   return {
     id,
+    // `alvo` vem pronto do servidor em toda tarefa, e é ele — não o
+    // status_oportunidade nulo — que diz se a tarefa é de parceiro.
+    alvo: 'oportunidade',
+    alvo_rotulo: 'Oportunidade',
     oportunidade_id: 'o1',
     oportunidade_numero: 'OPP-2026-00001',
     status_oportunidade: 'ativa',
@@ -419,6 +423,93 @@ describe('Tarefas — o detalhe', () => {
     await abrir();
     fireEvent.click(screen.getByLabelText('Concluir Cobrar proposta'));
     expect(await screen.findByText(/não é preciso agendar a próxima/)).toBeInTheDocument();
+  });
+
+  it('tarefa de PARCEIRO exige a próxima, mesmo sem status de oportunidade', async () => {
+    /*
+      O bug que travou o EC: em tarefa de parceiro `status_oportunidade` chega
+      nulo, e a tela olhava só para ele. Resultado — o formulário da próxima
+      não abria, a tela ainda dizia "oportunidade finalizada", e o backend
+      recusava a conclusão com 422. Não havia saída dentro do módulo de
+      tarefas: era preciso abrir o parceiro pelo módulo de Parceiros só para
+      conseguir concluir.
+
+      Quem decide é `alvo`, não o nulo. Parceria não tem estado final que
+      dispense o próximo contato.
+    */
+    mockGet.mockImplementation(respostas(
+      COLUNAS.map((c) => (c.situacao === 'atrasada'
+        ? {
+          ...c,
+          itens: [{
+            ...c.itens[0],
+            alvo: 'parceiro',
+            alvo_rotulo: 'Parceiro',
+            oportunidade_id: null,
+            oportunidade_numero: null,
+            status_oportunidade: null,
+            conta_razao_social: 'Contabil Gama ME',
+          }],
+        }
+        : c))
+    ));
+    await abrir();
+    fireEvent.click(screen.getByLabelText('Concluir Cobrar proposta'));
+
+    expect(await screen.findByLabelText('Próxima: Título')).toBeInTheDocument();
+    expect(screen.queryByText(/não é preciso agendar a próxima/)).not.toBeInTheDocument();
+  });
+
+  it('a saída sem próxima do parceiro é cancelar, não finalizar oportunidade', async () => {
+    /*
+      Mandar "finalize a oportunidade" para quem está numa tarefa de parceiro
+      é pedir uma ação que a tela não oferece — pior do que não explicar.
+    */
+    mockGet.mockImplementation(respostas(
+      COLUNAS.map((c) => (c.situacao === 'atrasada'
+        ? {
+          ...c,
+          itens: [{
+            ...c.itens[0],
+            alvo: 'parceiro', alvo_rotulo: 'Parceiro',
+            oportunidade_id: null, oportunidade_numero: null,
+            status_oportunidade: null,
+          }],
+        }
+        : c))
+    ));
+    await abrir();
+    fireEvent.click(screen.getByLabelText('Concluir Cobrar proposta'));
+    expect(await screen.findByText(/cancele a tarefa em vez de concluir/))
+      .toBeInTheDocument();
+  });
+
+  it('concluir tarefa de parceiro envia a próxima e não estoura', async () => {
+    mockPost.mockResolvedValue({ data: {} });
+    mockGet.mockImplementation(respostas(
+      COLUNAS.map((c) => (c.situacao === 'atrasada'
+        ? {
+          ...c,
+          itens: [{
+            ...c.itens[0],
+            alvo: 'parceiro', alvo_rotulo: 'Parceiro',
+            oportunidade_id: null, oportunidade_numero: null,
+            status_oportunidade: null,
+          }],
+        }
+        : c))
+    ));
+    await abrir();
+    fireEvent.click(screen.getByLabelText('Concluir Cobrar proposta'));
+    fireEvent.change(await screen.findByLabelText('Próxima: Título'), {
+      target: { value: 'Café com o contador' },
+    });
+    fireEvent.click(screen.getByText('Concluir tarefa'));
+
+    await waitFor(() => expect(mockPost).toHaveBeenCalled());
+    const [url, corpo] = mockPost.mock.calls[0];
+    expect(url).toBe('/crm/tarefas/1/concluir');
+    expect(corpo.proxima.titulo).toBe('Café com o contador');
   });
 
   it('concluir envia a próxima e recarrega', async () => {

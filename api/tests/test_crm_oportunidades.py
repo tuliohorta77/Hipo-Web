@@ -15,6 +15,12 @@ from routers import crm_oportunidades
 from services import oportunidade as regras
 from tests.conftest import criar_usuario
 
+# Todo desfecho exige o registro do fechamento — a tarefa que conta O QUE
+# fechou o negócio, gravada já concluída na mesma transação. Constante aqui
+# para os testes que apenas PRECISAM finalizar uma oportunidade não repetirem
+# o payload; os testes da regra em si montam o seu próprio.
+TAREFA_FIM = {"tipo": "reuniao", "titulo": "Reunião de fechamento"}
+
 CNPJ_A = "11.222.333/0001-81"
 CNPJ_B = "34.028.316/0001-03"
 CNPJ_C = "47.960.950/0001-21"
@@ -285,7 +291,7 @@ class TestMoverFase:
         o = await nova_oportunidade(client, usuario_adm["headers"], conta["id"])
         await client.post(
             f"/crm/oportunidades/{o['id']}/desfecho",
-            json={"status": "conquistado"},
+            json={"tarefa": TAREFA_FIM, "status": "conquistado"},
             headers=usuario_adm["headers"],
         )
         resp = await client.patch(
@@ -312,7 +318,7 @@ class TestDesfecho:
         )
         body = (await client.post(
             f"/crm/oportunidades/{o['id']}/desfecho",
-            json={"status": "conquistado"},
+            json={"tarefa": TAREFA_FIM, "status": "conquistado"},
             headers=usuario_adm["headers"],
         )).json()
         assert body["fase"] == "finalizado"
@@ -324,7 +330,7 @@ class TestDesfecho:
         o = await nova_oportunidade(client, usuario_adm["headers"], conta["id"])
         resp = await client.post(
             f"/crm/oportunidades/{o['id']}/desfecho",
-            json={"status": "perdido"},
+            json={"tarefa": TAREFA_FIM, "status": "perdido"},
             headers=usuario_adm["headers"],
         )
         assert resp.status_code == 422
@@ -338,7 +344,7 @@ class TestDesfecho:
         )
         body = (await client.post(
             f"/crm/oportunidades/{o['id']}/desfecho",
-            json={"status": "perdido", "motivo_desfecho_id": motivo["id"]},
+            json={"tarefa": TAREFA_FIM, "status": "perdido", "motivo_desfecho_id": motivo["id"]},
             headers=usuario_adm["headers"],
         )).json()
         assert body["motivo_desfecho"] == "Preço"
@@ -349,7 +355,7 @@ class TestDesfecho:
         o = await nova_oportunidade(client, usuario_adm["headers"], conta["id"])
         resp = await client.post(
             f"/crm/oportunidades/{o['id']}/desfecho",
-            json={"status": "perdido", "motivo_desfecho_id": 99999},
+            json={"tarefa": TAREFA_FIM, "status": "perdido", "motivo_desfecho_id": 99999},
             headers=usuario_adm["headers"],
         )
         assert resp.status_code == 422
@@ -362,7 +368,7 @@ class TestDesfecho:
         o = await nova_oportunidade(client, usuario_adm["headers"], conta["id"])
         body = (await client.post(
             f"/crm/oportunidades/{o['id']}/desfecho",
-            json={"status": "cancelado", "motivo_desfecho_id": motivo["id"]},
+            json={"tarefa": TAREFA_FIM, "status": "cancelado", "motivo_desfecho_id": motivo["id"]},
             headers=usuario_adm["headers"],
         )).json()
         assert body["status"] == "cancelado"
@@ -374,7 +380,7 @@ class TestDesfecho:
         )
         body = (await client.post(
             f"/crm/oportunidades/{o['id']}/desfecho",
-            json={"status": "conquistado", "observacoes": "Assinou dia 10"},
+            json={"tarefa": TAREFA_FIM, "status": "conquistado", "observacoes": "Assinou dia 10"},
             headers=usuario_adm["headers"],
         )).json()
         assert "Contato inicial" in body["observacoes"]
@@ -384,9 +390,184 @@ class TestDesfecho:
         conta = await nova_conta(client, usuario_adm["headers"])
         o = await nova_oportunidade(client, usuario_adm["headers"], conta["id"])
         url = f"/crm/oportunidades/{o['id']}/desfecho"
-        await client.post(url, json={"status": "conquistado"}, headers=usuario_adm["headers"])
+        await client.post(url, json={"tarefa": TAREFA_FIM, "status": "conquistado"}, headers=usuario_adm["headers"])
         resp = await client.post(
-            url, json={"status": "conquistado"}, headers=usuario_adm["headers"]
+            url,
+            json={"tarefa": TAREFA_FIM, "status": "conquistado"},
+            headers=usuario_adm["headers"],
+        )
+        assert resp.status_code == 422
+
+
+class TestRegistroDoFechamento:
+    """
+    Finalizar exige contar O QUE fechou o negócio.
+
+    Antes desta regra, a oportunidade finalizada era o único ponto do sistema
+    em que uma coisa acabava sem deixar relato: sobrava o status e um motivo
+    de lista fechada, que classificam o desfecho mas não contam a história.
+    O registro é uma tarefa que nasce concluída, na mesma transação.
+    """
+
+    async def _tarefas(self, db_conn, oportunidade_id):
+        return await db_conn.fetch(
+            """
+            SELECT titulo, tipo, descricao, responsavel_id, prazo, concluida_em,
+                   tarefa_anterior_id
+              FROM tarefas WHERE oportunidade_id = $1
+            """,
+            uuid.UUID(oportunidade_id),
+        )
+
+    async def test_sem_tarefa_nao_finaliza(self, db_conn, client, usuario_adm):
+        conta = await nova_conta(client, usuario_adm["headers"])
+        o = await nova_oportunidade(client, usuario_adm["headers"], conta["id"])
+        resp = await client.post(
+            f"/crm/oportunidades/{o['id']}/desfecho",
+            json={"status": "conquistado"},
+            headers=usuario_adm["headers"],
+        )
+        assert resp.status_code == 422
+
+    async def test_oportunidade_continua_aberta_se_a_tarefa_e_recusada(
+        self, db_conn, client, usuario_adm
+    ):
+        """
+        Tudo ou nada. Meia finalização — status fechado, registro ausente — é
+        pior do que não finalizar: o negócio some do funil sem deixar rastro.
+        """
+        conta = await nova_conta(client, usuario_adm["headers"])
+        o = await nova_oportunidade(client, usuario_adm["headers"], conta["id"])
+        resp = await client.post(
+            f"/crm/oportunidades/{o['id']}/desfecho",
+            json={"status": "conquistado", "tarefa": {"tipo": "reuniao", "titulo": "  "}},
+            headers=usuario_adm["headers"],
+        )
+        assert resp.status_code == 422
+
+        atual = (await client.get(
+            f"/crm/oportunidades/{o['id']}", headers=usuario_adm["headers"]
+        )).json()
+        assert atual["status"] == "ativa"
+
+    async def test_responsavel_inativo_nao_finaliza(
+        self, db_conn, client, usuario_adm
+    ):
+        conta = await nova_conta(client, usuario_adm["headers"])
+        o = await nova_oportunidade(client, usuario_adm["headers"], conta["id"])
+        resp = await client.post(
+            f"/crm/oportunidades/{o['id']}/desfecho",
+            json={
+                "status": "conquistado",
+                "tarefa": {**TAREFA_FIM, "responsavel_id": str(uuid.uuid4())},
+            },
+            headers=usuario_adm["headers"],
+        )
+        assert resp.status_code == 422
+
+        atual = (await client.get(
+            f"/crm/oportunidades/{o['id']}", headers=usuario_adm["headers"]
+        )).json()
+        assert atual["status"] == "ativa"
+
+    async def test_grava_a_tarefa_ja_concluida(self, db_conn, client, usuario_adm):
+        conta = await nova_conta(client, usuario_adm["headers"])
+        o = await nova_oportunidade(client, usuario_adm["headers"], conta["id"])
+        resp = await client.post(
+            f"/crm/oportunidades/{o['id']}/desfecho",
+            json={
+                "status": "conquistado",
+                "tarefa": {
+                    "tipo": "reuniao",
+                    "titulo": "Reunião — cliente aprovou as 40 vidas",
+                    "descricao": "RH e diretoria presentes",
+                },
+            },
+            headers=usuario_adm["headers"],
+        )
+        assert resp.status_code == 200, resp.text
+
+        linhas = await self._tarefas(db_conn, o["id"])
+        assert len(linhas) == 1
+        t = linhas[0]
+        assert t["titulo"] == "Reunião — cliente aprovou as 40 vidas"
+        assert t["descricao"] == "RH e diretoria presentes"
+        # Nasce fechada: não gera pendência para ninguém.
+        assert t["concluida_em"] is not None
+        # Não continua corrente de follow-up — encerra a que existia.
+        assert t["tarefa_anterior_id"] is None
+
+    async def test_sem_responsavel_fica_com_quem_finalizou(
+        self, db_conn, client, usuario_adm
+    ):
+        conta = await nova_conta(client, usuario_adm["headers"])
+        o = await nova_oportunidade(client, usuario_adm["headers"], conta["id"])
+        await client.post(
+            f"/crm/oportunidades/{o['id']}/desfecho",
+            json={"status": "conquistado", "tarefa": TAREFA_FIM},
+            headers=usuario_adm["headers"],
+        )
+        esperado = await db_conn.fetchval(
+            "SELECT id FROM usuarios WHERE email = $1", usuario_adm["email"]
+        )
+        linhas = await self._tarefas(db_conn, o["id"])
+        assert linhas[0]["responsavel_id"] == esperado
+
+    async def test_cancelado_tambem_exige(self, db_conn, client, usuario_adm):
+        """
+        Cancelar é erro nosso de cadastro — e saber quem descobriu, e como, é
+        o que impede o mesmo erro de entrar de novo pela mesma porta.
+        """
+        conta = await nova_conta(client, usuario_adm["headers"])
+        motivo = await novo_motivo(
+            client, usuario_adm["headers"], "cancelamento", "Lead duplicado"
+        )
+        o = await nova_oportunidade(client, usuario_adm["headers"], conta["id"])
+        resp = await client.post(
+            f"/crm/oportunidades/{o['id']}/desfecho",
+            json={"status": "cancelado", "motivo_desfecho_id": motivo["id"]},
+            headers=usuario_adm["headers"],
+        )
+        assert resp.status_code == 422
+
+    async def test_registro_aparece_na_lista_de_tarefas_da_oportunidade(
+        self, db_conn, client, usuario_adm
+    ):
+        """
+        O registro não é linha escondida no banco: entra na linha do tempo da
+        oportunidade, que é onde alguém vai procurar seis meses depois.
+        """
+        conta = await nova_conta(client, usuario_adm["headers"])
+        o = await nova_oportunidade(client, usuario_adm["headers"], conta["id"])
+        await client.post(
+            f"/crm/oportunidades/{o['id']}/desfecho",
+            json={
+                "status": "conquistado",
+                "tarefa": {"tipo": "visita", "titulo": "Visita de assinatura"},
+            },
+            headers=usuario_adm["headers"],
+        )
+        lista = (await client.get(
+            "/crm/tarefas",
+            params={"oportunidade_id": o["id"]},
+            headers=usuario_adm["headers"],
+        )).json()
+        titulos = [t["titulo"] for t in lista["itens"]]
+        assert "Visita de assinatura" in titulos
+        registro = next(t for t in lista["itens"] if t["titulo"] == "Visita de assinatura")
+        assert registro["situacao"] == "concluida"
+        assert registro["alvo"] == "oportunidade"
+
+    async def test_tipo_invalido_e_recusado(self, db_conn, client, usuario_adm):
+        conta = await nova_conta(client, usuario_adm["headers"])
+        o = await nova_oportunidade(client, usuario_adm["headers"], conta["id"])
+        resp = await client.post(
+            f"/crm/oportunidades/{o['id']}/desfecho",
+            json={
+                "status": "conquistado",
+                "tarefa": {"tipo": "telepatia", "titulo": "Fechou"},
+            },
+            headers=usuario_adm["headers"],
         )
         assert resp.status_code == 422
 
@@ -400,7 +581,7 @@ class TestReabrir:
         )
         await client.post(
             f"/crm/oportunidades/{o['id']}/desfecho",
-            json={"status": "perdido", "motivo_desfecho_id": motivo["id"]},
+            json={"tarefa": TAREFA_FIM, "status": "perdido", "motivo_desfecho_id": motivo["id"]},
             headers=usuario_adm["headers"],
         )
         body = (await client.post(
@@ -420,7 +601,7 @@ class TestReabrir:
         )
         await client.post(
             f"/crm/oportunidades/{o['id']}/desfecho",
-            json={"status": "conquistado"},
+            json={"tarefa": TAREFA_FIM, "status": "conquistado"},
             headers=usuario_adm["headers"],
         )
         body = (await client.post(
@@ -435,7 +616,7 @@ class TestReabrir:
         o = await nova_oportunidade(client, usuario_adm["headers"], conta["id"])
         await client.post(
             f"/crm/oportunidades/{o['id']}/desfecho",
-            json={"status": "conquistado"},
+            json={"tarefa": TAREFA_FIM, "status": "conquistado"},
             headers=usuario_adm["headers"],
         )
         await client.post(
@@ -467,7 +648,7 @@ class TestReabrir:
         )
         await client.post(
             f"/crm/oportunidades/{o['id']}/desfecho",
-            json={"status": "conquistado"},
+            json={"tarefa": TAREFA_FIM, "status": "conquistado"},
             headers=usuario_adm["headers"],
         )
         await client.post(
@@ -724,7 +905,7 @@ class TestKanban:
         o = await nova_oportunidade(client, usuario_adm["headers"], conta["id"])
         await client.post(
             f"/crm/oportunidades/{o['id']}/desfecho",
-            json={"status": "conquistado"},
+            json={"tarefa": TAREFA_FIM, "status": "conquistado"},
             headers=usuario_adm["headers"],
         )
         colunas = (await client.get(
@@ -756,11 +937,11 @@ class TestKanban:
         )).json()
         await client.post(
             f"/crm/oportunidades/{ganha['id']}/desfecho",
-            json={"status": "conquistado"}, headers=usuario_adm["headers"],
+            json={"tarefa": TAREFA_FIM, "status": "conquistado"}, headers=usuario_adm["headers"],
         )
         await client.post(
             f"/crm/oportunidades/{perdida['id']}/desfecho",
-            json={"status": "perdido", "motivo_desfecho_id": motivo["id"]},
+            json={"tarefa": TAREFA_FIM, "status": "perdido", "motivo_desfecho_id": motivo["id"]},
             headers=usuario_adm["headers"],
         )
         colunas = (await client.get(
@@ -781,7 +962,7 @@ class TestKanban:
         o = await nova_oportunidade(client, usuario_adm["headers"], conta["id"])
         await client.post(
             f"/crm/oportunidades/{o['id']}/desfecho",
-            json={"status": "conquistado"}, headers=usuario_adm["headers"],
+            json={"tarefa": TAREFA_FIM, "status": "conquistado"}, headers=usuario_adm["headers"],
         )
         # Empurra o fechamento para o mes passado direto no banco: nao existe
         # endpoint para reescrever atualizado_em, e a regra e do SELECT.
@@ -880,7 +1061,7 @@ class TestResumo:
         )
         await client.post(
             f"/crm/oportunidades/{perdida['id']}/desfecho",
-            json={"status": "perdido", "motivo_desfecho_id": m_perda["id"]},
+            json={"tarefa": TAREFA_FIM, "status": "perdido", "motivo_desfecho_id": m_perda["id"]},
             headers=usuario_adm["headers"],
         )
         cancelada = await nova_oportunidade(
@@ -888,7 +1069,7 @@ class TestResumo:
         )
         await client.post(
             f"/crm/oportunidades/{cancelada['id']}/desfecho",
-            json={"status": "cancelado", "motivo_desfecho_id": m_canc["id"]},
+            json={"tarefa": TAREFA_FIM, "status": "cancelado", "motivo_desfecho_id": m_canc["id"]},
             headers=usuario_adm["headers"],
         )
 
@@ -903,7 +1084,7 @@ class TestResumo:
         o = await nova_oportunidade(client, usuario_adm["headers"], conta["id"])
         await client.post(
             f"/crm/oportunidades/{o['id']}/desfecho",
-            json={"status": "conquistado"},
+            json={"tarefa": TAREFA_FIM, "status": "conquistado"},
             headers=usuario_adm["headers"],
         )
         body = (await client.get(
@@ -1063,7 +1244,7 @@ class TestListagem:
         fechada = await nova_oportunidade(client, usuario_adm["headers"], conta["id"])
         await client.post(
             f"/crm/oportunidades/{fechada['id']}/desfecho",
-            json={"status": "conquistado"},
+            json={"tarefa": TAREFA_FIM, "status": "conquistado"},
             headers=usuario_adm["headers"],
         )
         body = (await client.get(

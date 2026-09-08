@@ -27,6 +27,12 @@ from tests.test_crm_parceiros import (
     nova_oportunidade,
 )
 
+# Todo desfecho exige o registro do fechamento — a tarefa que conta O QUE
+# fechou o negócio, gravada já concluída na mesma transação. Constante aqui
+# para os testes que apenas PRECISAM finalizar uma oportunidade não repetirem
+# o payload; os testes da regra em si montam o seu próprio.
+TAREFA_FIM = {"tipo": "reuniao", "titulo": "Reunião de fechamento"}
+
 SEMANA_CORRENTE = "2026-08-12"      # quarta
 SEMANA_PASSADA = "2026-08-05"       # quarta anterior
 DOMINGO_DA_SEMANA = "2026-08-16"
@@ -676,7 +682,7 @@ class TestMiniFunil:
         )
         resp = await client.post(
             f"/crm/oportunidades/{opp['id']}/desfecho",
-            json={"status": "conquistado"}, headers=cenario["headers"],
+            json={"tarefa": TAREFA_FIM, "status": "conquistado"}, headers=cenario["headers"],
         )
         assert resp.status_code == 200, resp.text
         linha = await linha_do_parceiro(
