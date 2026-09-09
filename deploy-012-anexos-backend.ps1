@@ -304,6 +304,16 @@ $aFrente = "0"
 try   { $aFrente = (& git rev-list --count "origin/$ramo..$ramo").Trim() }
 catch { $aFrente = "?" }
 
+# O id do run ANTES do push. Sem ele nao ha como distinguir "o Actions ja
+# criou o run novo" de "ainda nao criou, e estou olhando o anterior" -- e o
+# anterior esta verde, entao a diferenca e entre conferir o deploy e
+# inventar que ele aconteceu.
+$idAntesDoPush = ""
+if ($temGh) {
+    $anterior = RunMaisRecente $ramo
+    if ($anterior) { $idAntesDoPush = [string]$anterior.databaseId }
+}
+
 Executar "git push" { git push origin $ramo }
 $empurrouAlgo = ($aFrente -ne "0")
 Bom "codigo no repositorio, no ramo $ramo"
@@ -313,11 +323,22 @@ if (-not $temGh) {
 }
 elseif ($noAlvo) {
     if ($empurrouAlgo) {
-        $runMain = RunMaisRecente $RamoAlvo
-        if ($runMain) {
-            AcompanharRun ([string]$runMain.databaseId) "os 3 jobs, deploy incluido"
-            ExigirDeployFeito ([string]$runMain.databaseId)
+        # EsperarRunNovo, e nao RunMaisRecente cru. Chamado logo apos o
+        # push, o RunMaisRecente devolve o run ANTERIOR -- que esta verde --
+        # e o script anuncia "deploy concluido" com o codigo velho ainda no
+        # ar. Foi assim que a 012 gravou o S3_BUCKET_ANEXOS no .env antes do
+        # deploy e derrubou a API: exatamente o acidente que o passo 4
+        # existe para evitar. O sintoma no log era discreto: "has ALREADY
+        # completed with 'success'".
+        $runMain = EsperarRunNovo $RamoAlvo $idAntesDoPush 60
+        if (-not $runMain) {
+            Abortar "push feito mas nao vi run novo na $RamoAlvo. NAO siga para o passo do .env sem conferir o deploy em $REPO_URL"
         }
+        AcompanharRun ([string]$runMain.databaseId) "os 3 jobs, deploy incluido"
+        ExigirDeployFeito ([string]$runMain.databaseId)
+    }
+    else {
+        Aviso "nada empurrado -- pulando a conferencia do CI"
     }
 }
 else {
@@ -379,7 +400,24 @@ Write-Host ""
 Write-Host "  Este passo so pode acontecer com o codigo novo JA em producao." -ForegroundColor Yellow
 Write-Host "  O pydantic-settings recusa chave do .env que o Settings nao" -ForegroundColor Yellow
 Write-Host "  declara ('Extra inputs are not permitted'), e a API nao sobe." -ForegroundColor Yellow
-Write-Host "  O passo 3 acabou de conferir que o deploy foi feito." -ForegroundColor Yellow
+
+# A prova DIRETA, olhando o arquivo que esta na maquina -- e nao a
+# conclusao de um run do CI, que ja se provou possivel de ler errado.
+# Se o config.py em producao nao conhece o campo, gravar a chave no .env
+# derruba a API no restart. Este grep e a ultima porta antes disso.
+Passo "conferindo que o codigo em producao ja conhece o campo..."
+$temCampo = & ssh -i $Chave "$UsuarioSsh@$Ip" `
+    "grep -c 'S3_BUCKET_ANEXOS' /home/hipo/app/api/config.py || true"
+$temCampo = ($temCampo | Out-String).Trim()
+
+if ($temCampo -eq "0" -or -not $temCampo) {
+    Abortar @"
+o config.py em producao NAO tem S3_BUCKET_ANEXOS -- o deploy do codigo novo
+    nao chegou na maquina. Gravar a chave no .env agora derrubaria a API.
+    Confira o run em $REPO_URL e rode de novo com -PularTestes -PularMigration.
+"@
+}
+Bom "config.py em producao conhece o campo ($temCampo ocorrencia(s))"
 
 Confirmar "Gravar S3_BUCKET_ANEXOS=$Bucket no .env e reiniciar a API?"
 
