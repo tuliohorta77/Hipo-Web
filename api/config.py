@@ -63,6 +63,10 @@ class Settings(BaseSettings):
     SES_REMETENTE: str = ""
     RELATORIO_DESTINATARIOS: str = ""
     AWS_REGION: str = "eu-central-1"
+    # Vazio = anexos desligados, e a tela nem oferece o botao. Config de
+    # recurso acessorio nao pode impedir a API de subir -- mesma regra do
+    # SES e da chave da IA logo acima.
+    S3_BUCKET_ANEXOS: str = ""
     TELEMETRIA_RETENCAO_DIAS: int = 90
     TELEMETRIA_ATIVA: bool = True
 

@@ -19,7 +19,7 @@ import {
 } from 'lucide-react';
 
 import Button from '../ui/Button';
-import Input, { Select } from '../ui/Input';
+import Input, { Select, Textarea } from '../ui/Input';
 
 export const TIPOS = [
   { valor: 'ligacao', rotulo: 'Ligação', Icone: Phone },
@@ -205,11 +205,12 @@ export function formDaTarefa(tarefa) {
  * quebra a lista e a linha do tempo. Mas ganhou altura e fonte maiores. O
  * detalhe virou textarea de 4 linhas, redimensionável na vertical.
  */
-const CLASSE_TEXTAREA =
-  'w-full px-3 py-2 rounded-lg bg-hipo-card border border-hipo-border ' +
-  'text-hipo-ink text-sm outline-none transition-colors resize-y ' +
-  'placeholder:text-hipo-muted ' +
-  'focus:border-hipo-blue focus:ring-2 focus:ring-blue-100';
+/*
+ * A classe do textarea morava aqui, copiada. Virou o componente
+ * `Textarea` em ui/Input.jsx quando o terceiro campo de texto livre
+ * precisou dela — três cópias do mesmo visual divergem no primeiro
+ * ajuste de paleta, e a que diverge é sempre a que o usuário está vendo.
+ */
 
 export function CamposTarefa({ valor, onChange, usuarios, prefixo = '', idBase = 'tarefa' }) {
   const set = (campo) => (e) => onChange({ ...valor, [campo]: e.target.value });
@@ -274,19 +275,13 @@ export function CamposTarefa({ valor, onChange, usuarios, prefixo = '', idBase =
       </Select>
 
       <div className="md:col-span-2">
-        <label
-          htmlFor={campoId('detalhe')}
-          className="block text-sm font-medium text-hipo-ink mb-1.5"
-        >
-          {`${prefixo}Detalhe (opcional)`}
-        </label>
-        <textarea
+        <Textarea
           id={campoId('detalhe')}
+          label={`${prefixo}Detalhe (opcional)`}
           rows={4}
           value={valor.descricao}
           onChange={set('descricao')}
           placeholder="Contexto, combinados, o que precisa levar"
-          className={CLASSE_TEXTAREA}
         />
       </div>
     </div>
@@ -371,8 +366,20 @@ export function PainelAcoesTarefa({
   if (painel === 'concluir') {
     return (
       <div className="space-y-3 border-l-2 border-hipo-border pl-3">
-        <Input
+        {/*
+          Textarea, não input de uma linha: este é o RELATO do que
+          aconteceu — vai inteiro para a linha do tempo da negociação e é
+          o que alguém vai ler seis meses depois para entender o negócio.
+          Num campo de 40px o texto rolava para a direita e sumia, e quem
+          escrevia perdia de vista o começo da própria frase.
+
+          Id explícito por causa dos parênteses do rótulo (ver a nota no
+          componente Textarea).
+        */}
+        <Textarea
+          id={`resultado-${tarefa.id}`}
           label="O que aconteceu (opcional)"
+          rows={3}
           placeholder="Atendeu, pediu proposta para 15 vidas"
           value={resultado}
           onChange={(e) => setResultado(e.target.value)}
@@ -420,8 +427,16 @@ export function PainelAcoesTarefa({
   if (painel === 'cancelar') {
     return (
       <div className="space-y-3 border-l-2 border-hipo-border pl-3">
-        <Input
+        {/*
+          Pelo mesmo motivo do resultado, e com uma linha a menos: motivo
+          de cancelamento costuma ser curto ("agendei duplicado"), mas
+          quando não é — "o contato saiu da empresa e o novo RH pediu para
+          retomar em janeiro" — não pode sumir para a direita.
+        */}
+        <Textarea
+          id={`motivo-${tarefa.id}`}
           label="Motivo do cancelamento (opcional)"
+          rows={2}
           placeholder="Agendei duplicado"
           value={motivo}
           onChange={(e) => setMotivo(e.target.value)}

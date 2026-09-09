@@ -526,6 +526,29 @@ describe('Tarefas — o detalhe', () => {
     expect(corpo.proxima.titulo).toBe('Apresentar proposta');
   });
 
+  it('o relato do que aconteceu quebra linha — é textarea, não input', async () => {
+    /*
+      Era um input de 40px. O relato de uma ligação inteira rolava para a
+      direita e sumia: quem escrevia perdia de vista o começo da própria
+      frase, sem jeito de reler sem navegar com as setas.
+
+      O assert é na TAG porque é ela que decide o comportamento. Conferir
+      classe CSS aqui passaria com um input estilizado, que é justamente o
+      que não resolve o problema.
+    */
+    await abrir();
+    fireEvent.click(screen.getByLabelText('Concluir Cobrar proposta'));
+    const campo = await screen.findByLabelText('O que aconteceu (opcional)');
+    expect(campo.tagName).toBe('TEXTAREA');
+  });
+
+  it('o motivo do cancelamento também quebra linha', async () => {
+    await abrir();
+    fireEvent.click(screen.getByLabelText('Cancelar Cobrar proposta'));
+    const campo = await screen.findByLabelText('Motivo do cancelamento (opcional)');
+    expect(campo.tagName).toBe('TEXTAREA');
+  });
+
   it('cancelar não pede a próxima', async () => {
     await abrir();
     fireEvent.click(screen.getByLabelText('Cancelar Cobrar proposta'));

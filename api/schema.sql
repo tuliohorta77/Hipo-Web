@@ -642,3 +642,42 @@ CREATE TABLE IF NOT EXISTS propostas (
 
 CREATE INDEX IF NOT EXISTS idx_propostas_oportunidade
     ON propostas (oportunidade_id, versao DESC);
+
+-- ---------------------------------------------------------------------
+-- tarefa_anexos -- arquivo anexado a uma tarefa (print do WhatsApp, PDF)
+-- ---------------------------------------------------------------------
+--
+-- O ARQUIVO NAO FICA AQUI: vai para o S3 (bucket privado). Esta tabela
+-- guarda o ponteiro. Ao contrario da proposta da 008, que se remonta a
+-- partir dos dados, um print nao tem como ser reproduzido -- ele precisa
+-- ser guardado de verdade, e imagem em bytea incharia o dump do RDS.
+--
+-- Alvo unico (tarefa) de proposito. Anexo de oportunidade vai existir, e
+-- a tentacao e nascer com entidade_tipo + entidade_id -- FK polimorfica
+-- nao tem integridade referencial e o banco nao avisa quando a linha
+-- aponta para o nada. Quando o segundo alvo chegar, a migration daquele
+-- dia acrescenta oportunidade_id nulavel com CHECK de alvo unico, do
+-- mesmo jeito que `tarefas` ja faz.
+--
+-- Ver api/migrations/009_anexos.sql.
+CREATE TABLE IF NOT EXISTS tarefa_anexos (
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tarefa_id       UUID NOT NULL REFERENCES tarefas(id) ON DELETE CASCADE,
+    chave_s3        TEXT NOT NULL UNIQUE,
+    nome_original   VARCHAR(255) NOT NULL,
+    tipo_mime       VARCHAR(100) NOT NULL,
+    bytes           BIGINT NOT NULL,
+    enviado_por     UUID REFERENCES usuarios(id) ON DELETE SET NULL,
+    criado_em       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT ck_anexo_tipo CHECK (
+        tipo_mime IN (
+            'image/png', 'image/jpeg', 'image/webp', 'image/gif',
+            'application/pdf'
+        )
+    ),
+    CONSTRAINT ck_anexo_bytes CHECK (bytes > 0),
+    CONSTRAINT ck_anexo_nome CHECK (length(btrim(nome_original)) > 0)
+);
+
+CREATE INDEX IF NOT EXISTS idx_tarefa_anexos_tarefa
+    ON tarefa_anexos (tarefa_id, criado_em);

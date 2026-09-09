@@ -15,8 +15,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from config import settings
 from middleware.telemetria import TelemetriaMiddleware, buffer, descarga_periodica
 from routers import (
-    auth, crm_contas, crm_contatos, crm_dominio, crm_oportunidades,
-    crm_parceiros, crm_propostas, crm_tarefas, telemetria,
+    auth, crm_anexos, crm_contas, crm_contatos, crm_dominio,
+    crm_oportunidades, crm_parceiros, crm_propostas, crm_tarefas,
+    telemetria,
 )
 from routers.permissions import requer_modulo
 
@@ -134,6 +135,16 @@ app.include_router(
 app.include_router(
     crm_propostas.router,
     prefix="/crm", tags=["CRM - Propostas"],
+    dependencies=[Depends(requer_modulo("crm"))],
+)
+
+# Anexos de tarefa. Prefixo /crm e nao /crm/tarefas: as rotas de leitura e
+# remocao sao enderecadas pelo ID DO ANEXO, sem repetir a tarefa no caminho,
+# porque esse endereco viaja (vai para o <img src>, para um copiar-e-colar).
+# Mesma escolha das propostas, logo acima.
+app.include_router(
+    crm_anexos.router,
+    prefix="/crm", tags=["CRM - Anexos"],
     dependencies=[Depends(requer_modulo("crm"))],
 )
 
