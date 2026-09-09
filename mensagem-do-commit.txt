@@ -1,0 +1,28 @@
+fix(crm): tarefa de parceiro travada, desfecho atras do modal e registro de fechamento
+
+1. Tarefa de parceiro nao deixava concluir no modulo de Tarefas.
+   Tarefas.jsx decidia se pedia a proxima olhando so status_oportunidade,
+   que chega nulo em tarefa de parceiro. A tela escondia o formulario da
+   proxima e ainda dizia "oportunidade finalizada"; o backend recusava com
+   422 (exige_proxima(None) e True). A unica saida era abrir o parceiro
+   pelo modulo de Parceiros. A regra virou uma funcao so,
+   exigeProximaTarefa(alvo, status), compartilhada com a AbaTarefas -
+   quem decide e o alvo, nao o nulo. Comentarios do backend que ainda
+   descreviam a regra antiga foram corrigidos.
+
+2. Modal de desfecho abria atras do modal da oportunidade.
+   Todo modal usava z-50 e o Modal renderiza no lugar do JSX, entao o
+   empilhamento vinha da ordem no DOM. Modal ganhou a prop nivel
+   (1=z-50, 2=z-[60], 3=z-[70]); desfecho e drilldown da conta declaram
+   nivel=2 em si mesmos.
+
+3. Finalizar uma oportunidade passa a exigir o registro do fechamento.
+   POST /desfecho recebe o campo obrigatorio 'tarefa' e cria a tarefa ja
+   concluida na mesma transacao. Vale para conquistado, perdido e
+   cancelado. responsavel_id vazio = quem finalizou; prazo vazio = agora.
+   Obrigatorio no schema, nao so na tela.
+
+Testes: backend 989 passed (Postgres real), frontend 445 passed.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_0189q3cDTsmB6yEjAX9NdCCM

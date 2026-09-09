@@ -10,12 +10,18 @@
 //   Perdido   -> o cliente recusou. ENTRA na taxa de conversão.
 //   Cancelado -> erro nosso de CRM. FICA FORA de todo denominador.
 //
-// ── Por que abre por cima (nivel=2) ──────────────────────────────────
+// ── Por que abre por cima (nivel=2 por padrão) ───────────────────────
 // Este modal é aberto de DENTRO do modal da oportunidade. Com o `z-50` que
 // todo modal usava, quem ficava por cima era quem estivesse por último no
 // JSX — e este estava escrito antes. O usuário clicava em Finalizar e o
 // formulário abria atrás: parecia que o botão não fazia nada, e só fechando
 // a oportunidade dava para achá-lo.
+//
+// O nível é PADRÃO, não fixo. No funil a oportunidade é o modal de nível 1 e
+// este é o 2. No módulo de Tarefas a oportunidade já vem empilhada sobre o
+// modal da tarefa (nível 2), e ali este precisa ser o 3 — com o 2 cravado no
+// código, o formulário de finalizar voltaria a abrir ATRÁS da oportunidade,
+// que é exatamente o sintoma que o `nivel` existe para matar.
 //
 // ── Por que o registro do fechamento é obrigatório ───────────────────
 // Toda tarefa concluída exige a próxima; a oportunidade finalizada é a
@@ -112,7 +118,11 @@ function registroVazio(responsavelPadrao = '') {
   };
 }
 
-export default function ModalDesfecho({ oportunidade, onFechar, onConcluido }) {
+export default function ModalDesfecho({
+  oportunidade, onFechar, onConcluido,
+  // Ver a nota sobre empilhamento no topo do arquivo.
+  nivel = 2,
+}) {
   const usuarioLogado = useMemo(() => getUser(), []);
   const responsavelPadrao = usuarioLogado?.id ? String(usuarioLogado.id) : '';
 
@@ -241,7 +251,7 @@ export default function ModalDesfecho({ oportunidade, onFechar, onConcluido }) {
         ? `${oportunidade.numero} · ${oportunidade.conta_razao_social}`
         : undefined}
       size="lg"
-      nivel={2}
+      nivel={nivel}
       footer={
         <div className="flex justify-end gap-2">
           <Button variant="ghost" onClick={onFechar}>Cancelar</Button>
