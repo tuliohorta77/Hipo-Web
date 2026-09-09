@@ -134,14 +134,85 @@ jobs:
           name: hipo-web-dist
           path: web/dist/
 
+      # O SSH da hipo-server so aceita IPs conhecidos desde a faxina de
+      # seguranca de 09/09/2026 (SG hipo-s: 22/tcp restrita ao IP de casa).
+      # O runner do GitHub sai de faixa da Azure, que muda a cada run e
+      # nunca estara numa allowlist fixa -- entao ele abre a porta para o
+      # proprio /32, faz o deploy e fecha. A janela dura o deploy e vale
+      # para um endereco so; a porta nunca volta a ficar aberta ao mundo.
+      #
+      # Sintoma de quando isso falta: 'Adicionar EC2 aos hosts conhecidos'
+      # morre em 5s com exit 1 e nenhuma mensagem. Cinco segundos e o
+      # timeout do ssh-keyscan; o SG descarta o pacote sem responder, entao
+      # nao ha 'connection refused' nem nada para ler no log.
+      - name: Configurar credenciais AWS
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: eu-central-1
+
+      - name: Abrir janela SSH no Security Group
+        env:
+          SG_ID: ${{ secrets.EC2_SECURITY_GROUP_ID }}
+        run: |
+          # Regras orfas de runs cancelados no meio: o passo de fechar usa
+          # if:always(), mas cancelamento tem prazo curto e pode nao chegar
+          # nele. A descricao e o que distingue o que e nosso do que e seu
+          # -- nenhuma regra sem ela e tocada.
+          orfas=$(aws ec2 describe-security-groups --group-ids "$SG_ID" --output json \
+            | jq -r '.SecurityGroups[0].IpPermissions[]
+                     | select(.IpProtocol=="tcp" and .FromPort==22 and .ToPort==22)
+                     | .IpRanges[] | select(.Description=="github-actions-deploy") | .CidrIp')
+          for cidr in $orfas; do
+            echo "removendo janela orfa: $cidr"
+            aws ec2 revoke-security-group-ingress \
+              --group-id "$SG_ID" --protocol tcp --port 22 --cidr "$cidr" >/dev/null || true
+          done
+
+          IP=$(curl -sf --retry 3 --max-time 20 https://checkip.amazonaws.com | tr -d '[:space:]')
+          if [ -z "$IP" ]; then
+            echo "::error::nao consegui descobrir o IP publico do runner"
+            exit 1
+          fi
+          echo "RUNNER_IP=$IP" >> $GITHUB_ENV
+          echo "abrindo 22/tcp para $IP/32 em $SG_ID"
+
+          # Duplicata nao e erro: dois runs simultaneos podem sair pelo
+          # mesmo IP. Qualquer outra falha e, e aborta antes do rsync.
+          set +e
+          saida=$(aws ec2 authorize-security-group-ingress \
+            --group-id "$SG_ID" \
+            --ip-permissions "IpProtocol=tcp,FromPort=22,ToPort=22,IpRanges=[{CidrIp=$IP/32,Description=github-actions-deploy}]" 2>&1)
+          codigo=$?
+          set -e
+          if [ $codigo -ne 0 ]; then
+            echo "$saida"
+            case "$saida" in
+              *InvalidPermission.Duplicate*) echo "a regra ja existia -- seguindo" ;;
+              *) echo "::error::nao consegui abrir a janela SSH no $SG_ID"; exit 1 ;;
+            esac
+          fi
+
       - name: Configurar chave SSH
         uses: webfactory/ssh-agent@v0.9.0
         with:
           ssh-private-key: ${{ secrets.EC2_SSH_KEY }}
 
       - name: Adicionar EC2 aos hosts conhecidos
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
         run: |
-          ssh-keyscan -H ${{ secrets.EC2_HOST }} >> ~/.ssh/known_hosts
+          mkdir -p ~/.ssh
+          # -T 15 porque a regra do SG acabou de nascer: a propagacao e
+          # rapida, nao instantanea. E a checagem do arquivo existe porque
+          # um keyscan que devolve vazio so viraria erro tres passos
+          # adiante, no rsync, com mensagem que nao aponta para ca.
+          ssh-keyscan -H -T 15 "$EC2_HOST" >> ~/.ssh/known_hosts
+          if ! grep -q . ~/.ssh/known_hosts; then
+            echo "::error::ssh-keyscan nao obteve chave de host. A janela no SG abriu, entao suspeite do valor do secret EC2_HOST."
+            exit 1
+          fi
 
       - name: Deploy do Backend
         env:
@@ -174,6 +245,23 @@ jobs:
         run: |
           ssh $EC2_USER@$EC2_HOST "curl -sf http://localhost/health || echo 'Frontend OK'"
           echo "Deploy concluÃ­do com sucesso."
+
+      # always(): a janela fecha mesmo com o deploy vermelho. Um `if:
+      # success()` aqui deixaria a porta aberta exatamente nos runs que
+      # deram errado -- os que ninguem termina de acompanhar.
+      #
+      # O guard do RUNNER_IP e para quando a falha foi ANTES de abrir a
+      # janela: sem ele, o revoke roda com CIDR vazio, falha, e o job passa
+      # a reportar como causa da falha um passo de limpeza.
+      - name: Fechar janela SSH no Security Group
+        if: always() && env.RUNNER_IP != ''
+        env:
+          SG_ID: ${{ secrets.EC2_SECURITY_GROUP_ID }}
+        run: |
+          echo "fechando 22/tcp para $RUNNER_IP/32 em $SG_ID"
+          aws ec2 revoke-security-group-ingress \
+            --group-id "$SG_ID" --protocol tcp --port 22 --cidr "$RUNNER_IP/32" >/dev/null
+          echo "janela fechada"
 
       - name: Notificar falha no deploy
         if: failure()
