@@ -12,6 +12,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Users, Swords, History, RotateCcw, FileText,
   PauseCircle, PlayCircle, Flag, Plus, X, Building2, Maximize2,
+  CalendarPlus,
 } from 'lucide-react';
 
 import api from '../../api';
@@ -366,6 +367,12 @@ export default function OportunidadeDetalhe({
   // ela que já tem o modal da oportunidade e sabe empilhar um sobre o outro.
   // Opcional — sem o handler, o botão simplesmente não aparece.
   onAbrirConta,
+  // Marcar reunião. Mesma divisão de trabalho do desfecho e do drilldown da
+  // conta: quem monta o modal é a PÁGINA, porque só ela sabe em que nível
+  // da pilha ele precisa abrir — 2 no funil, 3 no módulo de Tarefas. Este
+  // componente não conhece a própria profundidade, e chutar produziria o
+  // bug clássico do modal que abre atrás e parece que o botão não faz nada.
+  onAgendarReuniao,
 }) {
   const [form, setForm] = useState({});
   const [aba, setAba] = useState('dados');
@@ -733,6 +740,29 @@ export default function OportunidadeDetalhe({
           </span>
 
           <div className="flex flex-wrap items-center gap-2">
+            {/*
+              Marcar reunião fica ao lado das outras saídas da tela, e não
+              dentro da aba de Tarefas: quem acabou de ler a negociação e
+              decidiu que o próximo passo é sentar com o cliente não deveria
+              precisar trocar de aba para agir. A reunião criada aparece na
+              aba de Tarefas de qualquer forma — ela É uma tarefa.
+
+              Some na oportunidade finalizada, pelo mesmo motivo que
+              Suspender some: não há próximo passo comercial num negócio que
+              acabou, e um botão que leva a um 422 é pior que a ausência
+              dele.
+            */}
+            {onAgendarReuniao && !finalizada && (
+              <Button
+                size="sm"
+                variant="secondary"
+                icon={CalendarPlus}
+                onClick={() => onAgendarReuniao(oportunidade)}
+              >
+                Agendar reunião
+              </Button>
+            )}
+
             {finalizada ? (
               <Button
                 size="sm"

@@ -15,7 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from config import settings
 from middleware.telemetria import TelemetriaMiddleware, buffer, descarga_periodica
 from routers import (
-    auth, crm_anexos, crm_contas, crm_contatos, crm_dominio,
+    auth, crm_agenda, crm_anexos, crm_contas, crm_contatos, crm_dominio,
     crm_oportunidades, crm_parceiros, crm_propostas, crm_tarefas,
     telemetria,
 )
@@ -115,6 +115,23 @@ app.include_router(
 app.include_router(
     crm_tarefas.router,
     prefix="/crm/tarefas", tags=["CRM - Tarefas"],
+    dependencies=[Depends(requer_modulo("crm"))],
+)
+
+# Agenda de reunioes. Prefixo proprio, e nao aninhado em /crm/tarefas,
+# porque a grade e consultada por ANFITRIAO e SEMANA -- nunca a partir de
+# uma tarefa. Mesmo raciocinio que tirou /crm/tarefas de dentro de
+# /crm/oportunidades na Sprint 5.
+#
+# Modulo 'crm', e nao um modulo proprio como 'parceiros': marcar reuniao
+# atravessa toda a operacao. O SDR agenda para o EV, o EV conduz, o EP
+# entra como participante e a gestao acompanha -- nenhum desses ficaria de
+# fora, entao um modulo novo so acrescentaria uma lista para manter. O
+# recorte por pessoa acontece DENTRO da tela (a grade abre no usuario
+# logado), que e onde ele significa alguma coisa.
+app.include_router(
+    crm_agenda.router,
+    prefix="/crm/agenda", tags=["CRM - Agenda"],
     dependencies=[Depends(requer_modulo("crm"))],
 )
 

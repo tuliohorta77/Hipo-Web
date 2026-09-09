@@ -20,12 +20,21 @@ vi.mock('../api', () => ({
     patch: (...a) => mockPatch(...a),
     delete: (...a) => mockDelete(...a),
   },
+  // O ContaDetalhe le o cargo para decidir se mostra as acoes de bloqueio
+  // de prospeccao. Sem este export o mock quebra a arvore inteira, e o erro
+  // aparece em toda a suite em vez de no componente. Mesma armadilha ja
+  // documentada no mock de Oportunidades.test.jsx.
+  getUser: () => USUARIO_LOGADO,
 }));
+
+// Gestao por padrao: e o caso que exercita os botoes. Os testes que precisam
+// do operacional trocam `USUARIO_LOGADO.cargo` antes de renderizar.
+const USUARIO_LOGADO = { id: 'u-logado', nome: 'Tulio Horta', cargo: 'ADM' };
 
 import Contas, { mascararCnpj, cnpjValido } from '../pages/crm/Contas';
 
 const RESUMO = {
-  total: 3, ativas: 2, inativas: 1, finders: 1,
+  total: 3, ativas: 2, inativas: 1, finders: 1, nao_prospectar: 1,
   sem_oportunidade_ativa: 1, sem_vertical: 2, por_vertical: [],
 };
 
@@ -34,6 +43,7 @@ const CONTA = {
   cnpj: '11222333000181', cnpj_formatado: '11.222.333/0001-81',
   cidade: 'Guarulhos', uf: 'SP', vertical_id: 1, vertical_nome: 'Metalúrgica',
   num_funcionarios: 120, eh_finder: false, ativo: true,
+  nao_prospectar: false, nao_prospectar_motivo: null, nao_prospectar_em: null,
   vendedores: ['Ana Vendas'], qtd_oportunidades_ativas: 2,
   criado_em: '2026-08-01T12:00:00Z',
 };
@@ -372,5 +382,52 @@ describe('Contas — visão 360', () => {
     const campo = await screen.findByLabelText('Razão social');
     fireEvent.change(campo, { target: { value: 'Outro Nome' } });
     expect(await screen.findByText('Alterações não salvas')).toBeInTheDocument();
+  });
+});
+
+
+// ── Nao prospectar ───────────────────────────────────────────────────
+
+describe('Contas — nao prospectar', () => {
+  it('mostra o KPI com o numero do resumo', async () => {
+    renderContas();
+    expect(await screen.findByText('Nao prospectar')).toBeInTheDocument();
+    expect(screen.getByText('ja e cliente')).toBeInTheDocument();
+  });
+
+  it('o KPI aplica o filtro e clicar de novo desfaz', async () => {
+    renderContas();
+    fireEvent.click(await screen.findByText('Nao prospectar'));
+    await waitFor(() => {
+      const chamada = mockGet.mock.calls.filter((c) => c[0] === '/crm/contas').at(-1);
+      expect(chamada[1].params.nao_prospectar).toBe('true');
+    });
+
+    fireEvent.click(screen.getByText('Nao prospectar'));
+    await waitFor(() => {
+      const chamada = mockGet.mock.calls.filter((c) => c[0] === '/crm/contas').at(-1);
+      expect(chamada[1].params.nao_prospectar).toBeUndefined();
+    });
+  });
+
+  it('a linha bloqueada ganha o badge, sem perder o de Ativa', async () => {
+    mockGet.mockImplementation((url) => {
+      if (url === '/crm/contas') {
+        return Promise.resolve({
+          data: {
+            total: 1, limit: 50, offset: 0,
+            itens: [{ ...CONTA, nao_prospectar: true,
+                      nao_prospectar_motivo: 'Cliente MedSeg' }],
+          },
+        });
+      }
+      return respostaPadrao(url);
+    });
+    renderContas();
+    expect(await screen.findByText('Nao prospectar', { selector: 'span' }))
+      .toBeInTheDocument();
+    // Bloqueada nao e inativa: sao eixos diferentes e a tela precisa
+    // mostrar os dois.
+    expect(screen.getByText('Ativa')).toBeInTheDocument();
   });
 });

@@ -19,7 +19,16 @@ vi.mock('../api', () => ({
     patch: (...a) => mockPatch(...a),
     delete: (...a) => mockDelete(...a),
   },
+  // O ContaDetalhe le o cargo para decidir se mostra as acoes de bloqueio
+  // de prospeccao. Sem este export o mock quebra a arvore inteira, e o erro
+  // aparece em toda a suite em vez de no componente. Mesma armadilha ja
+  // documentada no mock de Oportunidades.test.jsx.
+  getUser: () => USUARIO_LOGADO,
 }));
+
+// Gestao por padrao: e o caso que exercita os botoes. Os testes que precisam
+// do operacional trocam `USUARIO_LOGADO.cargo` antes de renderizar.
+const USUARIO_LOGADO = { id: 'u-logado', nome: 'Tulio Horta', cargo: 'ADM' };
 
 import ContaDetalhe from '../components/crm/ContaDetalhe';
 
@@ -37,6 +46,7 @@ const CONTA = {
   telefone: '1130001000', telefone_2: null, email: 'contato@alfa.com',
   observacoes: 'Cliente antigo',
   eh_finder: false, ativo: true,
+  nao_prospectar: false, nao_prospectar_motivo: null, nao_prospectar_em: null,
   vendedores: ['Ana Vendas'],
   qtd_oportunidades_ativas: 1,
   criado_em: '2026-08-01T12:00:00Z',
@@ -331,5 +341,108 @@ describe('ContaDetalhe — abas de conteúdo', () => {
     montar();
     fireEvent.click(screen.getByTestId('tab-historico'));
     expect(await screen.findByText('Falhou')).toBeInTheDocument();
+  });
+});
+
+
+// ── Nao prospectar ───────────────────────────────────────────────────
+
+const BLOQUEADA = {
+  ...CONTA,
+  nao_prospectar: true,
+  nao_prospectar_motivo: 'Cliente MedSeg',
+  nao_prospectar_em: '2026-09-09T12:00:00Z',
+};
+
+describe('ContaDetalhe — nao prospectar', () => {
+  afterEach(() => { USUARIO_LOGADO.cargo = 'ADM'; });
+
+  it('conta liberada nao mostra banner e oferece Bloquear para gestao', () => {
+    montar();
+    expect(screen.queryByText(/Nao prospectar\./)).not.toBeInTheDocument();
+    expect(screen.getByText('Bloquear')).toBeInTheDocument();
+  });
+
+  it('conta bloqueada mostra o motivo e o Liberar', () => {
+    montar({ conta: BLOQUEADA });
+    expect(screen.getByText(/Cliente MedSeg/)).toBeInTheDocument();
+    expect(screen.getByText('Liberar')).toBeInTheDocument();
+    // Nao oferece bloquear o que ja esta bloqueado.
+    expect(screen.queryByText('Bloquear')).not.toBeInTheDocument();
+  });
+
+  it('cargo operacional ve o aviso mas nao as acoes', () => {
+    USUARIO_LOGADO.cargo = 'SDR';
+    montar({ conta: BLOQUEADA });
+    // O aviso e informacao: o SDR precisa saber por que nao consegue abrir
+    // oportunidade. O botao e que e de gestao.
+    expect(screen.getByText(/Cliente MedSeg/)).toBeInTheDocument();
+    expect(screen.queryByText('Liberar')).not.toBeInTheDocument();
+    cleanup();
+    montar();
+    expect(screen.queryByText('Bloquear')).not.toBeInTheDocument();
+  });
+
+  it('bloquear sem motivo nao chama a API', async () => {
+    montar();
+    fireEvent.click(screen.getByText('Bloquear'));
+    fireEvent.click(await screen.findByText('Bloquear prospecção'));
+    expect(await screen.findByText('Informe o motivo do bloqueio.')).toBeInTheDocument();
+    expect(mockPatch).not.toHaveBeenCalled();
+  });
+
+  it('bloquear manda motivo e avisa que o funil NAO se limpou', async () => {
+    mockPatch.mockResolvedValue({
+      data: { conta_id: 'c1', nao_prospectar: true, oportunidades_abertas: 2 },
+    });
+    const { onRecarregar } = montar();
+
+    fireEvent.click(screen.getByText('Bloquear'));
+    fireEvent.change(await screen.findByLabelText('Motivo do bloqueio'), {
+      target: { value: 'Cliente MedSeg' },
+    });
+    fireEvent.click(screen.getByText('Bloquear prospecção'));
+
+    await waitFor(() => expect(mockPatch).toHaveBeenCalledWith(
+      '/crm/contas/c1/prospeccao',
+      { bloquear: true, motivo: 'Cliente MedSeg' },
+    ));
+    // O erro mais facil de cometer e marcar e sair achando que as
+    // oportunidades abertas sumiram. A tela tem que dizer que nao.
+    expect(await screen.findByText(/continuam no funil/)).toBeInTheDocument();
+    expect(onRecarregar).toHaveBeenCalled();
+  });
+
+  it('liberar manda motivo nulo', async () => {
+    mockPatch.mockResolvedValue({
+      data: { conta_id: 'c1', nao_prospectar: false, oportunidades_abertas: 0 },
+    });
+    montar({ conta: BLOQUEADA });
+    fireEvent.click(screen.getByText('Liberar'));
+    await waitFor(() => expect(mockPatch).toHaveBeenCalledWith(
+      '/crm/contas/c1/prospeccao', { bloquear: false, motivo: null },
+    ));
+  });
+
+  it('a marca nao vai no PATCH comum da conta', async () => {
+    mockPatch.mockResolvedValue({ data: BLOQUEADA });
+    const { registrarSalvar } = montar({ conta: BLOQUEADA });
+    fireEvent.change(screen.getByLabelText('Razão social'), {
+      target: { value: 'Alfa S/A' },
+    });
+    await waitFor(() => expect(ultimoRegistro(registrarSalvar).sujo).toBe(true));
+    ultimoRegistro(registrarSalvar).salvar();
+    await waitFor(() => expect(mockPatch).toHaveBeenCalled());
+    const corpo = mockPatch.mock.calls.at(-1)[1];
+    expect(corpo).not.toHaveProperty('nao_prospectar');
+    expect(corpo).not.toHaveProperty('nao_prospectar_motivo');
+  });
+
+  it('conta bloqueada nao nasce suja', () => {
+    // `sujo` compara String(atual) com String(original). Se nao_prospectar
+    // entrasse em CAMPOS sem default booleano, '' !== 'true' marcaria
+    // "Alteracoes nao salvas" na abertura, sem ninguem ter digitado nada.
+    const { registrarSalvar } = montar({ conta: BLOQUEADA });
+    expect(ultimoRegistro(registrarSalvar).sujo).toBe(false);
   });
 });

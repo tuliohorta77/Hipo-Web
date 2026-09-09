@@ -68,6 +68,7 @@ import OportunidadeDetalhe from '../../components/crm/OportunidadeDetalhe';
 import ContaDetalhe from '../../components/crm/ContaDetalhe';
 import ModalDesfecho from '../../components/crm/ModalDesfecho';
 import AnexosTarefa from '../../components/crm/AnexosTarefa';
+import ModalReuniao from '../../components/crm/ModalReuniao';
 import {
   ABERTAS, ICONE_TIPO, SITUACAO,
   PainelAcoesTarefa,
@@ -238,6 +239,10 @@ export default function Tarefas() {
   */
   const [oportunidade, setOportunidade] = useState(null);
   const [desfechoDe, setDesfechoDe] = useState(null);
+  // Marcar reunião a partir da oportunidade aberta no drilldown. Vive na
+  // página, e não no OportunidadeDetalhe, porque só a página sabe em que
+  // nível da pilha o modal precisa abrir — aqui a oportunidade já é o 2.
+  const [agendandoPara, setAgendandoPara] = useState(null);
   const [contaAberta, setContaAberta] = useState(null);
   const [acaoSalvarConta, setAcaoSalvarConta] = useState(null);
   const [verticais, setVerticais] = useState([]);
@@ -375,6 +380,23 @@ export default function Tarefas() {
   const editar = (tarefa, form) => mutar(
     () => api.patch(`/crm/tarefas/${tarefa.id}`, corpoDaTarefa(form)),
     'Não foi possível salvar a tarefa.',
+  );
+
+  /*
+    Põe a tarefa na grade REAPROVEITANDO a tarefa: horário, dono, título e
+    alvo já são dela, e o backend os herda. Criar uma segunda diria a mesma
+    coisa duas vezes na linha do tempo e contaria duas reuniões na produção
+    do mês.
+
+    `mutar` fecha o cartão ao terminar, o que aqui é o comportamento certo:
+    a tarefa mudou de natureza, e a lista recarregada já a mostra com o
+    selo "na agenda".
+  */
+  const agendar = (tarefa) => mutar(
+    () => api.post(`/crm/agenda/reunioes/de-tarefa/${tarefa.id}`, {
+      modalidade: tarefa.tipo === 'visita' ? 'presencial' : 'online',
+    }),
+    'Não foi possível colocar a tarefa na agenda.',
   );
 
   // ── Drilldown: tarefa → oportunidade → conta ───────────────────────
@@ -774,6 +796,7 @@ export default function Tarefas() {
                 onConcluir={concluir}
                 onCancelar={cancelar}
                 onEditar={editar}
+                onAgendar={agendar}
               />
             ) : (
               <p className="text-xs text-hipo-slate">
@@ -817,6 +840,7 @@ export default function Tarefas() {
             onDesfecho={setDesfechoDe}
             onFechar={fecharOportunidade}
             onAbrirConta={abrirConta}
+            onAgendarReuniao={setAgendandoPara}
           />
         )}
       </Modal>
@@ -889,6 +913,22 @@ export default function Tarefas() {
           // se concluir ainda vai exigir a próxima.
           recarregarTarefaAberta();
         }}
+      />
+
+      {/*
+        ── Marcar reunião (nível 3) ──
+        A pilha aqui já é tarefa (1) → oportunidade (2), então a reunião
+        precisa do 3. Com o padrão, abriria ATRÁS da oportunidade e
+        pareceria que o botão não faz nada — a mesma armadilha que o
+        ModalDesfecho acima também precisa declarar.
+      */}
+      <ModalReuniao
+        aberto={Boolean(agendandoPara)}
+        nivel={3}
+        onFechar={() => setAgendandoPara(null)}
+        onSalvo={() => { aoMudarOportunidade(); }}
+        oportunidade={agendandoPara}
+        usuarios={usuarios}
       />
 
       <ProducaoDoMes

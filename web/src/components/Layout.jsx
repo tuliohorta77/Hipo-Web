@@ -28,14 +28,27 @@ import { getUser, getModulos, logout } from '../api';
 import Logo, { LogoWordmark } from './Logo';
 
 // Nav principal, na ordem em que o dia acontece: o funil é onde se trabalha,
-// Tarefas é o que está pendente nele, e Contas é o cadastro de apoio.
+// Tarefas é o que está pendente nele, Agenda é o que tem hora marcada, e
+// Contas é o cadastro de apoio.
 //
-// Parceiros vem por último e é o primeiro item da nav com módulo PRÓPRIO: só
-// EC e gestão o enxergam. Para SDR, EV e EP a barra continua com três itens —
-// é a diretriz "uma tela por função" aplicada também à navegação.
+// Agenda entra logo depois de Tarefas porque é a mesma pergunta com um grau
+// a mais de compromisso: toda reunião É uma tarefa, só que com horário e um
+// convite já enviado ao cliente. Separá-las por Contas no meio afastaria
+// duas telas que a pessoa alterna o dia inteiro.
+//
+// Agenda é do módulo 'crm', e não de um módulo próprio como Parceiros:
+// marcar reunião atravessa toda a operação — o SDR agenda para o EV, o EV
+// conduz, o EP entra como participante e a gestão acompanha. Um módulo novo
+// só acrescentaria uma lista para manter; o recorte por pessoa acontece
+// DENTRO da tela, que é onde ele significa alguma coisa.
+//
+// Parceiros vem por último e é o único item da nav com módulo PRÓPRIO: só
+// EC e gestão o enxergam. Para SDR, EV e EP a barra continua com quatro
+// itens — é a diretriz "uma tela por função" aplicada também à navegação.
 const NAV_ITEMS = [
   { to: '/crm/oportunidades', label: 'Oportunidades', modulo: 'crm' },
   { to: '/crm/tarefas', label: 'Tarefas', modulo: 'crm' },
+  { to: '/crm/agenda', label: 'Agenda', modulo: 'crm' },
   { to: '/crm/contas', label: 'Contas', modulo: 'crm' },
   { to: '/crm/parceiros', label: 'Parceiros', modulo: 'parceiros' },
 ];

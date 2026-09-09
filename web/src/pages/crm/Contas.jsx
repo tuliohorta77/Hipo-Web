@@ -18,7 +18,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Building2, Search, Plus, Handshake, CircleSlash, Layers, X,
+  Building2, Search, Plus, Handshake, CircleSlash, Layers, X, ShieldBan,
 } from 'lucide-react';
 
 import api from '../../api';
@@ -48,6 +48,7 @@ const FILTROS_VAZIOS = {
   uf: '',
   eh_finder: '',
   ativo: '',
+  nao_prospectar: '',
   sem_oportunidade_ativa: false,
   sem_vertical: false,
 };
@@ -282,6 +283,7 @@ export default function Contas() {
     if (filtros.uf) p.uf = filtros.uf;
     if (filtros.eh_finder !== '') p.eh_finder = filtros.eh_finder;
     if (filtros.ativo !== '') p.ativo = filtros.ativo;
+    if (filtros.nao_prospectar !== '') p.nao_prospectar = filtros.nao_prospectar;
     if (filtros.sem_oportunidade_ativa) p.sem_oportunidade_ativa = true;
     if (filtros.sem_vertical) p.sem_vertical = true;
     return p;
@@ -403,7 +405,7 @@ export default function Contas() {
       {erro && <AlertMessage tipo="erro">{erro}</AlertMessage>}
 
       {/* KPIs clicáveis: cada um aplica o filtro que o compõe. */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
         <KpiBotao
           ativo={kpiAtivo === 'ativas'}
           onClick={() => alternarKpi('ativas', { ativo: 'true' })}
@@ -453,6 +455,22 @@ export default function Contas() {
             hint="cadastro incompleto"
             icon={Layers}
             tone="violet"
+          />
+        </KpiBotao>
+
+        {/* Clientes da MedSeg. Existe como KPI, e nao so como filtro, porque
+            e um numero que precisa ser conferido de vez em quando: carteira
+            que cresce sem ninguem mexer no HIPO significa lista desatualizada. */}
+        <KpiBotao
+          ativo={kpiAtivo === 'nao-prospectar'}
+          onClick={() => alternarKpi('nao-prospectar', { nao_prospectar: 'true' })}
+        >
+          <KpiCard
+            label="Nao prospectar"
+            value={resumo?.nao_prospectar ?? '\u2014'}
+            hint="ja e cliente"
+            icon={ShieldBan}
+            tone="rose"
           />
         </KpiBotao>
       </div>
@@ -553,7 +571,10 @@ export default function Contas() {
                     </Td>
                     <Td align="right">{c.qtd_oportunidades_ativas}</Td>
                     <Td>
-                      <div className="flex gap-1.5">
+                      <div className="flex flex-wrap gap-1.5">
+                        {c.nao_prospectar && (
+                          <Badge tone="danger">Nao prospectar</Badge>
+                        )}
                         {c.eh_finder && <Badge tone="info">Finder</Badge>}
                         <Badge tone={c.ativo ? 'success' : 'neutral'}>
                           {c.ativo ? 'Ativa' : 'Inativa'}

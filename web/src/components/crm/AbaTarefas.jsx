@@ -51,7 +51,7 @@ import {
 
 function Evento({
   tarefa, ultima, aberta, expandida, usuarios, exigeProxima, ocupado,
-  onAlternar, onConcluir, onCancelar, onEditar,
+  onAlternar, onConcluir, onCancelar, onEditar, onAgendar,
 }) {
   const [painel, setPainel] = useState(null);   // 'concluir' | 'cancelar' | 'editar'
 
@@ -170,6 +170,7 @@ function Evento({
                 onConcluir={onConcluir}
                 onCancelar={onCancelar}
                 onEditar={onEditar}
+                onAgendar={onAgendar}
               />
             )}
           </div>
@@ -296,6 +297,22 @@ export default function AbaTarefas({ oportunidade, parceiro, onMudou }) {
     'Não foi possível salvar a tarefa.',
   );
 
+  /*
+    Põe a tarefa na grade sem sair daqui. Manda só o essencial: horário,
+    dono, título e alvo já são da tarefa, e o backend os herda. Uma visita
+    entra como presencial — é o que ela é.
+
+    A tarefa recarregada volta com `reuniao_id` preenchido, e o botão dá
+    lugar ao selo "na agenda". Ajustar tipo, convidados e duração acontece
+    na tela da Agenda, que é onde esses campos têm contexto.
+  */
+  const agendar = (tarefa) => mutar(
+    () => api.post(`/crm/agenda/reunioes/de-tarefa/${tarefa.id}`, {
+      modalidade: tarefa.tipo === 'visita' ? 'presencial' : 'online',
+    }),
+    'Não foi possível colocar a tarefa na agenda.',
+  );
+
   return (
     <div className="space-y-4">
       {erro && <AlertMessage tipo="erro">{erro}</AlertMessage>}
@@ -371,6 +388,7 @@ export default function AbaTarefas({ oportunidade, parceiro, onMudou }) {
               onConcluir={concluir}
               onCancelar={cancelar}
               onEditar={editar}
+              onAgendar={agendar}
             />
           ))}
         </ol>

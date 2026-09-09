@@ -17,6 +17,14 @@ Decisões que este módulo materializa:
   * Base compartilhada: todo usuário com o módulo 'crm' vê e busca todas as
     contas. É isso que impede o CNPJ duplicado invisível. O filtro por
     envolvimento vale para oportunidades, não para contas.
+
+  * "Não prospectar" é eixo próprio, não um terceiro estado de `ativo`.
+    A empresa que já é cliente da MedSeg existe, é visível, pode até
+    indicar — o que ela não aceita é oportunidade NOVA. Marcar e liberar
+    é ação de gestão, com endpoint próprio (PATCH /{id}/prospeccao) e não
+    campo do formulário: o motivo é obrigatório e a autoria fica gravada.
+    O bloqueio em si mora em routers/crm_oportunidades.py, que é onde a
+    tentativa acontece.
 """
 from __future__ import annotations
 
@@ -28,6 +36,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from database import get_conn
 from routers.auth import usuario_atual
+from routers.permissions import CARGOS_GESTAO
 from services import cnpj as cnpj_svc
 from services.texto import limpar_nome
 
@@ -36,6 +45,10 @@ router = APIRouter()
 # Colunas que o PATCH aceita mexer. Whitelist explícita: evita que um payload
 # inesperado alcance colunas como id, criado_por ou eh_finder (esta última é
 # ligada pelo sistema quando a conta é usada como finder de uma oportunidade).
+#
+# `nao_prospectar` NÃO está aqui de propósito: tem endpoint próprio, porque
+# exige motivo, grava autoria e é restrito a gestão. Deixá-lo entrar por aqui
+# faria o mesmo estado ter duas portas com regras diferentes.
 CAMPOS_EDITAVEIS = {
     "razao_social", "nome_fantasia", "vertical_id", "num_funcionarios",
     "cep", "logradouro", "numero", "complemento", "bairro", "cidade", "uf",
@@ -173,6 +186,8 @@ class ContaResumo(BaseModel):
     num_funcionarios: int | None
     eh_finder: bool
     ativo: bool
+    nao_prospectar: bool
+    nao_prospectar_motivo: str | None
     vendedores: list[str]
     qtd_oportunidades_ativas: int
     criado_em: datetime
@@ -215,6 +230,7 @@ class ContaDetalhe(ContaResumo):
     telefone_2: str | None
     email: str | None
     observacoes: str | None
+    nao_prospectar_em: datetime | None
     atualizado_em: datetime
     contatos: list[ContatoDaConta]
     oportunidades: list[OportunidadeDaConta]
@@ -230,6 +246,42 @@ class ContaBusca(BaseModel):
     uf: str | None
     eh_finder: bool
     ativo: bool
+    # O picker precisa saber ANTES do clique: item bloqueado nasce
+    # desabilitado, com o motivo no lugar do badge. Sem isso o usuário
+    # escolhe a conta, preenche o formulário inteiro e só descobre o
+    # bloqueio no 422 do POST.
+    nao_prospectar: bool
+    nao_prospectar_motivo: str | None
+
+
+class ProspeccaoIn(BaseModel):
+    """
+    Corpo do PATCH /{conta_id}/prospeccao.
+
+    Um endpoint só para os dois sentidos: bloquear exige motivo, liberar
+    recusa motivo. Dois endpoints diriam a mesma regra em dois lugares.
+    """
+    bloquear: bool
+    motivo: str | None = Field(None, max_length=500)
+
+    @field_validator("motivo")
+    @classmethod
+    def _motivo(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        return v.strip() or None
+
+
+class ProspeccaoOut(BaseModel):
+    conta_id: UUID
+    razao_social: str
+    nao_prospectar: bool
+    nao_prospectar_motivo: str | None
+    nao_prospectar_em: datetime | None
+    # Quantas oportunidades ABERTAS a conta tem neste instante. Bloquear
+    # não fecha nenhuma delas — a tela precisa dizer isso em voz alta,
+    # senão o gestor marca e sai achando que o funil se limpou sozinho.
+    oportunidades_abertas: int
 
 
 class EventoHistorico(BaseModel):
@@ -246,6 +298,7 @@ class ResumoContas(BaseModel):
     ativas: int
     inativas: int
     finders: int
+    nao_prospectar: int
     sem_oportunidade_ativa: int
     sem_vertical: int
     por_vertical: list[dict]
@@ -307,6 +360,7 @@ async def resumo(conn=Depends(get_conn), user=Depends(usuario_atual)):
             count(*) FILTER (WHERE ativo)                   AS ativas,
             count(*) FILTER (WHERE NOT ativo)               AS inativas,
             count(*) FILTER (WHERE eh_finder)               AS finders,
+            count(*) FILTER (WHERE nao_prospectar)          AS nao_prospectar,
             count(*) FILTER (WHERE vertical_id IS NULL)     AS sem_vertical,
             count(*) FILTER (
                 WHERE ativo AND NOT EXISTS (
@@ -352,7 +406,8 @@ async def busca(
 
     rows = await conn.fetch(
         f"""
-        SELECT id, razao_social, nome_fantasia, cnpj, cidade, uf, eh_finder, ativo
+        SELECT id, razao_social, nome_fantasia, cnpj, cidade, uf, eh_finder, ativo,
+               nao_prospectar, nao_prospectar_motivo
         FROM contas
         WHERE ($4::bool IS NOT TRUE OR eh_finder)
           AND (
@@ -378,6 +433,7 @@ async def listar(
     uf: str | None = Query(None, max_length=2),
     eh_finder: bool | None = None,
     ativo: bool | None = None,
+    nao_prospectar: bool | None = None,
     sem_oportunidade_ativa: bool = False,
     sem_vertical: bool = False,
     ordenar_por: str = Query("razao_social"),
@@ -418,6 +474,8 @@ async def listar(
         add("c.eh_finder = ${n}", eh_finder)
     if ativo is not None:
         add("c.ativo = ${n}", ativo)
+    if nao_prospectar is not None:
+        add("c.nao_prospectar = ${n}", nao_prospectar)
     if sem_oportunidade_ativa:
         where.append(
             "NOT EXISTS (SELECT 1 FROM oportunidades o"
@@ -434,7 +492,8 @@ async def listar(
         f"""
         SELECT c.id, c.razao_social, c.nome_fantasia, c.cnpj, c.cidade, c.uf,
                c.vertical_id, v.nome AS vertical_nome, c.num_funcionarios,
-               c.eh_finder, c.ativo, c.criado_em,
+               c.eh_finder, c.ativo,
+               c.nao_prospectar, c.nao_prospectar_motivo, c.criado_em,
                ev.vendedores, ev.qtd_ativas
         FROM contas c
         LEFT JOIN verticais v ON v.id = c.vertical_id
@@ -555,6 +614,23 @@ async def historico(
               JOIN oportunidades o ON o.id = oe.oportunidade_id
               LEFT JOIN usuarios u ON u.id = oe.usuario_id
              WHERE o.conta_id = $1
+
+            UNION ALL
+
+            -- O bloqueio de prospecção não tem tabela de eventos: os três
+            -- campos em `contas` guardam quem, quando e por quê do estado
+            -- ATUAL. A timeline mostra a marca vigente, não o histórico de
+            -- idas e vindas — e é assim mesmo enquanto não houver tabela:
+            -- inventar linha para um desbloqueio que ninguém registrou
+            -- seria histórico de mentira.
+            SELECT 'prospeccao_bloqueada',
+                   c.nao_prospectar_em,
+                   u.nome,
+                   'Bloqueada para prospecção',
+                   c.nao_prospectar_motivo
+              FROM contas c
+              LEFT JOIN usuarios u ON u.id = c.nao_prospectar_por
+             WHERE c.id = $1 AND c.nao_prospectar
         ) t
         ORDER BY quando DESC
         LIMIT $2
@@ -634,6 +710,89 @@ async def editar(
         *dados.values(), conta_id,
     )
     return await obter(conta_id, conn=conn, user=user)
+
+
+@router.patch("/{conta_id}/prospeccao", response_model=ProspeccaoOut)
+async def prospeccao(
+    conta_id: UUID,
+    payload: ProspeccaoIn,
+    conn=Depends(get_conn),
+    user=Depends(usuario_atual),
+):
+    """
+    Bloqueia ou libera a conta para prospecção. **Só gestão.**
+
+    O cargo é validado aqui e não por CHECK de banco pelo mesmo motivo do
+    `ec_responsavel_id` dos parceiros: CHECK não enxerga cargo. E é gestão,
+    e não todo mundo com o módulo `crm`, porque liberar um cliente da MedSeg
+    para prospecção é decisão comercial, não correção de cadastro.
+
+    Bloquear **não fecha** oportunidade nenhuma. A resposta devolve quantas
+    continuam abertas justamente para a tela poder dizer isso — marcar e
+    achar que o funil se limpou sozinho é o erro que este número evita.
+    """
+    if user.get("cargo") not in CARGOS_GESTAO:
+        raise HTTPException(
+            403,
+            "Só gestão pode bloquear ou liberar uma conta para prospecção.",
+        )
+
+    atual = await conn.fetchrow(
+        "SELECT id, razao_social, nao_prospectar FROM contas WHERE id = $1", conta_id
+    )
+    if not atual:
+        raise HTTPException(404, "Conta não encontrada.")
+
+    if payload.bloquear:
+        # Motivo obrigatório. O CHECK do banco também exige, mas um 500 de
+        # constraint não diz ao usuário o que fazer — este 422 diz.
+        if not payload.motivo:
+            raise HTTPException(422, "Informe o motivo do bloqueio.")
+        row = await conn.fetchrow(
+            """
+            UPDATE contas
+               SET nao_prospectar        = TRUE,
+                   nao_prospectar_motivo = $2,
+                   nao_prospectar_em     = NOW(),
+                   nao_prospectar_por    = $3,
+                   atualizado_em         = NOW()
+             WHERE id = $1
+         RETURNING id, razao_social, nao_prospectar, nao_prospectar_motivo,
+                   nao_prospectar_em
+            """,
+            conta_id, payload.motivo, user["id"],
+        )
+    else:
+        # Liberar com motivo no corpo seria ambíguo: motivo de quê, do
+        # bloqueio que está saindo ou da liberação? Recusa alto em vez de
+        # ignorar em silêncio — correção silenciosa de payload é pior que erro.
+        if payload.motivo:
+            raise HTTPException(
+                422, "Liberar não aceita motivo — o motivo pertence ao bloqueio."
+            )
+        row = await conn.fetchrow(
+            """
+            UPDATE contas
+               SET nao_prospectar        = FALSE,
+                   nao_prospectar_motivo = NULL,
+                   nao_prospectar_em     = NULL,
+                   nao_prospectar_por    = NULL,
+                   atualizado_em         = NOW()
+             WHERE id = $1
+         RETURNING id, razao_social, nao_prospectar, nao_prospectar_motivo,
+                   nao_prospectar_em
+            """,
+            conta_id,
+        )
+
+    abertas = await conn.fetchval(
+        """
+        SELECT count(*) FROM oportunidades
+         WHERE conta_id = $1 AND status IN ('ativa', 'suspensa')
+        """,
+        conta_id,
+    )
+    return {**dict(row), "conta_id": row["id"], "oportunidades_abertas": abertas or 0}
 
 
 @router.delete("/{conta_id}", response_model=ContaDetalhe)

@@ -643,3 +643,238 @@ class TestPermissoes:
             "SELECT id FROM usuarios WHERE email = $1", usuario_adm["email"]
         )
         assert autor == esperado
+
+
+# ── Nao prospectar (migration 010) ───────────────────────────────────
+
+class TestNaoProspectar:
+    """
+    A marca de "esta empresa ja e cliente da MedSeg, nao prospecte".
+
+    Eixo proprio, com endpoint proprio: nao e um terceiro estado de `ativo`
+    nem campo do formulario. Estes testes travam as quatro decisoes:
+    so gestao mexe, motivo e obrigatorio, liberar limpa tudo, e bloquear
+    NAO fecha oportunidade nenhuma.
+    """
+
+    async def test_schema_bate_com_a_migration(self, db_conn):
+        """
+        O CI cria o banco a partir de schema.sql, nao das migrations. CHECK
+        que existe so num dos dois passa na maquina de quem migrou a mao e
+        quebra no runner.
+        """
+        definicao = await db_conn.fetchval(
+            "SELECT pg_get_constraintdef(oid) FROM pg_constraint"
+            " WHERE conrelid = 'contas'::regclass AND conname = 'ck_contas_nao_prospectar'"
+        )
+        assert definicao is not None, (
+            "ck_contas_nao_prospectar nao existe no banco de teste. "
+            "A migration 010 foi criada sem espelhar em api/schema.sql?"
+        )
+
+    async def test_conta_nasce_liberada(self, db_conn, client):
+        u = await criar_usuario(db_conn, client, "ADM")
+        conta = await criar_conta(client, u["headers"])
+        assert conta["nao_prospectar"] is False
+        assert conta["nao_prospectar_motivo"] is None
+        assert conta["nao_prospectar_em"] is None
+
+    async def test_gestao_bloqueia_e_libera(self, db_conn, client):
+        u = await criar_usuario(db_conn, client, "Franqueado")
+        conta = await criar_conta(client, u["headers"])
+
+        r = await client.patch(
+            f"/crm/contas/{conta['id']}/prospeccao",
+            json={"bloquear": True, "motivo": "Cliente MedSeg"},
+            headers=u["headers"],
+        )
+        assert r.status_code == 200, r.text
+        assert r.json()["nao_prospectar"] is True
+        assert r.json()["nao_prospectar_motivo"] == "Cliente MedSeg"
+        assert r.json()["nao_prospectar_em"] is not None
+
+        detalhe = await client.get(f"/crm/contas/{conta['id']}", headers=u["headers"])
+        assert detalhe.json()["nao_prospectar"] is True
+
+        r = await client.patch(
+            f"/crm/contas/{conta['id']}/prospeccao",
+            json={"bloquear": False},
+            headers=u["headers"],
+        )
+        assert r.status_code == 200, r.text
+        # Liberar limpa TUDO. Motivo orfao ficaria na tela como se valesse.
+        assert r.json()["nao_prospectar"] is False
+        assert r.json()["nao_prospectar_motivo"] is None
+        assert r.json()["nao_prospectar_em"] is None
+        assert await db_conn.fetchval(
+            "SELECT nao_prospectar_por FROM contas WHERE id = $1", uuid.UUID(conta["id"])
+        ) is None
+
+    @pytest.mark.parametrize("cargo", ["SDR", "EV", "EC", "EP"])
+    async def test_operacional_nao_bloqueia(self, db_conn, client, cargo):
+        """
+        Liberar um cliente da MedSeg para prospeccao e decisao comercial, nao
+        correcao de cadastro. O modulo `crm` e de todo mundo; esta acao, nao.
+        """
+        gestor = await criar_usuario(db_conn, client, "ADM")
+        conta = await criar_conta(client, gestor["headers"])
+        u = await criar_usuario(db_conn, client, cargo, f"{cargo.lower()}@teste.com")
+
+        r = await client.patch(
+            f"/crm/contas/{conta['id']}/prospeccao",
+            json={"bloquear": True, "motivo": "Cliente MedSeg"},
+            headers=u["headers"],
+        )
+        assert r.status_code == 403
+
+    async def test_bloquear_sem_motivo_e_422(self, db_conn, client):
+        """
+        O CHECK do banco tambem barra, mas um 500 de constraint nao diz ao
+        usuario o que fazer.
+        """
+        u = await criar_usuario(db_conn, client, "ADM")
+        conta = await criar_conta(client, u["headers"])
+        for corpo in ({"bloquear": True}, {"bloquear": True, "motivo": "   "}):
+            r = await client.patch(
+                f"/crm/contas/{conta['id']}/prospeccao", json=corpo, headers=u["headers"]
+            )
+            assert r.status_code == 422, corpo
+
+    async def test_liberar_com_motivo_falha_alto(self, db_conn, client):
+        """
+        Motivo de que — do bloqueio que sai ou da liberacao? Recusa em vez de
+        ignorar em silencio: correcao silenciosa de payload e pior que erro.
+        """
+        u = await criar_usuario(db_conn, client, "ADM")
+        conta = await criar_conta(client, u["headers"])
+        r = await client.patch(
+            f"/crm/contas/{conta['id']}/prospeccao",
+            json={"bloquear": False, "motivo": "mudei de ideia"},
+            headers=u["headers"],
+        )
+        assert r.status_code == 422
+
+    async def test_patch_comum_nao_alcanca_a_marca(self, db_conn, client):
+        """
+        `nao_prospectar` fora de CAMPOS_EDITAVEIS: uma porta so, com motivo e
+        autoria. Se entrasse na whitelist, o Salvar do formulario bloquearia
+        conta sem motivo e sem registrar quem foi.
+        """
+        u = await criar_usuario(db_conn, client, "ADM")
+        conta = await criar_conta(client, u["headers"])
+        r = await client.patch(
+            f"/crm/contas/{conta['id']}",
+            json={"nao_prospectar": True, "nome_fantasia": "Alfa"},
+            headers=u["headers"],
+        )
+        assert r.status_code == 200
+        assert r.json()["nao_prospectar"] is False
+        assert r.json()["nome_fantasia"] == "Alfa"
+
+    async def test_bloquear_nao_fecha_oportunidade(self, db_conn, client):
+        """
+        A decisao mais facil de errar: o gestor marca e sai achando que o
+        funil se limpou. A resposta conta quantas continuam abertas — e a
+        tela usa esse numero para dizer isso em voz alta.
+        """
+        u = await criar_usuario(db_conn, client, "ADM")
+        conta = await criar_conta(client, u["headers"])
+        await criar_oportunidade(db_conn, uuid.UUID(conta["id"]), status="ativa")
+        await criar_oportunidade(db_conn, uuid.UUID(conta["id"]), status="suspensa")
+
+        r = await client.patch(
+            f"/crm/contas/{conta['id']}/prospeccao",
+            json={"bloquear": True, "motivo": "Cliente MedSeg"},
+            headers=u["headers"],
+        )
+        assert r.status_code == 200
+        assert r.json()["oportunidades_abertas"] == 2
+        assert await db_conn.fetchval(
+            "SELECT count(*) FROM oportunidades WHERE conta_id = $1"
+            " AND status IN ('ativa','suspensa')",
+            uuid.UUID(conta["id"]),
+        ) == 2
+
+    async def test_resumo_conta_as_bloqueadas(self, db_conn, client):
+        u = await criar_usuario(db_conn, client, "ADM")
+        a = await criar_conta(client, u["headers"], cnpj=CNPJ_A)
+        await criar_conta(client, u["headers"], cnpj=CNPJ_B)
+        await client.patch(
+            f"/crm/contas/{a['id']}/prospeccao",
+            json={"bloquear": True, "motivo": "Cliente MedSeg"},
+            headers=u["headers"],
+        )
+        r = await client.get("/crm/contas/resumo", headers=u["headers"])
+        assert r.json()["nao_prospectar"] == 1
+        # Bloquear nao desativa: o KPI de ativas nao pode se mexer junto.
+        assert r.json()["ativas"] == 2
+
+    async def test_filtro_nos_dois_sentidos(self, db_conn, client):
+        u = await criar_usuario(db_conn, client, "ADM")
+        a = await criar_conta(client, u["headers"], cnpj=CNPJ_A)
+        await criar_conta(client, u["headers"], cnpj=CNPJ_B)
+        await client.patch(
+            f"/crm/contas/{a['id']}/prospeccao",
+            json={"bloquear": True, "motivo": "Cliente MedSeg"},
+            headers=u["headers"],
+        )
+        bloqueadas = await client.get(
+            "/crm/contas", params={"nao_prospectar": True}, headers=u["headers"]
+        )
+        assert [c["id"] for c in bloqueadas.json()["itens"]] == [a["id"]]
+        livres = await client.get(
+            "/crm/contas", params={"nao_prospectar": False}, headers=u["headers"]
+        )
+        assert a["id"] not in [c["id"] for c in livres.json()["itens"]]
+        assert livres.json()["total"] == 1
+        # Sem o parametro, nada e escondido: a base continua compartilhada.
+        todas = await client.get("/crm/contas", headers=u["headers"])
+        assert todas.json()["total"] == 2
+
+    async def test_busca_do_picker_devolve_a_marca(self, db_conn, client):
+        """
+        Sem isso o picker so descobre o bloqueio no 422 do POST, depois do
+        formulario inteiro preenchido.
+        """
+        u = await criar_usuario(db_conn, client, "ADM")
+        conta = await criar_conta(client, u["headers"])
+        await client.patch(
+            f"/crm/contas/{conta['id']}/prospeccao",
+            json={"bloquear": True, "motivo": "Cliente MedSeg"},
+            headers=u["headers"],
+        )
+        r = await client.get(
+            "/crm/contas/busca", params={"q": "Metalurgica"}, headers=u["headers"]
+        )
+        assert r.json()[0]["nao_prospectar"] is True
+        assert r.json()[0]["nao_prospectar_motivo"] == "Cliente MedSeg"
+
+    async def test_bloqueio_aparece_no_historico(self, db_conn, client):
+        u = await criar_usuario(db_conn, client, "ADM")
+        conta = await criar_conta(client, u["headers"])
+        await client.patch(
+            f"/crm/contas/{conta['id']}/prospeccao",
+            json={"bloquear": True, "motivo": "Cliente MedSeg"},
+            headers=u["headers"],
+        )
+        r = await client.get(f"/crm/contas/{conta['id']}/historico", headers=u["headers"])
+        linha = next(e for e in r.json() if e["tipo"] == "prospeccao_bloqueada")
+        assert linha["detalhe"] == "Cliente MedSeg"
+        assert linha["usuario"] == "Test ADM"
+
+        # Liberou: a linha some, porque ela descreve o estado VIGENTE.
+        await client.patch(
+            f"/crm/contas/{conta['id']}/prospeccao",
+            json={"bloquear": False}, headers=u["headers"],
+        )
+        r = await client.get(f"/crm/contas/{conta['id']}/historico", headers=u["headers"])
+        assert not any(e["tipo"] == "prospeccao_bloqueada" for e in r.json())
+
+    async def test_conta_inexistente_e_404(self, db_conn, client):
+        u = await criar_usuario(db_conn, client, "ADM")
+        r = await client.patch(
+            f"/crm/contas/{uuid.uuid4()}/prospeccao",
+            json={"bloquear": True, "motivo": "x"},
+            headers=u["headers"],
+        )
+        assert r.status_code == 404

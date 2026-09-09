@@ -289,7 +289,7 @@ export default function EntityPicker({
                                 )}
                               </span>
                               {it.desabilitado ? (
-                                <Badge tone="neutral">
+                                <Badge tone={it.tomDesabilitado || 'neutral'}>
                                   {it.motivoDesabilitado || 'indisponível'}
                                 </Badge>
                               ) : it.badge ? (

@@ -156,6 +156,18 @@ CREATE TABLE IF NOT EXISTS contas (
     email             VARCHAR(150),
     eh_finder         BOOLEAN NOT NULL DEFAULT FALSE,
     ec_responsavel_id UUID REFERENCES usuarios(id) ON DELETE SET NULL,
+
+    -- Marca de "nao prospectar" (010). Empresa que ja e cliente da
+    -- MedSeg: existe na base, e visivel e pode ate indicar, mas nao
+    -- aceita oportunidade NOVA. Nao se confunde com `ativo` (delete
+    -- logico) nem com `eh_finder` (relacao de parceria).
+    -- O motivo e obrigatorio quando marcado: bloqueio sem motivo vira
+    -- misterio, e ninguem libera o que nao sabe por que foi bloqueado.
+    nao_prospectar        BOOLEAN NOT NULL DEFAULT FALSE,
+    nao_prospectar_motivo TEXT,
+    nao_prospectar_em     TIMESTAMPTZ,
+    nao_prospectar_por    UUID REFERENCES usuarios(id) ON DELETE SET NULL,
+
     observacoes       TEXT,
     ativo             BOOLEAN NOT NULL DEFAULT TRUE,
     criado_por        UUID REFERENCES usuarios(id) ON DELETE SET NULL,
@@ -166,7 +178,18 @@ CREATE TABLE IF NOT EXISTS contas (
     CONSTRAINT ck_contas_uf         CHECK (uf IS NULL OR uf ~ '^[A-Z]{2}$'),
     CONSTRAINT ck_contas_num_func   CHECK (num_funcionarios IS NULL OR num_funcionarios >= 0),
     CONSTRAINT ck_contas_razao      CHECK (length(btrim(razao_social)) > 0),
-    CONSTRAINT ck_contas_ec_so_parceiro CHECK (ec_responsavel_id IS NULL OR eh_finder)
+    CONSTRAINT ck_contas_ec_so_parceiro CHECK (ec_responsavel_id IS NULL OR eh_finder),
+    CONSTRAINT ck_contas_nao_prospectar CHECK (
+        (nao_prospectar
+            AND nao_prospectar_em IS NOT NULL
+            AND nao_prospectar_motivo IS NOT NULL
+            AND length(btrim(nao_prospectar_motivo)) > 0)
+        OR
+        (NOT nao_prospectar
+            AND nao_prospectar_em IS NULL
+            AND nao_prospectar_motivo IS NULL
+            AND nao_prospectar_por IS NULL)
+    )
 );
 
 CREATE INDEX IF NOT EXISTS idx_contas_razao_trgm  ON contas USING gin (razao_social gin_trgm_ops);
@@ -179,6 +202,10 @@ CREATE INDEX IF NOT EXISTS idx_contas_ativo       ON contas (ativo) WHERE ativo;
 -- responsavel. Serve a pergunta "quais sao os parceiros do EC X".
 CREATE INDEX IF NOT EXISTS idx_contas_ec_responsavel
     ON contas (ec_responsavel_id) WHERE ec_responsavel_id IS NOT NULL;
+
+-- Parcial pelo mesmo motivo: a pergunta e sempre "quais estao bloqueadas".
+CREATE INDEX IF NOT EXISTS idx_contas_nao_prospectar
+    ON contas (id) WHERE nao_prospectar;
 
 
 -- ---------------------------------------------------------------------------

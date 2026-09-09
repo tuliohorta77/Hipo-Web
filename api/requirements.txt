@@ -22,6 +22,16 @@ httpx==0.27.0
 # este pin so vale num provisionamento do zero, e precisa reproduzir o que
 # esta rodando.
 boto3==1.43.74
+# Agenda: cria o evento no Google Calendar do anfitriao por conta de
+# servico com delegacao em todo o dominio.
+# ATENCAO, MESMA ARMADILHA DO python-pptx ACIMA: o deploy faz rsync e
+# reinicia, NAO roda pip install. Instalar na EC2 a mao antes do primeiro
+# uso:
+#   sudo -iu hipo pip install google-api-python-client==2.149.0 google-auth==2.35.0
+# Sem elas a API sobe igual e a agenda funciona igual -- so nao manda o
+# convite, e diz isso na tela (services/google_agenda.problemas()).
+google-api-python-client==2.149.0
+google-auth==2.35.0
 
 # Tests
 anyio[trio]==4.4.0

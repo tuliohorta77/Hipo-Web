@@ -22,10 +22,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Briefcase, Users, MapPin, Phone, FileText, History,
-  Plus, UserCircle, TrendingUp,
+  Plus, UserCircle, TrendingUp, ShieldBan,
 } from 'lucide-react';
 
-import api from '../../api';
+import api, { getUser } from '../../api';
 import Tabs from '../ui/Tabs';
 import Input, { Select } from '../ui/Input';
 import Button from '../ui/Button';
@@ -43,6 +43,10 @@ const UFS = [
 
 // Campos que o PATCH aceita. Espelha CAMPOS_EDITAVEIS do router — se
 // divergir, o front manda campo que o backend ignora em silêncio.
+//
+// `nao_prospectar` NÃO entra aqui: tem endpoint próprio, exige motivo e é
+// só de gestão. Colocá-lo na lista faria o Salvar do rodapé mandar um campo
+// que o router descarta — a tela diria que salvou e o banco discordaria.
 const CAMPOS = [
   'razao_social', 'nome_fantasia', 'vertical_id', 'num_funcionarios',
   'cep', 'logradouro', 'numero', 'complemento', 'bairro', 'cidade', 'uf',
@@ -262,7 +266,19 @@ export default function ContaDetalhe({
   const [salvando, setSalvando] = useState(false);
   const [novaVertical, setNovaVertical] = useState('');
   const [criandoVertical, setCriandoVertical] = useState(false);
+  const [formBloqueio, setFormBloqueio] = useState(false);
+  const [motivoBloqueio, setMotivoBloqueio] = useState('');
+  const [salvandoBloqueio, setSalvandoBloqueio] = useState(false);
+  const [avisoBloqueio, setAvisoBloqueio] = useState(null);
   const idCarregado = useRef(null);
+
+  // Bloquear e liberar são ações de gestão — a API recusa com 403 para os
+  // demais. Esconder o botão evita oferecer o que vai dar erro; o backend
+  // continua sendo quem decide.
+  const ehGestao = useMemo(
+    () => ['Franqueado', 'ADM'].includes(getUser()?.cargo),
+    []
+  );
 
   // Recarrega o form quando troca de conta. Comparar por id (e não pelo
   // objeto) evita descartar o que o usuário digitou quando o pai recarrega
@@ -273,6 +289,9 @@ export default function ContaDetalhe({
     setForm(Object.fromEntries(CAMPOS.map((c) => [c, conta[c] ?? (c === 'eh_finder' || c === 'ativo' ? false : '')])));
     setAba('oportunidades');
     setErro(null);
+    setFormBloqueio(false);
+    setMotivoBloqueio('');
+    setAvisoBloqueio(null);
   }, [conta]);
 
   const sujo = useMemo(
@@ -330,6 +349,39 @@ export default function ContaDetalhe({
     });
   }, [registrarSalvar, sujo, salvando]);
 
+  // Um endpoint só para os dois sentidos, espelhando o backend.
+  // `onRecarregar` (e não `onSalvo`) porque a resposta é o resumo da
+  // prospecção, não a conta inteira: mandá-la para o estado do pai
+  // apagaria contatos e oportunidades da tela.
+  async function mudarProspeccao(bloquear) {
+    if (bloquear && !motivoBloqueio.trim()) {
+      setErro('Informe o motivo do bloqueio.');
+      return;
+    }
+    setSalvandoBloqueio(true);
+    setErro(null);
+    try {
+      const { data } = await api.patch(`/crm/contas/${conta.id}/prospeccao`, {
+        bloquear,
+        motivo: bloquear ? motivoBloqueio.trim() : null,
+      });
+      setFormBloqueio(false);
+      setMotivoBloqueio('');
+      // Bloquear não fecha oportunidade nenhuma. Dizer isso em voz alta é
+      // o que impede o gestor de sair achando que o funil se limpou.
+      setAvisoBloqueio(
+        bloquear && data.oportunidades_abertas > 0
+          ? `Bloqueada. As ${data.oportunidades_abertas} oportunidade(s) já abertas nesta conta continuam no funil — o bloqueio só impede abrir novas.`
+          : null
+      );
+      await onRecarregar?.();
+    } catch (err) {
+      setErro(mensagemDeErro(err, 'Não foi possível mudar a prospecção.'));
+    } finally {
+      setSalvandoBloqueio(false);
+    }
+  }
+
   async function criarVertical() {
     const nome = novaVertical.trim();
     if (!nome) return;
@@ -364,6 +416,66 @@ export default function ContaDetalhe({
       {/* ── Bloco fixo: identificação (não rola) ── */}
       <div className="shrink-0 px-5 pt-4 pb-4 border-b border-hipo-border bg-hipo-bg/40">
         {erro && <div className="mb-3"><AlertMessage tipo="erro">{erro}</AlertMessage></div>}
+        {avisoBloqueio && (
+          <div className="mb-3"><AlertMessage tipo="aviso">{avisoBloqueio}</AlertMessage></div>
+        )}
+
+        {conta.nao_prospectar && (
+          <div className="mb-3">
+            <AlertMessage tipo="aviso">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <strong>Não prospectar.</strong>{' '}
+                  {conta.nao_prospectar_motivo || 'sem motivo registrado'}
+                  {conta.nao_prospectar_em
+                    && ` — desde ${formatarDataHora(conta.nao_prospectar_em)}`}
+                  <div className="text-xs mt-0.5">
+                    Oportunidade nova nesta conta é recusada pelo sistema.
+                  </div>
+                </div>
+                {ehGestao && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    loading={salvandoBloqueio}
+                    onClick={() => mudarProspeccao(false)}
+                  >
+                    Liberar
+                  </Button>
+                )}
+              </div>
+            </AlertMessage>
+          </div>
+        )}
+
+        {formBloqueio && (
+          <div className="mb-3 p-3 rounded-lg border border-hipo-border bg-hipo-card">
+            <Input
+              label="Motivo do bloqueio"
+              id="inp-motivo-bloqueio"
+              value={motivoBloqueio}
+              onChange={(e) => setMotivoBloqueio(e.target.value)}
+              placeholder="Ex.: já é cliente da MedSeg"
+            />
+            <div className="flex justify-end gap-2 mt-3">
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => { setFormBloqueio(false); setMotivoBloqueio(''); }}
+              >
+                Cancelar
+              </Button>
+              <Button
+                size="sm"
+                variant="danger"
+                loading={salvandoBloqueio}
+                onClick={() => mudarProspeccao(true)}
+              >
+                Bloquear prospecção
+              </Button>
+            </div>
+          </div>
+        )}
 
         <div className="grid grid-cols-1 md:grid-cols-12 gap-3">
           <Campo className="md:col-span-5">
@@ -461,6 +573,16 @@ export default function ContaDetalhe({
                 />
                 Finder
               </label>
+              {ehGestao && !conta.nao_prospectar && (
+                <button
+                  type="button"
+                  onClick={() => setFormBloqueio((v) => !v)}
+                  className="inline-flex items-center gap-1 text-sm text-hipo-slate hover:text-hipo-danger"
+                >
+                  <ShieldBan size={14} />
+                  Bloquear
+                </button>
+              )}
             </div>
           </Campo>
         </div>

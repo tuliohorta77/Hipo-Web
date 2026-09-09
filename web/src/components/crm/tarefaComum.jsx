@@ -15,7 +15,7 @@
 import { useState } from 'react';
 import {
   Check, X, Pencil, Phone, Users, MapPin, FileText,
-  Mail, MessageCircle, CircleDot, AlertTriangle,
+  Mail, MessageCircle, CircleDot, AlertTriangle, CalendarPlus, CalendarCheck,
 } from 'lucide-react';
 
 import Button from '../ui/Button';
@@ -101,6 +101,33 @@ export const STATUS_ABERTOS = ['ativa', 'suspensa'];
 export function exigeProximaTarefa(alvo, statusOportunidade) {
   if (alvo === 'parceiro') return true;
   return STATUS_ABERTOS.includes(statusOportunidade);
+}
+
+// ── A ponte para a agenda ────────────────────────────────────────────
+//
+// Só reunião e visita entram na grade. Ligação, e-mail e WhatsApp não têm
+// hora marcada para o cliente, não geram convite e não ocupam slot — pôr
+// qualquer tarefa na agenda encheria a grade de itens que não são
+// compromissos e destruiria a única coisa que ela promete: mostrar onde
+// cabe a próxima reunião.
+//
+// Espelha a validação do backend (`criar_de_tarefa`), e o 422 de lá é a
+// rede embaixo desta linha.
+export const TIPOS_AGENDAVEIS = ['reuniao', 'visita'];
+
+/**
+ * Esta tarefa pode virar uma reunião na grade?
+ *
+ * Não basta o tipo: tarefa fechada é histórico imutável, e uma que já está
+ * na agenda tem `reuniao_id` preenchido — oferecer "agendar" nas duas
+ * levaria o usuário até um botão que devolve erro.
+ */
+export function podeEntrarNaAgenda(tarefa) {
+  return (
+    TIPOS_AGENDAVEIS.includes(tarefa.tipo)
+    && !tarefa.reuniao_id
+    && ABERTAS.includes(tarefa.situacao)
+  );
 }
 
 export function mensagemDeErro(err, padrao) {
@@ -325,6 +352,10 @@ const SAIDA_SEM_PROXIMA = {
 export function PainelAcoesTarefa({
   tarefa, painel, setPainel, usuarios, exigeProxima, ocupado,
   onConcluir, onCancelar, onEditar,
+  // Opcional: sem o handler, o botão não aparece. É o que permite à aba
+  // dentro da oportunidade oferecer a agenda e à tela de gestão fazer o
+  // mesmo, sem nenhuma das duas precisar saber da outra.
+  onAgendar,
 }) {
   const [resultado, setResultado] = useState('');
   const [motivo, setMotivo] = useState('');
@@ -359,6 +390,36 @@ export function PainelAcoesTarefa({
         >
           Cancelar
         </Button>
+
+        {/*
+          "Colocar na agenda" REAPROVEITA esta tarefa em vez de criar uma
+          reunião nova. É o caminho de quem agendou o próximo passo aqui e
+          só depois percebeu que aquilo tem hora marcada com o cliente —
+          criar uma segunda tarefa diria a mesma coisa duas vezes na linha
+          do tempo e contaria duas reuniões na produção do mês.
+
+          Nunca abre modal: esta barra vive dentro da aba da oportunidade,
+          que já está dentro de um modal. O horário e o dono já estão na
+          tarefa; o que falta (tipo, convidados) se ajusta depois, pela
+          agenda.
+        */}
+        {onAgendar && podeEntrarNaAgenda(tarefa) && (
+          <Button
+            size="sm" variant="ghost" icon={CalendarPlus}
+            loading={ocupado}
+            aria-label={`Colocar ${tarefa.titulo} na agenda`}
+            onClick={() => onAgendar(tarefa)}
+          >
+            Colocar na agenda
+          </Button>
+        )}
+
+        {tarefa.reuniao_id && (
+          <span className="inline-flex items-center gap-1 text-xs text-hipo-success">
+            <CalendarCheck size={13} aria-hidden="true" />
+            na agenda
+          </span>
+        )}
       </div>
     );
   }

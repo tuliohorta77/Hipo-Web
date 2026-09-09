@@ -166,6 +166,13 @@ function FormNovaOportunidade({ aberto, contaFixa, onFechar, onCriada }) {
           buscar={async (q) => (await api.get('/crm/contas/busca', { params: { q } })).data}
           paraItem={(c) => ({
             id: c.id, titulo: c.razao_social, subtitulo: c.cnpj_formatado,
+            // Conta bloqueada aparece na lupa, mas nao seleciona. O 422 do
+            // POST e a rede de seguranca; deixar escolher para so recusar
+            // depois do formulario preenchido seria fazer o usuario
+            // trabalhar para nada.
+            desabilitado: c.nao_prospectar,
+            motivoDesabilitado: c.nao_prospectar ? 'nao prospectar' : undefined,
+            tomDesabilitado: 'danger',
           })}
           placeholder="Buscar empresa…"
           hint={contaFixa ? 'Criando dentro desta conta.' : undefined}

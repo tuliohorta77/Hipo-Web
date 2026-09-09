@@ -1,0 +1,1311 @@
+{
+ "gerado_em": "2026-09-09",
+ "fonte": "Planilha_Geral_Controller_Oraculus_consolidada.xlsx — aba 'Clientes MEDSEG'",
+ "motivo": "Cliente da Controller MedSeg (carteira consolidada em 2026-09-09)",
+ "registros": [
+  {
+   "cnpj": "15467328000190",
+   "razao_social": "1002 Restaurante e Rotisseria Ltda"
+  },
+  {
+   "cnpj": "61471173000182",
+   "razao_social": "Aços F. Sacchelli Ltda"
+  },
+  {
+   "cnpj": "34224616000168",
+   "razao_social": "AgeGold Cobranças e Informações Cadastrais Eireli"
+  },
+  {
+   "cnpj": "49318001000178",
+   "razao_social": "AGS Importadora e Exportadora Ltda"
+  },
+  {
+   "cnpj": "05462847000101",
+   "razao_social": "Águas Serra da Cantareira Transportes Ltda"
+  },
+  {
+   "cnpj": "44601848000141",
+   "razao_social": "Alumistock Comercio de Aluminio Ltda"
+  },
+  {
+   "cnpj": "08310412000130",
+   "razao_social": "Aluri Transportes Eireli EPP"
+  },
+  {
+   "cnpj": "10650683000186",
+   "razao_social": "Amausi Usinagem de Precisão Ltda"
+  },
+  {
+   "cnpj": "08012839000151",
+   "razao_social": "Ambtec Assessoria e Serviços Ambientais Ltda"
+  },
+  {
+   "cnpj": "11082874000232",
+   "razao_social": "Americana Franquia S.A"
+  },
+  {
+   "cnpj": "11082874000402",
+   "razao_social": "Americana Franquia S.A"
+  },
+  {
+   "cnpj": "11082874000151",
+   "razao_social": "Americana Franquia S.A."
+  },
+  {
+   "cnpj": "71917595000192",
+   "razao_social": "Amicil S/A Indústria Comércio e Importação"
+  },
+  {
+   "cnpj": "09230507000106",
+   "razao_social": "Arkflex Divisorias Especiais Ltda"
+  },
+  {
+   "cnpj": "43403254000163",
+   "razao_social": "Art Premium Garagem Funilaria e Pintura Ltda"
+  },
+  {
+   "cnpj": "03424341000344",
+   "razao_social": "Asian Company Transportes Ltda (Belém)"
+  },
+  {
+   "cnpj": "03424341000182",
+   "razao_social": "Asian Company Transportes Ltda (Guarulhos)"
+  },
+  {
+   "cnpj": "03424341000263",
+   "razao_social": "Asian Company Transportes Ltda (Manaus)"
+  },
+  {
+   "cnpj": "41448539000195",
+   "razao_social": "ASK Terraplanagem Ltda"
+  },
+  {
+   "cnpj": "06044871000193",
+   "razao_social": "Associação dos Proprietários Contemplados do Conjunto Residencial Sol Nascente (Blocos I,II,III,IV e V)"
+  },
+  {
+   "cnpj": "52441215000141",
+   "razao_social": "ATFC Manutencão Predial Ltda (Orthopride)"
+  },
+  {
+   "cnpj": "16433460000143",
+   "razao_social": "ATGGold Cobranças e Informações Cadastrais Ltda"
+  },
+  {
+   "cnpj": "00164787000127",
+   "razao_social": "ATJAF Comercio e Serviços Ltda"
+  },
+  {
+   "cnpj": "46601592000106",
+   "razao_social": "Auto Super Distribuidora Automotiva Ltda"
+  },
+  {
+   "cnpj": "51812374000142",
+   "razao_social": "Banci & Dolfini Empreendimentos Imobiliarios SPE Ltda"
+  },
+  {
+   "cnpj": "05886903000135",
+   "razao_social": "Barranco & Pires Assessoria Contabil Ltda - Comissão Carlos"
+  },
+  {
+   "cnpj": "52270851000158",
+   "razao_social": "Beaplas Industria e Comercio de Plasticos"
+  },
+  {
+   "cnpj": "60066537000186",
+   "razao_social": "Biagini Comercio Ltda"
+  },
+  {
+   "cnpj": "64476897000107",
+   "razao_social": "Bolaria Doces e Salgados Yaya Ltda"
+  },
+  {
+   "cnpj": "51684422000245",
+   "razao_social": "Box Steel Produtos Siderurgicos Ltda"
+  },
+  {
+   "cnpj": "34875169000107",
+   "razao_social": "Brasilia Airport Restaurantes Ltda"
+  },
+  {
+   "cnpj": "34875169000298",
+   "razao_social": "Brasilia Airport Restaurantes Ltda"
+  },
+  {
+   "cnpj": "34875169000611",
+   "razao_social": "Brasilia Airport Restaurantes Ltda"
+  },
+  {
+   "cnpj": "34875169000530",
+   "razao_social": "Brasilia Airport Restaurantes Ltda"
+  },
+  {
+   "cnpj": "34875169000700",
+   "razao_social": "Brasilia Airport Restaurantes Ltda"
+  },
+  {
+   "cnpj": "34875169000964",
+   "razao_social": "Brasilia Airport Restaurantes Ltda"
+  },
+  {
+   "cnpj": "35779869000241",
+   "razao_social": "Brazil Highway Restaurantes Ltda"
+  },
+  {
+   "cnpj": "35779869000322",
+   "razao_social": "Brazil Highway Restaurantes Ltda (0322)"
+  },
+  {
+   "cnpj": "35779869000403",
+   "razao_social": "Brazil Highway Restaurantes Ltda (0403)"
+  },
+  {
+   "cnpj": "35779869000756",
+   "razao_social": "Brazil Highway Restaurantes Ltda (0756)"
+  },
+  {
+   "cnpj": "56973118000150",
+   "razao_social": "Brilhante Instaladora e Construções Ltda"
+  },
+  {
+   "cnpj": "63987607000127",
+   "razao_social": "Cahanovich & Cahanovich Cosmeticos Ltda (Paulista)"
+  },
+  {
+   "cnpj": "59551834000138",
+   "razao_social": "Cahanovich & Sanches Cosmeticos Ltda (Tiete)"
+  },
+  {
+   "cnpj": "60815624000512",
+   "razao_social": "Cahanovich & Zhen Cosmeticos Ltda (Brás)"
+  },
+  {
+   "cnpj": "60815624000431",
+   "razao_social": "Cahanovich & Zhen Cosmeticos Ltda (Guarulhos)"
+  },
+  {
+   "cnpj": "60815624000350",
+   "razao_social": "Cahanovich & Zhen Cosmeticos Ltda (Itaquera)"
+  },
+  {
+   "cnpj": "60815624000199",
+   "razao_social": "Cahanovich & Zhen Cosmeticos Ltda (M. Center Norte)"
+  },
+  {
+   "cnpj": "60815624000270",
+   "razao_social": "Cahanovich & Zhen Cosmeticos Ltda (Mooca)"
+  },
+  {
+   "cnpj": "66056643000165",
+   "razao_social": "Cahanovich Participações Ltda"
+  },
+  {
+   "cnpj": "57929965001071",
+   "razao_social": "Camarotti Alimentos Ltda (Bobs-Maceio KM91)"
+  },
+  {
+   "cnpj": "57929965001152",
+   "razao_social": "Camarotti Alimentos Ltda (Bobs-Maceio)"
+  },
+  {
+   "cnpj": "57929965000938",
+   "razao_social": "Camarotti Alimentos Ltda (Spoleto-Maceio)"
+  },
+  {
+   "cnpj": "50674539000102",
+   "razao_social": "Caminhos Transportes Ltda"
+  },
+  {
+   "cnpj": "08482084000159",
+   "razao_social": "Carga Bike Comercio e Serviços Ltda"
+  },
+  {
+   "cnpj": "59869656000198",
+   "razao_social": "Casa de Carnes TB Ltda"
+  },
+  {
+   "cnpj": "62801576000105",
+   "razao_social": "Centauro Indústria e Comércio Ltda"
+  },
+  {
+   "cnpj": "59648824000115",
+   "razao_social": "Centro Social Brasil Vivo"
+  },
+  {
+   "cnpj": "07098289000172",
+   "razao_social": "Chucar Comercio e Distribuição de Auto Peças Ltda - Comissão Carlos"
+  },
+  {
+   "cnpj": "41193653000111",
+   "razao_social": "Chucar Distribuidora de Auto Peças Ltda - Comissão Carlos"
+  },
+  {
+   "cnpj": "31905137000119",
+   "razao_social": "Clarity Documentações e Processamento de Dados Ltda"
+  },
+  {
+   "cnpj": "30466291000179",
+   "razao_social": "Clinica Odontologica 5MSHX & PLLW Maua Ltda (Orthopride)"
+  },
+  {
+   "cnpj": "13008355000250",
+   "razao_social": "Clinica Odontologica 5MSHX Osasco ADM Ltda (Orthopride)"
+  },
+  {
+   "cnpj": "19278494000107",
+   "razao_social": "Clínica Odontologica Capibaribe (Orthopride) (46.038.892/0001-10)"
+  },
+  {
+   "cnpj": "32087446000191",
+   "razao_social": "Clinica Odontologica PLLRX Barueri Ltda (Orthopride)"
+  },
+  {
+   "cnpj": "40183835000149",
+   "razao_social": "Clinica Odontologica PLLRX Grajau Ltda (Orthopride)"
+  },
+  {
+   "cnpj": "44897471000110",
+   "razao_social": "Clinica Odontologica PLLRX Guarulhos I Ltda (Orthopride)"
+  },
+  {
+   "cnpj": "33825987000132",
+   "razao_social": "Clinica Odontologica PLLRX Itapevi Ltda (Orthopride)"
+  },
+  {
+   "cnpj": "44803467000145",
+   "razao_social": "Clinica Odontologica PLLRX São Bernardo Ltda (Orthopride)"
+  },
+  {
+   "cnpj": "61214877000170",
+   "razao_social": "Clinicas Odontologicas 5MSHX Ltda - Orthopride Santo Amaro"
+  },
+  {
+   "cnpj": "47668241000177",
+   "razao_social": "CM Confiança Manutenções e Serviços Ltda"
+  },
+  {
+   "cnpj": "17673788000108",
+   "razao_social": "Colle Etiquetas e Rotulos Adesivos Ltda"
+  },
+  {
+   "cnpj": "00884904000127",
+   "razao_social": "Condominio Edificio Arapongas"
+  },
+  {
+   "cnpj": "05243053000157",
+   "razao_social": "Condominio Edificio Mondial Office & Residence Flat (Mercure)"
+  },
+  {
+   "cnpj": "66656596000190",
+   "razao_social": "Condominio Edificio Panorama"
+  },
+  {
+   "cnpj": "58482886000137",
+   "razao_social": "Condominio Edificio São Jose e São Paulo"
+  },
+  {
+   "cnpj": "07715041000103",
+   "razao_social": "Condomínio Residencial Gramado"
+  },
+  {
+   "cnpj": "07857598000189",
+   "razao_social": "Condomínio Residencial Village I"
+  },
+  {
+   "cnpj": "05305452000103",
+   "razao_social": "Condomínio Residencial Village III"
+  },
+  {
+   "cnpj": "20640586000166",
+   "razao_social": "Condomínio Ventura Guarulhos"
+  },
+  {
+   "cnpj": "16639782000143",
+   "razao_social": "Controller Administradora de Condominios Ltda"
+  },
+  {
+   "cnpj": "09627850000199",
+   "razao_social": "Controller Contadores e Associados"
+  },
+  {
+   "cnpj": "51358227000144",
+   "razao_social": "COP-FERP Corte e Dobra de Metais Ltda"
+  },
+  {
+   "cnpj": "02573677000144",
+   "razao_social": "Cronos Industria e Comercio de Equip. Ind. Serv. Usinagem Ltda"
+  },
+  {
+   "cnpj": "37678076000180",
+   "razao_social": "Cronos Serviços Medições e Inspeções Ltda"
+  },
+  {
+   "cnpj": "04728183000117",
+   "razao_social": "CVS Comércio de Alimentos e Serviços de Cartões Eireli"
+  },
+  {
+   "cnpj": "60480746000252",
+   "razao_social": "Daicast Indústria e Comércio Ltda (Filial)"
+  },
+  {
+   "cnpj": "60480746000171",
+   "razao_social": "Daicast Indústria e Comércio Ltda (Matriz)"
+  },
+  {
+   "cnpj": "34971535000121",
+   "razao_social": "E.D.F. Comércio de Fitas, Etiquetas e Art Promo em Geral Eireli"
+  },
+  {
+   "cnpj": "39329004000153",
+   "razao_social": "E.H da Silva ME (Amecred)"
+  },
+  {
+   "cnpj": "05524902000140",
+   "razao_social": "Edificio Airport Hotels"
+  },
+  {
+   "cnpj": "66655689000109",
+   "razao_social": "Edificio Serra de Bragança"
+  },
+  {
+   "cnpj": "15609518000102",
+   "razao_social": "Edimario Nogueira de Lima ME"
+  },
+  {
+   "cnpj": "49641831000131",
+   "razao_social": "Elevi Soluções Ltda"
+  },
+  {
+   "cnpj": "43920057000111",
+   "razao_social": "Embagraf Embalagem Gráfica e Editora Ltda"
+  },
+  {
+   "cnpj": "63633310000163",
+   "razao_social": "Embala Sempre Manutenção de Maquinas de Embalagens Ltda"
+  },
+  {
+   "cnpj": "46285756000125",
+   "razao_social": "Embraste Segurança e Vigilancia Ltda"
+  },
+  {
+   "cnpj": "18702309000199",
+   "razao_social": "Embraste Tercerização de Mão de Obra & Serviços Emp Eireli"
+  },
+  {
+   "cnpj": "53237962002845",
+   "razao_social": "Empresa de Transportes Pajuçara (Anhanguera)"
+  },
+  {
+   "cnpj": "53237962003736",
+   "razao_social": "Empresa de Transportes Pajuçara (Bauru)"
+  },
+  {
+   "cnpj": "53237962002926",
+   "razao_social": "Empresa de Transportes Pajuçara (BH)"
+  },
+  {
+   "cnpj": "53237962003493",
+   "razao_social": "Empresa de Transportes Pajuçara (Blumenau)"
+  },
+  {
+   "cnpj": "53237962000559",
+   "razao_social": "Empresa de Transportes Pajuçara (Campinas)"
+  },
+  {
+   "cnpj": "53237962003302",
+   "razao_social": "Empresa de Transportes Pajuçara (Curitiba)"
+  },
+  {
+   "cnpj": "53237962003655",
+   "razao_social": "Empresa de Transportes Pajuçara (Divinopolis)"
+  },
+  {
+   "cnpj": "53237962000125",
+   "razao_social": "Empresa de Transportes Pajuçara (GRS)"
+  },
+  {
+   "cnpj": "53237962003221",
+   "razao_social": "Empresa de Transportes Pajuçara (Porto Alegre)"
+  },
+  {
+   "cnpj": "53237962003140",
+   "razao_social": "Empresa de Transportes Pajuçara (RJ)"
+  },
+  {
+   "cnpj": "53237962002330",
+   "razao_social": "Empresa de Transportes Pajuçara (Vitoria)"
+  },
+  {
+   "cnpj": "42622698000127",
+   "razao_social": "Erika Reis Toyoshima"
+  },
+  {
+   "cnpj": "64999527000154",
+   "razao_social": "Estampo Tec Indústria e Comércio Ltda (E-social fixo)"
+  },
+  {
+   "cnpj": "45110319000108",
+   "razao_social": "Estapostes Transportes Rodoviarios Ltda (Matriz)"
+  },
+  {
+   "cnpj": "45110319001260",
+   "razao_social": "Estapostes Transportes Rodoviarios Ltda (Pinda)"
+  },
+  {
+   "cnpj": "20457134000143",
+   "razao_social": "Excellencia Tercerização de Mão de Obra e Serviços Emp Ltda"
+  },
+  {
+   "cnpj": "58415092000150",
+   "razao_social": "FAT Fundação de Apoio a Tecnologia - Comissão Spectre"
+  },
+  {
+   "cnpj": "49472715000136",
+   "razao_social": "Fenac Abrasivos Industria e Comercio Ltda - Comissão Carlos"
+  },
+  {
+   "cnpj": "17372475000292",
+   "razao_social": "Ferraço Industria e Comercio Ltda (Filial)"
+  },
+  {
+   "cnpj": "17372475000101",
+   "razao_social": "Ferraço Industria e Comercio Ltda (Matriz)"
+  },
+  {
+   "cnpj": "07076299000107",
+   "razao_social": "FIP Instrumentos de Precisão Ltda"
+  },
+  {
+   "cnpj": "29599071000134",
+   "razao_social": "Flex Beneficiamentos e Serviços Industriais Eireli"
+  },
+  {
+   "cnpj": "00003395000186",
+   "razao_social": "FM Construção e Comercio Ltda"
+  },
+  {
+   "cnpj": "62352982000138",
+   "razao_social": "Force Air Venda e Manutenção de Maquinas Ltda"
+  },
+  {
+   "cnpj": "09374477000101",
+   "razao_social": "Fredfull Systems Indústria e Comércio de Máquinas Ltda"
+  },
+  {
+   "cnpj": "63533219000176",
+   "razao_social": "FX Comercio Digital Ltda"
+  },
+  {
+   "cnpj": "20305370000144",
+   "razao_social": "FX Serviços de Alimentação Ltda - Comissão Spectre"
+  },
+  {
+   "cnpj": "19635271000141",
+   "razao_social": "G76 Tecnologia e Intermediação de Negocios Ltda"
+  },
+  {
+   "cnpj": "06018885000132",
+   "razao_social": "Gal Comércio, Importação e Exportação Ltda"
+  },
+  {
+   "cnpj": "06018885000213",
+   "razao_social": "Gal Comércio, Importação e Exportação Ltda (GRS)"
+  },
+  {
+   "cnpj": "48952244000109",
+   "razao_social": "GanhaTudo Transportes e Logistica Ltda"
+  },
+  {
+   "cnpj": "10747322000152",
+   "razao_social": "GM Facilities Serviços Combinados Ltda"
+  },
+  {
+   "cnpj": "05009916000126",
+   "razao_social": "GML Serviços Medicos Ltda"
+  },
+  {
+   "cnpj": "15759726000180",
+   "razao_social": "GOCX Cobranças e Corretora de Seguros Eireli"
+  },
+  {
+   "cnpj": "22675768000440",
+   "razao_social": "GSE Comercio de Roupas Ltda (0440) - Comissão Spectre"
+  },
+  {
+   "cnpj": "22675768000360",
+   "razao_social": "GSE Comercio de Roupas Ltda (Filial) - Comissão Spectre"
+  },
+  {
+   "cnpj": "22675768000289",
+   "razao_social": "GSE Comercio de Roupas Ltda (Matriz) - Comissão Spectre"
+  },
+  {
+   "cnpj": "33563125000189",
+   "razao_social": "Guara Facilities Serviços Ltda"
+  },
+  {
+   "cnpj": "18411559000170",
+   "razao_social": "Guarusatelite Comércio e Consertos Eireli"
+  },
+  {
+   "cnpj": "51778074000194",
+   "razao_social": "Guarutelha Materiais para Construções Ltda"
+  },
+  {
+   "cnpj": "08683056000442",
+   "razao_social": "Hanah Express Ltda (Belem)"
+  },
+  {
+   "cnpj": "08683056000108",
+   "razao_social": "Hanah Express Ltda (Guarulhos)"
+  },
+  {
+   "cnpj": "08683056000280",
+   "razao_social": "Hanah Express Ltda (Manaus)"
+  },
+  {
+   "cnpj": "17916067000173",
+   "razao_social": "Helenice Almeida Queiroz"
+  },
+  {
+   "cnpj": "04956796000292",
+   "razao_social": "Hispex Tec em Aluminio Eireli (Filial)"
+  },
+  {
+   "cnpj": "04956796000101",
+   "razao_social": "Hispex Tec em Aluminio Eireli (Matriz)"
+  },
+  {
+   "cnpj": "42876058000143",
+   "razao_social": "Hubbie Assessoria Empresarial Ltda"
+  },
+  {
+   "cnpj": "16433576000182",
+   "razao_social": "Hubbie GRGold Cobranças e Informações Ltda"
+  },
+  {
+   "cnpj": "12252905000138",
+   "razao_social": "Hubbie UseCred Brasil Ltda"
+  },
+  {
+   "cnpj": "20584791000151",
+   "razao_social": "Impacto Protensão São Paulo Ltda"
+  },
+  {
+   "cnpj": "51185817000112",
+   "razao_social": "Indústria e Comércio Fru Fru Ltda"
+  },
+  {
+   "cnpj": "03463621000108",
+   "razao_social": "Infineon Technologies South America Ltda"
+  },
+  {
+   "cnpj": "65677469000105",
+   "razao_social": "IP Cosméticos LA Aquiraz Ltda"
+  },
+  {
+   "cnpj": "65532706000140",
+   "razao_social": "IP Cosméticos LA Aracajú Ltda"
+  },
+  {
+   "cnpj": "65623492000117",
+   "razao_social": "IP Cosméticos LA Belo Horizonte Ltda"
+  },
+  {
+   "cnpj": "66096803000108",
+   "razao_social": "IP Cosméticos LA Campo Grande Ltda"
+  },
+  {
+   "cnpj": "66476967000152",
+   "razao_social": "IP Cosméticos LA Ipanema Ltda"
+  },
+  {
+   "cnpj": "66023335000133",
+   "razao_social": "IP Cosméticos LA Nova Iguaçu Ltda"
+  },
+  {
+   "cnpj": "65510472000130",
+   "razao_social": "IP Cosméticos LA São Bernado do Campo Ltda"
+  },
+  {
+   "cnpj": "65973568000134",
+   "razao_social": "IP Cosméticos LA São Luis Ltda"
+  },
+  {
+   "cnpj": "62293531000177",
+   "razao_social": "IP Cosméticos Ltda (Barra Shopping)"
+  },
+  {
+   "cnpj": "61733834000109",
+   "razao_social": "IP Cosméticos Ltda (Brasilia)"
+  },
+  {
+   "cnpj": "61903260000161",
+   "razao_social": "IP Cosméticos Ltda (Recife)"
+  },
+  {
+   "cnpj": "62026889000133",
+   "razao_social": "IP Cosméticos Ltda (Salvador)"
+  },
+  {
+   "cnpj": "68030655000146",
+   "razao_social": "IP Cosméticos We Gym Ltda"
+  },
+  {
+   "cnpj": "60843795000121",
+   "razao_social": "IP Distribuições de Cosméticos Ltda"
+  },
+  {
+   "cnpj": "28323714000150",
+   "razao_social": "Iungo Comunicação e Conectividade Ltda"
+  },
+  {
+   "cnpj": "24875368000161",
+   "razao_social": "Jah Franchising Ltda"
+  },
+  {
+   "cnpj": "21791418000215",
+   "razao_social": "Jah Produtos Alimentícios Ltda (Filial)"
+  },
+  {
+   "cnpj": "21791418000134",
+   "razao_social": "Jah Produtos Alimentícios Ltda (Matriz)"
+  },
+  {
+   "cnpj": "49286420000175",
+   "razao_social": "Jks Industrial Ltda"
+  },
+  {
+   "cnpj": "34486790000189",
+   "razao_social": "Jose Ricardo de Morais Transportes"
+  },
+  {
+   "cnpj": "10512245000151",
+   "razao_social": "JTA Confecções e Comércio Ltda"
+  },
+  {
+   "cnpj": "19966327000140",
+   "razao_social": "Kahl Transportes Comércio e Serviços Eirelli"
+  },
+  {
+   "cnpj": "37678408000127",
+   "razao_social": "Kameleon Bags Comercio de Malas Ltda - Comissão Carlos"
+  },
+  {
+   "cnpj": "46038284000106",
+   "razao_social": "Kartodromo V11 Ltda - Comissão Carlos"
+  },
+  {
+   "cnpj": "03910176000179",
+   "razao_social": "Katec Importação Ltda"
+  },
+  {
+   "cnpj": "04223162000140",
+   "razao_social": "Katres Comercial Ltda"
+  },
+  {
+   "cnpj": "04002343000146",
+   "razao_social": "Lady Anna Transportes Eireli"
+  },
+  {
+   "cnpj": "04002343000308",
+   "razao_social": "Lady Anna Transportes Eireli (Mairiporã)"
+  },
+  {
+   "cnpj": "39513733000165",
+   "razao_social": "Lazer e Vida Bonsucesso Empreendimentos Imobiliarios SPE Ltda"
+  },
+  {
+   "cnpj": "11736470000134",
+   "razao_social": "Le Master Ferramentaria e Metalica Eireli"
+  },
+  {
+   "cnpj": "14505867000103",
+   "razao_social": "Liberty Administradora de Estacionamentos"
+  },
+  {
+   "cnpj": "43772445000100",
+   "razao_social": "Lide Engenharia Eletrica, Projetos e Infraestrutura Ltda"
+  },
+  {
+   "cnpj": "42385626000294",
+   "razao_social": "M Foods Ltda - MFO1 Mata Cittá"
+  },
+  {
+   "cnpj": "42385626001185",
+   "razao_social": "M Foods Ltda - MFO10 Treatro Imersivo (Bares)"
+  },
+  {
+   "cnpj": "42385626001266",
+   "razao_social": "M Foods Ltda - MFO11"
+  },
+  {
+   "cnpj": "42385626001347",
+   "razao_social": "M Foods Ltda - MFO12"
+  },
+  {
+   "cnpj": "42385626001428",
+   "razao_social": "M Foods Ltda - MFO13"
+  },
+  {
+   "cnpj": "42385626001509",
+   "razao_social": "M Foods Ltda - MFO14"
+  },
+  {
+   "cnpj": "42385626000375",
+   "razao_social": "M Foods Ltda - MFO2 Lavva"
+  },
+  {
+   "cnpj": "42385626000456",
+   "razao_social": "M Foods Ltda - MFO3 Em Sherif"
+  },
+  {
+   "cnpj": "42385626000537",
+   "razao_social": "M Foods Ltda - MFO4 ABC Jean George"
+  },
+  {
+   "cnpj": "42385626000618",
+   "razao_social": "M Foods Ltda - MFO5 Mata Café"
+  },
+  {
+   "cnpj": "42385626000707",
+   "razao_social": "M Foods Ltda - MFO6 Preta Maria"
+  },
+  {
+   "cnpj": "42385626000880",
+   "razao_social": "M Foods Ltda - MFO7 Chezpa"
+  },
+  {
+   "cnpj": "42385626000960",
+   "razao_social": "M Foods Ltda - MFO8 Treetop"
+  },
+  {
+   "cnpj": "42385626001002",
+   "razao_social": "M Foods Ltda - MFO9 Patisserie"
+  },
+  {
+   "cnpj": "42385626000103",
+   "razao_social": "M Foods Ltda (Matriz)"
+  },
+  {
+   "cnpj": "05030548000106",
+   "razao_social": "Macro Extrusão de Alumínio Ltda"
+  },
+  {
+   "cnpj": "14677911000162",
+   "razao_social": "Marcelo Velloso dos Santos (2º Registro de Imóveis)"
+  },
+  {
+   "cnpj": "53071621000122",
+   "razao_social": "Master Distribuidora Automotiva Ltda"
+  },
+  {
+   "cnpj": "51125205000134",
+   "razao_social": "MCG 1 Marketing e Apoio Ltda (Orthopride)"
+  },
+  {
+   "cnpj": "47625256000158",
+   "razao_social": "Menaf Industria Manuf. Plasticos e Eletrometalurgicos"
+  },
+  {
+   "cnpj": "48549267000169",
+   "razao_social": "Mercado Amigo Barateiro Adm Ltda"
+  },
+  {
+   "cnpj": "23532519000116",
+   "razao_social": "Mercado Amigo Barateiro Ltda"
+  },
+  {
+   "cnpj": "09169427000516",
+   "razao_social": "Mestre Café Comercial Ltda - Comissão Spectre"
+  },
+  {
+   "cnpj": "04435773000151",
+   "razao_social": "Metalúrgica San Ltda - EPP"
+  },
+  {
+   "cnpj": "13279814000159",
+   "razao_social": "Miguel Giuliani Tocillo (PAL)"
+  },
+  {
+   "cnpj": "17251220000190",
+   "razao_social": "MJS Comercio e Serviços de Materiais Elétricos Ltda"
+  },
+  {
+   "cnpj": "17194159000197",
+   "razao_social": "Monteiro Contabilidade Ltda"
+  },
+  {
+   "cnpj": "05792633000101",
+   "razao_social": "MV Guarulhos Transportes Ltda"
+  },
+  {
+   "cnpj": "59098822000108",
+   "razao_social": "N.S Aparecida Comercio de Pias e Gabinetes Ltda"
+  },
+  {
+   "cnpj": "38373935000196",
+   "razao_social": "Natalia Mauricio Café e Alimentos Ltda"
+  },
+  {
+   "cnpj": "47882884000119",
+   "razao_social": "Navcargo Assessoria em Comercio Exterior Ltda"
+  },
+  {
+   "cnpj": "73070229000176",
+   "razao_social": "Naxos Comercio de Equipamentos Abrasivos Ltda - Comissão Carlos"
+  },
+  {
+   "cnpj": "20451270000126",
+   "razao_social": "Neon Industria e Comercio de Cosmeticos Ltda"
+  },
+  {
+   "cnpj": "60237163000114",
+   "razao_social": "Nova Distribuidora Automotiva Ltda"
+  },
+  {
+   "cnpj": "31535595000103",
+   "razao_social": "Okami Kise Engenharia e Construções Ltda"
+  },
+  {
+   "cnpj": "67693440000142",
+   "razao_social": "Omel Bombas e Compressores Ltda"
+  },
+  {
+   "cnpj": "52718571000160",
+   "razao_social": "Open Vinil Serviços de Comunicação Ltda"
+  },
+  {
+   "cnpj": "15435766000176",
+   "razao_social": "Oraculus Contabil Ltda"
+  },
+  {
+   "cnpj": "11370999000187",
+   "razao_social": "Organic Soluções Analiticas Ltda"
+  },
+  {
+   "cnpj": "08993714000150",
+   "razao_social": "Ouro Cred Cobranças e Informações Cadastrais Ltda"
+  },
+  {
+   "cnpj": "40907044000114",
+   "razao_social": "Ouro Rolamentos e Comercio Ltda"
+  },
+  {
+   "cnpj": "47398966000192",
+   "razao_social": "Ouro Suprimentos e Comercio Ltda"
+  },
+  {
+   "cnpj": "05915831000107",
+   "razao_social": "Paletes Satelite Comercio Ltda"
+  },
+  {
+   "cnpj": "62280144000104",
+   "razao_social": "Passatec Passamanaria e Tecelagem Ltda"
+  },
+  {
+   "cnpj": "49034010000137",
+   "razao_social": "Paupedra Pedreiras, Pavimentação"
+  },
+  {
+   "cnpj": "61497749000342",
+   "razao_social": "Plasmodia Indústria e Comércio de Plásticos Ltda"
+  },
+  {
+   "cnpj": "43510163000127",
+   "razao_social": "Plásticos Descartáveis Indústria e Comércio"
+  },
+  {
+   "cnpj": "43510163000399",
+   "razao_social": "Plásticos Descartáveis Indústria e Comércio (Filial)"
+  },
+  {
+   "cnpj": "13386582000138",
+   "razao_social": "Pluvial Saneamento e Infraestrutura Eireli"
+  },
+  {
+   "cnpj": "51497435000124",
+   "razao_social": "Prime Service Multiserviços Ltda"
+  },
+  {
+   "cnpj": "15461686000195",
+   "razao_social": "Primomaquinas Industriais Ltda"
+  },
+  {
+   "cnpj": "27027538000146",
+   "razao_social": "Primomaquinas Residuos Industriais Ltda"
+  },
+  {
+   "cnpj": "59043954000124",
+   "razao_social": "Privilher Inovare Prestação de Serviços Terceirizados Ltda"
+  },
+  {
+   "cnpj": "49782753000195",
+   "razao_social": "Produtora76 Conteudo e Intermediação de Negocios Ltda"
+  },
+  {
+   "cnpj": "22894002000104",
+   "razao_social": "Qualidade Engenharia e Arquitetura Ltda"
+  },
+  {
+   "cnpj": "10977807000132",
+   "razao_social": "Qualidade Equipamentos Contra Incendio Ltda"
+  },
+  {
+   "cnpj": "14735095000104",
+   "razao_social": "Qualikit Soluções em Alumínio Ltda EPP"
+  },
+  {
+   "cnpj": "05971774000183",
+   "razao_social": "Racanelli Comercio de Residuos e Sucatas Plasticas Ltda"
+  },
+  {
+   "cnpj": "10327737000177",
+   "razao_social": "Raio de Luz Industria e Comercio de Sorvetes Eireli"
+  },
+  {
+   "cnpj": "61431282000176",
+   "razao_social": "RC Pet Lovers PetShop Ltda"
+  },
+  {
+   "cnpj": "04844190000184",
+   "razao_social": "Residencial Buena Vista"
+  },
+  {
+   "cnpj": "11985407000131",
+   "razao_social": "RG Soluções Ltda"
+  },
+  {
+   "cnpj": "29388603000194",
+   "razao_social": "RGT Ind de Máquinas e Equip Serv. Usinagem Eireli"
+  },
+  {
+   "cnpj": "18856634000106",
+   "razao_social": "Rift Tecnologia da Informação Ltda - Comissão Spectre"
+  },
+  {
+   "cnpj": "28906804000254",
+   "razao_social": "Rio Airport Restaurantes Ltda (Fridays)"
+  },
+  {
+   "cnpj": "28906804000416",
+   "razao_social": "Rio Airport Restaurantes Ltda (Mania de Churrasco)"
+  },
+  {
+   "cnpj": "28906804000173",
+   "razao_social": "Rio Airport Restaurantes Ltda (Matriz)"
+  },
+  {
+   "cnpj": "19238174000115",
+   "razao_social": "RM Cargo Transportes e Logistica Ltda"
+  },
+  {
+   "cnpj": "55068277000148",
+   "razao_social": "RM Chocolateria Ltda (GKOP)"
+  },
+  {
+   "cnpj": "07877420000108",
+   "razao_social": "Rottus Distribuidora Comercial e Exportadora"
+  },
+  {
+   "cnpj": "29349885000110",
+   "razao_social": "S&C Transportes e Logística Ltda"
+  },
+  {
+   "cnpj": "64111206000333",
+   "razao_social": "S. Teixeira Produtos Alimentícios Ltda (Filial)"
+  },
+  {
+   "cnpj": "22282268000104",
+   "razao_social": "Santa Agua Transportes de Agua Ltda"
+  },
+  {
+   "cnpj": "00019036000117",
+   "razao_social": "Santa Helena do Paraíso Materiais para Construção"
+  },
+  {
+   "cnpj": "49088875000186",
+   "razao_social": "Santa Rosa Comércio e Indústria de Metais Ltda"
+  },
+  {
+   "cnpj": "07609424000105",
+   "razao_social": "Santa Rosa Ligas Metálicas Ltda"
+  },
+  {
+   "cnpj": "20205435000260",
+   "razao_social": "São Paulo Airport Restaurantes Ltda (0260)"
+  },
+  {
+   "cnpj": "20205435000341",
+   "razao_social": "São Paulo Airport Restaurantes Ltda (0341)"
+  },
+  {
+   "cnpj": "20205435000180",
+   "razao_social": "São Paulo Airport Restaurantes Ltda (I.M.: 243121)"
+  },
+  {
+   "cnpj": "43891346000130",
+   "razao_social": "Satelite Comercio de Paletes"
+  },
+  {
+   "cnpj": "40990107000149",
+   "razao_social": "SathGold Cobranças e Informações Cadastrais"
+  },
+  {
+   "cnpj": "42422967000101",
+   "razao_social": "Savi Cosmeticos Ltda"
+  },
+  {
+   "cnpj": "42422967002317",
+   "razao_social": "Savi Cosmeticos Ltda (Cariacica)"
+  },
+  {
+   "cnpj": "42422967001426",
+   "razao_social": "Savi Cosmeticos Ltda (CD Belorizonte MG)"
+  },
+  {
+   "cnpj": "42422967001264",
+   "razao_social": "Savi Cosmeticos Ltda (CD Itapevi São Paulo)"
+  },
+  {
+   "cnpj": "42422967002155",
+   "razao_social": "Savi Cosmeticos Ltda (Filial Vergueiro)"
+  },
+  {
+   "cnpj": "42422967002236",
+   "razao_social": "Savi Cosmeticos Ltda (Pires e Mota)"
+  },
+  {
+   "cnpj": "07984267000100",
+   "razao_social": "SB Brasil Ltda"
+  },
+  {
+   "cnpj": "42866627000170",
+   "razao_social": "Servcon Best Portaria, Limpeza e Conservação Ltda"
+  },
+  {
+   "cnpj": "44658733000193",
+   "razao_social": "Servcon Easy Portaria, Limpeza e Conservação Ltda"
+  },
+  {
+   "cnpj": "23463903000104",
+   "razao_social": "Servcon Excellence Portaria, Limpeza e Conservação Ltda"
+  },
+  {
+   "cnpj": "23182028000192",
+   "razao_social": "Servcon Gold Portaria, Limpeza e Conservação Ltda"
+  },
+  {
+   "cnpj": "28580134000148",
+   "razao_social": "Servcon Group Portaria, Limpeza e Conservação Ltda"
+  },
+  {
+   "cnpj": "41506831000117",
+   "razao_social": "Servcon Master Portaria, Limpeza e Conservação Ltda"
+  },
+  {
+   "cnpj": "27503901000152",
+   "razao_social": "Servcon Maxi Portaria, Limpeza e Conservação Ltda"
+  },
+  {
+   "cnpj": "20160546000117",
+   "razao_social": "Servcon Prime Portaria, Limpeza e Conservação Ltda"
+  },
+  {
+   "cnpj": "27096433000149",
+   "razao_social": "Servcon Security Portaria, Limpeza e Conservação Ltda"
+  },
+  {
+   "cnpj": "32390090000160",
+   "razao_social": "Servcon Unique Portaria, Limpeza e Conservação Ltda"
+  },
+  {
+   "cnpj": "22478897000104",
+   "razao_social": "Servcon VIP Portaria, Limpeza e Conservação Ltda"
+  },
+  {
+   "cnpj": "55975151000157",
+   "razao_social": "SLV Suplementos Ltda"
+  },
+  {
+   "cnpj": "55975151000238",
+   "razao_social": "SLV Suplementos Ltda"
+  },
+  {
+   "cnpj": "32727228000174",
+   "razao_social": "Solerglass Tecnologia em Vidros Ltda"
+  },
+  {
+   "cnpj": "24403738000168",
+   "razao_social": "Solimar C.M.B dos Santos"
+  },
+  {
+   "cnpj": "26427475000152",
+   "razao_social": "Solint Comercial Eireli"
+  },
+  {
+   "cnpj": "64826498000129",
+   "razao_social": "Solint Industria e Comercio Ltda"
+  },
+  {
+   "cnpj": "11884896000135",
+   "razao_social": "SouthRock Capital Ltda"
+  },
+  {
+   "cnpj": "34956305000193",
+   "razao_social": "SouthRock Centro de Serviços Administrativos Ltda"
+  },
+  {
+   "cnpj": "49080393000180",
+   "razao_social": "Soyama Turismo Ltda"
+  },
+  {
+   "cnpj": "46610574000182",
+   "razao_social": "SPA Comercio de Paletes Ltda"
+  },
+  {
+   "cnpj": "61517809000180",
+   "razao_social": "Spectre Med Soluções e Negócios Ltda"
+  },
+  {
+   "cnpj": "34062135000101",
+   "razao_social": "Sul Airport Restaurantes Ltda (0101)"
+  },
+  {
+   "cnpj": "34062135000284",
+   "razao_social": "Sul Airport Restaurantes Ltda (0284)"
+  },
+  {
+   "cnpj": "34062135000365",
+   "razao_social": "Sul Airport Restaurantes Ltda (0365)"
+  },
+  {
+   "cnpj": "34062135000446",
+   "razao_social": "Sul Airport Restaurantes Ltda (0446)"
+  },
+  {
+   "cnpj": "44654271000306",
+   "razao_social": "SW Stores do Brasil Ltda (Subway 0003-06 - KM 64)"
+  },
+  {
+   "cnpj": "44654271000489",
+   "razao_social": "SW Stores do Brasil Ltda (Subway 0004-89 - KM 58)"
+  },
+  {
+   "cnpj": "44654271000640",
+   "razao_social": "SW Stores do Brasil Ltda (Subway 0006-40 Top Center)"
+  },
+  {
+   "cnpj": "44654271000802",
+   "razao_social": "SW Stores do Brasil Ltda (Subway 0008-02 Iguatemi Praça Vermelha)"
+  },
+  {
+   "cnpj": "44654271000993",
+   "razao_social": "SW Stores do Brasil Ltda (Subway 0009-93 Iguatemi Praça Superior)"
+  },
+  {
+   "cnpj": "44654271001108",
+   "razao_social": "SW Stores do Brasil Ltda (Subway 0011-08 Patio Paulista)"
+  },
+  {
+   "cnpj": "55066718000172",
+   "razao_social": "Taormina Café e Chocolate Ltda (GKOP)"
+  },
+  {
+   "cnpj": "08386969000154",
+   "razao_social": "Tematec Comercio e Serviços Eletro-Eletronicos Ltda"
+  },
+  {
+   "cnpj": "42169784000126",
+   "razao_social": "Thor Auto Importação e Exportação Ltda"
+  },
+  {
+   "cnpj": "17800994000123",
+   "razao_social": "TLS Assessoria e Cobrança Eireli ME (Orthopride)"
+  },
+  {
+   "cnpj": "34092302000159",
+   "razao_social": "Tonelli Construções E Metalicas Ltda"
+  },
+  {
+   "cnpj": "55893950000184",
+   "razao_social": "Toscana Café e Chocolate Ltda (GKOP)"
+  },
+  {
+   "cnpj": "61757042000166",
+   "razao_social": "TP Distribuições de Cosméticos Ltda"
+  },
+  {
+   "cnpj": "22572716000104",
+   "razao_social": "TPS Eventos e Marketing Eireli ME (Orthopride)"
+  },
+  {
+   "cnpj": "02504756000101",
+   "razao_social": "Transportes R F Ltda EPP"
+  },
+  {
+   "cnpj": "07844545000123",
+   "razao_social": "Trivo Importação e Comercio Ltda"
+  },
+  {
+   "cnpj": "55068221000193",
+   "razao_social": "Tuoro Café e Chocolate Ltda (GKOP)"
+  },
+  {
+   "cnpj": "55030069000150",
+   "razao_social": "Turim Café e Chocolate Ltda (GKOP)"
+  },
+  {
+   "cnpj": "11000186000103",
+   "razao_social": "Umuarama Recuperalção de Mateiais Plasticos"
+  },
+  {
+   "cnpj": "50371142000133",
+   "razao_social": "Unique Consultoria e Prestação de Serviços Ltda"
+  },
+  {
+   "cnpj": "03328869000158",
+   "razao_social": "V.S. Embraste Serviços Emp & Tercerização de Mão de Obra Eireli"
+  },
+  {
+   "cnpj": "43196135000187",
+   "razao_social": "Valley Sistemas Ltda - Comissão Spectre"
+  },
+  {
+   "cnpj": "12622248000173",
+   "razao_social": "Versatil Clean Cosmeticos Ltda"
+  },
+  {
+   "cnpj": "00557628000192",
+   "razao_social": "Villa Due Comercio de Roupas Ltda - Comissão Spectre"
+  },
+  {
+   "cnpj": "25054754000155",
+   "razao_social": "Vistoriza Com de Equiptos"
+  },
+  {
+   "cnpj": "22124624000153",
+   "razao_social": "Vistoriza Serviços Tercerizados Eireli ME"
+  },
+  {
+   "cnpj": "61218238000182",
+   "razao_social": "VTSL Fitness Ltda"
+  },
+  {
+   "cnpj": "58831348000100",
+   "razao_social": "W.J.A do Brasil Indústria e Comércio Ltda"
+  },
+  {
+   "cnpj": "13104501000160",
+   "razao_social": "WBS Conserto de Malas Sociedade Unipessoal Ltda - Comissão Carlos"
+  },
+  {
+   "cnpj": "09122985000100",
+   "razao_social": "WFF Indústria e Comércio Ltda"
+  },
+  {
+   "cnpj": "49411776000274",
+   "razao_social": "Wpink Suplementos Nutricionais Ltda"
+  }
+ ]
+}

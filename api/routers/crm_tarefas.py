@@ -189,6 +189,12 @@ class TarefaOut(BaseModel):
     cancelada_em: datetime | None
     motivo_cancelamento: str | None
     tarefa_anterior_id: UUID | None
+    # Preenchido quando esta tarefa já está na agenda. É o que permite à aba
+    # da oportunidade mostrar "Agendar" em umas e "Ver na agenda" em outras
+    # sem uma segunda chamada por tarefa — o JOIN já está aqui, e um N+1 na
+    # linha do tempo de uma negociação antiga custaria dezenas de idas ao
+    # banco.
+    reuniao_id: UUID | None = None
     criado_em: datetime
 
 
@@ -245,12 +251,14 @@ _SELECT_BASE = """
            t.responsavel_id, u.nome AS responsavel_nome,
            t.prazo, t.concluida_em, t.resultado,
            t.cancelada_em, t.motivo_cancelamento,
-           t.tarefa_anterior_id, t.criado_em
+           t.tarefa_anterior_id, t.criado_em,
+           rn.id AS reuniao_id
       FROM tarefas t
       LEFT JOIN oportunidades o ON o.id = t.oportunidade_id
       LEFT JOIN contas co       ON co.id = o.conta_id
       LEFT JOIN contas cp       ON cp.id = t.conta_id
       LEFT JOIN usuarios u      ON u.id = t.responsavel_id
+      LEFT JOIN reunioes rn     ON rn.tarefa_id = t.id
 """
 
 # Os JOINs viraram LEFT na 006. Com INNER, toda tarefa de parceiro sumiria
@@ -968,4 +976,19 @@ async def cancelar(
         """,
         tarefa_id, (payload.motivo or "").strip() or None,
     )
+
+    # Se esta tarefa estava na agenda, o compromisso com o CLIENTE morre
+    # junto. Sem isto, a reunião sumiria do HIPO e continuaria de pé na
+    # agenda de todo mundo — e alguém entraria numa sala vazia.
+    #
+    # Import LOCAL, não no topo: crm_agenda importa deste módulo
+    # (`validar_referencias`, `_inserir`), e um import no topo aqui fecharia
+    # o ciclo. Mesmo recurso, pelo mesmo motivo, que routers/auth.py usa
+    # para `modulos_do_cargo`.
+    #
+    # Melhor-esforço: falha do Google não desfaz o cancelamento — ela vira
+    # `reunioes.google_erro` e a tela da agenda oferece tentar de novo.
+    from routers.crm_agenda import remover_evento_da_tarefa
+    await remover_evento_da_tarefa(conn, tarefa_id)
+
     return await _obter(conn, tarefa_id)

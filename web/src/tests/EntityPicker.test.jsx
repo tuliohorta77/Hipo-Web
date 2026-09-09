@@ -272,3 +272,31 @@ describe('EntityPicker — aviso de duplicata', () => {
     await waitFor(() => expect(onChange).toHaveBeenCalledWith(novo));
   });
 });
+
+describe('EntityPicker — tom do item desabilitado', () => {
+  it('usa neutral por padrao e o tom pedido quando vem', async () => {
+    const itens = [{ id: 'x', nome: 'Beta LTDA' }];
+    const { container } = render(
+      <EntityPicker
+        label="Conta"
+        value={null}
+        onChange={vi.fn()}
+        buscar={vi.fn().mockResolvedValue(itens)}
+        paraItem={(c) => ({
+          id: c.id, titulo: c.nome,
+          desabilitado: true,
+          motivoDesabilitado: 'nao prospectar',
+          // Recusa nao e indisponibilidade. Cinza esconde a diferenca.
+          tomDesabilitado: 'danger',
+        })}
+      />
+    );
+    fireEvent.click(screen.getByLabelText('Buscar Conta'));
+    fireEvent.change(screen.getByPlaceholderText('Digite para buscar…'), {
+      target: { value: 'b' },
+    });
+    const badge = await screen.findByText('nao prospectar');
+    expect(badge.className).toMatch(/danger/);
+    expect(container).toBeTruthy();
+  });
+});

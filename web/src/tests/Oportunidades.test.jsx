@@ -673,3 +673,47 @@ describe('Oportunidades — erro de carga', () => {
     expect(await screen.findByText('Boom')).toBeInTheDocument();
   });
 });
+
+
+// ── Conta bloqueada para prospeccao ──────────────────────────────────
+
+describe('Oportunidades — conta nao prospectar', () => {
+  const CONTAS_BUSCA = [
+    { id: 'ct-livre', razao_social: 'Metalurgica Alfa LTDA',
+      cnpj_formatado: '11.222.333/0001-81', eh_finder: false, ativo: true,
+      nao_prospectar: false, nao_prospectar_motivo: null },
+    { id: 'ct-bloqueada', razao_social: 'Beta Industrial LTDA',
+      cnpj_formatado: '34.028.316/0001-03', eh_finder: false, ativo: true,
+      nao_prospectar: true, nao_prospectar_motivo: 'Cliente MedSeg' },
+  ];
+
+  beforeEach(() => {
+    mockGet.mockImplementation((url) => {
+      if (url === '/crm/contas/busca') return Promise.resolve({ data: CONTAS_BUSCA });
+      return respostas()(url);
+    });
+  });
+
+  it('a lupa nao deixa escolher conta bloqueada', async () => {
+    montar();
+    fireEvent.click(await screen.findByRole('button', { name: 'Nova oportunidade' }));
+    fireEvent.click(await screen.findByLabelText('Buscar Conta *'));
+    fireEvent.change(screen.getByPlaceholderText('Digite para buscar…'), {
+      target: { value: 'ltda' },
+    });
+
+    const bloqueada = await screen.findByText('Beta Industrial LTDA');
+    expect(screen.getByText('nao prospectar')).toBeInTheDocument();
+
+    // Clicar nao seleciona: o campo continua vazio e o popover aberto.
+    fireEvent.click(bloqueada);
+    expect(screen.getByPlaceholderText('Digite para buscar…')).toBeInTheDocument();
+
+    // A conta livre da mesma busca continua selecionavel — o bloqueio e por
+    // registro, nao um modo que desliga o picker inteiro.
+    fireEvent.click(screen.getByText('Metalurgica Alfa LTDA'));
+    await waitFor(() =>
+      expect(screen.queryByPlaceholderText('Digite para buscar…')).not.toBeInTheDocument()
+    );
+  });
+});

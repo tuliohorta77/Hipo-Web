@@ -67,6 +67,14 @@ class Settings(BaseSettings):
     # recurso acessorio nao pode impedir a API de subir -- mesma regra do
     # SES e da chave da IA logo acima.
     S3_BUCKET_ANEXOS: str = ""
+    # Agenda: conta de servico do Google com delegacao em todo o dominio.
+    # Vazio = integracao desligada, e a reuniao e criada do mesmo jeito --
+    # so nao vira evento. Mesma regra do S3, do SES e da chave da IA acima:
+    # config de recurso acessorio nao pode impedir a API de subir, e no CI
+    # nenhum desses existe. O passo a passo de como ligar esta no cabecalho
+    # de services/google_agenda.py.
+    GOOGLE_SA_ARQUIVO: str = ""
+    GOOGLE_CALENDAR_FUSO: str = "America/Sao_Paulo"
     TELEMETRIA_RETENCAO_DIAS: int = 90
     TELEMETRIA_ATIVA: bool = True
 

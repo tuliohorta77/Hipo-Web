@@ -373,6 +373,50 @@ async def _marcar_finder(conn, finder_conta_id: UUID | None) -> None:
         )
 
 
+async def _validar_prospeccao(conn, conta_id: UUID | None) -> None:
+    """
+    Recusa abrir negócio novo em conta marcada como "não prospectar".
+
+    Vale só para a CRIAÇÃO e para a troca de conta de uma oportunidade —
+    nunca para editar uma que já existe. Bloquear a edição prenderia as
+    oportunidades que já estavam abertas quando a conta foi marcada: quem
+    quisesse encerrá-las direito não conseguiria nem mexer nelas.
+
+    O finder também não passa por aqui de propósito. Indicar é outro eixo:
+    um cliente da MedSeg pode perfeitamente nos indicar alguém.
+
+    O 422 sai no formato estruturado (dict em `detail`), e não como string,
+    porque o front usa `detail.mensagem` e o `conta_id` para oferecer o
+    caminho de saída — pedir a liberação a um gestor.
+    """
+    if conta_id is None:
+        return
+    row = await conn.fetchrow(
+        """
+        SELECT razao_social, nao_prospectar, nao_prospectar_motivo
+          FROM contas WHERE id = $1
+        """,
+        conta_id,
+    )
+    if row is None or not row["nao_prospectar"]:
+        return
+
+    motivo = row["nao_prospectar_motivo"] or "sem motivo registrado"
+    raise HTTPException(
+        422,
+        detail={
+            "erro": "conta_nao_prospectar",
+            "mensagem": (
+                f"{row['razao_social']} está bloqueada para prospecção "
+                f"({motivo}). Um gestor pode liberar pela tela de Contas."
+            ),
+            "conta_id": str(conta_id),
+            "razao_social": row["razao_social"],
+            "motivo": motivo,
+        },
+    )
+
+
 async def _validar_referencias(conn, conta_id, contato_id, origem_id,
                                finder_conta_id, motivo_id=None) -> None:
     if conta_id is not None:
@@ -904,6 +948,7 @@ async def criar(
         conn, payload.conta_id, payload.contato_id,
         payload.origem_id, payload.finder_conta_id,
     )
+    await _validar_prospeccao(conn, payload.conta_id)
 
     async with conn.transaction():
         # Numeração gerada dentro do INSERT: ler a sequence antes abriria
@@ -970,6 +1015,11 @@ async def editar(
     await _validar_referencias(
         conn, conta_id, contato_id, dados.get("origem_id"), dados.get("finder_conta_id"),
     )
+    # Só quando a conta está SENDO trocada. `conta_id` acima também é
+    # preenchido para validar o vínculo do contato, e usá-lo aqui travaria
+    # a edição de qualquer oportunidade já aberta numa conta bloqueada.
+    if "conta_id" in dados:
+        await _validar_prospeccao(conn, dados["conta_id"])
 
     async with conn.transaction():
         sets = [f"{col} = ${i}" for i, col in enumerate(dados, start=1)]

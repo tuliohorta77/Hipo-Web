@@ -12,6 +12,7 @@ import Contas from './pages/crm/Contas';
 import Oportunidades from './pages/crm/Oportunidades';
 import Parceiros from './pages/crm/Parceiros';
 import Tarefas from './pages/crm/Tarefas';
+import Agenda from './pages/crm/Agenda';
 import { primeiraRotaAcessivel } from './api';
 
 function RedirectPrimeiraRota() {
@@ -35,6 +36,7 @@ export default function App() {
           <Route index element={<RedirectPrimeiraRota />} />
           <Route path="crm/oportunidades" element={<Oportunidades />} />
           <Route path="crm/tarefas" element={<Tarefas />} />
+          <Route path="crm/agenda" element={<Agenda />} />
           <Route path="crm/contas" element={<Contas />} />
           {/*
             A rota existe para todo mundo; quem barra é o guard do módulo na

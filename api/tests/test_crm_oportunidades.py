@@ -1560,3 +1560,114 @@ class TestMontagemDaBuscaTextual:
         for campo in ("o.numero", "c.razao_social", "c.nome_fantasia",
                       "o.descricao", "c.cnpj", "ct_o.nome", "ct_q.nome"):
             assert campo in where[0]
+
+
+# ── Conta bloqueada para prospeccao (migration 010) ──────────────────
+
+class TestContaNaoProspectar:
+    """
+    O bloqueio mora aqui, e nao no router de contas, porque e aqui que a
+    tentativa acontece: abrir negocio numa empresa que ja e cliente.
+
+    Duas fronteiras que estes testes travam:
+      * vale na CRIACAO e na troca de conta, nunca na edicao comum
+      * nao vale para o FINDER: indicar e outro eixo
+    """
+
+    async def _bloquear(self, client, headers, conta_id, motivo="Cliente MedSeg"):
+        r = await client.patch(
+            f"/crm/contas/{conta_id}/prospeccao",
+            json={"bloquear": True, "motivo": motivo},
+            headers=headers,
+        )
+        assert r.status_code == 200, r.text
+
+    async def test_criar_em_conta_bloqueada_e_recusado(self, db_conn, client):
+        u = await criar_usuario(db_conn, client, "ADM")
+        conta = await nova_conta(client, u["headers"])
+        await self._bloquear(client, u["headers"], conta["id"])
+
+        r = await client.post(
+            "/crm/oportunidades", json={"conta_id": conta["id"]}, headers=u["headers"]
+        )
+        assert r.status_code == 422, r.text
+        detalhe = r.json()["detail"]
+        # Dict, nao string: o front usa `detail.mensagem` e o `conta_id` para
+        # oferecer o caminho de saida.
+        assert detalhe["erro"] == "conta_nao_prospectar"
+        assert detalhe["conta_id"] == conta["id"]
+        assert "Cliente MedSeg" in detalhe["mensagem"]
+        assert await db_conn.fetchval("SELECT count(*) FROM oportunidades") == 0
+
+    async def test_liberar_desfaz_o_bloqueio(self, db_conn, client):
+        u = await criar_usuario(db_conn, client, "ADM")
+        conta = await nova_conta(client, u["headers"])
+        await self._bloquear(client, u["headers"], conta["id"])
+        await client.patch(
+            f"/crm/contas/{conta['id']}/prospeccao",
+            json={"bloquear": False}, headers=u["headers"],
+        )
+        r = await client.post(
+            "/crm/oportunidades", json={"conta_id": conta["id"]}, headers=u["headers"]
+        )
+        assert r.status_code == 201, r.text
+
+    async def test_oportunidade_ja_aberta_continua_editavel(self, db_conn, client):
+        """
+        A fronteira que importa. Bloquear a edicao prenderia as oportunidades
+        que ja estavam abertas quando a conta foi marcada: quem quisesse
+        encerra-las direito nao conseguiria nem mexer nelas.
+        """
+        u = await criar_usuario(db_conn, client, "ADM")
+        conta = await nova_conta(client, u["headers"])
+        opp = await nova_oportunidade(client, u["headers"], conta["id"])
+        await self._bloquear(client, u["headers"], conta["id"])
+
+        r = await client.patch(
+            f"/crm/oportunidades/{opp['id']}",
+            json={"descricao": "encerrando", "temperatura": 20},
+            headers=u["headers"],
+        )
+        assert r.status_code == 200, r.text
+        assert r.json()["temperatura"] == 20
+
+        # E mover de fase tambem continua funcionando.
+        r = await client.patch(
+            f"/crm/oportunidades/{opp['id']}/fase",
+            json={"fase": "lead"}, headers=u["headers"],
+        )
+        assert r.status_code == 200, r.text
+
+    async def test_mover_oportunidade_para_conta_bloqueada_e_recusado(self, db_conn, client):
+        """Trocar a conta e o mesmo ato de abrir negocio ali."""
+        u = await criar_usuario(db_conn, client, "ADM")
+        origem = await nova_conta(client, u["headers"], cnpj=CNPJ_A)
+        destino = await nova_conta(client, u["headers"], cnpj=CNPJ_B, razao="Beta LTDA")
+        opp = await nova_oportunidade(client, u["headers"], origem["id"])
+        await self._bloquear(client, u["headers"], destino["id"])
+
+        r = await client.patch(
+            f"/crm/oportunidades/{opp['id']}",
+            json={"conta_id": destino["id"]}, headers=u["headers"],
+        )
+        assert r.status_code == 422
+        assert r.json()["detail"]["erro"] == "conta_nao_prospectar"
+
+    async def test_conta_bloqueada_ainda_pode_ser_finder(self, db_conn, client):
+        """
+        Indicar e outro eixo: um cliente da MedSeg pode perfeitamente nos
+        indicar alguem. Amarrar os dois transformaria a marca comercial em
+        exclusao do cadastro.
+        """
+        u = await criar_usuario(db_conn, client, "ADM")
+        alvo = await nova_conta(client, u["headers"], cnpj=CNPJ_A)
+        indicador = await nova_conta(client, u["headers"], cnpj=CNPJ_B, razao="Contabil Beta")
+        await self._bloquear(client, u["headers"], indicador["id"])
+
+        r = await client.post(
+            "/crm/oportunidades",
+            json={"conta_id": alvo["id"], "finder_conta_id": indicador["id"]},
+            headers=u["headers"],
+        )
+        assert r.status_code == 201, r.text
+        assert r.json()["finder_conta_id"] == indicador["id"]

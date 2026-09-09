@@ -27,6 +27,7 @@ function renderLayout(rotaInicial = '/perfil') {
           <Route path="perfil" element={<div>conteudo-perfil</div>} />
           <Route path="crm/contas" element={<div>conteudo-contas</div>} />
           <Route path="crm/oportunidades" element={<div>conteudo-oportunidades</div>} />
+          <Route path="crm/agenda" element={<div>conteudo-agenda</div>} />
           <Route path="crm/parceiros" element={<div>conteudo-parceiros</div>} />
         </Route>
       </Routes>
@@ -52,21 +53,34 @@ describe('Layout — nav com o módulo crm', () => {
     expect(screen.getByText('conteudo-perfil')).toBeInTheDocument();
   });
 
-  it('mostra Oportunidades, Tarefas e Contas na nav', () => {
+  it('mostra Oportunidades, Tarefas, Agenda e Contas na nav', () => {
     renderLayout();
     expect(screen.getByLabelText('Navegação principal')).toBeInTheDocument();
-    for (const item of ['Oportunidades', 'Tarefas', 'Contas']) {
+    for (const item of ['Oportunidades', 'Tarefas', 'Agenda', 'Contas']) {
       expect(screen.getAllByText(item).length).toBeGreaterThan(0);
     }
   });
 
-  it('a nav segue a ordem do dia: funil, pendências, cadastro, parceria', () => {
+  it('a nav segue a ordem do dia: funil, pendências, hora marcada, cadastro, parceria', () => {
     renderLayout();
     const nav = screen.getByLabelText('Navegação principal');
     const hrefs = [...nav.querySelectorAll('a')].map((a) => a.getAttribute('href'));
     expect(hrefs).toEqual([
-      '/crm/oportunidades', '/crm/tarefas', '/crm/contas', '/crm/parceiros',
+      '/crm/oportunidades', '/crm/tarefas', '/crm/agenda',
+      '/crm/contas', '/crm/parceiros',
     ]);
+  });
+
+  it('Agenda fica ao lado de Tarefas, não depois de Contas', () => {
+    /*
+      Toda reunião É uma tarefa, com horário e um convite já enviado ao
+      cliente. São as duas telas que a pessoa alterna o dia inteiro, e
+      Contas entre elas é um cadastro no meio de um fluxo.
+    */
+    renderLayout();
+    const nav = screen.getByLabelText('Navegação principal');
+    const hrefs = [...nav.querySelectorAll('a')].map((a) => a.getAttribute('href'));
+    expect(hrefs.indexOf('/crm/agenda')).toBe(hrefs.indexOf('/crm/tarefas') + 1);
   });
 
   it('esconde Parceiros de quem não tem o módulo', () => {
@@ -80,7 +94,9 @@ describe('Layout — nav com o módulo crm', () => {
     renderLayout();
     const nav = screen.getByLabelText('Navegação principal');
     const hrefs = [...nav.querySelectorAll('a')].map((a) => a.getAttribute('href'));
-    expect(hrefs).toEqual(['/crm/oportunidades', '/crm/tarefas', '/crm/contas']);
+    expect(hrefs).toEqual([
+      '/crm/oportunidades', '/crm/tarefas', '/crm/agenda', '/crm/contas',
+    ]);
     expect(screen.queryByText('Parceiros')).not.toBeInTheDocument();
   });
 
