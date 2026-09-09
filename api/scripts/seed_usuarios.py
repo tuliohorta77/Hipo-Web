@@ -77,7 +77,10 @@ def validar_lista() -> None:
 
 
 def _hash(senha: str) -> str:
-    return bcrypt.hashpw(senha.encode(), bcrypt.gensalt()).decode()
+    from config import settings
+    return bcrypt.hashpw(
+        senha.encode(), bcrypt.gensalt(rounds=settings.BCRYPT_ROUNDS)
+    ).decode()
 
 
 async def seed(db_url: str) -> None:

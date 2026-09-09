@@ -45,7 +45,9 @@ class PerfilPayload(BaseModel):
 # ── Helpers ──────────────────────────────────────────────────────
 
 def _hash_senha(senha: str) -> str:
-    return bcrypt.hashpw(senha.encode(), bcrypt.gensalt()).decode()
+    return bcrypt.hashpw(
+        senha.encode(), bcrypt.gensalt(rounds=settings.BCRYPT_ROUNDS)
+    ).decode()
 
 
 def _verificar_senha(senha: str, hash_: str) -> bool:

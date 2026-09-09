@@ -61,6 +61,14 @@ jobs:
         env:
           DATABASE_URL: postgresql://hipo_test:hipo_test@localhost:5432/hipo_test
           JWT_SECRET: test-secret-key-ci
+          ENVIRONMENT: test
+          # Custo do bcrypt no CI. A 12 (padrao de producao) cada
+          # hash/verificacao leva ~277ms num runner de 2 vCPU, e a
+          # suite faz isso ~2400 vezes: a maior parte dos ~10-12 min
+          # do job era so bcrypt. A 4 sao ~1ms. Producao nao le esta
+          # variavel e config.py ignora valor < 12 quando
+          # ENVIRONMENT=production.
+          BCRYPT_ROUNDS: "4"
           JWT_EXPIRE_HOURS: "1"
           UPLOAD_DIR: /tmp/hipo_uploads
           PYTHONPATH: ${{ github.workspace }}/api

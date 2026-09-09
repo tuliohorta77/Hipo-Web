@@ -21,9 +21,17 @@ from httpx import AsyncClient, ASGITransport
 os.environ.setdefault("DATABASE_URL", "postgresql://hipo_test:hipo_test@localhost:5432/hipo_test")
 os.environ.setdefault("JWT_SECRET", "test-secret-key-hipo-2026")
 os.environ.setdefault("JWT_EXPIRE_HOURS", "1")
+# Custo do bcrypt na suite. 4 e o minimo do algoritmo e derruba a
+# operacao de ~277ms para ~1ms. Com 1214 testes criando usuario e
+# logando (2 operacoes cada), e a diferenca entre 8m11s e 1m55s de
+# pytest. Precisa vir ANTES do import de config/main, que le o
+# ambiente uma vez so.
+os.environ.setdefault("ENVIRONMENT", "test")
+os.environ.setdefault("BCRYPT_ROUNDS", "4")
 
 _SENHA_TESTE = "test123"
 _DB_URL = os.environ["DATABASE_URL"]
+_ROUNDS = int(os.environ["BCRYPT_ROUNDS"])
 
 
 # ---------------------------------------------------------------------------
@@ -152,7 +160,9 @@ async def criar_usuario(db_conn, client, cargo: str, email: str | None = None) -
     que os testes do CRM (Sprint 1 em diante) reaproveitem sem duplicar.
     """
     email = email or f"user-{cargo.lower()}@teste.com"
-    pwd_hash = bcrypt.hashpw(_SENHA_TESTE.encode(), bcrypt.gensalt()).decode()
+    pwd_hash = bcrypt.hashpw(
+        _SENHA_TESTE.encode(), bcrypt.gensalt(rounds=_ROUNDS)
+    ).decode()
     await db_conn.execute(
         """
         INSERT INTO usuarios (nome, email, senha_hash, cargo)

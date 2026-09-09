@@ -2,8 +2,11 @@
 fastapi==0.115.0
 uvicorn[standard]==0.30.0
 asyncpg==0.29.0
-psycopg2-binary==2.9.9
-pandas==2.2.0
+# psycopg2-binary e pandas sairam em 09/09/2026: nenhum arquivo .py do
+# projeto importa qualquer um dos dois desde a remocao do pipeline de
+# XLSX do CROmie. Juntos eram 34MB dos 94MB baixados pelo CI a cada
+# invalidacao de cache. O acesso ao banco e 100% asyncpg.
+# openpyxl fica: scripts/dados/gerar_payloads_oraculus.py ainda usa.
 openpyxl==3.1.2
 # Proposta comercial: preenche api/templates/proposta_modelo.pptx.
 # ATENCAO: o deploy faz rsync e reinicia, NAO roda pip install. Instalar na

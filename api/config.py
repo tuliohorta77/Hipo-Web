@@ -52,6 +52,13 @@ class Settings(BaseSettings):
     UPLOAD_DIR: str = "/home/hipo/app/uploads"
     MAX_UPLOAD_MB: int = 50
     ENVIRONMENT: str = "production"
+    # Custo do bcrypt. 12 e o padrao e o que vale em producao.
+    # O CI baixa para 4 via variavel de ambiente: a suite cria e loga
+    # ~1200 usuarios, e a 12 sao ~277ms por operacao (2x por teste) --
+    # sozinho isso respondia por ~80% do tempo do job Backend Tests.
+    # O hash guarda o proprio custo, entao hashes antigos (12) seguem
+    # validando normalmente depois da mudanca.
+    BCRYPT_ROUNDS: int = 12
     BRIDGE_TOKEN: str = ""
 
     # ── Telemetria e fechamento diario ──────────────────────────────
@@ -83,3 +90,10 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+# Trava de seguranca: custo baixo e recurso de teste. Se o .env de
+# producao vier com BCRYPT_ROUNDS rebaixado (copiado do CI, por engano),
+# o valor e ignorado e volta para 12 -- em vez de subir a API gravando
+# senha fraca em silencio.
+if settings.ENVIRONMENT == "production" and settings.BCRYPT_ROUNDS < 12:
+    settings.BCRYPT_ROUNDS = 12
