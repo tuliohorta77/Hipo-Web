@@ -38,7 +38,7 @@ O que este módulo materializa:
 """
 from __future__ import annotations
 
-from datetime import date, datetime, time, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status as http
@@ -47,7 +47,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from database import get_conn
 from routers.auth import usuario_atual
 from routers.crm_tarefas import (
-    TarefaBase, _inserir, validar_referencias,
+    ProximaTarefa, TarefaBase, _inserir, validar_referencias,
 )
 from routers.permissions import requer_qualquer_modulo
 from services import agenda as regras
@@ -64,7 +64,7 @@ router = APIRouter()
 # encaminha para lá. Ver `editar`.
 CAMPOS_EDITAVEIS = {
     "duracao_min", "tipo_id", "modalidade", "endereco", "link_video",
-    "contato_id", "convidados", "observacoes",
+    "contato_id", "convidados", "observacoes", "agendado_por",
 }
 
 # Campos cuja mudança precisa chegar ao convite que o cliente já recebeu.
@@ -120,6 +120,12 @@ class ReuniaoCampos(BaseModel):
     # Os NOSSOS que entram além do anfitrião. O anfitrião não entra aqui:
     # ele é o responsável da tarefa. Ver o comentário da tabela.
     participantes: list[UUID] = Field(default_factory=list)
+    # De quem é o CRÉDITO do agendamento. Em branco, é quem está criando —
+    # que é o caso quase sempre. O campo existe para o dia em que não é: o
+    # SDR marcou por telefone e o ADM lançou, e o número do mês precisa ir
+    # para quem marcou. `criado_por` continua guardando quem digitou, e as
+    # duas colunas nunca se misturam.
+    agendado_por: UUID | None = None
 
     @field_validator("modalidade")
     @classmethod
@@ -195,6 +201,7 @@ class ReuniaoEditar(BaseModel):
     participantes: list[UUID] | None = None
     inicio: datetime | None = None
     anfitriao_id: UUID | None = None
+    agendado_por: UUID | None = None
     titulo: str | None = Field(None, max_length=200)
 
     @field_validator("modalidade")
@@ -232,6 +239,32 @@ class Cancelamento(BaseModel):
     motivo: str | None = None
 
 
+class DesfechoIn(BaseModel):
+    """
+    O que aconteceu com a reunião.
+
+    `realizada` conclui a tarefa e, com a oportunidade viva, EXIGE a
+    próxima — é a mesma regra da Sprint 5, e é ela que faz a reunião
+    empurrar o funil em vez de virar um fato isolado.
+
+    `cancelada` e `no_show` cancelam a tarefa e não exigem próxima:
+    cancelar é dizer que aquilo não ia acontecer, não que o negócio andou.
+    `proxima` continua ACEITA nos dois, porque remarcar é o desfecho
+    natural de um no-show — só não é obrigatória.
+    """
+    desfecho: str
+    observacao: str | None = None
+    proxima: ProximaTarefa | None = None
+
+    @field_validator("desfecho")
+    @classmethod
+    def _desfecho(cls, v: str) -> str:
+        try:
+            return regras.validar_desfecho(v)
+        except AgendaInvalida as e:
+            raise ValueError(str(e)) from e
+
+
 class ReuniaoOut(BaseModel):
     id: UUID
     tarefa_id: UUID
@@ -257,7 +290,31 @@ class ReuniaoOut(BaseModel):
 
     anfitriao_id: UUID
     anfitriao_nome: str | None
+    agendado_por: UUID | None
+    agendado_por_nome: str | None
     participantes: list[ParticipanteOut]
+
+    # ── O desfecho ──
+    # `desfecho` é o REGISTRADO (None enquanto ninguém marcou).
+    # `desfecho_efetivo` é o que vale para contagem: o registrado, ou o
+    # deduzido de uma tarefa fechada por outra tela. A tela mostra o
+    # efetivo e usa o registrado para saber se ainda pode perguntar.
+    desfecho: str | None
+    desfecho_efetivo: str | None
+    desfecho_rotulo: str | None
+    desfecho_em: datetime | None
+    desfecho_por_nome: str | None
+    desfecho_observacao: str | None
+    # Quantas horas antes do início a reunião foi desmarcada, no momento do
+    # registro. Negativo = depois da hora.
+    desfecho_antecedencia_horas: float | None
+    # O que o formulário pré-seleciona. Reunião que já terminou sugere
+    # `realizada`; a que ainda não começou, o que o relógio disser entre
+    # cancelada e no-show. Some depois de registrado.
+    desfecho_sugerido: str | None
+    # Já terminou e ninguém disse o que aconteceu. É o que alimenta o
+    # contador "N sem desfecho" da barra.
+    pendente_de_desfecho: bool
 
     contato_id: UUID | None
     contato_nome: str | None
@@ -316,12 +373,87 @@ class SemanaOut(BaseModel):
     total: int
     concluidas: int
     canceladas: int
+    # Reuniões que já terminaram e ninguém registrou o desfecho. Fica na
+    # barra porque a decisão foi NÃO adivinhar depois de N horas: sem um
+    # número visível cobrando, a reunião esquecida sairia de toda
+    # estatística em silêncio.
+    pendentes: int
     # Só existe com UM anfitrião escolhido: "slots livres" da equipe
     # inteira somaria a agenda de cinco pessoas num número que não responde
     # a pergunta de ninguém.
     livres: int | None
     nao_sincronizadas: int
     google_configurado: bool
+
+
+class DiaDoSdr(BaseModel):
+    dia: date
+    agendamentos: int
+
+
+class LinhaSdr(BaseModel):
+    usuario_id: UUID | None
+    nome: str | None
+    total: int
+    por_dia: list[DiaDoSdr]
+
+
+class DiaDoEv(BaseModel):
+    dia: date
+    total: int
+    realizadas: int
+    canceladas: int
+    no_show: int
+    pendentes: int
+
+
+class LinhaEv(BaseModel):
+    usuario_id: UUID
+    nome: str | None
+    total: int
+    realizadas: int
+    canceladas: int
+    no_show: int
+    pendentes: int
+    por_dia: list[DiaDoEv]
+
+
+class ProdutividadeOut(BaseModel):
+    """
+    As duas perguntas de rastreio, e elas recortam por DATAS DIFERENTES.
+
+      por_sdr — quantos agendamentos a pessoa FEZ em cada dia. Recorta por
+                `reunioes.criado_em`: é o dia em que o trabalho aconteceu.
+      por_ev  — quantas reuniões a pessoa TEVE em cada dia, e com que
+                resultado. Recorta por `tarefas.prazo`: é o dia da reunião.
+
+    São números diferentes de propósito, e a distância entre eles é
+    informação: uma reunião marcada dia 3 para o dia 20 conta no dia 3 do
+    SDR e no dia 20 do EV. Um único eixo de data teria que escolher um dos
+    dois e mentir no outro — a mesma escolha que `realizadas` × `agendadas`
+    já faz no resumo de tarefas.
+    """
+    de: date
+    ate: date
+    dias: list[date]
+    por_sdr: list[LinhaSdr]
+    por_ev: list[LinhaEv]
+
+    agendamentos: int
+    realizadas: int
+    canceladas: int
+    no_show: int
+    pendentes: int
+
+    # Duas taxas, e o denominador é o mesmo: o que CHEGOU A UM RESULTADO
+    # (realizadas + canceladas + no-show). Pendente fica de fora — ainda
+    # não é resultado, e contá-lo como fracasso puniria quem marcou ontem.
+    #
+    # `None` quando não há denominador, e não 0%. Mesma regra das taxas de
+    # parceiro: "0%" e "ainda não deu para saber" são coisas diferentes, e
+    # a tela mostra `—` na segunda.
+    taxa_realizacao: float | None
+    taxa_no_show: float | None
 
 
 # ── SQL compartilhado ────────────────────────────────────────────────
@@ -336,6 +468,10 @@ _SELECT_BASE = """
            r.google_calendar_id, r.google_event_id, r.google_link,
            r.google_sincronizado_em, r.google_erro,
            r.criado_em,
+           r.agendado_por, ag.nome AS agendado_por_nome,
+           r.desfecho, r.desfecho_em, r.desfecho_observacao,
+           r.desfecho_antecedencia_horas,
+           dp.nome AS desfecho_por_nome,
            t.titulo, t.descricao, t.prazo AS inicio,
            t.concluida_em, t.cancelada_em,
            t.responsavel_id AS anfitriao_id,
@@ -346,6 +482,12 @@ _SELECT_BASE = """
            -- precisa de um numero para ligar antes da reuniao.
            u.telefone AS anfitriao_telefone,
            t.oportunidade_id, o.numero AS oportunidade_numero,
+           -- O alvo CRU da tarefa, ao lado do `conta_id` de exibicao logo
+           -- abaixo (que e COALESCE e vira a empresa da oportunidade).
+           -- Quem cria a proxima tarefa precisa do par exato -- passar a
+           -- empresa da oportunidade como alvo manda DOIS alvos e o
+           -- `validar_referencias` recusa exigindo conta parceira.
+           t.conta_id AS alvo_conta_id,
            o.status AS status_oportunidade,
            COALESCE(t.conta_id, o.conta_id)           AS conta_id,
            COALESCE(cp.razao_social, co.razao_social) AS conta_razao_social,
@@ -362,6 +504,8 @@ _SELECT_BASE = """
       LEFT JOIN oportunidades o  ON o.id  = t.oportunidade_id
       LEFT JOIN contas co        ON co.id = o.conta_id
       LEFT JOIN contas cp        ON cp.id = t.conta_id
+      LEFT JOIN usuarios ag      ON ag.id = r.agendado_por
+      LEFT JOIN usuarios dp      ON dp.id = r.desfecho_por
 """
 
 # O JOIN com `tarefas` é INNER, e é o único do arquivo que pode ser: a FK é
@@ -406,6 +550,36 @@ def _linha(row, agora: datetime, participantes: dict[str, list[dict]]) -> dict:
     )
     d["participantes"] = participantes.get(str(d["id"]), [])
     d["convite_titulo"], d["convite_descricao"] = _texto_do_convite(d)
+
+    # O desfecho que VALE para contagem: o registrado, ou o deduzido de uma
+    # tarefa que outra tela fechou. Calculado aqui e não no navegador
+    # porque é o mesmo número que o relatório soma — duas implementações
+    # da mesma dedução divergem, e a que divergir é a que alguém está
+    # olhando na reunião de segunda.
+    d["desfecho_efetivo"] = regras.desfecho_efetivo(
+        desfecho=d["desfecho"],
+        concluida_em=d["concluida_em"],
+        cancelada_em=d["cancelada_em"],
+        inicio=d["inicio"],
+    )
+    d["desfecho_rotulo"] = regras.ROTULO_DESFECHO.get(d["desfecho_efetivo"])
+    d["pendente_de_desfecho"] = regras.pendente_de_desfecho(
+        desfecho=d["desfecho"],
+        concluida_em=d["concluida_em"],
+        cancelada_em=d["cancelada_em"],
+        inicio=d["inicio"],
+        duracao_min=d["duracao_min"],
+        agora=agora,
+    )
+    # A sugestão que a tela pré-seleciona. Some depois de registrado: uma
+    # sugestão ao lado de uma resposta já dada só convida a mexer no que
+    # está certo.
+    d["desfecho_sugerido"] = (
+        None if d["desfecho_efetivo"]
+        else regras.sugestao_de_desfecho(d["inicio"], d["duracao_min"], agora)
+    )
+    if d["desfecho_antecedencia_horas"] is not None:
+        d["desfecho_antecedencia_horas"] = float(d["desfecho_antecedencia_horas"])
     return d
 
 
@@ -521,6 +695,7 @@ async def _validar_horario(
 async def _validar_apoio(
     conn, tipo_id: int | None, contato_id: UUID | None,
     participantes: list[UUID] | None,
+    agendado_por: UUID | None = None,
 ) -> None:
     if tipo_id is not None and not await conn.fetchval(
         "SELECT 1 FROM tipos_reuniao WHERE id = $1", tipo_id
@@ -535,6 +710,10 @@ async def _validar_apoio(
             "SELECT 1 FROM usuarios WHERE id = $1 AND ativo", uid
         ):
             raise HTTPException(422, "Participante não encontrado ou inativo.")
+    if agendado_por is not None and not await conn.fetchval(
+        "SELECT 1 FROM usuarios WHERE id = $1 AND ativo", agendado_por
+    ):
+        raise HTTPException(422, "Quem agendou não foi encontrado ou está inativo.")
 
 
 async def _gravar_participantes(conn, reuniao_id: UUID, ids: list[UUID]) -> None:
@@ -812,6 +991,7 @@ async def criar_tipo(
 @router.get("/semana", response_model=SemanaOut)
 async def semana(
     anfitriao_id: UUID | None = None,
+    agendado_por: UUID | None = None,
     inicio: date | None = Query(None, description="Qualquer dia da semana desejada."),
     conn=Depends(get_conn),
     user=Depends(usuario_atual),
@@ -830,9 +1010,15 @@ async def semana(
     mesma tela.
 
     SEM `anfitriao_id`, mostra a semana da equipe inteira — a visão de
-    quem coordena. Com ele, a de uma pessoa. `livres` só existe no segundo
-    caso: somar os slots vagos de cinco agendas produziria um número que
-    não responde à pergunta de ninguém.
+    quem coordena, e a que o SDR usa para achar onde cabe a próxima. É a
+    MESMA base para todo mundo: nada aqui é filtrado por quem está olhando,
+    então um slot marcado aparece ocupado para a equipe inteira no instante
+    seguinte. `livres` é a única coisa que só existe com uma agenda
+    escolhida: somar os slots vagos de cinco pessoas produziria um número
+    que não responde à pergunta de ninguém.
+
+    `agendado_por` recorta por QUEM MARCOU, e combina com `anfitriao_id`:
+    "as reuniões que eu marquei para o Bruno" precisa dos dois.
 
     Este endpoint precisa vir declarado ANTES de qualquer `/{id}`: com o
     wildcard na frente, "semana" seria lido como id e a resposta viraria
@@ -847,6 +1033,12 @@ async def semana(
     if anfitriao_id is not None:
         params.append(anfitriao_id)
         where.append(f"t.responsavel_id = ${len(params)}")
+    # Os dois filtros são independentes e combináveis de propósito: "as
+    # reuniões que EU marquei para o Bruno" é a pergunta do SDR conferindo
+    # o próprio trabalho, e ela precisa dos dois ao mesmo tempo.
+    if agendado_por is not None:
+        params.append(agendado_por)
+        where.append(f"r.agendado_por = ${len(params)}")
 
     rows = await conn.fetch(
         f"{_SELECT_BASE} WHERE {' AND '.join(where)} ORDER BY t.prazo",
@@ -922,6 +1114,7 @@ async def semana(
         "total": len(vivas),
         "concluidas": sum(1 for i in vivas if i["situacao"] == "concluida"),
         "canceladas": sum(1 for i in itens if i["cancelada_em"] is not None),
+        "pendentes": sum(1 for i in itens if i["pendente_de_desfecho"]),
         "livres": livres,
         # O que ainda não chegou ao Google. É o número que impede o
         # convite perdido de passar despercebido — e por isso ele fica no
@@ -930,6 +1123,168 @@ async def semana(
             1 for i in vivas if not i["google_event_id"]
         ),
         "google_configurado": google_agenda.configurado(),
+    }
+
+
+@router.get("/produtividade", response_model=ProdutividadeOut)
+async def produtividade(
+    de: date = Query(..., description="Primeiro dia, no fuso da operação."),
+    ate: date = Query(..., description="Último dia, inclusivo."),
+    conn=Depends(get_conn),
+    user=Depends(usuario_atual),
+):
+    """
+    Agendamentos por dia por SDR, e reuniões por dia por EV com o desfecho.
+
+    OS DOIS EIXOS DE DATA SÃO DIFERENTES, e é isso que os torna
+    comparáveis: o SDR é medido pelo dia em que MARCOU (`criado_em`), o EV
+    pelo dia em que a reunião ACONTECEU (`prazo`). Ver ProdutividadeOut.
+
+    O RECORTE DE DATA VAI PARA O SQL; a classificação do desfecho fica em
+    Python. Não é inconsistência: a janela é determinística (duas datas dão
+    sempre os mesmos instantes) e pode ir para o banco sem criar segunda
+    fonte de verdade. Já `desfecho_efetivo` depende do relógio e da regra
+    das 24h, e repeti-la em SQL criaria a divergência que este módulo
+    inteiro evita. É a mesma divisão de `/crm/tarefas/resumo`.
+
+    Volume: reuniões por período é dezenas, não milhares — 18 slots × 5
+    dias × o punhado de EVs. Classificar em Python custa menos que manter
+    a regra em dois lugares.
+
+    Visível para todo cargo com `crm`, como a produção de tarefas
+    (`/crm/tarefas/resumo`) já é. Comparar produção entre pares é o que a
+    tela existe para fazer; esconder aqui e mostrar lá seria arbitrário.
+
+    Precisa vir declarado ANTES de `/reunioes/{id}` — mesma armadilha do
+    /semana.
+    """
+    try:
+        regras_tarefa.validar_janela(de, ate)
+    except TarefaInvalida as e:
+        raise HTTPException(422, str(e))
+
+    fuso = str(regras.FUSO_OPERACAO)
+    inicio, fim = regras_tarefa.janela_utc(de, ate)
+    dias = [de + timedelta(days=d) for d in range((ate - de).days + 1)]
+
+    # ── SDR: contagem pura, agrupada no banco ──
+    # Sem regra nenhuma envolvida — é count(*). Trazer linha a linha para
+    # contar em Python seria carregar dado à toa.
+    linhas_sdr = await conn.fetch(
+        """
+        SELECT r.agendado_por AS usuario_id,
+               u.nome,
+               (r.criado_em AT TIME ZONE $3)::date AS dia,
+               count(*) AS agendamentos
+          FROM reunioes r
+          LEFT JOIN usuarios u ON u.id = r.agendado_por
+         WHERE r.criado_em >= $1 AND r.criado_em < $2
+         GROUP BY r.agendado_por, u.nome, (r.criado_em AT TIME ZONE $3)::date
+        """,
+        inicio, fim, fuso,
+    )
+
+    # ── EV: linha a linha, porque o desfecho é regra ──
+    linhas_ev = await conn.fetch(
+        f"""
+        SELECT t.responsavel_id AS usuario_id,
+               u.nome,
+               t.prazo, t.concluida_em, t.cancelada_em,
+               r.duracao_min, r.desfecho,
+               (t.prazo AT TIME ZONE '{fuso}')::date AS dia
+          FROM reunioes r
+          JOIN tarefas t ON t.id = r.tarefa_id
+          LEFT JOIN usuarios u ON u.id = t.responsavel_id
+         WHERE t.prazo >= $1 AND t.prazo < $2
+        """,
+        inicio, fim,
+    )
+
+    agora = _agora()
+
+    def _molde_ev(dia):
+        return {"dia": dia, "total": 0, "realizadas": 0,
+                "canceladas": 0, "no_show": 0, "pendentes": 0}
+
+    sdr: dict = {}
+    for r in linhas_sdr:
+        chave = str(r["usuario_id"])
+        pessoa = sdr.setdefault(chave, {
+            "usuario_id": r["usuario_id"], "nome": r["nome"],
+            "total": 0, "por_dia": {d: 0 for d in dias},
+        })
+        pessoa["total"] += r["agendamentos"]
+        # `setdefault` e não indexação: o AT TIME ZONE pode devolver um dia
+        # de borda que não está na lista se alguém mexer na janela depois.
+        # Melhor a linha aparecer fora da grade do que a tela cair.
+        pessoa["por_dia"].setdefault(r["dia"], 0)
+        pessoa["por_dia"][r["dia"]] += r["agendamentos"]
+
+    ev: dict = {}
+    for r in linhas_ev:
+        chave = str(r["usuario_id"])
+        pessoa = ev.setdefault(chave, {
+            "usuario_id": r["usuario_id"], "nome": r["nome"],
+            "total": 0, "realizadas": 0, "canceladas": 0,
+            "no_show": 0, "pendentes": 0,
+            "por_dia": {d: _molde_ev(d) for d in dias},
+        })
+        do_dia = pessoa["por_dia"].setdefault(r["dia"], _molde_ev(r["dia"]))
+
+        efetivo = regras.desfecho_efetivo(
+            desfecho=r["desfecho"], concluida_em=r["concluida_em"],
+            cancelada_em=r["cancelada_em"], inicio=r["prazo"],
+        )
+        pendente = regras.pendente_de_desfecho(
+            desfecho=r["desfecho"], concluida_em=r["concluida_em"],
+            cancelada_em=r["cancelada_em"], inicio=r["prazo"],
+            duracao_min=r["duracao_min"], agora=agora,
+        )
+        for alvo in (pessoa, do_dia):
+            alvo["total"] += 1
+            if efetivo == "realizada":
+                alvo["realizadas"] += 1
+            elif efetivo == "cancelada":
+                alvo["canceladas"] += 1
+            elif efetivo == "no_show":
+                alvo["no_show"] += 1
+            if pendente:
+                alvo["pendentes"] += 1
+
+    def _achatar(pessoa, campo_dia):
+        pessoa = dict(pessoa)
+        pessoa["por_dia"] = [
+            ({"dia": d, "agendamentos": v} if campo_dia == "sdr" else v)
+            for d, v in sorted(pessoa["por_dia"].items())
+        ]
+        return pessoa
+
+    realizadas = sum(p["realizadas"] for p in ev.values())
+    canceladas = sum(p["canceladas"] for p in ev.values())
+    no_show = sum(p["no_show"] for p in ev.values())
+    fechadas = realizadas + canceladas + no_show
+
+    return {
+        "de": de, "ate": ate, "dias": dias,
+        # Ordenado por volume: a tela existe para comparar produção, e a
+        # ordem alfabética faria a comparação depender de quem se chama
+        # como. Empate desempata pelo nome, para a lista não dançar entre
+        # duas cargas iguais.
+        "por_sdr": sorted(
+            (_achatar(p, "sdr") for p in sdr.values()),
+            key=lambda p: (-p["total"], p["nome"] or ""),
+        ),
+        "por_ev": sorted(
+            (_achatar(p, "ev") for p in ev.values()),
+            key=lambda p: (-p["total"], p["nome"] or ""),
+        ),
+        "agendamentos": sum(p["total"] for p in sdr.values()),
+        "realizadas": realizadas,
+        "canceladas": canceladas,
+        "no_show": no_show,
+        "pendentes": sum(p["pendentes"] for p in ev.values()),
+        "taxa_realizacao": (realizadas / fechadas) if fechadas else None,
+        "taxa_no_show": (no_show / fechadas) if fechadas else None,
     }
 
 
@@ -965,7 +1320,8 @@ async def criar(
         conn, payload.oportunidade_id, payload.conta_id, payload.anfitriao_id
     )
     await _validar_apoio(
-        conn, payload.tipo_id, payload.contato_id, payload.participantes
+        conn, payload.tipo_id, payload.contato_id, payload.participantes,
+        payload.agendado_por,
     )
     await _validar_horario(
         conn, payload.anfitriao_id, payload.inicio, payload.duracao_min
@@ -990,9 +1346,19 @@ async def criar(
             """
             INSERT INTO reunioes (
                 tarefa_id, duracao_min, tipo_id, modalidade, endereco,
-                link_video, contato_id, convidados, observacoes, criado_por
+                link_video, contato_id, convidados, observacoes,
+                criado_por, agendado_por
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+            -- O default de `agendado_por` e resolvido em PYTHON, e nao com
+            -- COALESCE($11, $10) aqui: reusar o mesmo parametro em duas
+            -- colunas faz o Postgres deduzir dois tipos para ele e recusar
+            -- a query inteira com AmbiguousParameterError. Custou uma
+            -- suite vermelha.
+            --
+            -- Default de coluna tambem nao serve: o banco nao enxerga o
+            -- usuario da sessao, e deixar a coluna nula tiraria a reuniao
+            -- do relatorio do SDR em silencio.
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
             RETURNING id
             """,
             tarefa_id, payload.duracao_min, payload.tipo_id, payload.modalidade,
@@ -1000,7 +1366,7 @@ async def criar(
             (payload.link_video or "").strip() or None,
             payload.contato_id, payload.convidados,
             (payload.observacoes or "").strip() or None,
-            user["id"],
+            user["id"], payload.agendado_por or user["id"],
         )
         await _gravar_participantes(conn, reuniao_id, payload.participantes)
 
@@ -1111,7 +1477,8 @@ async def criar_de_tarefa(
         raise HTTPException(409, "Esta tarefa já está na agenda.")
 
     await _validar_apoio(
-        conn, payload.tipo_id, payload.contato_id, payload.participantes
+        conn, payload.tipo_id, payload.contato_id, payload.participantes,
+        payload.agendado_por,
     )
     await _validar_horario(
         conn, tarefa["responsavel_id"], tarefa["prazo"], payload.duracao_min
@@ -1122,9 +1489,19 @@ async def criar_de_tarefa(
             """
             INSERT INTO reunioes (
                 tarefa_id, duracao_min, tipo_id, modalidade, endereco,
-                link_video, contato_id, convidados, observacoes, criado_por
+                link_video, contato_id, convidados, observacoes,
+                criado_por, agendado_por
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+            -- O default de `agendado_por` e resolvido em PYTHON, e nao com
+            -- COALESCE($11, $10) aqui: reusar o mesmo parametro em duas
+            -- colunas faz o Postgres deduzir dois tipos para ele e recusar
+            -- a query inteira com AmbiguousParameterError. Custou uma
+            -- suite vermelha.
+            --
+            -- Default de coluna tambem nao serve: o banco nao enxerga o
+            -- usuario da sessao, e deixar a coluna nula tiraria a reuniao
+            -- do relatorio do SDR em silencio.
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
             RETURNING id
             """,
             tarefa_id, payload.duracao_min, payload.tipo_id, payload.modalidade,
@@ -1132,7 +1509,7 @@ async def criar_de_tarefa(
             (payload.link_video or "").strip() or None,
             payload.contato_id, payload.convidados,
             (payload.observacoes or "").strip() or None,
-            user["id"],
+            user["id"], payload.agendado_por or user["id"],
         )
         await _gravar_participantes(conn, reuniao_id, payload.participantes)
 
@@ -1195,6 +1572,7 @@ async def editar(
         campos.get("tipo_id"),
         campos.get("contato_id"),
         campos.get("participantes"),
+        campos.get("agendado_por"),
     )
 
     da_reuniao = {k: v for k, v in campos.items() if k in CAMPOS_EDITAVEIS}
@@ -1260,6 +1638,131 @@ async def sincronizar(
     """
     await _obter_row(conn, reuniao_id)
     return await _sincronizar(conn, reuniao_id)
+
+
+@router.post("/reunioes/{reuniao_id}/desfecho", response_model=ReuniaoOut)
+async def registrar_desfecho(
+    reuniao_id: UUID,
+    payload: DesfechoIn,
+    conn=Depends(get_conn),
+    user=Depends(usuario_atual),
+):
+    """
+    Registra o que aconteceu: realizada, cancelada ou no-show.
+
+    É a única porta que fecha uma reunião pela agenda, e ela faz as DUAS
+    coisas na mesma transação — grava o desfecho e fecha a tarefa. Separar
+    (um botão para o desfecho, outro para concluir) deixaria o par
+    divergir na primeira vez que alguém clicasse só um.
+
+      realizada            -> conclui a tarefa. Com a oportunidade viva,
+                              EXIGE a próxima: é a regra da Sprint 5, e é
+                              ela que faz a reunião empurrar o funil.
+      cancelada / no_show  -> cancela a tarefa. Não exige a próxima, mas
+                              aceita: remarcar é o desfecho natural de um
+                              no-show.
+
+    A DIFERENÇA ENTRE OS DOIS ÚLTIMOS É DO RELÓGIO, e quem escolhe é a
+    pessoa. A tela pré-seleciona pela regra das 24h; aqui a antecedência é
+    CALCULADA e guardada ao lado da escolha, sem sobrescrevê-la. Quando os
+    dois discordam há uma conversa a ter — e ela só existe se o par tiver
+    sido guardado.
+
+    Desfecho não se reescreve. Reabrir uma reunião fechada apagaria o
+    histórico pelo mesmo motivo que tarefa fechada é imutável — e o número
+    do mês passado mudaria depois de fechado.
+    """
+    atual = await _obter_row(conn, reuniao_id)
+
+    if atual["desfecho"] is not None:
+        raise HTTPException(
+            422,
+            f"Esta reunião já foi registrada como "
+            f"{regras.ROTULO_DESFECHO[atual['desfecho']]}.",
+        )
+
+    estado = EstadoTarefa(
+        prazo=atual["inicio"],
+        concluida_em=atual["concluida_em"],
+        cancelada_em=atual["cancelada_em"],
+    )
+    desfecho = payload.desfecho
+    encerra = regras.encerra_a_reuniao(desfecho)
+
+    try:
+        if encerra:
+            regras_tarefa.validar_cancelamento(estado)
+        else:
+            regras_tarefa.validar_conclusao(
+                estado, atual["status_oportunidade"], payload.proxima is not None
+            )
+    except TarefaInvalida as e:
+        raise HTTPException(422, str(e))
+
+    if payload.proxima is not None:
+        await validar_referencias(
+            conn, atual["oportunidade_id"], atual["alvo_conta_id"],
+            payload.proxima.responsavel_id,
+        )
+
+    agora = _agora()
+    antecedencia = regras.antecedencia_horas(atual["inicio"], agora)
+    observacao = (payload.observacao or "").strip() or None
+
+    async with conn.transaction():
+        if encerra:
+            await conn.execute(
+                """
+                UPDATE tarefas
+                   SET cancelada_em = NOW(),
+                       motivo_cancelamento = $2,
+                       atualizado_em = NOW()
+                 WHERE id = $1
+                """,
+                atual["tarefa_id"],
+                # Sem observação, o motivo vira o próprio desfecho: a linha
+                # do tempo da oportunidade mostra `motivo_cancelamento`, e
+                # "cancelada" sem motivo nenhum ali parece registro pela
+                # metade para quem lê seis meses depois.
+                observacao or regras.ROTULO_DESFECHO[desfecho],
+            )
+        else:
+            await conn.execute(
+                """
+                UPDATE tarefas
+                   SET concluida_em = NOW(),
+                       resultado = $2,
+                       atualizado_em = NOW()
+                 WHERE id = $1
+                """,
+                atual["tarefa_id"], observacao,
+            )
+        if payload.proxima is not None:
+            await _inserir(
+                conn, payload.proxima,
+                atual["oportunidade_id"], atual["alvo_conta_id"],
+                user["id"], atual["tarefa_id"],
+            )
+        await conn.execute(
+            """
+            UPDATE reunioes
+               SET desfecho = $2,
+                   desfecho_em = NOW(),
+                   desfecho_por = $3,
+                   desfecho_observacao = $4,
+                   desfecho_antecedencia_horas = $5,
+                   atualizado_em = NOW()
+             WHERE id = $1
+            """,
+            reuniao_id, desfecho, user["id"], observacao, antecedencia,
+        )
+
+    # O evento sai da agenda de todo mundo só quando a reunião NÃO
+    # aconteceu. Apagar o de uma reunião realizada limparia o histórico do
+    # calendário do vendedor — que é onde ele reconstrói a semana.
+    if encerra:
+        await remover_evento_da_tarefa(conn, atual["tarefa_id"])
+    return await _obter(conn, reuniao_id)
 
 
 @router.post("/reunioes/{reuniao_id}/cancelar", response_model=ReuniaoOut)

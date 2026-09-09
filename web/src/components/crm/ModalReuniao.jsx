@@ -27,11 +27,11 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  CalendarPlus, Trash2, RefreshCw, AlertTriangle, CheckCircle2,
-  Mail, X, Plus, ExternalLink,
+  CalendarPlus, RefreshCw, AlertTriangle, CheckCircle2,
+  Mail, X, Plus, ExternalLink, ClipboardCheck,
 } from 'lucide-react';
 
-import api from '../../api';
+import api, { getUser } from '../../api';
 import Modal from '../ui/Modal';
 import Button from '../ui/Button';
 import Badge from '../ui/Badge';
@@ -39,14 +39,24 @@ import AlertMessage from '../ui/AlertMessage';
 import Input, { Select, Textarea } from '../ui/Input';
 import EntityPicker from '../EntityPicker';
 import {
-  DURACOES, DURACAO_PADRAO, MODALIDADES,
-  mensagemDeErro, paraCampoLocal, paraIso,
+  DESFECHOS, DURACOES, DURACAO_PADRAO, MODALIDADES, POR_DESFECHO,
+  antecedenciaEmPalavras, mensagemDeErro, paraCampoLocal, paraIso,
 } from './agendaComum';
+import {
+  CamposTarefa, corpoDaTarefa, dataCompleta, exigeProximaTarefa,
+  formIncompleto, tarefaVazia,
+} from './tarefaComum';
 
 function formVazio(usuarioPadrao = '') {
   return {
     oportunidade: null,
     anfitriao_id: usuarioPadrao,
+    // Quem leva o CRÉDITO do agendamento, que não é necessariamente quem
+    // está digitando: o SDR marca por telefone e o ADM lança. Vem
+    // preenchido com quem está na tela porque é a resposta certa em quase
+    // toda linha — e editável porque o dia em que não é, é exatamente o
+    // dia em que alguém cobriu o colega.
+    agendado_por: usuarioPadrao,
     inicio: '',
     duracao_min: DURACAO_PADRAO,
     tipo_id: '',
@@ -65,6 +75,7 @@ function formDaReuniao(r) {
   return {
     oportunidade: null,
     anfitriao_id: r.anfitriao_id,
+    agendado_por: r.agendado_por || '',
     inicio: paraCampoLocal(r.inicio),
     duracao_min: r.duracao_min,
     tipo_id: r.tipo_id ?? '',
@@ -208,6 +219,212 @@ function EstadoDoConvite({ reuniao, onSincronizar, ocupado }) {
   );
 }
 
+// ── O desfecho ───────────────────────────────────────────────────────
+
+/**
+ * O que aconteceu com a reunião, depois de registrado.
+ *
+ * Mostra o EFETIVO, que pode não ter sido registrado por ninguém: quem
+ * concluiu a tarefa pela aba de Tarefas fechou a reunião sem passar por
+ * aqui, e o servidor deduz `realizada`. A tela diz qual dos dois é —
+ * apresentar uma dedução com a mesma cara de um registro faria alguém
+ * defender na reunião de segunda um número que ninguém afirmou.
+ */
+function DesfechoRegistrado({ reuniao }) {
+  const d = POR_DESFECHO[reuniao.desfecho_efetivo];
+  if (!d) return null;
+  const Icone = d.Icone;
+  const deduzido = !reuniao.desfecho;
+  const antecedencia = antecedenciaEmPalavras(reuniao.desfecho_antecedencia_horas);
+
+  return (
+    <div className="border-t border-hipo-border pt-4">
+      <div className="flex flex-wrap items-center gap-2">
+        <Badge tone={d.tom}>
+          <Icone size={12} aria-hidden="true" />
+          {d.rotulo}
+        </Badge>
+        {deduzido ? (
+          <span className="text-xs text-hipo-slate">
+            deduzido do fechamento da tarefa — ninguém registrou pela agenda
+          </span>
+        ) : (
+          <span className="text-xs text-hipo-slate">
+            registrado por {reuniao.desfecho_por_nome || 'alguém'} em{' '}
+            {dataCompleta(reuniao.desfecho_em)}
+            {/*
+              A antecedência que o SERVIDOR gravou no instante do registro
+              — não a recalculada agora. É ela que responde, seis meses
+              depois, "esse no-show foi avisado com quanto tempo?".
+            */}
+            {antecedencia && ` · ${antecedencia}`}
+          </span>
+        )}
+      </div>
+      {reuniao.desfecho_observacao && (
+        <p className="mt-2 text-sm text-hipo-ink whitespace-pre-wrap">
+          {reuniao.desfecho_observacao}
+        </p>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Registrar o que aconteceu: realizada, cancelada ou no-show.
+ *
+ * ── Por que três botões e não "Cancelar reunião" ─────────────────────
+ * A pergunta que a operação precisa responder não é "cancelo?", é "o que
+ * aconteceu?" — e ela tem três respostas, não duas. Um botão de cancelar
+ * ao lado de um de concluir deixaria o no-show sem porta, e ele é
+ * justamente o número que dói.
+ *
+ * ── Por que a sugestão vem pronta do servidor ────────────────────────
+ * A régua das 24h mora em `services/agenda`, e quem decide o que
+ * pré-selecionar é ele (`desfecho_sugerido`). Recalcular aqui daria uma
+ * segunda versão da mesma conta, e a que divergisse seria a que a pessoa
+ * está olhando na hora de responder.
+ *
+ * A ANTECEDÊNCIA ao lado é calculada no navegador de propósito: ela muda a
+ * cada minuto que o modal fica aberto, e é rótulo, não dado. O número que
+ * vale fica gravado pelo servidor no instante do registro.
+ */
+function PainelDesfecho({
+  reuniao, usuarios, ocupado, onRegistrar,
+}) {
+  const [escolha, setEscolha] = useState(reuniao.desfecho_sugerido || 'realizada');
+  const [observacao, setObservacao] = useState('');
+  const [proxima, setProxima] = useState(() => tarefaVazia(reuniao.anfitriao_id));
+
+  // Reunião é sempre de uma oportunidade — não existe reunião de parceiro
+  // na grade. Ainda assim a regra vem da função compartilhada, e não de um
+  // `STATUS_ABERTOS.includes(...)` escrito aqui: foi exatamente essa cópia
+  // que produziu o bug do formulário que não aparecia (ver `exigeProximaTarefa`).
+  const exigeProxima = escolha === 'realizada'
+    && exigeProximaTarefa('oportunidade', reuniao.status_oportunidade);
+
+  const agora = Date.now();
+  const horas = (new Date(reuniao.inicio).getTime() - agora) / 3600000;
+  const antecedencia = antecedenciaEmPalavras(horas);
+
+  return (
+    <div className="border-t border-hipo-border pt-4 space-y-3">
+      <p className="flex items-center gap-1.5 text-sm font-medium text-hipo-ink">
+        <ClipboardCheck size={14} className="text-hipo-blue" />
+        O que aconteceu?
+      </p>
+
+      <div
+        role="radiogroup"
+        aria-label="Desfecho da reunião"
+        className="grid grid-cols-1 sm:grid-cols-3 gap-2"
+      >
+        {DESFECHOS.map((d) => {
+          const Icone = d.Icone;
+          const marcado = escolha === d.valor;
+          return (
+            <button
+              key={d.valor}
+              type="button"
+              role="radio"
+              aria-checked={marcado}
+              onClick={() => setEscolha(d.valor)}
+              className={
+                'text-left px-3 py-2 rounded-lg border transition-colors ' +
+                'focus:outline-none focus-visible:ring-2 focus-visible:ring-hipo-blue ' +
+                (marcado
+                  ? 'border-hipo-blue bg-hipo-blueSoft'
+                  : 'border-hipo-border hover:bg-hipo-bg')
+              }
+            >
+              <span className="flex items-center gap-1.5 text-sm font-medium text-hipo-ink">
+                <Icone size={14} aria-hidden="true" />
+                {d.rotulo}
+              </span>
+              <span className="block mt-0.5 text-[11px] leading-snug text-hipo-slate">
+                {d.ajuda}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+
+      {/*
+        A régua das 24h escrita por extenso, e não deixada como conta de
+        cabeça. Quem lê "avisado 3h antes" entende num relance por que o
+        sistema propôs no-show — e discorda com conhecimento de causa, se
+        for o caso.
+      */}
+      {antecedencia && reuniao.desfecho_sugerido !== 'realizada' && (
+        <p className="text-xs text-hipo-slate">
+          A reunião foi {antecedencia === 'depois da hora marcada'
+            ? 'marcada para antes de agora'
+            : `avisada ${antecedencia}`}
+          {' '}— pela régua das 24h isso é{' '}
+          <strong className="font-medium text-hipo-ink">
+            {POR_DESFECHO[reuniao.desfecho_sugerido]?.rotulo?.toLowerCase()}
+          </strong>.
+        </p>
+      )}
+
+      <Textarea
+        id={`desfecho-obs-${reuniao.id}`}
+        label="O que aconteceu (opcional)"
+        rows={2}
+        value={observacao}
+        onChange={(e) => setObservacao(e.target.value)}
+        placeholder={escolha === 'realizada'
+          ? 'Gostaram do PCMSO, pediram proposta para 40 vidas'
+          : 'Cliente pediu para remarcar na semana que vem'}
+      />
+
+      {/*
+        Só "Realizada" conclui a tarefa, e é por isso que só ela exige a
+        próxima: concluir é dizer que o negócio ANDOU, e negócio que anda
+        tem próximo passo. Cancelar não é isso — mas aceita a próxima do
+        mesmo jeito, porque remarcar é o desfecho natural de um no-show.
+      */}
+      {exigeProxima ? (
+        <div className="space-y-2">
+          <p className="flex items-center gap-1.5 text-xs text-hipo-slate">
+            <AlertTriangle size={13} className="text-hipo-warning shrink-0" />
+            Toda reunião realizada exige a próxima. Se não há próximo passo,
+            finalize a oportunidade.
+          </p>
+          <CamposTarefa
+            valor={proxima}
+            onChange={setProxima}
+            usuarios={usuarios}
+            prefixo="Próxima: "
+            idBase={`proxima-reuniao-${reuniao.id}`}
+          />
+        </div>
+      ) : (
+        escolha !== 'realizada' && (
+          <p className="text-xs text-hipo-slate">
+            O evento sai da agenda de todo mundo e o Google avisa o cliente.
+            O horário volta a ficar livre.
+          </p>
+        )
+      )}
+
+      <div className="flex justify-end">
+        <Button
+          loading={ocupado}
+          disabled={exigeProxima && formIncompleto(proxima)}
+          onClick={() => onRegistrar({
+            desfecho: escolha,
+            observacao: observacao.trim() || null,
+            proxima: exigeProxima ? corpoDaTarefa(proxima) : null,
+          })}
+        >
+          Registrar {POR_DESFECHO[escolha]?.rotulo?.toLowerCase()}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 // ── Componente ───────────────────────────────────────────────────────
 
 export default function ModalReuniao({
@@ -233,8 +450,10 @@ export default function ModalReuniao({
   const [contatos, setContatos] = useState([]);
   const [erro, setErro] = useState(null);
   const [ocupado, setOcupado] = useState(false);
-  const [confirmandoCancelamento, setConfirmandoCancelamento] = useState(false);
-  const [motivo, setMotivo] = useState('');
+
+  // Quem está na tela agora — o padrão de "Agendado por" na criação.
+  const usuarioLogado = useMemo(() => getUser(), []);
+  const eu = usuarioLogado?.id ? String(usuarioLogado.id) : '';
 
   // Remonta o formulário sempre que o modal abre num alvo diferente. A
   // chave é o id da reunião (ou o slot, na criação): sem ela, abrir um
@@ -243,13 +462,15 @@ export default function ModalReuniao({
   useEffect(() => {
     if (!aberto) return;
     setErro(null);
-    setConfirmandoCancelamento(false);
-    setMotivo('');
     if (reuniao) {
       setForm(formDaReuniao(reuniao));
     } else {
       setForm({
         ...formVazio(anfitriaoInicial),
+        // O crédito do agendamento é de quem está marcando, não de quem
+        // vai receber a reunião. Com a grade da equipe aberta, esses dois
+        // são pessoas diferentes em todo agendamento que o SDR faz.
+        agendado_por: eu,
         inicio: slotInicial || '',
         oportunidade: oportunidade || null,
         contato_id: oportunidade?.contato_id || '',
@@ -300,6 +521,10 @@ export default function ModalReuniao({
       titulo: form.titulo.trim() || null,
       inicio: paraIso(form.inicio),
       anfitriao_id: form.anfitriao_id,
+      // Em branco o servidor usa quem criou. Só chega null quando a lista
+      // de usuários não carregou — e nesse caso o padrão do servidor é
+      // melhor que gravar vazio.
+      agendado_por: form.agendado_por || null,
     };
     if (editando) return base;
     return { ...base, oportunidade_id: form.oportunidade.id };
@@ -334,12 +559,22 @@ export default function ModalReuniao({
     if (salva) onFechar();
   }
 
-  async function cancelarReuniao() {
+  /*
+    A ÚNICA porta que fecha uma reunião pela agenda.
+
+    Existe um POST /cancelar no servidor, e ele NÃO é usado aqui de
+    propósito: cancelar por ali fecharia a tarefa sem gravar desfecho, e a
+    reunião sairia da contagem de canceladas e de no-shows ao mesmo tempo
+    — some do numerador sem sair do denominador. O endpoint continua
+    servindo o cancelamento vindo da tela de Tarefas, que não conhece a
+    agenda; a dedução de `desfecho_efetivo` cobre esse caso.
+  */
+  async function registrarDesfecho(corpoDesfecho) {
     const feita = await acao(
-      () => api.post(`/crm/agenda/reunioes/${reuniao.id}/cancelar`, {
-        motivo: motivo.trim() || null,
-      }),
-      'Não foi possível cancelar a reunião.',
+      () => api.post(
+        `/crm/agenda/reunioes/${reuniao.id}/desfecho`, corpoDesfecho,
+      ),
+      'Não foi possível registrar o desfecho da reunião.',
     );
     if (feita) onFechar();
   }
@@ -385,10 +620,16 @@ export default function ModalReuniao({
           />
         )}
 
+        {/*
+          O desfecho fica ao PÉ do modal, junto do resto do registro; aqui
+          em cima vai só o aviso de que não dá mais para mexer — senão a
+          pessoa desce o formulário inteiro tentando editar campos
+          desabilitados antes de descobrir o motivo.
+        */}
         {fechada && (
           <AlertMessage tipo="info">
-            Esta reunião já foi {reuniao.situacao === 'cancelada' ? 'cancelada' : 'realizada'}.
-            O histórico é imutável.
+            Reunião encerrada — o histórico é imutável. O desfecho está no
+            fim deste painel.
           </AlertMessage>
         )}
 
@@ -453,6 +694,29 @@ export default function ModalReuniao({
             <option value="">— selecione —</option>
             {usuarios.map((u) => (
               <option key={u.id} value={u.id}>{u.nome}</option>
+            ))}
+          </Select>
+
+          {/*
+            Anfitrião é DE QUEM é a reunião; agendado por é DE QUEM é o
+            crédito. Lado a lado porque é a diferença entre os dois que
+            precisa ficar óbvia — o SDR que marca para o EV preenche os
+            dois com pessoas diferentes, e é dessa linha que sai o número
+            de agendamentos do dia dele.
+          */}
+          <Select
+            id="reuniao-agendado-por"
+            label="Agendado por"
+            value={form.agendado_por}
+            disabled={fechada}
+            onChange={set('agendado_por')}
+            hint="Quem marcou a reunião — entra na contagem de agendamentos."
+          >
+            <option value="">— quem está criando —</option>
+            {usuarios.map((u) => (
+              <option key={u.id} value={u.id}>
+                {String(u.id) === eu ? `${u.nome} (você)` : u.nome}
+              </option>
             ))}
           </Select>
 
@@ -598,48 +862,19 @@ export default function ModalReuniao({
           />
         </div>
 
-        {/* ── Cancelamento ── */}
-        {editando && !fechada && (
-          <div className="border-t border-hipo-border pt-4">
-            {confirmandoCancelamento ? (
-              <div className="space-y-2">
-                <Textarea
-                  id="reuniao-motivo"
-                  label="Motivo do cancelamento (opcional)"
-                  rows={2}
-                  value={motivo}
-                  onChange={(e) => setMotivo(e.target.value)}
-                  placeholder="Cliente pediu para remarcar"
-                />
-                <p className="flex items-start gap-1.5 text-xs text-hipo-slate">
-                  <AlertTriangle size={13} className="text-hipo-warning shrink-0 mt-0.5" />
-                  O evento sai da agenda de todo mundo e o Google avisa o
-                  cliente. O horário volta a ficar livre.
-                </p>
-                <div className="flex justify-end gap-2">
-                  <Button
-                    size="sm" variant="ghost"
-                    onClick={() => setConfirmandoCancelamento(false)}
-                  >
-                    Voltar
-                  </Button>
-                  <Button
-                    size="sm" variant="danger" loading={ocupado}
-                    onClick={cancelarReuniao}
-                  >
-                    Cancelar reunião
-                  </Button>
-                </div>
-              </div>
-            ) : (
-              <Button
-                size="sm" variant="ghost" icon={Trash2}
-                onClick={() => setConfirmandoCancelamento(true)}
-              >
-                Cancelar reunião
-              </Button>
-            )}
-          </div>
+        {/* ── O desfecho ── */}
+        {editando && (
+          fechada
+            ? <DesfechoRegistrado reuniao={reuniao} />
+            : (
+              <PainelDesfecho
+                key={reuniao.id}
+                reuniao={reuniao}
+                usuarios={usuarios}
+                ocupado={ocupado}
+                onRegistrar={registrarDesfecho}
+              />
+            )
         )}
 
         {/* ── Ações ── */}

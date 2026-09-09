@@ -510,3 +510,271 @@ class TestDescricaoDoEvento:
             modalidade="online",
         )
         assert "09/09 às 09:30" in texto
+
+
+# ── O desfecho ───────────────────────────────────────────────────────
+#
+# Três resultados, e a fronteira entre os dois últimos é uma régua de
+# relógio: 24h de antecedência. O que a pessoa registra ganha da dedução —
+# a dedução só entra quando ninguém registrou nada.
+
+from datetime import timedelta
+
+
+class TestAntecedencia:
+    def test_conta_horas_antes_do_inicio(self):
+        inicio = em(2026, 9, 10, 14, 0)
+        assert regras.antecedencia_horas(inicio, em(2026, 9, 10, 11, 0)) == 3.0
+
+    def test_negativa_quando_o_aviso_veio_depois(self):
+        """
+        O cliente que simplesmente não apareceu, e o vendedor registrou às
+        14h20 uma reunião das 14h. Cai em no-show pela própria conta, sem
+        precisar de uma regra separada para "não apareceu".
+        """
+        inicio = em(2026, 9, 10, 14, 0)
+        assert regras.antecedencia_horas(inicio, em(2026, 9, 10, 14, 20)) < 0
+
+    def test_normaliza_ingenuo_e_com_fuso_do_mesmo_jeito(self):
+        """
+        Três horas é exatamente a distância entre BRT e UTC — e exatamente
+        a distância que separa um cancelamento de um no-show numa véspera.
+        Misturar as duas normalizações produziria a classificação errada
+        sem erro nenhum aparecer.
+        """
+        from datetime import timezone
+        inicio_ingenuo = datetime(2026, 9, 10, 14, 0)
+        inicio_utc = datetime(2026, 9, 10, 17, 0, tzinfo=timezone.utc)
+        momento = em(2026, 9, 10, 11, 0)
+        assert (
+            regras.antecedencia_horas(inicio_ingenuo, momento)
+            == regras.antecedencia_horas(inicio_utc, momento)
+            == 3.0
+        )
+
+
+class TestDesfechoPeloRelogio:
+    def test_muito_antes_e_cancelamento(self):
+        inicio = em(2026, 9, 10, 14, 0)
+        assert regras.desfecho_pelo_relogio(inicio, em(2026, 9, 7, 9, 0)) == "cancelada"
+
+    def test_em_cima_da_hora_e_no_show(self):
+        inicio = em(2026, 9, 10, 14, 0)
+        assert regras.desfecho_pelo_relogio(inicio, em(2026, 9, 10, 12, 0)) == "no_show"
+
+    def test_exatamente_24h_conta_como_cancelamento(self):
+        """
+        A régua é "com 24h OU MAIS", e quem avisou no limite avisou dentro
+        dele. Um `>` no lugar do `>=` transformaria o aviso pontual em
+        falta — e é o tipo de erro que só aparece na reclamação de alguém.
+        """
+        inicio = em(2026, 9, 10, 14, 0)
+        assert regras.desfecho_pelo_relogio(inicio, em(2026, 9, 9, 14, 0)) == "cancelada"
+
+    def test_um_minuto_depois_do_limite_e_no_show(self):
+        inicio = em(2026, 9, 10, 14, 0)
+        assert regras.desfecho_pelo_relogio(inicio, em(2026, 9, 9, 14, 1)) == "no_show"
+
+    def test_depois_da_hora_e_no_show(self):
+        inicio = em(2026, 9, 10, 14, 0)
+        assert regras.desfecho_pelo_relogio(inicio, em(2026, 9, 10, 14, 20)) == "no_show"
+
+    def test_o_limite_e_parametrizavel_para_teste(self):
+        """
+        A constante é 24h e assim fica. O parâmetro existe para o teste
+        provar a fronteira sem depender do valor de produção — mesmo padrão
+        de `hoje: date | None` nas regras de negócio do projeto.
+        """
+        inicio = em(2026, 9, 10, 14, 0)
+        assert regras.desfecho_pelo_relogio(
+            inicio, em(2026, 9, 10, 12, 0), limite_horas=1
+        ) == "cancelada"
+
+
+class TestDesfechoEfetivo:
+    INICIO = em(2026, 9, 10, 14, 0)
+
+    def test_o_registrado_ganha_de_tudo(self):
+        """
+        É o dado de melhor qualidade que existe aqui. Sobrescrevê-lo com
+        uma dedução seria dizer à equipe que o clique dela não vale nada.
+        """
+        assert regras.desfecho_efetivo(
+            desfecho="realizada",
+            concluida_em=None,
+            cancelada_em=em(2026, 9, 10, 13, 0),   # a dedução diria no_show
+            inicio=self.INICIO,
+        ) == "realizada"
+
+    def test_tarefa_concluida_sem_registro_vira_realizada(self):
+        """
+        Acontece quando alguém fecha a reunião pela aba de Tarefas ou pela
+        tela de gestão, que não conhecem a agenda. Sem esta regra, uma
+        reunião que comprovadamente aconteceu ficaria pendente para sempre.
+        """
+        assert regras.desfecho_efetivo(
+            desfecho=None, concluida_em=em(2026, 9, 10, 15, 0),
+            cancelada_em=None, inicio=self.INICIO,
+        ) == "realizada"
+
+    def test_tarefa_cancelada_sem_registro_pergunta_ao_relogio(self):
+        assert regras.desfecho_efetivo(
+            desfecho=None, concluida_em=None,
+            cancelada_em=em(2026, 9, 5, 9, 0), inicio=self.INICIO,
+        ) == "cancelada"
+        assert regras.desfecho_efetivo(
+            desfecho=None, concluida_em=None,
+            cancelada_em=em(2026, 9, 10, 13, 0), inicio=self.INICIO,
+        ) == "no_show"
+
+    def test_nada_registrado_e_nada_fechado_devolve_none(self):
+        """
+        None é informação, não falha: é o que a tela usa para COBRAR o
+        registro em vez de inventar um resultado que ninguém afirmou.
+        """
+        assert regras.desfecho_efetivo(
+            desfecho=None, concluida_em=None, cancelada_em=None,
+            inicio=self.INICIO,
+        ) is None
+
+
+class TestSugestaoDeDesfecho:
+    """
+    A sugestão NÃO é o `desfecho_pelo_relogio` cru.
+
+    O relógio responde "cancelamento ou no-show"; o formulário pergunta "o
+    que aconteceu". Para uma reunião que já terminou a antecedência é
+    negativa, e usar o relógio direto pré-selecionaria no-show em toda
+    reunião passada — o padrão errado no caso mais comum, e um Enter
+    distraído bastaria para transformar uma reunião que aconteceu em falta
+    do cliente.
+    """
+    INICIO = em(2026, 9, 10, 14, 0)   # 14h, 30 min -> termina 14h30
+
+    def test_reuniao_que_terminou_sugere_realizada(self):
+        assert regras.sugestao_de_desfecho(
+            self.INICIO, 30, em(2026, 9, 10, 15, 0)
+        ) == "realizada"
+
+    def test_exatamente_no_fim_ja_sugere_realizada(self):
+        """
+        Às 14h30 em ponto a reunião das 14h acabou. Mesma fronteira de
+        `pendente_de_desfecho`, e as duas precisam concordar: uma reunião
+        que aparece como pendente e abre o formulário sugerindo no-show
+        estaria cobrando e respondendo errado no mesmo gesto.
+        """
+        assert regras.sugestao_de_desfecho(
+            self.INICIO, 30, em(2026, 9, 10, 14, 30)
+        ) == "realizada"
+
+    def test_em_andamento_ainda_nao_sugere_realizada(self):
+        """
+        14h05: a reunião das 14h está acontecendo. Quem abre o formulário
+        agora está registrando que o cliente não apareceu.
+        """
+        assert regras.sugestao_de_desfecho(
+            self.INICIO, 30, em(2026, 9, 10, 14, 5)
+        ) == "no_show"
+
+    def test_desmarcada_com_antecedencia_sugere_cancelada(self):
+        assert regras.sugestao_de_desfecho(
+            self.INICIO, 30, em(2026, 9, 7, 9, 0)
+        ) == "cancelada"
+
+    def test_desmarcada_em_cima_da_hora_sugere_no_show(self):
+        assert regras.sugestao_de_desfecho(
+            self.INICIO, 30, em(2026, 9, 10, 12, 0)
+        ) == "no_show"
+
+    def test_a_duracao_desloca_a_fronteira(self):
+        """
+        Uma reunião de 2h que começou às 14h não terminou às 14h30 — e o
+        formulário aberto no meio dela não pode sugerir que ela aconteceu.
+        """
+        assert regras.sugestao_de_desfecho(
+            self.INICIO, 120, em(2026, 9, 10, 15, 0)
+        ) == "no_show"
+        assert regras.sugestao_de_desfecho(
+            self.INICIO, 120, em(2026, 9, 10, 16, 1)
+        ) == "realizada"
+
+    def test_sempre_devolve_um_desfecho_valido(self):
+        for momento in (em(2026, 9, 1, 8, 0), em(2026, 9, 10, 14, 10),
+                        em(2026, 9, 30, 8, 0)):
+            assert regras.sugestao_de_desfecho(
+                self.INICIO, 30, momento
+            ) in regras.DESFECHOS
+
+
+class TestPendenteDeDesfecho:
+    INICIO = em(2026, 9, 10, 14, 0)
+
+    def _pendente(self, **troca):
+        base = dict(
+            desfecho=None, concluida_em=None, cancelada_em=None,
+            inicio=self.INICIO, duracao_min=30,
+            agora=em(2026, 9, 10, 18, 0),
+        )
+        base.update(troca)
+        return regras.pendente_de_desfecho(**base)
+
+    def test_terminou_e_ninguem_marcou(self):
+        assert self._pendente() is True
+
+    def test_ainda_nao_comecou(self):
+        assert self._pendente(agora=em(2026, 9, 10, 9, 0)) is False
+
+    def test_no_meio_da_reuniao_nao_cobra(self):
+        """
+        Às 14h05 a reunião das 14h ainda está acontecendo. A conta é a
+        partir do FIM, não do início — cobrar o desfecho no meio dela seria
+        ruído puro.
+        """
+        assert self._pendente(agora=em(2026, 9, 10, 14, 5)) is False
+
+    def test_no_minuto_do_fim_ja_cobra(self):
+        assert self._pendente(agora=em(2026, 9, 10, 14, 30)) is True
+
+    def test_reuniao_longa_so_cobra_depois_do_fim_dela(self):
+        assert self._pendente(duracao_min=180, agora=em(2026, 9, 10, 16, 0)) is False
+        assert self._pendente(duracao_min=180, agora=em(2026, 9, 10, 17, 30)) is True
+
+    def test_registrada_nao_e_pendente(self):
+        assert self._pendente(desfecho="no_show") is False
+
+    def test_fechada_por_outra_tela_nao_e_pendente(self):
+        """
+        A dedução de `desfecho_efetivo` também apaga a pendência — senão a
+        barra cobraria uma reunião que a tela de Tarefas já fechou.
+        """
+        assert self._pendente(concluida_em=em(2026, 9, 10, 15, 0)) is False
+        assert self._pendente(cancelada_em=em(2026, 9, 9, 9, 0)) is False
+
+
+class TestVocabularioDoDesfecho:
+    def test_os_tres_valores(self):
+        assert regras.DESFECHOS == ("realizada", "cancelada", "no_show")
+
+    def test_underscore_e_nao_hifen(self):
+        """
+        Vai para um CHECK do banco e para chave de dicionário nos dois
+        lados. O hífen aparece só no rótulo.
+        """
+        assert "no_show" in regras.DESFECHOS
+        assert regras.ROTULO_DESFECHO["no_show"] == "No-show"
+
+    def test_todo_desfecho_tem_rotulo(self):
+        for d in regras.DESFECHOS:
+            assert regras.ROTULO_DESFECHO[d]
+
+    def test_recusa_desconhecido(self):
+        with pytest.raises(AgendaInvalida, match="Desfecho inválido"):
+            regras.validar_desfecho("faltou")
+
+    def test_so_cancelada_e_no_show_encerram(self):
+        assert regras.encerra_a_reuniao("cancelada") is True
+        assert regras.encerra_a_reuniao("no_show") is True
+        assert regras.encerra_a_reuniao("realizada") is False
+
+    def test_o_limite_de_24h_e_o_da_operacao(self):
+        assert regras.HORAS_ANTECEDENCIA_MINIMA == 24

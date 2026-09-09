@@ -62,6 +62,11 @@ function reuniao(id, extra = {}) {
     google_event_id: 'evt-1', google_link: 'https://meet.google.com/abc',
     google_sincronizado_em: '2026-09-01T12:00:00Z', google_erro: null,
     observacoes: null, criado_em: '2026-09-01T12:00:00Z',
+    agendado_por: 'u2', agendado_por_nome: 'Bruno Gonçalo',
+    desfecho: null, desfecho_efetivo: null, desfecho_rotulo: null,
+    desfecho_em: null, desfecho_por_nome: null, desfecho_observacao: null,
+    desfecho_antecedencia_horas: null,
+    desfecho_sugerido: 'cancelada', pendente_de_desfecho: false,
     ...extra,
   };
 }
@@ -79,7 +84,7 @@ function semana(extra = {}) {
     anfitriao_id: 'u1', anfitriao_nome: 'Jakeline Santana',
     slots: SLOTS,
     dias,
-    total: 0, concluidas: 0, canceladas: 0,
+    total: 0, concluidas: 0, canceladas: 0, pendentes: 0,
     livres: 90, nao_sincronizadas: 0,
     google_configurado: true,
     ...extra,
@@ -279,20 +284,127 @@ describe('Agenda — marcar clicando no horário livre', () => {
     expect(campo.value).toBe('2026-09-09T14:00');
   });
 
-  it('sem uma pessoa escolhida, não dá para marcar clicando', async () => {
+  it('na visão da equipe também dá para marcar', async () => {
     /*
-      A célula vazia é vazia para QUEM? Cinco agendas sobrepostas não têm
-      buraco comum, e o clique criaria a reunião no dono errado.
+      Quem abre a grade da equipe é o SDR, e ele abre justamente para achar
+      onde cabe a reunião do EV. Trancar o clique ali mandava trocar de
+      agenda antes de marcar — e a visão que mostra o buraco não era a que
+      deixava tapá-lo.
     */
     mockGetUser.mockReturnValue(null);
     responder(semana({ anfitriao_id: null, anfitriao_nome: null, livres: null }));
     await renderizar();
+    fireEvent.click(screen.getByLabelText('Marcar reunião em 09/set às 14:00'));
+    expect(await screen.findByRole('dialog')).toBeInTheDocument();
+    expect(screen.getByLabelText('Data e hora').value).toBe('2026-09-09T14:00');
+  });
+
+  it('sem anfitrião escolhido, o formulário abre vazio e travado', async () => {
+    /*
+      A trava saiu da grade e ficou no formulário, que é onde ela cabe: o
+      dono da reunião é uma pergunta do formulário, não uma condição para
+      abri-lo.
+    */
+    mockGetUser.mockReturnValue(null);
+    responder(semana({ anfitriao_id: null, anfitriao_nome: null, livres: null }));
+    await renderizar();
+    fireEvent.click(screen.getByLabelText('Marcar reunião em 09/set às 14:00'));
+    await screen.findByRole('dialog');
+    expect(screen.getByLabelText('Anfitrião').value).toBe('');
     expect(
-      screen.getByLabelText('Marcar reunião em 09/set às 14:00')
+      screen.getByText('Marcar e enviar convite').closest('button')
     ).toBeDisabled();
+  });
+
+  it('avisa que a grade da equipe é a mesma para todo mundo', async () => {
+    mockGetUser.mockReturnValue(null);
+    responder(semana({ anfitriao_id: null, anfitriao_nome: null, livres: null }));
+    await renderizar();
     expect(
-      screen.getByText(/Escolha uma pessoa para marcar reuniões/)
+      screen.getByText(/aparece ocupado aqui para todo mundo/)
     ).toBeInTheDocument();
+  });
+});
+
+// ── Rastreio: quem marcou e o que aconteceu ──────────────────────────
+
+describe('Agenda — rastreio', () => {
+  it('filtra por quem marcou, sem mexer no filtro de anfitrião', async () => {
+    /*
+      "As reuniões que EU marquei para o Bruno" precisa dos dois filtros ao
+      mesmo tempo. Um seletor só obrigaria a escolher qual das duas visões
+      existe — e o SDR perderia a única que mostra o trabalho dele.
+    */
+    await renderizar();
+    fireEvent.change(screen.getByLabelText('Agendado por'), {
+      target: { value: 'u2' },
+    });
+    await waitFor(() => {
+      const ultima = mockGet.mock.calls
+        .filter((c) => c[0] === '/crm/agenda/semana').at(-1);
+      expect(ultima[1].params.agendado_por).toBe('u2');
+      expect(ultima[1].params.anfitriao_id).toBe('u1');
+    });
+  });
+
+  it('cobra as reuniões que passaram sem desfecho', async () => {
+    /*
+      A contrapartida de não adivinhar: sem um número visível cobrando, a
+      reunião esquecida sairia de toda estatística em silêncio.
+    */
+    responder(semana({ pendentes: 3 }));
+    await renderizar();
+    expect(await screen.findByText('Sem desfecho')).toBeInTheDocument();
+    expect(screen.getByText('3')).toBeInTheDocument();
+  });
+
+  it('sem pendências, o contador não aparece', async () => {
+    await renderizar();
+    expect(screen.queryByText('Sem desfecho')).not.toBeInTheDocument();
+  });
+
+  it('marca o cartão pendente com borda tracejada', async () => {
+    const s = semana();
+    s.dias[1].reunioes = [reuniao('r1', {
+      situacao: 'atrasada', pendente_de_desfecho: true,
+      desfecho_sugerido: 'realizada',
+    })];
+    responder(s);
+    await renderizar();
+    const cartao = (await screen.findByTitle(/falta registrar o que aconteceu/));
+    expect(cartao.className).toContain('border-dashed');
+  });
+
+  it('o no-show não some junto com a cancelada', async () => {
+    /*
+      Riscado e cinza igual à cancelada, os dois somem juntos da leitura da
+      grade — e é justamente o no-show que precisa saltar aos olhos.
+    */
+    const s = semana();
+    s.dias[1].reunioes = [reuniao('r1', {
+      situacao: 'cancelada', cancelada_em: '2026-09-08T13:00:00Z',
+      desfecho: 'no_show', desfecho_efetivo: 'no_show',
+      desfecho_rotulo: 'No-show', desfecho_sugerido: null,
+    })];
+    responder(s);
+    await renderizar();
+    const cartao = await screen.findByTitle(/No-show/);
+    expect(cartao.className).toContain('text-hipo-danger');
+    expect(cartao.className).not.toContain('line-through');
+  });
+
+  it('abre a produtividade da semana que está na tela', async () => {
+    /*
+      Um seletor de período próprio faria o número aberto discordar da
+      grade atrás dele.
+    */
+    await renderizar();
+    fireEvent.click(screen.getByLabelText('Produtividade da agenda'));
+    await waitFor(() => {
+      const chamada = mockGet.mock.calls
+        .find((c) => c[0] === '/crm/agenda/produtividade');
+      expect(chamada[1].params).toEqual({ de: '2026-09-07', ate: '2026-09-11' });
+    });
   });
 });
 

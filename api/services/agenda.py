@@ -19,7 +19,12 @@ Quatro assuntos moram aqui:
   3. O CONFLITO. Duas reuniões do mesmo anfitrião que se sobrepõem no
      tempo não podem existir: a pessoa não se divide.
 
-  4. OS DOIS TEXTOS, e são dois porque são dois leitores. O RÓTULO
+  4. O DESFECHO. A reunião aconteceu, foi cancelada com antecedência, ou
+     virou no-show. É o que alimenta as duas perguntas de rastreio:
+     quantos agendamentos por dia por SDR, e quantas reuniões por dia por
+     EV — e com que resultado.
+
+  5. OS DOIS TEXTOS, e são dois porque são dois leitores. O RÓTULO
      ("CF - XPTO (Bruno) - ON") é o da planilha: curto, com sigla e
      primeiro nome, para caber na célula da grade e ser lido de relance
      por quem já conhece o negócio. O CONVITE (`titulo_evento` e
@@ -49,6 +54,10 @@ __all__ = [
     "janela_da_semana", "validar_duracao", "validar_modalidade",
     "validar_dia_da_semana", "normalizar_convidados",
     "primeiro_nome", "rotulo", "EMPRESA", "titulo_evento", "descricao_evento",
+    "DESFECHOS", "ROTULO_DESFECHO", "HORAS_ANTECEDENCIA_MINIMA",
+    "antecedencia_horas", "desfecho_pelo_relogio", "sugestao_de_desfecho",
+    "desfecho_efetivo",
+    "pendente_de_desfecho", "validar_desfecho", "encerra_a_reuniao",
 ]
 
 # Teto de convidados externos numa reunião. Não é limite do Google (que
@@ -352,6 +361,213 @@ def normalizar_convidados(valores: list[str] | None) -> list[str]:
             f"No máximo {MAX_CONVIDADOS} convidados externos por reunião."
         )
     return saida
+
+
+# ── O desfecho ───────────────────────────────────────────────────────
+#
+# Três resultados possíveis, e a diferença entre os dois últimos é uma
+# regra de RELÓGIO, não de opinião:
+#
+#     realizada  — aconteceu
+#     cancelada  — desmarcada com 24h ou mais de antecedência
+#     no_show    — desmarcada com MENOS de 24h, ou depois da hora
+#
+# POR QUE O DESFECHO É GUARDADO E NÃO SÓ DERIVADO
+#   Dava para deduzir tudo de `tarefas`: concluída = realizada, cancelada +
+#   relógio = cancelada ou no-show. E é exatamente isso que
+#   `desfecho_efetivo` faz quando ninguém registrou nada.
+#
+#   Só que a dedução pura tem um furo com consequência: ela mede A HORA DO
+#   CLIQUE, não a hora do aviso. O cliente que avisa na segunda uma reunião
+#   de quinta, com o EV registrando só na quarta, viraria "cancelada" — mas
+#   o EV que registra na hora um aviso de véspera vira "no-show". O número
+#   passaria a medir quem clica rápido, e é o SDR e o EV que respondem por
+#   ele.
+#
+#   Por isso o formulário PERGUNTA o status (foi o que ficou decidido) e a
+#   resposta é guardada. O relógio não sai de cena: ele SUGERE a opção, com
+#   a antecedência escrita ao lado. Um clique no caso normal, e a regra das
+#   24h fica visível na tela em vez de virar conta de cabeça.
+#
+# `no_show` com underscore, e não hífen: vai para um CHECK do banco e para
+# chave de dicionário nos dois lados. O hífen aparece só no rótulo.
+
+DESFECHOS = ("realizada", "cancelada", "no_show")
+
+ROTULO_DESFECHO = {
+    "realizada": "Realizada",
+    "cancelada": "Cancelada",
+    "no_show": "No-show",
+}
+
+# A fronteira entre cancelamento e no-show, em horas de antecedência.
+# Constante e não coluna: mudar a régua muda o passado junto, e é isso que
+# se quer — a pergunta "quantos no-show tivemos" tem que ter uma resposta
+# só, não uma por época.
+HORAS_ANTECEDENCIA_MINIMA = 24
+
+# Os dois desfechos que fecham a reunião sem ela ter acontecido.
+_DESFECHOS_QUE_CANCELAM = ("cancelada", "no_show")
+
+
+def validar_desfecho(desfecho: str) -> str:
+    if desfecho not in DESFECHOS:
+        raise AgendaInvalida(
+            f"Desfecho inválido: '{desfecho}'. Use: {', '.join(DESFECHOS)}."
+        )
+    return desfecho
+
+
+def encerra_a_reuniao(desfecho: str) -> bool:
+    """
+    Este desfecho cancela a tarefa (em vez de concluí-la)?
+
+    Existe para que o router não precise repetir `in ('cancelada',
+    'no_show')` em três lugares — e para que acrescentar um quarto desfecho
+    um dia seja uma linha, não uma caçada.
+    """
+    return desfecho in _DESFECHOS_QUE_CANCELAM
+
+
+def antecedencia_horas(inicio: datetime, momento: datetime) -> float:
+    """
+    Quantas horas ANTES do início a reunião foi desmarcada.
+
+    Negativo quando o cancelamento veio depois da hora marcada — o caso do
+    cliente que simplesmente não apareceu e o vendedor registrou às 14h20
+    uma reunião das 14h. Cai em no-show pela própria conta, sem precisar de
+    uma regra separada para "não apareceu".
+    """
+    return (_com_fuso(inicio) - _com_fuso(momento)).total_seconds() / 3600
+
+
+def desfecho_pelo_relogio(
+    inicio: datetime, momento: datetime,
+    limite_horas: float = HORAS_ANTECEDENCIA_MINIMA,
+) -> str:
+    """
+    O que o relógio diz que este CANCELAMENTO é.
+
+    Responde a uma pergunta só: dado que a reunião não vai acontecer, isso
+    é cancelamento ou no-show? Exatamente 24h de antecedência conta como
+    cancelamento — a régua é "com 24h ou mais", e quem avisou no limite
+    avisou dentro dele.
+
+    Não é a sugestão que a tela pré-seleciona: para isso existe
+    `sugestao_de_desfecho`, que primeiro decide se o caso é de cancelamento.
+    """
+    return (
+        "cancelada"
+        if antecedencia_horas(inicio, momento) >= limite_horas
+        else "no_show"
+    )
+
+
+def sugestao_de_desfecho(
+    inicio: datetime, duracao_min: int, agora: datetime,
+) -> str:
+    """
+    O desfecho que a tela pré-seleciona no formulário.
+
+    A pergunta do formulário é "o que aconteceu", e a resposta mais provável
+    depende de um fato bobo: a reunião já passou?
+
+      já terminou   -> `realizada`. A esmagadora maioria das reuniões que
+                       chegaram ao fim aconteceu, e é essa a linha que
+                       alguém marca em lote na sexta à tarde.
+      ainda não     -> o relógio decide entre cancelada e no-show. Quem
+                       abre o formulário de uma reunião que ainda não
+                       começou está desmarcando — "realizada" ali seria
+                       oferecer como padrão um fato impossível.
+
+    A separação importa. Pré-selecionar direto o `desfecho_pelo_relogio`
+    daria `no_show` para toda reunião passada (a antecedência fica
+    negativa), e o padrão errado no caso mais comum é pior que padrão
+    nenhum: um Enter distraído vira no-show numa reunião que aconteceu, e o
+    número que o EV responde na segunda nasce torto.
+
+    Sugestão é sugestão: a pessoa escolhe, e o que ela escolher é o que
+    fica gravado. O relógio segue registrado ao lado, em
+    `desfecho_antecedencia_horas`.
+    """
+    if _com_fuso(fim_de(inicio, duracao_min)) <= _com_fuso(agora):
+        return "realizada"
+    return desfecho_pelo_relogio(inicio, agora)
+
+
+def desfecho_efetivo(
+    *,
+    desfecho: str | None,
+    concluida_em: datetime | None,
+    cancelada_em: datetime | None,
+    inicio: datetime,
+) -> str | None:
+    """
+    O desfecho que vale para contagem — o registrado, ou o deduzido.
+
+    A ordem não é arbitrária:
+
+      1. O QUE A PESSOA REGISTROU ganha de tudo. É o dado de melhor
+         qualidade que existe aqui, e sobrescrevê-lo com uma dedução seria
+         dizer à equipe que o clique dela não vale nada.
+      2. Tarefa concluída sem desfecho registrado -> `realizada`. Acontece
+         quando alguém fecha a reunião pela aba de Tarefas ou pela tela de
+         gestão, que não conhecem a agenda. Sem esta linha, uma reunião que
+         comprovadamente aconteceu ficaria "pendente" para sempre.
+      3. Tarefa cancelada sem desfecho -> o relógio decide. Mesmo caso: o
+         cancelamento veio de outra tela.
+      4. Nada disso -> None, e a reunião está em aberto ou pendente.
+
+    Devolver None é informação, não falha: é o que a tela usa para cobrar o
+    registro em vez de inventar um resultado que ninguém afirmou.
+    """
+    if desfecho:
+        return desfecho
+    if concluida_em is not None:
+        return "realizada"
+    if cancelada_em is not None:
+        return desfecho_pelo_relogio(inicio, cancelada_em)
+    return None
+
+
+def pendente_de_desfecho(
+    *,
+    desfecho: str | None,
+    concluida_em: datetime | None,
+    cancelada_em: datetime | None,
+    inicio: datetime,
+    duracao_min: int,
+    agora: datetime,
+) -> bool:
+    """
+    A reunião já terminou e ninguém disse o que aconteceu?
+
+    É a única saída para o buraco que a decisão de NÃO adivinhar deixa
+    aberto: sem desfecho automático depois de N horas, uma reunião esquecida
+    ficaria fora de toda estatística em silêncio. Aqui ela vira um número
+    visível na barra — "3 sem desfecho" — que cobra até alguém registrar.
+
+    Conta a partir do FIM, não do início: às 14h05 a reunião das 14h ainda
+    está acontecendo, e cobrar o desfecho no meio dela seria ruído.
+    """
+    if desfecho_efetivo(
+        desfecho=desfecho, concluida_em=concluida_em,
+        cancelada_em=cancelada_em, inicio=inicio,
+    ) is not None:
+        return False
+    return _com_fuso(fim_de(inicio, duracao_min)) <= _com_fuso(agora)
+
+
+def _com_fuso(d: datetime) -> datetime:
+    """
+    Datetime ingênuo é tratado como estando no fuso da operação.
+
+    Aqui a normalização precisa ser a mesma dos dois lados da subtração,
+    senão `antecedencia_horas` devolveria um número deslocado em três horas
+    — e três horas é exatamente a distância que separa um cancelamento de
+    um no-show numa véspera.
+    """
+    return d if d.tzinfo is not None else d.replace(tzinfo=FUSO_OPERACAO)
 
 
 # ── O rótulo ─────────────────────────────────────────────────────────

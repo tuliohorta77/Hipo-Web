@@ -19,6 +19,7 @@ e o caminho "integração desligada" é o mesmo que roda numa máquina de
 desenvolvimento, então é o que mais precisa de teste.
 """
 from datetime import datetime, timedelta
+from uuid import UUID
 
 import pytest
 
@@ -1153,3 +1154,559 @@ class TestLeitura:
         u = await criar_usuario(db_conn, client, "Gerente", "ex@teste.com")
         resp = await client.get("/crm/agenda/semana", headers=u["headers"])
         assert resp.status_code == 403
+
+
+# ── Quem agendou ─────────────────────────────────────────────────────
+
+class TestAgendadoPor:
+    """
+    `agendado_por` responde "de quem é o crédito" e é MÉTRICA;
+    `criado_por` responde "quem digitou" e é auditoria. São a mesma pessoa
+    em quase toda linha — e é no dia em que divergem, que é o dia em que
+    alguém cobre o colega, que a distinção paga por si.
+    """
+
+    async def test_em_branco_cai_em_quem_esta_criando(self, cenario, client):
+        r = await nova_reuniao(
+            client, cenario["headers"],
+            cenario["oportunidade"]["id"], cenario["usuario_id"],
+        )
+        assert r["agendado_por"] == cenario["usuario_id"]
+
+    async def test_explicito_ganha_de_quem_digitou(self, cenario, client, db_conn):
+        """O ADM lança em nome do SDR que marcou por telefone."""
+        sdr = await criar_usuario(db_conn, client, "SDR", "sdr-credito@teste.com")
+        id_sdr = (await client.get("/auth/me", headers=sdr["headers"])).json()["id"]
+        r = await nova_reuniao(
+            client, cenario["headers"],
+            cenario["oportunidade"]["id"], cenario["usuario_id"],
+            agendado_por=id_sdr,
+        )
+        assert r["agendado_por"] == id_sdr
+        # e `criado_por` continua guardando quem digitou
+        criado_por = await db_conn.fetchval(
+            "SELECT criado_por FROM reunioes WHERE id = $1", r["id"]
+        )
+        assert str(criado_por) == cenario["usuario_id"]
+
+    async def test_devolve_o_nome_para_a_tela(self, cenario, client):
+        r = await nova_reuniao(
+            client, cenario["headers"],
+            cenario["oportunidade"]["id"], cenario["usuario_id"],
+        )
+        assert r["agendado_por_nome"] == "Test ADM"
+
+    async def test_inativo_e_422(self, cenario, client, db_conn):
+        outro = await criar_usuario(db_conn, client, "SDR", "sdr-off@teste.com")
+        uid = (await client.get("/auth/me", headers=outro["headers"])).json()["id"]
+        await db_conn.execute("UPDATE usuarios SET ativo = FALSE WHERE id = $1", uid)
+        resp = await client.post(
+            "/crm/agenda/reunioes",
+            json={
+                "oportunidade_id": cenario["oportunidade"]["id"],
+                "anfitriao_id": cenario["usuario_id"],
+                "inicio": as_horas(proxima_segunda(), 9),
+                "agendado_por": uid,
+            },
+            headers=cenario["headers"],
+        )
+        assert resp.status_code == 422
+
+    async def test_editavel_depois(self, cenario, client, db_conn):
+        sdr = await criar_usuario(db_conn, client, "SDR", "sdr-troca@teste.com")
+        id_sdr = (await client.get("/auth/me", headers=sdr["headers"])).json()["id"]
+        r = await nova_reuniao(
+            client, cenario["headers"],
+            cenario["oportunidade"]["id"], cenario["usuario_id"],
+        )
+        resp = await client.patch(
+            f"/crm/agenda/reunioes/{r['id']}",
+            json={"agendado_por": id_sdr}, headers=cenario["headers"],
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["agendado_por"] == id_sdr
+
+    async def test_de_tarefa_tambem_aceita(self, cenario, client, db_conn):
+        sdr = await criar_usuario(db_conn, client, "SDR", "sdr-tarefa@teste.com")
+        id_sdr = (await client.get("/auth/me", headers=sdr["headers"])).json()["id"]
+        h, opp, uid = cenario["headers"], cenario["oportunidade"]["id"], cenario["usuario_id"]
+        t = (await client.post(
+            "/crm/tarefas",
+            json={
+                "oportunidade_id": opp, "tipo": "reuniao", "titulo": "Apresentar",
+                "responsavel_id": uid, "prazo": as_horas(proxima_segunda(), 16),
+            },
+            headers=h,
+        )).json()
+        resp = await client.post(
+            f"/crm/agenda/reunioes/de-tarefa/{t['id']}",
+            json={"agendado_por": id_sdr}, headers=h,
+        )
+        assert resp.status_code == 201, resp.text
+        assert resp.json()["agendado_por"] == id_sdr
+
+
+# ── O desfecho ───────────────────────────────────────────────────────
+
+def proxima_de(uid, semanas=2):
+    return {
+        "tipo": "ligacao", "titulo": "Retomar",
+        "responsavel_id": uid, "prazo": as_horas(proxima_segunda(semanas), 9),
+    }
+
+
+class TestDesfecho:
+    async def test_realizada_conclui_a_tarefa(self, cenario, client, db_conn):
+        h, opp, uid = cenario["headers"], cenario["oportunidade"]["id"], cenario["usuario_id"]
+        r = await nova_reuniao(client, h, opp, uid)
+        resp = await client.post(
+            f"/crm/agenda/reunioes/{r['id']}/desfecho",
+            json={"desfecho": "realizada", "observacao": "pediu proposta",
+                  "proxima": proxima_de(uid)},
+            headers=h,
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["desfecho"] == "realizada"
+        assert resp.json()["desfecho_efetivo"] == "realizada"
+        assert resp.json()["situacao"] == "concluida"
+        assert await db_conn.fetchval(
+            "SELECT resultado FROM tarefas WHERE id = $1", r["tarefa_id"]
+        ) == "pediu proposta"
+
+    async def test_realizada_exige_a_proxima(self, cenario, client):
+        """
+        É a regra da Sprint 5, e é ela que faz a reunião empurrar o funil
+        em vez de virar um fato isolado.
+        """
+        h, opp, uid = cenario["headers"], cenario["oportunidade"]["id"], cenario["usuario_id"]
+        r = await nova_reuniao(client, h, opp, uid)
+        resp = await client.post(
+            f"/crm/agenda/reunioes/{r['id']}/desfecho",
+            json={"desfecho": "realizada"}, headers=h,
+        )
+        assert resp.status_code == 422
+        assert "próxima" in resp.text
+
+    @pytest.mark.parametrize("desfecho", ["cancelada", "no_show"])
+    async def test_nao_realizada_cancela_e_nao_exige_proxima(
+        self, cenario, client, desfecho
+    ):
+        h, opp, uid = cenario["headers"], cenario["oportunidade"]["id"], cenario["usuario_id"]
+        r = await nova_reuniao(client, h, opp, uid)
+        resp = await client.post(
+            f"/crm/agenda/reunioes/{r['id']}/desfecho",
+            json={"desfecho": desfecho}, headers=h,
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["desfecho"] == desfecho
+        assert resp.json()["situacao"] == "cancelada"
+
+    async def test_no_show_aceita_a_proxima(self, cenario, client, db_conn):
+        """Remarcar é o desfecho natural de um no-show — só não é exigido."""
+        h, opp, uid = cenario["headers"], cenario["oportunidade"]["id"], cenario["usuario_id"]
+        r = await nova_reuniao(client, h, opp, uid)
+        resp = await client.post(
+            f"/crm/agenda/reunioes/{r['id']}/desfecho",
+            json={"desfecho": "no_show", "proxima": proxima_de(uid)}, headers=h,
+        )
+        assert resp.status_code == 200, resp.text
+        assert await db_conn.fetchval(
+            "SELECT count(*) FROM tarefas WHERE tarefa_anterior_id = $1", r["tarefa_id"]
+        ) == 1
+
+    async def test_guarda_a_antecedencia_do_relogio(self, cenario, client, db_conn):
+        """
+        O que o relógio dizia, ao lado do que a pessoa escolheu. É o único
+        jeito de responder depois "esse no-show foi avisado com quanto
+        tempo?" sem reconstruir nada.
+        """
+        h, opp, uid = cenario["headers"], cenario["oportunidade"]["id"], cenario["usuario_id"]
+        r = await nova_reuniao(client, h, opp, uid)
+        resp = await client.post(
+            f"/crm/agenda/reunioes/{r['id']}/desfecho",
+            json={"desfecho": "cancelada"}, headers=h,
+        )
+        horas = resp.json()["desfecho_antecedencia_horas"]
+        # A reunião foi marcada para a próxima segunda: dias de antecedência.
+        assert horas is not None and horas > 24
+
+    async def test_a_escolha_da_pessoa_nao_e_sobrescrita_pelo_relogio(
+        self, cenario, client
+    ):
+        """
+        O relógio diria "cancelada" (faltam dias). A pessoa disse no_show,
+        e é isso que fica: ela sabe de algo que o relógio não sabe.
+        """
+        h, opp, uid = cenario["headers"], cenario["oportunidade"]["id"], cenario["usuario_id"]
+        r = await nova_reuniao(client, h, opp, uid)
+        resp = await client.post(
+            f"/crm/agenda/reunioes/{r['id']}/desfecho",
+            json={"desfecho": "no_show"}, headers=h,
+        )
+        assert resp.json()["desfecho"] == "no_show"
+        assert resp.json()["desfecho_antecedencia_horas"] > 24
+
+    async def test_nao_se_registra_duas_vezes(self, cenario, client):
+        """
+        Reabrir apagaria o histórico pelo mesmo motivo que tarefa fechada é
+        imutável — e o número do mês passado mudaria depois de fechado.
+        """
+        h, opp, uid = cenario["headers"], cenario["oportunidade"]["id"], cenario["usuario_id"]
+        r = await nova_reuniao(client, h, opp, uid)
+        await client.post(
+            f"/crm/agenda/reunioes/{r['id']}/desfecho",
+            json={"desfecho": "cancelada"}, headers=h,
+        )
+        resp = await client.post(
+            f"/crm/agenda/reunioes/{r['id']}/desfecho",
+            json={"desfecho": "realizada", "proxima": proxima_de(uid)}, headers=h,
+        )
+        assert resp.status_code == 422
+        assert "já foi registrada" in resp.text
+
+    async def test_desfecho_invalido_e_422(self, cenario, client):
+        h, opp, uid = cenario["headers"], cenario["oportunidade"]["id"], cenario["usuario_id"]
+        r = await nova_reuniao(client, h, opp, uid)
+        resp = await client.post(
+            f"/crm/agenda/reunioes/{r['id']}/desfecho",
+            json={"desfecho": "faltou"}, headers=h,
+        )
+        assert resp.status_code == 422
+
+    async def test_sem_observacao_o_motivo_vira_o_desfecho(self, cenario, client, db_conn):
+        """
+        "cancelada" sem motivo nenhum na linha do tempo parece registro
+        pela metade para quem lê seis meses depois.
+        """
+        h, opp, uid = cenario["headers"], cenario["oportunidade"]["id"], cenario["usuario_id"]
+        r = await nova_reuniao(client, h, opp, uid)
+        await client.post(
+            f"/crm/agenda/reunioes/{r['id']}/desfecho",
+            json={"desfecho": "no_show"}, headers=h,
+        )
+        assert await db_conn.fetchval(
+            "SELECT motivo_cancelamento FROM tarefas WHERE id = $1", r["tarefa_id"]
+        ) == "No-show"
+
+    async def test_fechada_por_outra_tela_deduz_o_desfecho(self, cenario, client):
+        """
+        A aba de Tarefas e a tela de gestão não conhecem a agenda. Sem a
+        dedução, uma reunião que comprovadamente aconteceu ficaria pendente
+        para sempre.
+        """
+        h, opp, uid = cenario["headers"], cenario["oportunidade"]["id"], cenario["usuario_id"]
+        r = await nova_reuniao(client, h, opp, uid)
+        await client.post(
+            f"/crm/tarefas/{r['tarefa_id']}/concluir",
+            json={"resultado": "ok", "proxima": proxima_de(uid)}, headers=h,
+        )
+        depois = (await client.get(f"/crm/agenda/reunioes/{r['id']}", headers=h)).json()
+        assert depois["desfecho"] is None          # ninguém registrou
+        assert depois["desfecho_efetivo"] == "realizada"   # mas dá para deduzir
+        assert depois["pendente_de_desfecho"] is False
+
+    async def test_sugere_o_desfecho_enquanto_esta_em_aberto(self, cenario, client):
+        h, opp, uid = cenario["headers"], cenario["oportunidade"]["id"], cenario["usuario_id"]
+        r = await nova_reuniao(client, h, opp, uid)
+        # marcada para dias à frente: quem abrir o formulário agora está
+        # desmarcando, e com essa antecedência isso é cancelamento.
+        assert r["desfecho_sugerido"] == "cancelada"
+        assert r["desfecho_efetivo"] is None
+
+    async def test_reuniao_que_ja_passou_sugere_realizada(
+        self, cenario, client, db_conn,
+    ):
+        """
+        O caso mais comum do formulário: alguém fechando na sexta as
+        reuniões da semana. Sugerir no-show aqui — que é o que o relógio
+        cru diria, com a antecedência negativa — faria um Enter distraído
+        transformar uma reunião que aconteceu em falta do cliente.
+        """
+        h, opp, uid = cenario["headers"], cenario["oportunidade"]["id"], cenario["usuario_id"]
+        r = await nova_reuniao(client, h, opp, uid)
+        # Empurrar o prazo para trás pelo banco: a API recusa marcar no
+        # passado, e é justamente a reunião passada que interessa aqui.
+        await db_conn.execute(
+            "UPDATE tarefas SET prazo = NOW() - INTERVAL '3 hours' WHERE id = $1",
+            UUID(r["tarefa_id"]),
+        )
+        depois = (await client.get(f"/crm/agenda/reunioes/{r['id']}", headers=h)).json()
+        assert depois["desfecho_sugerido"] == "realizada"
+        assert depois["pendente_de_desfecho"] is True
+
+    async def test_a_sugestao_some_depois_de_registrado(self, cenario, client):
+        """
+        Uma sugestão ao lado de uma resposta já dada só convida a mexer no
+        que está certo.
+        """
+        h, opp, uid = cenario["headers"], cenario["oportunidade"]["id"], cenario["usuario_id"]
+        r = await nova_reuniao(client, h, opp, uid)
+        resp = await client.post(
+            f"/crm/agenda/reunioes/{r['id']}/desfecho",
+            json={"desfecho": "cancelada"}, headers=h,
+        )
+        assert resp.json()["desfecho_sugerido"] is None
+
+    async def test_realizada_mantem_o_evento_no_google(self, cenario, client, db_conn):
+        """
+        Apagar o evento de uma reunião que aconteceu limparia o histórico
+        do calendário do vendedor — que é onde ele reconstrói a semana.
+        Aqui o Google está desligado, então o que se prova é que a rota de
+        remoção NÃO é chamada: `google_erro` continua o da criação.
+        """
+        h, opp, uid = cenario["headers"], cenario["oportunidade"]["id"], cenario["usuario_id"]
+        r = await nova_reuniao(client, h, opp, uid)
+        resp = await client.post(
+            f"/crm/agenda/reunioes/{r['id']}/desfecho",
+            json={"desfecho": "realizada", "proxima": proxima_de(uid)}, headers=h,
+        )
+        assert resp.status_code == 200, resp.text
+
+
+# ── A semana, com o rastreio ─────────────────────────────────────────
+
+class TestSemanaComRastreio:
+    async def test_filtra_por_quem_agendou(self, cenario, client, db_conn):
+        h, opp, uid = cenario["headers"], cenario["oportunidade"]["id"], cenario["usuario_id"]
+        sdr = await criar_usuario(db_conn, client, "SDR", "sdr-filtro@teste.com")
+        id_sdr = (await client.get("/auth/me", headers=sdr["headers"])).json()["id"]
+        await nova_reuniao(client, h, opp, uid, agendado_por=id_sdr)
+        await nova_reuniao(
+            client, h, opp, uid, inicio=as_horas(proxima_segunda(), 10)
+        )
+        params = {"inicio": proxima_segunda().isoformat()}
+        todos = (await client.get("/crm/agenda/semana", params=params, headers=h)).json()
+        do_sdr = (await client.get(
+            "/crm/agenda/semana", params={**params, "agendado_por": id_sdr}, headers=h
+        )).json()
+        assert todos["total"] == 2
+        assert do_sdr["total"] == 1
+
+    async def test_combina_com_o_filtro_de_anfitriao(self, cenario, client, db_conn):
+        """
+        "As reuniões que EU marquei para o Bruno" é a pergunta do SDR
+        conferindo o próprio trabalho, e ela precisa dos dois filtros.
+        """
+        h, opp, uid = cenario["headers"], cenario["oportunidade"]["id"], cenario["usuario_id"]
+        ev = await criar_usuario(db_conn, client, "EV", "ev-combo@teste.com")
+        id_ev = (await client.get("/auth/me", headers=ev["headers"])).json()["id"]
+        sdr = await criar_usuario(db_conn, client, "SDR", "sdr-combo@teste.com")
+        id_sdr = (await client.get("/auth/me", headers=sdr["headers"])).json()["id"]
+
+        await nova_reuniao(client, h, opp, id_ev, agendado_por=id_sdr)
+        await nova_reuniao(
+            client, h, opp, uid, agendado_por=id_sdr,
+            inicio=as_horas(proxima_segunda(), 10),
+        )
+        corpo = (await client.get(
+            "/crm/agenda/semana",
+            params={"inicio": proxima_segunda().isoformat(),
+                    "anfitriao_id": id_ev, "agendado_por": id_sdr},
+            headers=h,
+        )).json()
+        assert corpo["total"] == 1
+
+    async def test_conta_as_pendentes(self, cenario, client, db_conn):
+        """
+        Sem um número visível cobrando, a reunião esquecida sairia de toda
+        estatística em silêncio — é o preço da decisão de NÃO adivinhar.
+        """
+        h, opp, uid = cenario["headers"], cenario["oportunidade"]["id"], cenario["usuario_id"]
+        passada = proxima_segunda(-2)
+        r = await nova_reuniao(client, h, opp, uid, inicio=as_horas(passada, 9))
+        corpo = (await client.get(
+            "/crm/agenda/semana",
+            params={"inicio": passada.isoformat(), "anfitriao_id": uid},
+            headers=h,
+        )).json()
+        assert corpo["pendentes"] == 1
+
+    async def test_registrada_sai_das_pendentes(self, cenario, client):
+        h, opp, uid = cenario["headers"], cenario["oportunidade"]["id"], cenario["usuario_id"]
+        passada = proxima_segunda(-2)
+        r = await nova_reuniao(client, h, opp, uid, inicio=as_horas(passada, 9))
+        await client.post(
+            f"/crm/agenda/reunioes/{r['id']}/desfecho",
+            json={"desfecho": "no_show"}, headers=h,
+        )
+        corpo = (await client.get(
+            "/crm/agenda/semana",
+            params={"inicio": passada.isoformat(), "anfitriao_id": uid},
+            headers=h,
+        )).json()
+        assert corpo["pendentes"] == 0
+
+    async def test_futura_nao_e_pendente(self, cenario, client):
+        h, opp, uid = cenario["headers"], cenario["oportunidade"]["id"], cenario["usuario_id"]
+        await nova_reuniao(client, h, opp, uid)
+        corpo = (await client.get(
+            "/crm/agenda/semana",
+            params={"inicio": proxima_segunda().isoformat(), "anfitriao_id": uid},
+            headers=h,
+        )).json()
+        assert corpo["pendentes"] == 0
+
+    async def test_a_grade_e_a_mesma_para_todo_mundo(self, cenario, client, db_conn):
+        """
+        Nada aqui é filtrado por quem está olhando: um slot marcado aparece
+        ocupado para a equipe inteira. É o que faz o SDR confiar no buraco
+        que ele vê antes de oferecer o horário ao cliente.
+        """
+        h, opp, uid = cenario["headers"], cenario["oportunidade"]["id"], cenario["usuario_id"]
+        await nova_reuniao(client, h, opp, uid)
+        outro = await criar_usuario(db_conn, client, "SDR", "sdr-ve-tudo@teste.com")
+        corpo = (await client.get(
+            "/crm/agenda/semana",
+            params={"inicio": proxima_segunda().isoformat()},
+            headers=outro["headers"],
+        )).json()
+        assert corpo["total"] == 1
+        assert sum(len(d["reunioes"]) for d in corpo["dias"]) == 1
+
+
+# ── O relatório ──────────────────────────────────────────────────────
+
+class TestProdutividade:
+    def _params(self, semanas=1):
+        """
+        A semana das reuniões, não a corrente: `nova_reuniao` marca para
+        `proxima_segunda()`, que é `semanas=1`. Com o default em 0 a janela
+        cobria a semana que já passou e o relatório vinha vazio — parecia
+        bug do endpoint e era da janela do teste.
+        """
+        seg = proxima_segunda(semanas)
+        return {"de": seg.isoformat(), "ate": (seg + timedelta(days=4)).isoformat()}
+
+    async def test_conta_agendamentos_por_sdr(self, cenario, client, db_conn):
+        h, opp, uid = cenario["headers"], cenario["oportunidade"]["id"], cenario["usuario_id"]
+        sdr = await criar_usuario(db_conn, client, "SDR", "sdr-prod@teste.com")
+        id_sdr = (await client.get("/auth/me", headers=sdr["headers"])).json()["id"]
+        await nova_reuniao(client, h, opp, uid, agendado_por=id_sdr)
+        await nova_reuniao(
+            client, h, opp, uid, agendado_por=id_sdr,
+            inicio=as_horas(proxima_segunda(), 10),
+        )
+        # A janela do SDR é a de CRIAÇÃO: as duas foram criadas hoje.
+        hoje = datetime.now(regras.FUSO_OPERACAO).date()
+        corpo = (await client.get(
+            "/crm/agenda/produtividade",
+            params={"de": hoje.isoformat(), "ate": hoje.isoformat()},
+            headers=h,
+        )).json()
+        linha = next(p for p in corpo["por_sdr"] if p["usuario_id"] == id_sdr)
+        assert linha["total"] == 2
+        assert corpo["agendamentos"] == 2
+
+    async def test_os_dois_eixos_de_data_sao_diferentes(self, cenario, client):
+        """
+        A reunião é CRIADA hoje e ACONTECE na semana que vem. Ela conta no
+        dia de hoje para o SDR e no dia dela para o EV — um único eixo
+        teria que escolher um dos dois e mentir no outro.
+        """
+        h, opp, uid = cenario["headers"], cenario["oportunidade"]["id"], cenario["usuario_id"]
+        await nova_reuniao(client, h, opp, uid)
+        hoje = datetime.now(regras.FUSO_OPERACAO).date()
+
+        so_hoje = (await client.get(
+            "/crm/agenda/produtividade",
+            params={"de": hoje.isoformat(), "ate": hoje.isoformat()},
+            headers=h,
+        )).json()
+        assert so_hoje["agendamentos"] == 1     # o SDR trabalhou hoje
+        assert so_hoje["por_ev"] == []          # mas nenhuma reunião é hoje
+
+        na_semana = (await client.get(
+            "/crm/agenda/produtividade", params=self._params(), headers=h,
+        )).json()
+        assert na_semana["agendamentos"] == 0   # ninguém marcou nada naquela semana
+        assert na_semana["por_ev"][0]["total"] == 1
+
+    async def test_classifica_os_desfechos_por_ev(self, cenario, client):
+        h, opp, uid = cenario["headers"], cenario["oportunidade"]["id"], cenario["usuario_id"]
+        a = await nova_reuniao(client, h, opp, uid, inicio=as_horas(proxima_segunda(), 9))
+        b = await nova_reuniao(client, h, opp, uid, inicio=as_horas(proxima_segunda(), 10))
+        c = await nova_reuniao(client, h, opp, uid, inicio=as_horas(proxima_segunda(), 11))
+        await client.post(f"/crm/agenda/reunioes/{a['id']}/desfecho",
+                          json={"desfecho": "realizada", "proxima": proxima_de(uid, 4)},
+                          headers=h)
+        await client.post(f"/crm/agenda/reunioes/{b['id']}/desfecho",
+                          json={"desfecho": "cancelada"}, headers=h)
+        await client.post(f"/crm/agenda/reunioes/{c['id']}/desfecho",
+                          json={"desfecho": "no_show"}, headers=h)
+
+        corpo = (await client.get(
+            "/crm/agenda/produtividade", params=self._params(), headers=h,
+        )).json()
+        assert corpo["realizadas"] == 1
+        assert corpo["canceladas"] == 1
+        assert corpo["no_show"] == 1
+        linha = corpo["por_ev"][0]
+        assert (linha["realizadas"], linha["canceladas"], linha["no_show"]) == (1, 1, 1)
+
+    async def test_as_taxas_excluem_o_que_ainda_nao_tem_resultado(self, cenario, client):
+        """
+        Pendente não é fracasso: contá-lo no denominador puniria quem
+        marcou ontem. Mesma regra das taxas de parceiro.
+        """
+        h, opp, uid = cenario["headers"], cenario["oportunidade"]["id"], cenario["usuario_id"]
+        a = await nova_reuniao(client, h, opp, uid, inicio=as_horas(proxima_segunda(), 9))
+        await nova_reuniao(client, h, opp, uid, inicio=as_horas(proxima_segunda(), 10))
+        await client.post(f"/crm/agenda/reunioes/{a['id']}/desfecho",
+                          json={"desfecho": "no_show"}, headers=h)
+        corpo = (await client.get(
+            "/crm/agenda/produtividade", params=self._params(), headers=h,
+        )).json()
+        # uma fechada (no-show) e uma em aberto: a taxa olha só a fechada
+        assert corpo["taxa_no_show"] == 1.0
+        assert corpo["taxa_realizacao"] == 0.0
+
+    async def test_taxa_e_none_sem_denominador(self, cenario, client):
+        """
+        0% e "ainda não deu para saber" são coisas diferentes, e a tela
+        mostra `—` na segunda.
+        """
+        h, opp, uid = cenario["headers"], cenario["oportunidade"]["id"], cenario["usuario_id"]
+        await nova_reuniao(client, h, opp, uid)
+        corpo = (await client.get(
+            "/crm/agenda/produtividade", params=self._params(), headers=h,
+        )).json()
+        assert corpo["taxa_no_show"] is None
+        assert corpo["taxa_realizacao"] is None
+
+    async def test_devolve_os_dias_da_janela(self, cenario, client):
+        corpo = (await client.get(
+            "/crm/agenda/produtividade", params=self._params(),
+            headers=cenario["headers"],
+        )).json()
+        assert len(corpo["dias"]) == 5
+
+    async def test_por_dia_tem_uma_entrada_por_dia_da_janela(self, cenario, client):
+        """
+        Inclusive os zerados: omitir o dia vazio faria a tabela trocar de
+        largura a cada semana, e o zero é informação.
+        """
+        h, opp, uid = cenario["headers"], cenario["oportunidade"]["id"], cenario["usuario_id"]
+        await nova_reuniao(client, h, opp, uid)
+        corpo = (await client.get(
+            "/crm/agenda/produtividade", params=self._params(), headers=h,
+        )).json()
+        assert len(corpo["por_ev"][0]["por_dia"]) == 5
+
+    async def test_janela_invertida_e_422(self, cenario, client):
+        seg = proxima_segunda()
+        resp = await client.get(
+            "/crm/agenda/produtividade",
+            params={"de": (seg + timedelta(days=4)).isoformat(), "ate": seg.isoformat()},
+            headers=cenario["headers"],
+        )
+        assert resp.status_code == 422
+
+    async def test_rota_nao_e_lida_como_id(self, cenario, client):
+        """Mesma armadilha do /semana: com o wildcard na frente, viraria 422."""
+        hoje = datetime.now(regras.FUSO_OPERACAO).date()
+        resp = await client.get(
+            "/crm/agenda/produtividade",
+            params={"de": hoje.isoformat(), "ate": hoje.isoformat()},
+            headers=cenario["headers"],
+        )
+        assert resp.status_code == 200

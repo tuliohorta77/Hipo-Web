@@ -18,7 +18,7 @@
 // O que mora aqui é o que o navegador precisa ANTES de o servidor
 // responder: os rótulos dos seletores e o desenho de datas.
 
-import { Video, MapPin } from 'lucide-react';
+import { Video, MapPin, CheckCircle2, CalendarX, UserX } from 'lucide-react';
 
 // ── Modalidade ───────────────────────────────────────────────────────
 //
@@ -48,6 +48,70 @@ export const DURACOES = [
 ];
 
 export const DURACAO_PADRAO = 30;
+
+// ── O desfecho ───────────────────────────────────────────────────────
+//
+// Três resultados, e a diferença entre os dois últimos é uma régua de
+// relógio: 24h de antecedência. Espelha `services/agenda.DESFECHOS` e
+// `ROTULO_DESFECHO`.
+//
+// Duplicado aqui, e não lido da resposta, porque o formulário precisa
+// oferecer as três opções ANTES de existir uma reunião para responder. O
+// que NÃO é duplicado é a decisão de qual delas sugerir: isso vem pronto
+// em `reuniao.desfecho_sugerido`, calculado no servidor — a régua das 24h
+// existe num lugar só.
+export const DESFECHOS = [
+  {
+    valor: 'realizada',
+    rotulo: 'Realizada',
+    ajuda: 'A reunião aconteceu.',
+    Icone: CheckCircle2,
+    tom: 'success',
+    // É o único que CONCLUI a tarefa, e por isso o único que exige a
+    // próxima enquanto a oportunidade está viva. Ver `exigeProximaTarefa`.
+    conclui: true,
+  },
+  {
+    valor: 'cancelada',
+    rotulo: 'Cancelada',
+    ajuda: 'Desmarcada com 24h ou mais de antecedência.',
+    Icone: CalendarX,
+    tom: 'neutral',
+    conclui: false,
+  },
+  {
+    valor: 'no_show',
+    rotulo: 'No-show',
+    ajuda: 'Desmarcada em cima da hora, ou o cliente não apareceu.',
+    Icone: UserX,
+    tom: 'danger',
+    conclui: false,
+  },
+];
+
+export const POR_DESFECHO = Object.fromEntries(
+  DESFECHOS.map((d) => [d.valor, d])
+);
+
+/**
+ * "avisado com 3h de antecedência" / "2 dias antes" / "depois da hora".
+ *
+ * Escrito ao lado da opção sugerida para a regra das 24h ficar VISÍVEL em
+ * vez de virar conta de cabeça. Quem lê "avisado com 3h" entende num
+ * relance por que o sistema propôs no-show — e discorda com conhecimento
+ * de causa, se for o caso.
+ */
+export function antecedenciaEmPalavras(horas) {
+  if (horas === null || horas === undefined) return null;
+  if (horas < 0) return 'depois da hora marcada';
+  if (horas < 1) return 'menos de 1h antes';
+  if (horas < 24) {
+    const h = Math.round(horas);
+    return `${h}h antes`;
+  }
+  const dias = Math.floor(horas / 24);
+  return `${dias} dia${dias === 1 ? '' : 's'} antes`;
+}
 
 // ── Datas ────────────────────────────────────────────────────────────
 

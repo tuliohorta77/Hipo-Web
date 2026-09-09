@@ -12,6 +12,7 @@
 --   006_tarefas_parceiro.sql  tarefa presa ao parceiro (alvo alternativo)
 --   010_nao_prospectar.sql  marca de empresa que ja e cliente da MedSeg
 --   011_agenda.sql       agenda de reunioes presa a tarefa + Google Calendar
+--   012_agenda_desfecho.sql  quem agendou + o que aconteceu com a reuniao
 --
 -- Este arquivo e a fonte usada para criar o banco de teste no CI e deve
 -- refletir o estado acumulado das migrations.
@@ -760,16 +761,16 @@ CREATE TABLE IF NOT EXISTS tipos_reuniao (
     CONSTRAINT ck_tipo_reuniao_nome  CHECK (length(btrim(nome)) > 0)
 );
 
--- O `nome` vai para o TITULO do evento no Google, na forma
--- "<razao social> <CNPJ> | <nome> Controller MedSeg". So 'Apresentacao'
--- esta confirmado (copiado de um convite real); os outros sao a leitura
--- mais provavel das siglas da planilha de origem, e corrigir e um UPDATE.
+-- Siglas e nomes CONFIRMADOS pela operacao (migration 012 -- a semente da
+-- 011 era um palpite). O `nome` vai para o TITULO do evento no Google, na
+-- forma "<razao social> <CNPJ> | <nome> Controller MedSeg", entao ele leva
+-- acento: e o cliente que le.
 INSERT INTO tipos_reuniao (sigla, nome, slug, ordem) VALUES
-    ('CD',  'Diagnostico',    'diagnostico',    10),
-    ('AP',  'Apresentacao',   'apresentacao',   20),
-    ('CF',  'Fechamento',     'fechamento',     30),
-    ('FUP', 'Follow-up',      'follow-up',      40),
-    ('VT',  'Visita tecnica', 'visita-tecnica', 50)
+    ('DG', 'Diagnóstico',    'diagnostico',    10),
+    ('AP', 'Apresentação',   'apresentacao',   20),
+    ('FC', 'Fechamento',     'fechamento',     30),
+    ('FP', 'FUP',            'follow-up',      40),
+    ('VT', 'Visita Técnica', 'visita-tecnica', 50)
 ON CONFLICT (slug) DO NOTHING;
 
 
@@ -796,6 +797,27 @@ CREATE TABLE IF NOT EXISTS reunioes (
     convidados    TEXT[] NOT NULL DEFAULT '{}',
     observacoes   TEXT,
 
+    -- ── Rastreio (migration 012) ────────────────────────────────
+    -- agendado_por NAO e criado_por. `criado_por` responde "quem digitou"
+    -- e e auditoria; `agendado_por` responde "de quem e o credito" e e
+    -- METRICA. Sao a mesma pessoa em quase toda linha -- mas no dia em que
+    -- divergem (o ADM lanca pelo SDR que marcou por telefone) o numero do
+    -- mes tem que ir para quem marcou.
+    agendado_por  UUID REFERENCES usuarios(id) ON DELETE SET NULL,
+
+    -- O que aconteceu. GUARDADO, e nao so deduzido de `tarefas`: a
+    -- deducao pura mediria a hora do CLIQUE, nao a hora do aviso, e quem
+    -- registra tarde viraria no-show. O formulario pergunta; o relogio
+    -- sugere. Ver services/agenda.desfecho_efetivo.
+    desfecho             VARCHAR(12),
+    desfecho_em          TIMESTAMPTZ,
+    desfecho_por         UUID REFERENCES usuarios(id) ON DELETE SET NULL,
+    desfecho_observacao  TEXT,
+    -- O que o relogio dizia quando o desfecho foi registrado. Guardado ao
+    -- lado do que a pessoa escolheu: e o unico jeito de responder depois
+    -- "esse no-show foi avisado com quanto tempo?" sem reconstruir nada.
+    desfecho_antecedencia_horas NUMERIC(10,2),
+
     -- google_calendar_id e o e-mail do anfitriao NO MOMENTO da
     -- sincronizacao, e nao o do responsavel atual: para apagar ou atualizar
     -- o evento e preciso personificar quem o criou. Sem esta coluna, trocar
@@ -813,6 +835,17 @@ CREATE TABLE IF NOT EXISTS reunioes (
     atualizado_em TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 
     CONSTRAINT ck_reuniao_duracao CHECK (duracao_min BETWEEN 5 AND 480),
+    -- Vocabulario fechado, ao contrario de tipos_reuniao: aqui os tres
+    -- valores SAO a metrica, e um quarto inventado quebraria a soma sem
+    -- quebrar nada visivel.
+    CONSTRAINT ck_reuniao_desfecho CHECK (
+        desfecho IS NULL OR desfecho IN ('realizada', 'cancelada', 'no_show')
+    ),
+    CONSTRAINT ck_reuniao_desfecho_em CHECK (
+        (desfecho IS NULL     AND desfecho_em IS NULL)
+        OR
+        (desfecho IS NOT NULL AND desfecho_em IS NOT NULL)
+    ),
     CONSTRAINT ck_reuniao_modalidade CHECK (modalidade IN ('online', 'presencial')),
     CONSTRAINT ck_reuniao_google_completo CHECK (
         google_event_id IS NULL
@@ -831,6 +864,17 @@ CREATE INDEX IF NOT EXISTS idx_reunioes_tipo
 
 CREATE INDEX IF NOT EXISTS idx_reunioes_nao_sincronizadas
     ON reunioes (criado_em) WHERE google_event_id IS NULL;
+
+-- "Quantos agendamentos o SDR fez no dia" recorta por criado_em (o dia em
+-- que o TRABALHO foi feito), nao pelo dia da reuniao -- por isso as duas
+-- colunas no mesmo indice.
+CREATE INDEX IF NOT EXISTS idx_reunioes_agendado_por
+    ON reunioes (agendado_por, criado_em)
+    WHERE agendado_por IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS idx_reunioes_desfecho
+    ON reunioes (desfecho)
+    WHERE desfecho IS NOT NULL;
 
 
 -- Os NOSSOS que entram na reuniao alem do anfitriao. O anfitriao NAO entra

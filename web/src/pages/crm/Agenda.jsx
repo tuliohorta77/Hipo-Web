@@ -31,8 +31,8 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  ChevronLeft, ChevronRight, CalendarDays, CalendarCheck, CalendarClock,
-  AlertTriangle, Plus, Video, MapPin, CircleDot,
+  ChevronLeft, ChevronRight, CalendarDays, CalendarClock,
+  AlertTriangle, Plus, CircleDot, ClipboardList, BarChart3,
 } from 'lucide-react';
 
 import api, { getUser } from '../../api';
@@ -41,8 +41,9 @@ import Button from '../../components/ui/Button';
 import AlertMessage from '../../components/ui/AlertMessage';
 import KpiInline from '../../components/ui/KpiInline';
 import ModalReuniao from '../../components/crm/ModalReuniao';
+import ProdutividadeAgenda from '../../components/crm/ProdutividadeAgenda';
 import {
-  ICONE_MODALIDADE, campoLocalDoSlot, diaCurto, faixaDaSemana,
+  ICONE_MODALIDADE, POR_DESFECHO, campoLocalDoSlot, diaCurto, faixaDaSemana,
   hojeIso, horaCurta, mensagemDeErro, somarSemanas,
 } from '../../components/crm/agendaComum';
 
@@ -60,24 +61,47 @@ const TOM = {
   futura: 'bg-hipo-blueSoft border-hipo-blue text-hipo-ink',
   concluida: 'bg-hipo-successSoft border-hipo-successBorder text-hipo-slate',
   cancelada: 'bg-hipo-bg border-hipo-border text-hipo-muted line-through',
+  // O no-show fecha a tarefa como cancelada, mas NÃO é a mesma coisa: uma
+  // desmarcada com uma semana de antecedência é agenda funcionando; um
+  // cliente que não apareceu é um buraco na semana do EV. Riscado e cinza
+  // igual à cancelada, os dois somem juntos da leitura da grade — e é
+  // justamente o segundo que precisa saltar aos olhos.
+  no_show: 'bg-hipo-dangerSoft border-hipo-dangerBorder text-hipo-danger',
 };
+
+function tomDoCartao(r) {
+  if (r.desfecho_efetivo === 'no_show') return TOM.no_show;
+  return TOM[r.situacao] || TOM.futura;
+}
 
 // ── Cartão de uma reunião ────────────────────────────────────────────
 
 function Cartao({ reuniao, onAbrir }) {
   const Icone = ICONE_MODALIDADE[reuniao.modalidade] || CircleDot;
   const semConvite = !reuniao.google_event_id && reuniao.cancelada_em === null;
+  const desfecho = POR_DESFECHO[reuniao.desfecho_efetivo];
+  const IconeDesfecho = desfecho?.Icone;
 
   return (
     <button
       type="button"
       onClick={() => onAbrir(reuniao)}
-      title={reuniao.rotulo}
+      title={
+        desfecho
+          ? `${reuniao.rotulo} — ${desfecho.rotulo}`
+          : reuniao.pendente_de_desfecho
+            ? `${reuniao.rotulo} — falta registrar o que aconteceu`
+            : reuniao.rotulo
+      }
       className={
         'w-full text-left px-1.5 py-1 rounded border text-[11px] leading-tight ' +
         'hover:shadow-md transition-shadow ' +
         'focus:outline-none focus-visible:ring-2 focus-visible:ring-hipo-blue ' +
-        (TOM[reuniao.situacao] || TOM.futura)
+        // Borda tracejada = ainda não respondida. É o que faz a reunião
+        // esquecida ficar VISÍVEL na própria grade, e não só num contador
+        // na barra que ninguém precisa olhar.
+        (reuniao.pendente_de_desfecho ? 'border-dashed ' : '') +
+        tomDoCartao(reuniao)
       }
     >
       <span className="flex items-center gap-1">
@@ -93,7 +117,14 @@ function Cartao({ reuniao, onAbrir }) {
           </span>
         )}
         <span className="truncate font-medium">{reuniao.rotulo}</span>
-        {semConvite && (
+        {IconeDesfecho && (
+          <IconeDesfecho
+            size={10}
+            className="ml-auto shrink-0"
+            aria-label={desfecho.rotulo}
+          />
+        )}
+        {!desfecho && semConvite && (
           <AlertTriangle
             size={10}
             className="ml-auto shrink-0 text-hipo-warning"
@@ -107,7 +138,7 @@ function Cartao({ reuniao, onAbrir }) {
 
 // ── Célula ───────────────────────────────────────────────────────────
 
-function Celula({ dia, slot, reunioes, onAbrir, onMarcar, desabilitado }) {
+function Celula({ dia, slot, reunioes, onAbrir, onMarcar }) {
   if (reunioes.length > 0) {
     return (
       <div className="p-0.5 space-y-0.5 min-h-[2.25rem] border-b border-r border-hipo-border">
@@ -117,29 +148,36 @@ function Celula({ dia, slot, reunioes, onAbrir, onMarcar, desabilitado }) {
       </div>
     );
   }
+  /*
+    Toda célula vazia é clicável, INCLUSIVE na visão da equipe.
+
+    Ela já foi desabilitada ali, com o argumento de que "a célula vazia é
+    vazia para quem?". O argumento estava certo sobre o dado e errado sobre
+    a pessoa: quem abre a grade da equipe é o SDR, e ele abre justamente
+    para achar onde cabe a reunião do EV. Trancar o clique mandava ele
+    trocar de agenda antes de marcar — três cliques para um gesto, e a
+    visão que mostra o buraco não era a que deixava tapá-lo.
+
+    Não há risco de criar reunião no dono errado: o formulário abre sem
+    anfitrião e o botão de salvar fica travado até alguém escolher um.
+  */
   return (
     <button
       type="button"
-      disabled={desabilitado}
       onClick={() => onMarcar(dia, slot)}
       aria-label={`Marcar reunião em ${diaCurto(dia)} às ${slot}`}
       className={
         'group min-h-[2.25rem] border-b border-r border-hipo-border ' +
         'flex items-center justify-center transition-colors ' +
         'focus:outline-none focus-visible:ring-2 focus-visible:ring-inset ' +
-        'focus-visible:ring-hipo-blue ' +
-        (desabilitado
-          ? 'bg-hipo-bg/60 cursor-default'
-          : 'hover:bg-hipo-blueSoft cursor-pointer')
+        'focus-visible:ring-hipo-blue hover:bg-hipo-blueSoft cursor-pointer'
       }
     >
-      {!desabilitado && (
-        <Plus
-          size={12}
-          className="text-hipo-muted opacity-0 group-hover:opacity-100 transition-opacity"
-          aria-hidden="true"
-        />
-      )}
+      <Plus
+        size={12}
+        className="text-hipo-muted opacity-0 group-hover:opacity-100 transition-opacity"
+        aria-hidden="true"
+      />
     </button>
   );
 }
@@ -161,6 +199,10 @@ export default function Agenda() {
   const [semana, setSemana] = useState(null);
   const [inicio, setInicio] = useState(hojeIso);
   const [anfitriao, setAnfitriao] = useState(padraoAnfitriao);
+  // Quem MARCOU. Independente do anfitrião de propósito: "as reuniões que
+  // eu marquei para o Bruno" é a pergunta do SDR conferindo o próprio
+  // trabalho, e ela precisa dos dois filtros ao mesmo tempo.
+  const [agendadoPor, setAgendadoPor] = useState('');
   const [usuarios, setUsuarios] = useState([]);
   const [carregando, setCarregando] = useState(true);
   const [erro, setErro] = useState(null);
@@ -169,12 +211,14 @@ export default function Agenda() {
   // reunião clicada. Nunca os dois ao mesmo tempo.
   const [aberta, setAberta] = useState(null);
   const [novo, setNovo] = useState(null);
+  const [verProdutividade, setVerProdutividade] = useState(false);
 
   const params = useMemo(() => {
     const p = { inicio };
     if (anfitriao) p.anfitriao_id = anfitriao;
+    if (agendadoPor) p.agendado_por = agendadoPor;
     return p;
-  }, [inicio, anfitriao]);
+  }, [inicio, anfitriao, agendadoPor]);
 
   const carregar = useCallback(async () => {
     setCarregando(true);
@@ -306,13 +350,34 @@ export default function Agenda() {
               tom="bg-hipo-successSoft text-hipo-success"
             />
           )}
-          {semana?.concluidas > 0 && (
+          {/*
+            "Realizadas" saiu daqui na 015, e não por acaso.
+
+            A barra tem orçamento de UMA linha — é a diretriz de layout das
+            telas operacionais, e com cinco KPIs ela quebrava em duas em
+            1280 e 1366, empurrando a grade para baixo da dobra. Entre os
+            candidatos a sair, "realizadas da semana" era o único cujo dado
+            passou a existir em outro lugar: o relatório abre a um clique e
+            mostra realizadas POR PESSOA E POR DIA, que é a pergunta de
+            verdade — e na própria grade os cartões realizados já vêm
+            verdes. O contador de pendentes, que entrou no lugar, não tem
+            substituto: é o que cobra o registro que ninguém fez.
+          */}
+          {/*
+            O contador que a decisão de NÃO adivinhar deixou como
+            contrapartida: sem desfecho automático depois de N horas, uma
+            reunião esquecida sairia de toda estatística em silêncio. Aqui
+            ela cobra — e o clique leva ao relatório, onde dá para ver de
+            quem são as pendentes. O número É a ação.
+          */}
+          {semana?.pendentes > 0 && (
             <KpiInline
-              label="Realizadas"
-              valor={semana.concluidas}
-              titulo="Reuniões já concluídas nesta semana."
-              icone={CalendarCheck}
-              tom="bg-hipo-successSoft text-hipo-success"
+              label="Sem desfecho"
+              valor={semana.pendentes}
+              titulo="Reuniões que já passaram e ninguém disse o que aconteceu. Clique para ver o relatório."
+              icone={ClipboardList}
+              tom="bg-hipo-warningSoft text-hipo-warning"
+              onClick={() => setVerProdutividade(true)}
             />
           )}
           {/*
@@ -329,6 +394,23 @@ export default function Agenda() {
         </div>
 
         <div className="ml-auto flex items-center gap-2">
+          {/*
+            Botão de ícone, no mesmo formato das setas de semana, e não um
+            botão com texto: "Produtividade" escrito custava ~100px numa
+            barra que precisa caber em uma linha a 1280px. O rótulo vive no
+            title e no aria-label, e o caminho mais provável até o
+            relatório nem é este — é o KPI "Sem desfecho", que já leva para
+            cá quando há algo a cobrar.
+          */}
+          <button
+            type="button"
+            aria-label="Produtividade da agenda"
+            title="Produtividade da semana: agendamentos por SDR e reuniões por EV"
+            onClick={() => setVerProdutividade(true)}
+            className="h-8 w-8 inline-flex items-center justify-center rounded-lg border border-hipo-border text-hipo-slate hover:bg-hipo-bg"
+          >
+            <BarChart3 size={15} />
+          </button>
           <select
             aria-label="Agenda de"
             value={anfitriao}
@@ -338,6 +420,24 @@ export default function Agenda() {
             <option value="">Toda a equipe</option>
             {opcoesAnfitriao.map((u) => (
               <option key={u.id} value={u.id}>{u.nome}</option>
+            ))}
+          </select>
+          {/*
+            Dois seletores e não um: "de quem é a agenda" e "quem marcou"
+            são perguntas diferentes, e a resposta interessante é o
+            cruzamento. Um seletor só obrigaria a escolher qual das duas
+            visões existe — e o SDR perderia a única que mostra o trabalho
+            dele.
+          */}
+          <select
+            aria-label="Agendado por"
+            value={agendadoPor}
+            onChange={(e) => setAgendadoPor(e.target.value)}
+            className={`${CLASSE_CAMPO} px-1.5 max-w-[12rem]`}
+          >
+            <option value="">Marcadas por todos</option>
+            {opcoesAnfitriao.map((u) => (
+              <option key={u.id} value={u.id}>Marcadas por {u.nome}</option>
             ))}
           </select>
         </div>
@@ -453,11 +553,6 @@ export default function Agenda() {
                           reunioes={porSlot.mapa.get(`${d.data}|${slot}`) || []}
                           onAbrir={(r) => { setNovo(null); setAberta(r); }}
                           onMarcar={marcar}
-                          // Sem anfitrião escolhido não dá para marcar
-                          // clicando: a célula vazia é vazia para QUEM?
-                          // Cinco agendas sobrepostas não têm buraco comum,
-                          // e o clique criaria a reunião no dono errado.
-                          desabilitado={!anfitriao}
                         />
                       ))}
                     </div>
@@ -471,8 +566,9 @@ export default function Agenda() {
 
       {!anfitriao && semana && (
         <p className="shrink-0 text-xs text-hipo-slate">
-          Vendo a semana de toda a equipe. Escolha uma pessoa para marcar
-          reuniões clicando nos horários livres.
+          Vendo a semana de toda a equipe — um horário marcado aparece
+          ocupado aqui para todo mundo. Ao clicar num horário livre, escolha
+          de quem é a reunião no formulário.
         </p>
       )}
 
@@ -484,6 +580,19 @@ export default function Agenda() {
         slotInicial={novo?.inicio || ''}
         anfitriaoInicial={anfitriao}
         usuarios={usuarios}
+      />
+
+      {/*
+        A janela do relatório é a SEMANA QUE ESTÁ NA TELA. Um seletor de
+        período próprio faria o número aberto discordar da grade atrás dele
+        — e a primeira conferência que não batesse jogaria fora a confiança
+        nos dois.
+      */}
+      <ProdutividadeAgenda
+        aberto={verProdutividade}
+        onFechar={() => setVerProdutividade(false)}
+        de={semana?.inicio}
+        ate={semana?.fim}
       />
     </div>
   );

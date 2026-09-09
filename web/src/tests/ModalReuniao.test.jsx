@@ -7,9 +7,12 @@
 //   1. a oportunidade só se escolhe na CRIAÇÃO — mover uma reunião de
 //      negócio mudaria o alvo da tarefa por baixo
 //   2. o estado do convite fica no TOPO, com saída para reenviar
-//   3. reunião fechada não oferece edição nem cancelamento
+//   3. reunião fechada não oferece edição nem novo desfecho
 //   4. convidado externo entra como chip, e o repetido não duplica
-//   5. cancelar pede confirmação e avisa que o cliente será notificado
+//   5. o desfecho tem TRÊS respostas, a sugerida já marcada, e só
+//      "Realizada" exige a próxima tarefa
+//   6. "Agendado por" nasce com quem está na tela e é editável — é dele o
+//      crédito do agendamento, e ele não é sempre o anfitrião
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, cleanup, waitFor } from '@testing-library/react';
 
@@ -23,6 +26,8 @@ vi.mock('../api', () => ({
     post: (...a) => mockPost(...a),
     patch: (...a) => mockPatch(...a),
   },
+  // Quem está na tela: o padrão de "Agendado por" na criação.
+  getUser: () => ({ id: 'u2', nome: 'Bruno Gonçalo', cargo: 'SDR' }),
 }));
 
 import ModalReuniao from '../components/crm/ModalReuniao';
@@ -51,7 +56,15 @@ function reuniao(extra = {}) {
     modalidade: 'online', modalidade_rotulo: 'Online',
     endereco: null, link_video: null,
     anfitriao_id: 'u1', anfitriao_nome: 'Jakeline Santana',
+    agendado_por: 'u2', agendado_por_nome: 'Bruno Gonçalo',
     participantes: [],
+    // Em aberto: nada registrado, e o relógio sugere. Marcada para o
+    // futuro, a sugestão é "cancelada" — quem abre o formulário de uma
+    // reunião que ainda não começou está desmarcando.
+    desfecho: null, desfecho_efetivo: null, desfecho_rotulo: null,
+    desfecho_em: null, desfecho_por_nome: null, desfecho_observacao: null,
+    desfecho_antecedencia_horas: null,
+    desfecho_sugerido: 'cancelada', pendente_de_desfecho: false,
     contato_id: 'ct1', contato_nome: 'Nivaldo',
     contato_email: 'adm@nnredutores.com.br',
     convidados: [],
@@ -316,50 +329,253 @@ describe('ModalReuniao — quem recebe o convite', () => {
   });
 });
 
-// ── Cancelar ─────────────────────────────────────────────────────────
+// ── Agendado por ─────────────────────────────────────────────────────
 
-describe('ModalReuniao — cancelar', () => {
-  it('pede confirmação antes de cancelar', async () => {
-    await abrir({ reuniao: reuniao() });
-    fireEvent.click(screen.getByText('Cancelar reunião'));
-    expect(
-      await screen.findByText(/O evento sai da agenda de todo mundo/)
-    ).toBeInTheDocument();
+describe('ModalReuniao — agendado por', () => {
+  it('nasce com quem está na tela, não com o anfitrião', async () => {
+    /*
+      É a diferença que a métrica inteira depende: o SDR marca para o EV, e
+      o agendamento do dia é DELE. Copiar o anfitrião aqui daria o crédito
+      a quem vai receber a reunião.
+    */
+    await abrir({ slotInicial: '2026-09-09T14:00', anfitriaoInicial: 'u1' });
+    expect(screen.getByLabelText('Anfitrião').value).toBe('u1');
+    expect(screen.getByLabelText('Agendado por').value).toBe('u2');
   });
 
-  it('manda o motivo na rota de cancelamento', async () => {
-    mockPost.mockResolvedValue({ data: reuniao({ situacao: 'cancelada' }) });
+  it('vai no corpo do POST', async () => {
+    mockPost.mockResolvedValue({ data: reuniao() });
+    await abrir({ oportunidade: OPORTUNIDADE, anfitriaoInicial: 'u1' });
+    fireEvent.change(screen.getByLabelText('Data e hora'), {
+      target: { value: '2026-09-09T14:00' },
+    });
+    fireEvent.click(screen.getByText('Marcar e enviar convite'));
+    await waitFor(() => expect(mockPost).toHaveBeenCalled());
+    expect(mockPost.mock.calls[0][1].agendado_por).toBe('u2');
+  });
+
+  it('é editável — quem lançou nem sempre é quem marcou', async () => {
+    mockPatch.mockResolvedValue({ data: reuniao() });
     await abrir({ reuniao: reuniao() });
-    fireEvent.click(screen.getByText('Cancelar reunião'));
+    fireEvent.change(screen.getByLabelText('Agendado por'), {
+      target: { value: 'u1' },
+    });
+    fireEvent.click(screen.getByText('Salvar reunião'));
+    await waitFor(() => expect(mockPatch).toHaveBeenCalled());
+    expect(mockPatch.mock.calls[0][1].agendado_por).toBe('u1');
+  });
+
+  it('carrega o que está gravado ao editar', async () => {
+    await abrir({ reuniao: reuniao({ agendado_por: 'u1' }) });
+    expect(screen.getByLabelText('Agendado por').value).toBe('u1');
+  });
+});
+
+// ── O desfecho ───────────────────────────────────────────────────────
+
+describe('ModalReuniao — registrar o desfecho', () => {
+  it('oferece as três respostas', async () => {
+    /*
+      A pergunta não é "cancelo?", é "o que aconteceu?" — e ela tem três
+      respostas. Com só duas, o no-show ficaria sem porta, e ele é
+      justamente o número que dói.
+    */
+    await abrir({ reuniao: reuniao() });
+    const opcoes = screen.getAllByRole('radio');
+    expect(opcoes.map((o) => o.textContent.slice(0, 9))).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining('Realizada'),
+        expect.stringContaining('Cancelada'),
+        expect.stringContaining('No-show'),
+      ])
+    );
+  });
+
+  it('já vem com a sugestão do servidor marcada', async () => {
+    await abrir({ reuniao: reuniao({ desfecho_sugerido: 'no_show' }) });
+    const marcado = screen.getAllByRole('radio').find(
+      (o) => o.getAttribute('aria-checked') === 'true'
+    );
+    expect(marcado.textContent).toContain('No-show');
+  });
+
+  it('a régua das 24h aparece escrita, não como conta de cabeça', async () => {
+    await abrir({ reuniao: reuniao({ desfecho_sugerido: 'cancelada' }) });
+    expect(screen.getByText(/pela régua das 24h/)).toBeInTheDocument();
+  });
+
+  it('reunião que já passou sugere realizada, sem falar em régua', async () => {
+    /*
+      O caso mais comum: alguém fechando na sexta as reuniões da semana.
+      Oferecer "avisada X antes" ali seria falar de cancelamento numa
+      reunião que aconteceu.
+    */
+    await abrir({
+      reuniao: reuniao({ situacao: 'atrasada', desfecho_sugerido: 'realizada' }),
+    });
+    const marcado = screen.getAllByRole('radio').find(
+      (o) => o.getAttribute('aria-checked') === 'true'
+    );
+    expect(marcado.textContent).toContain('Realizada');
+    expect(screen.queryByText(/pela régua das 24h/)).not.toBeInTheDocument();
+  });
+
+  it('realizada exige a próxima enquanto a oportunidade está viva', async () => {
+    await abrir({ reuniao: reuniao({ desfecho_sugerido: 'realizada' }) });
+    expect(screen.getByText(/exige a próxima/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/^Registrar realizada$/).closest('button')
+    ).toBeDisabled();
+  });
+
+  it('cancelada não exige a próxima', async () => {
+    /*
+      Cancelar é dizer que aquilo não ia acontecer, não que o negócio
+      andou. Exigir a próxima aqui seria cobrar um passo de um funil que
+      não se moveu.
+    */
+    await abrir({ reuniao: reuniao() });
+    expect(screen.queryByText(/exige a próxima/)).not.toBeInTheDocument();
+    expect(
+      screen.getByText(/^Registrar cancelada$/).closest('button')
+    ).not.toBeDisabled();
+  });
+
+  it('oportunidade finalizada dispensa a próxima', async () => {
+    await abrir({
+      reuniao: reuniao({
+        desfecho_sugerido: 'realizada', status_oportunidade: 'ganha',
+      }),
+    });
+    expect(screen.queryByText(/exige a próxima/)).not.toBeInTheDocument();
+    expect(
+      screen.getByText(/^Registrar realizada$/).closest('button')
+    ).not.toBeDisabled();
+  });
+
+  it('manda a rota de desfecho, não a de cancelamento', async () => {
+    /*
+      Cancelar pela rota antiga fecharia a tarefa sem gravar desfecho: a
+      reunião sairia da contagem de canceladas e de no-shows ao mesmo
+      tempo — some do numerador sem sair do denominador.
+    */
+    mockPost.mockResolvedValue({ data: reuniao({ situacao: 'cancelada' }) });
+    const onFechar = vi.fn();
+    await abrir({ reuniao: reuniao(), onFechar });
     fireEvent.change(
-      await screen.findByLabelText('Motivo do cancelamento (opcional)'),
+      screen.getByLabelText('O que aconteceu (opcional)'),
       { target: { value: 'cliente remarcou' } }
     );
-    fireEvent.click(screen.getAllByText('Cancelar reunião').at(-1));
+    fireEvent.click(screen.getByText(/^Registrar cancelada$/));
     await waitFor(() => expect(mockPost).toHaveBeenCalledWith(
-      '/crm/agenda/reunioes/r1/cancelar', { motivo: 'cliente remarcou' }
+      '/crm/agenda/reunioes/r1/desfecho',
+      { desfecho: 'cancelada', observacao: 'cliente remarcou', proxima: null }
     ));
+    expect(onFechar).toHaveBeenCalled();
+  });
+
+  it('trocar a resposta troca o que é enviado', async () => {
+    mockPost.mockResolvedValue({ data: reuniao({ situacao: 'cancelada' }) });
+    await abrir({ reuniao: reuniao() });
+    fireEvent.click(
+      screen.getAllByRole('radio').find((o) => o.textContent.includes('No-show'))
+    );
+    fireEvent.click(screen.getByText(/^Registrar no-show$/));
+    await waitFor(() => expect(mockPost).toHaveBeenCalled());
+    expect(mockPost.mock.calls[0][1].desfecho).toBe('no_show');
+  });
+
+  it('realizada manda a próxima tarefa junto', async () => {
+    mockPost.mockResolvedValue({ data: reuniao({ situacao: 'concluida' }) });
+    await abrir({ reuniao: reuniao({ desfecho_sugerido: 'realizada' }) });
+    fireEvent.change(screen.getByLabelText('Próxima: Título'), {
+      target: { value: 'Mandar a proposta' },
+    });
+    fireEvent.change(screen.getByLabelText('Próxima: Responsável'), {
+      target: { value: 'u1' },
+    });
+    fireEvent.click(screen.getByText(/^Registrar realizada$/));
+    await waitFor(() => expect(mockPost).toHaveBeenCalled());
+    const corpo = mockPost.mock.calls[0][1];
+    expect(corpo.desfecho).toBe('realizada');
+    expect(corpo.proxima.titulo).toBe('Mandar a proposta');
+    expect(corpo.proxima.responsavel_id).toBe('u1');
+  });
+
+  it('o erro do servidor não fecha o painel', async () => {
+    mockPost.mockRejectedValue({
+      response: { data: { detail: 'Esta reunião já foi registrada como Cancelada.' } },
+    });
+    const onFechar = vi.fn();
+    await abrir({ reuniao: reuniao(), onFechar });
+    fireEvent.click(screen.getByText(/^Registrar cancelada$/));
+    expect(await screen.findByText(/já foi registrada/)).toBeInTheDocument();
+    expect(onFechar).not.toHaveBeenCalled();
   });
 });
 
 // ── Reunião fechada ──────────────────────────────────────────────────
 
 describe('ModalReuniao — reunião fechada', () => {
-  it('não oferece salvar nem cancelar', async () => {
+  it('não oferece salvar nem registrar de novo', async () => {
     /*
       Reescrever o horário de uma reunião que já aconteceu apagaria o
       histórico que a linha do tempo existe para mostrar. Mostrar o botão
       seria mentira: o backend recusa com 422.
     */
-    await abrir({ reuniao: reuniao({ situacao: 'concluida', concluida_em: '2026-09-08T13:00:00Z' }) });
+    await abrir({
+      reuniao: reuniao({
+        situacao: 'concluida', concluida_em: '2026-09-08T13:00:00Z',
+        desfecho: 'realizada', desfecho_efetivo: 'realizada',
+        desfecho_rotulo: 'Realizada', desfecho_em: '2026-09-08T13:00:00Z',
+        desfecho_por_nome: 'Jakeline Santana', desfecho_sugerido: null,
+      }),
+    });
     expect(screen.queryByText('Salvar reunião')).not.toBeInTheDocument();
-    expect(screen.queryByText('Cancelar reunião')).not.toBeInTheDocument();
-    expect(screen.getByText(/O histórico é imutável/)).toBeInTheDocument();
+    expect(screen.queryByRole('radio')).not.toBeInTheDocument();
+    expect(screen.getByText(/histórico é imutável/)).toBeInTheDocument();
+  });
+
+  it('mostra o desfecho registrado, com quem e quando', async () => {
+    await abrir({
+      reuniao: reuniao({
+        situacao: 'cancelada', cancelada_em: '2026-09-08T13:00:00Z',
+        desfecho: 'no_show', desfecho_efetivo: 'no_show',
+        desfecho_rotulo: 'No-show', desfecho_em: '2026-09-08T13:00:00Z',
+        desfecho_por_nome: 'Jakeline Santana', desfecho_sugerido: null,
+        desfecho_antecedencia_horas: -1.5,
+        desfecho_observacao: 'Cliente não entrou na sala.',
+      }),
+    });
+    expect(screen.getByText('No-show')).toBeInTheDocument();
+    expect(
+      screen.getByText(/registrado por Jakeline Santana/)
+    ).toBeInTheDocument();
+    expect(screen.getByText(/depois da hora marcada/)).toBeInTheDocument();
+    expect(screen.getByText('Cliente não entrou na sala.')).toBeInTheDocument();
+  });
+
+  it('diz quando o desfecho foi DEDUZIDO, e não registrado', async () => {
+    /*
+      Quem concluiu a tarefa pela aba de Tarefas fechou a reunião sem
+      passar pela agenda. Apresentar a dedução com a mesma cara de um
+      registro faria alguém defender na segunda um número que ninguém
+      afirmou.
+    */
+    await abrir({
+      reuniao: reuniao({
+        situacao: 'concluida', concluida_em: '2026-09-08T13:00:00Z',
+        desfecho: null, desfecho_efetivo: 'realizada',
+        desfecho_rotulo: 'Realizada', desfecho_sugerido: null,
+      }),
+    });
+    expect(screen.getByText(/deduzido do fechamento da tarefa/)).toBeInTheDocument();
   });
 
   it('trava os campos', async () => {
     await abrir({ reuniao: reuniao({ situacao: 'cancelada', cancelada_em: '2026-09-08T13:00:00Z' }) });
     expect(screen.getByLabelText('Data e hora')).toBeDisabled();
     expect(screen.getByLabelText('Duração')).toBeDisabled();
+    expect(screen.getByLabelText('Agendado por')).toBeDisabled();
   });
 });

@@ -1,0 +1,269 @@
+﻿name: HIPO CI/CD
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: true
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+env:
+  PYTHON_VERSION: "3.11"
+  NODE_VERSION: "20"
+
+jobs:
+  # â”€â”€ TESTES DE BACKEND â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  test-backend:
+    name: Backend Tests
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: hipo_test
+          POSTGRES_PASSWORD: hipo_test
+          POSTGRES_DB: hipo_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: api/requirements.txt
+
+      - name: Instalar dependÃªncias
+        run: |
+          cd api
+          pip install -r requirements.txt
+
+      - name: Criar schema de teste
+        env:
+          PGPASSWORD: hipo_test
+        run: |
+          psql -h localhost -U hipo_test -d hipo_test -f api/schema.sql
+
+      - name: Executar testes com cobertura
+        env:
+          DATABASE_URL: postgresql://hipo_test:hipo_test@localhost:5432/hipo_test
+          JWT_SECRET: test-secret-key-ci
+          JWT_EXPIRE_HOURS: "1"
+          UPLOAD_DIR: /tmp/hipo_uploads
+          PYTHONPATH: ${{ github.workspace }}/api
+        run: |
+          mkdir -p /tmp/hipo_uploads
+          cd api
+          pytest --cov=. --cov-report=xml --cov-report=term-missing
+
+      - name: Upload cobertura para Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          file: api/coverage.xml
+          flags: backend
+          fail_ci_if_error: false
+
+  # â”€â”€ TESTES DE FRONTEND â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  test-frontend:
+    name: Frontend Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          # sem cache â€” nÃ£o temos package-lock.json ainda
+
+      - name: Instalar dependÃªncias
+        run: |
+          cd web
+          npm install
+
+      - name: Executar testes com cobertura
+        run: |
+          cd web
+          npm run test -- --coverage --reporter=verbose
+
+      - name: Build de produÃ§Ã£o
+        run: |
+          cd web
+          npm run build
+
+      - name: Gerar package-lock.json
+        run: |
+          cd web
+          git config --global user.email "ci@hipo.com"
+          git config --global user.name "HIPO CI"
+
+      - name: Upload artefato de build
+        uses: actions/upload-artifact@v4
+        with:
+          name: hipo-web-dist
+          path: web/dist/
+          retention-days: 1
+
+  # â”€â”€ DEPLOY PARA PRODUÃ‡ÃƒO (sÃ³ na main) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  deploy:
+    name: Deploy â†’ EC2
+    runs-on: ubuntu-latest
+    needs: [test-backend, test-frontend]
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download artefato de build do frontend
+        uses: actions/download-artifact@v4
+        with:
+          name: hipo-web-dist
+          path: web/dist/
+
+      # O SSH da hipo-server so aceita IPs conhecidos desde a faxina de
+      # seguranca de 09/09/2026 (SG hipo-s: 22/tcp restrita ao IP de casa).
+      # O runner do GitHub sai de faixa da Azure, que muda a cada run e
+      # nunca estara numa allowlist fixa -- entao ele abre a porta para o
+      # proprio /32, faz o deploy e fecha. A janela dura o deploy e vale
+      # para um endereco so; a porta nunca volta a ficar aberta ao mundo.
+      #
+      # Sintoma de quando isso falta: 'Adicionar EC2 aos hosts conhecidos'
+      # morre em 5s com exit 1 e nenhuma mensagem. Cinco segundos e o
+      # timeout do ssh-keyscan; o SG descarta o pacote sem responder, entao
+      # nao ha 'connection refused' nem nada para ler no log.
+      - name: Configurar credenciais AWS
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: eu-central-1
+
+      - name: Abrir janela SSH no Security Group
+        env:
+          SG_ID: ${{ secrets.EC2_SECURITY_GROUP_ID }}
+        run: |
+          # Regras orfas de runs cancelados no meio: o passo de fechar usa
+          # if:always(), mas cancelamento tem prazo curto e pode nao chegar
+          # nele. A descricao e o que distingue o que e nosso do que e seu
+          # -- nenhuma regra sem ela e tocada.
+          orfas=$(aws ec2 describe-security-groups --group-ids "$SG_ID" --output json \
+            | jq -r '.SecurityGroups[0].IpPermissions[]
+                     | select(.IpProtocol=="tcp" and .FromPort==22 and .ToPort==22)
+                     | .IpRanges[] | select(.Description=="github-actions-deploy") | .CidrIp')
+          for cidr in $orfas; do
+            echo "removendo janela orfa: $cidr"
+            aws ec2 revoke-security-group-ingress \
+              --group-id "$SG_ID" --protocol tcp --port 22 --cidr "$cidr" >/dev/null || true
+          done
+
+          IP=$(curl -sf --retry 3 --max-time 20 https://checkip.amazonaws.com | tr -d '[:space:]')
+          if [ -z "$IP" ]; then
+            echo "::error::nao consegui descobrir o IP publico do runner"
+            exit 1
+          fi
+          echo "RUNNER_IP=$IP" >> $GITHUB_ENV
+          echo "abrindo 22/tcp para $IP/32 em $SG_ID"
+
+          # Duplicata nao e erro: dois runs simultaneos podem sair pelo
+          # mesmo IP. Qualquer outra falha e, e aborta antes do rsync.
+          set +e
+          saida=$(aws ec2 authorize-security-group-ingress \
+            --group-id "$SG_ID" \
+            --ip-permissions "IpProtocol=tcp,FromPort=22,ToPort=22,IpRanges=[{CidrIp=$IP/32,Description=github-actions-deploy}]" 2>&1)
+          codigo=$?
+          set -e
+          if [ $codigo -ne 0 ]; then
+            echo "$saida"
+            case "$saida" in
+              *InvalidPermission.Duplicate*) echo "a regra ja existia -- seguindo" ;;
+              *) echo "::error::nao consegui abrir a janela SSH no $SG_ID"; exit 1 ;;
+            esac
+          fi
+
+      - name: Configurar chave SSH
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.EC2_SSH_KEY }}
+
+      - name: Adicionar EC2 aos hosts conhecidos
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+        run: |
+          mkdir -p ~/.ssh
+          # -T 15 porque a regra do SG acabou de nascer: a propagacao e
+          # rapida, nao instantanea. E a checagem do arquivo existe porque
+          # um keyscan que devolve vazio so viraria erro tres passos
+          # adiante, no rsync, com mensagem que nao aponta para ca.
+          ssh-keyscan -H -T 15 "$EC2_HOST" >> ~/.ssh/known_hosts
+          if ! grep -q . ~/.ssh/known_hosts; then
+            echo "::error::ssh-keyscan nao obteve chave de host. A janela no SG abriu, entao suspeite do valor do secret EC2_HOST."
+            exit 1
+          fi
+
+      - name: Deploy do Backend
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_USER: ${{ secrets.EC2_USER }}
+        run: |
+          rsync -avz --delete \
+            --exclude='.venv' \
+            --exclude='__pycache__' \
+            --exclude='*.pyc' \
+            --exclude='uploads/' \
+            --exclude='.env' \
+            api/ $EC2_USER@$EC2_HOST:/home/hipo/app/api/
+          ssh $EC2_USER@$EC2_HOST "sudo systemctl restart hipo-api"
+          sleep 5
+          ssh $EC2_USER@$EC2_HOST "curl -sf http://localhost:8001/health || exit 1"
+
+      - name: Deploy do Frontend
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_USER: ${{ secrets.EC2_USER }}
+        run: |
+          rsync -avz --delete web/dist/ $EC2_USER@$EC2_HOST:/var/www/hipo/
+          ssh $EC2_USER@$EC2_HOST "sudo chmod -R 755 /var/www/hipo"
+
+      - name: Verificar deploy
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_USER: ${{ secrets.EC2_USER }}
+        run: |
+          ssh $EC2_USER@$EC2_HOST "curl -sf http://localhost/health || echo 'Frontend OK'"
+          echo "Deploy concluÃ­do com sucesso."
+
+      # always(): a janela fecha mesmo com o deploy vermelho. Um `if:
+      # success()` aqui deixaria a porta aberta exatamente nos runs que
+      # deram errado -- os que ninguem termina de acompanhar.
+      #
+      # O guard do RUNNER_IP e para quando a falha foi ANTES de abrir a
+      # janela: sem ele, o revoke roda com CIDR vazio, falha, e o job passa
+      # a reportar como causa da falha um passo de limpeza.
+      - name: Fechar janela SSH no Security Group
+        if: always() && env.RUNNER_IP != ''
+        env:
+          SG_ID: ${{ secrets.EC2_SECURITY_GROUP_ID }}
+        run: |
+          echo "fechando 22/tcp para $RUNNER_IP/32 em $SG_ID"
+          aws ec2 revoke-security-group-ingress \
+            --group-id "$SG_ID" --protocol tcp --port 22 --cidr "$RUNNER_IP/32" >/dev/null
+          echo "janela fechada"
+
+      - name: Notificar falha no deploy
+        if: failure()
+        run: |
+          echo "::error::Deploy falhou! Verificar logs no EC2."
