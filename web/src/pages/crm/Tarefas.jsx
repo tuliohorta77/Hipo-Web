@@ -67,6 +67,7 @@ import ProducaoDoMes, {
 import OportunidadeDetalhe from '../../components/crm/OportunidadeDetalhe';
 import ContaDetalhe from '../../components/crm/ContaDetalhe';
 import ModalDesfecho from '../../components/crm/ModalDesfecho';
+import AnexosTarefa from '../../components/crm/AnexosTarefa';
 import {
   ABERTAS, ICONE_TIPO, SITUACAO,
   PainelAcoesTarefa,
@@ -746,6 +747,21 @@ export default function Tarefas() {
                 <span className="text-hipo-slate">Resultado: </span>{aberta.resultado}
               </p>
             )}
+
+            {/*
+              Anexos fora do ternário de baixo: tarefa fechada continua
+              mostrando o print que provou o relato, só não deixa mexer.
+
+              nivel 2 no lightbox porque o modal da tarefa aqui é o 1. A
+              oportunidade também abre no 2, mas as duas nunca estão
+              abertas ao mesmo tempo: para clicar na miniatura, o
+              drilldown precisa estar fechado.
+            */}
+            <AnexosTarefa
+              tarefa={aberta}
+              nivelLightbox={2}
+              onMudou={recarregarTarefaAberta}
+            />
 
             {ABERTAS.includes(aberta.situacao) ? (
               <PainelAcoesTarefa

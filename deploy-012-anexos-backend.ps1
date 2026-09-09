@@ -424,10 +424,29 @@ Confirmar "Gravar S3_BUCKET_ANEXOS=$Bucket no .env e reiniciar a API?"
 # Idempotente: rodar de novo nao duplica a linha. Chave duplicada no .env
 # nao quebra o pydantic, mas deixa o arquivo mentindo sobre si mesmo --
 # e a proxima pessoa a ler nao sabe qual das duas vale.
+#
+# SEM ASPAS DUPLAS. A versao anterior tinha `"..."` escapado com crase, e
+# o PowerShell 5.1 comia as aspas na passagem para o ssh.exe -- igual ao
+# que quebrou a prova do S3. Aqui passou despercebido porque `echo` de um
+# valor sem espacos da o mesmo resultado com ou sem aspas. Funcionou por
+# sorte, e sorte que ninguem viu e a que quebra quando o valor mudar.
+#
+# Aspas simples sobrevivem intactas (o PowerShell nao as toca) e o nome
+# do bucket nao tem espaco nem caractere especial -- ele e validado no
+# setup-s3-anexos.ps1, que o deriva do id da conta.
 $comando = "sudo grep -q '^S3_BUCKET_ANEXOS=' /home/hipo/app/.env " +
            "&& echo 'ja existia' " +
-           "|| sudo sh -c 'echo `"S3_BUCKET_ANEXOS=$Bucket`" >> /home/hipo/app/.env'"
+           "|| sudo sh -c 'echo S3_BUCKET_ANEXOS=$Bucket >> /home/hipo/app/.env'"
 Executar "gravando no .env" { ssh -i $Chave "$UsuarioSsh@$Ip" $comando }
+
+# Conferir o que FICOU no arquivo, e nao so que o comando saiu com 0. A
+# linha e o que decide se a API sobe no proximo restart.
+$linha = & ssh -i $Chave "$UsuarioSsh@$Ip" "sudo grep '^S3_BUCKET_ANEXOS=' /home/hipo/app/.env"
+$linha = ($linha | Out-String).Trim()
+if ($linha -ne "S3_BUCKET_ANEXOS=$Bucket") {
+    Abortar "a linha gravada no .env ficou '$linha', e nao 'S3_BUCKET_ANEXOS=$Bucket'. Corrija a mao antes de reiniciar a API."
+}
+Bom "linha conferida no .env: $linha"
 
 Executar "reiniciando a API" {
     ssh -i $Chave "$UsuarioSsh@$Ip" "sudo systemctl restart hipo-api"
@@ -449,8 +468,13 @@ if ($PularSmoke) {
 else {
     Passo "API..."
     try {
+        # `versao`, com til comido -- e o nome do campo em /health. O
+        # `$health.version` que veio do deploy-010 nunca existiu na
+        # resposta, entao imprimia string vazia: um smoke que parecia
+        # confirmar a versao e nao confirmava nada.
         $health = Invoke-RestMethod -Uri "$UrlPublica/api/health" -TimeoutSec 20
-        Bom "API viva -- versao $($health.version)"
+        if (-not $health.versao) { Abortar "/health respondeu sem o campo 'versao': $($health | ConvertTo-Json -Compress)" }
+        Bom "API viva -- versao $($health.versao)"
     }
     catch {
         Abortar "a API NAO respondeu depois do restart: $($_.Exception.Message). Veja 'sudo journalctl -u hipo-api -n 50' -- se for 'Extra inputs are not permitted', o .env ganhou a chave antes do codigo."
@@ -468,13 +492,49 @@ else {
     # app, nao como root: quem precisa enxergar o bucket e o processo que
     # serve a API.
     Passo "credencial do S3, de dentro da EC2..."
-    $prova = "sudo -iu hipo python3 -c " +
-             "`"import boto3;print('KeyCount', boto3.client('s3').list_objects_v2(Bucket='$Bucket').get('KeyCount'))`""
-    & ssh -i $Chave "$UsuarioSsh@$Ip" $prova
-    if ($LASTEXITCODE -ne 0) {
-        Aviso "a prova do S3 falhou. AccessDenied aqui e a role nao ter chegado no processo -- nao e bug do codigo dos anexos."
+    #
+    # O SCRIPT VAI POR STDIN, e o comando remoto nao tem NENHUMA aspa.
+    #
+    # Duas tentativas anteriores morreram na mesma fronteira, e vale
+    # anotar as duas porque parecem problemas diferentes e sao o mesmo:
+    #
+    #   1a) aspas duplas por fora, simples por dentro ->
+    #       "syntax error near unexpected token" (o bash remoto recebeu o
+    #       -c sem delimitador)
+    #   2a) aspas simples por fora, duplas por dentro ->
+    #       "NameError: name 'KeyCount' is not defined" (o Python recebeu
+    #       print(KeyCount, ...) sem as aspas)
+    #
+    # A causa e a MESMA nas duas: o PowerShell 5.1 remove aspas duplas
+    # nao escapadas ao montar a linha de comando de um executavel NATIVO
+    # (ssh.exe). Nao adianta arrumar o nivel do bash: o estrago acontece
+    # antes, do lado do Windows.
+    #
+    # Com o script em stdin, o unico argumento e "sudo -u hipo python3 -",
+    # que nao tem aspas para perder. E as aspas do Python ficam dentro de
+    # uma string PowerShell que nunca vira argumento de processo nativo.
+    #
+    # `-u` e nao `-iu`: o login shell do -i nao e necessario aqui (a
+    # credencial vem da role da instancia, nao do HOME do usuario) e ele
+    # complica o repasse do stdin.
+    $py = @"
+import boto3
+print("KeyCount", boto3.client("s3").list_objects_v2(Bucket="$Bucket").get("KeyCount"))
+"@
+
+    $saida = $py | & ssh -i $Chave "$UsuarioSsh@$Ip" "sudo -u hipo python3 -"
+    $texto = ($saida | Out-String)
+    Write-Host $texto.TrimEnd() -ForegroundColor DarkGray
+
+    if ($texto -match "KeyCount") {
+        Bom "a EC2 enxerga o bucket"
     }
-    else { Bom "a EC2 enxerga o bucket" }
+    elseif ($texto -match "AccessDenied") {
+        Aviso "AccessDenied: a role nao chegou no processo. Confira a politica hipo-anexos-s3 em hipo-ec2-ses -- nao e bug do codigo dos anexos."
+    }
+    else {
+        Aviso "a prova do S3 nao respondeu o esperado. Leia a saida acima antes de culpar a role: erro de sintaxe aqui e problema do comando, nao de permissao."
+    }
 }
 
 # =====================================================================

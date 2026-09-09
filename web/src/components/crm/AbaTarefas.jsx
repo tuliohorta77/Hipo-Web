@@ -39,6 +39,7 @@ import Button from '../ui/Button';
 import Badge from '../ui/Badge';
 import Empty from '../ui/Empty';
 import AlertMessage from '../ui/AlertMessage';
+import AnexosTarefa from './AnexosTarefa';
 import {
   ABERTAS, ICONE_TIPO, SITUACAO,
   CamposTarefa, PainelAcoesTarefa,
@@ -140,6 +141,19 @@ function Evento({
                 Veio da conclusão da tarefa anterior.
               </p>
             )}
+
+            {/*
+              Anexos ANTES das ações, e fora do `aberta &&`: tarefa
+              fechada continua mostrando o print que provou o relato —
+              ela só não deixa mexer. Quem some por conta própria é o
+              bloco vazio de tarefa fechada, dentro do componente.
+
+              nivel 3 no lightbox: esta aba vive dentro do detalhe da
+              oportunidade, que é modal de nível 1 no funil e de nível 2
+              no módulo de Tarefas. O 3 fica na frente nos dois casos, e
+              é o topo da escala de CAMADAS.
+            */}
+            <AnexosTarefa tarefa={tarefa} nivelLightbox={3} />
 
             {/*
               Ações só em tarefa aberta. Tarefa fechada é histórico, e o
