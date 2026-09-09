@@ -635,3 +635,189 @@ describe('Tarefas — a produção do mês', () => {
     expect(screen.getByText('—')).toBeInTheDocument();
   });
 });
+
+// ── Drilldown da oportunidade ────────────────────────────────────────
+//
+// A tarefa é sempre sobre alguma coisa, e essa coisa é a oportunidade. Quem
+// abre "Cobrar proposta" precisa, no mesmo minuto, da fase, do valor e do que
+// foi conversado antes — e isso custava fechar tudo, ir ao funil e buscar o
+// número na mão.
+//
+// A oportunidade abre EM CIMA da tarefa, editável, e some sem levar junto o
+// que estava aberto atrás. Mesma escolha do drilldown da conta dentro da
+// oportunidade, e pelo mesmo motivo.
+
+describe('Tarefas — drilldown da oportunidade', () => {
+  const DETALHE_OPP = {
+    id: 'o1', numero: 'OPP-2026-00001', conta_id: 'c1',
+    conta_razao_social: 'Metalurgica Alfa LTDA',
+    contato_id: null, contato_nome: null,
+    fase: 'negociacao', status: 'ativa', fase_desfecho: null, motivo_desfecho: null,
+    valor_mensalidade: 2500, temperatura: 70, previsao_fechamento: '2026-09-30',
+    descricao: null, observacoes: null, origem_id: null, origem_nome: null,
+    finder_conta_id: null, finder_razao_social: null,
+    envolvidos: [], concorrentes: [], tarefas_abertas: 1,
+    criado_em: '2026-08-01T12:00:00Z', atualizado_em: '2026-08-01T12:00:00Z',
+  };
+
+  const CONTA = {
+    id: 'c1',
+    razao_social: 'Metalurgica Alfa LTDA', nome_fantasia: 'Alfa',
+    cnpj: '11222333000181', cnpj_formatado: '11.222.333/0001-81',
+    vertical_id: 1, vertical_nome: 'Metalúrgica', num_funcionarios: 120,
+    cep: '07020020', logradouro: 'Rua A', numero: '100', complemento: null,
+    bairro: 'Centro', cidade: 'Guarulhos', uf: 'SP',
+    telefone: '1130001000', telefone_2: null, email: 'contato@alfa.com',
+    observacoes: null, eh_finder: false, ativo: true,
+    vendedores: ['Jakeline Santana'], qtd_oportunidades_ativas: 1,
+    criado_em: '2026-08-01T12:00:00Z', atualizado_em: '2026-08-01T12:00:00Z',
+    contatos: [], oportunidades: [],
+  };
+
+  // A tarefa 1 é a que os testes abrem. O GET individual existe porque
+  // qualquer mudança dentro do drilldown pode alterar situação e
+  // status_oportunidade do cartão que ficou atrás.
+  const TAREFA_1 = COLUNAS[0].itens[0];
+
+  function respostasComOportunidade(colunas = COLUNAS) {
+    return (url) => {
+      if (url === '/crm/oportunidades/o1') return Promise.resolve({ data: DETALHE_OPP });
+      if (url === '/crm/tarefas/1') return Promise.resolve({ data: TAREFA_1 });
+      if (url === '/crm/contas/c1') return Promise.resolve({ data: CONTA });
+      if (url === '/crm/dominio/verticais') {
+        return Promise.resolve({ data: [{ id: 1, nome: 'Metalúrgica', slug: 'metalurgica' }] });
+      }
+      if (url === '/crm/contatos') {
+        return Promise.resolve({ data: { total: 0, limit: 100, offset: 0, itens: [] } });
+      }
+      return respostas(colunas)(url);
+    };
+  }
+
+  const botaoDaOportunidade = () =>
+    screen.getByLabelText('Abrir a oportunidade OPP-2026-00001');
+
+  async function abrirTarefa(colunas = COLUNAS) {
+    mockGet.mockImplementation(respostasComOportunidade(colunas));
+    montar();
+    await screen.findByText('Cobrar proposta');
+    fireEvent.click(screen.getByText('Cobrar proposta').closest('button'));
+    return screen.findByText('Concluir');
+  }
+
+  async function abrirOportunidade() {
+    await abrirTarefa();
+    fireEvent.click(botaoDaOportunidade());
+    return screen.findByTestId('tab-dados');
+  }
+
+  it('o detalhe da tarefa traz a oportunidade como botão', async () => {
+    await abrirTarefa();
+    expect(botaoDaOportunidade()).toBeInTheDocument();
+  });
+
+  it('clicar abre a visão 360 da oportunidade, editável', async () => {
+    /*
+      Editável é o ponto: o drilldown é o MESMO componente do funil, não uma
+      cópia só-leitura que envelheceria em paralelo.
+    */
+    await abrirOportunidade();
+    expect(mockGet.mock.calls.some(([u]) => u === '/crm/oportunidades/o1')).toBe(true);
+    expect(screen.getByLabelText('Fase')).not.toBeDisabled();
+  });
+
+  it('a tarefa continua aberta atrás', async () => {
+    /* Empilhar em vez de navegar é o que preserva o que já estava aqui. */
+    await abrirOportunidade();
+    expect(screen.getByLabelText('Concluir Cobrar proposta')).toBeInTheDocument();
+  });
+
+  it('o painel de concluir sobrevive ao drilldown', async () => {
+    /*
+      O motivo de empilhar. Com rota nova o modal desmontaria e o formulário
+      da próxima tarefa iria junto — sem aviso nenhum.
+    */
+    await abrirTarefa();
+    fireEvent.click(screen.getByLabelText('Concluir Cobrar proposta'));
+    fireEvent.change(await screen.findByLabelText('Próxima: Título'), {
+      target: { value: 'Apresentar proposta' },
+    });
+
+    fireEvent.click(botaoDaOportunidade());
+    await screen.findByTestId('tab-dados');
+
+    const barra = within(screen.getByLabelText('Ações da oportunidade'));
+    fireEvent.click(barra.getByText('Fechar'));
+
+    await waitFor(() =>
+      expect(screen.queryByTestId('tab-dados')).not.toBeInTheDocument()
+    );
+    expect(screen.getByLabelText('Próxima: Título').value).toBe('Apresentar proposta');
+  });
+
+  it('mexer na oportunidade recarrega o kanban e a tarefa aberta', async () => {
+    /*
+      Finalizar ou mover a negociação muda o `status_oportunidade` da tarefa
+      que ficou atrás — e é ele que decide se concluir ainda vai exigir a
+      próxima. Sem recarregar, o cartão mente sobre o próprio estado.
+    */
+    mockPatch.mockResolvedValue({ data: { ...DETALHE_OPP, fase: 'apresentacao' } });
+    await abrirOportunidade();
+
+    fireEvent.change(screen.getByLabelText('Fase'), { target: { value: 'apresentacao' } });
+
+    await waitFor(() =>
+      expect(mockGet.mock.calls.some(([u]) => u === '/crm/tarefas/1')).toBe(true)
+    );
+    expect(mockPatch.mock.calls[0][0]).toBe('/crm/oportunidades/o1/fase');
+  });
+
+  it('da oportunidade a pilha segue até a empresa', async () => {
+    /* Três degraus: tarefa → oportunidade → conta. */
+    await abrirOportunidade();
+    fireEvent.click(screen.getByLabelText('Abrir a conta Metalurgica Alfa LTDA'));
+
+    const razao = await screen.findByLabelText('Razão social');
+    expect(razao.value).toBe('Metalurgica Alfa LTDA');
+    expect(screen.getByTestId('tab-dados')).toBeInTheDocument();
+  });
+
+  it('tarefa de parceiro não oferece o botão', async () => {
+    /*
+      Parceiro não tem oportunidade. Um botão que abre nada seria pior que a
+      ausência dele — e quem decide é `alvo`/`oportunidade_id`, não a
+      inferência de um campo nulo.
+    */
+    await abrirTarefa(COLUNAS.map((c) => (c.situacao === 'atrasada'
+      ? {
+        ...c,
+        itens: [{
+          ...c.itens[0],
+          alvo: 'parceiro', alvo_rotulo: 'Parceiro',
+          oportunidade_id: null, oportunidade_numero: null,
+          status_oportunidade: null,
+          conta_razao_social: 'Contabil Gama ME',
+        }],
+      }
+      : c)));
+
+    expect(screen.queryByLabelText(/^Abrir a oportunidade/)).not.toBeInTheDocument();
+  });
+
+  it('erro ao abrir a oportunidade aparece e não abre modal nenhum', async () => {
+    mockGet.mockImplementation((url) => {
+      if (url === '/crm/oportunidades/o1') {
+        return Promise.reject({ response: { data: { detail: 'Sem permissão' } } });
+      }
+      return respostasComOportunidade()(url);
+    });
+    montar();
+    await screen.findByText('Cobrar proposta');
+    fireEvent.click(screen.getByText('Cobrar proposta').closest('button'));
+    await screen.findByText('Concluir');
+
+    fireEvent.click(botaoDaOportunidade());
+    expect(await screen.findByText('Sem permissão')).toBeInTheDocument();
+    expect(screen.queryByTestId('tab-dados')).not.toBeInTheDocument();
+  });
+});

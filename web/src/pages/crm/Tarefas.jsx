@@ -29,11 +29,29 @@
 // hoje na direção da diretriz da "próxima tarefa".
 //
 // Canceladas não têm coluna: são ruído para quem está medindo carga.
+//
+// ── Da tarefa para a negociação ──────────────────────────────────────
+// A tarefa é sempre sobre ALGUMA COISA, e essa coisa é a oportunidade. Quem
+// abre "Cobrar proposta" quase sempre precisa, no mesmo minuto, do que está
+// atrás dela: em que fase está, quanto vale, o que foi conversado antes.
+// Sem caminho daqui para lá, o gestor fechava tudo, ia para o funil e
+// buscava o número na mão — e voltava para cá sem lembrar em que cartão
+// estava.
+//
+// A oportunidade abre EM CIMA da tarefa, não no lugar dela — mesma escolha
+// do drilldown da conta dentro da oportunidade, e pelo mesmo motivo: fechar
+// o drilldown devolve o cartão exatamente como estava, com o painel de
+// concluir aberto e o que já foi digitado intacto. A pilha vai a três
+// níveis: tarefa (1) → oportunidade (2) → conta (3).
+//
+// Tarefa de parceiro não tem oportunidade, e por isso não tem o botão. O
+// alvo vem pronto do servidor (`alvo`, `oportunidade_id`); a tela não
+// deduz de campo nulo.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Search, X, CircleDot, AlarmClock, CalendarCheck, CalendarClock, CheckCircle2,
-  TrendingUp,
+  TrendingUp, Briefcase, Maximize2,
 } from 'lucide-react';
 
 import api, { getUser } from '../../api';
@@ -46,6 +64,9 @@ import KpiInline from '../../components/ui/KpiInline';
 import ProducaoDoMes, {
   limitesDoMes, rotuloCurto,
 } from '../../components/crm/ProducaoDoMes';
+import OportunidadeDetalhe from '../../components/crm/OportunidadeDetalhe';
+import ContaDetalhe from '../../components/crm/ContaDetalhe';
+import ModalDesfecho from '../../components/crm/ModalDesfecho';
 import {
   ABERTAS, ICONE_TIPO, SITUACAO,
   PainelAcoesTarefa,
@@ -55,6 +76,13 @@ import {
 const CLASSE_CAMPO =
   'h-8 text-xs rounded-lg border border-hipo-border bg-hipo-card text-hipo-ink ' +
   'focus:outline-none focus:ring-2 focus:ring-hipo-blue';
+
+// Mesmo mapa do funil. Duplicado em três arquivos e sempre igual: extrair
+// para um módulo compartilhado é item de faxina, não desta mudança.
+const TOM_STATUS = {
+  ativa: 'success', suspensa: 'warning', conquistado: 'success',
+  perdido: 'danger', cancelado: 'neutral',
+};
 
 const ICONE_COLUNA = {
   atrasada: AlarmClock,
@@ -199,6 +227,33 @@ export default function Tarefas() {
   const [verProducao, setVerProducao] = useState(false);
   const debounce = useRef(null);
 
+  /*
+    ── A pilha do drilldown ──
+    `oportunidade` é o nível 2 (aberto de dentro da tarefa) e `contaAberta` o
+    nível 3 (aberto de dentro da oportunidade). `verticais` só é buscada
+    quando a conta abre pela primeira vez: o kanban de tarefas não precisa
+    dela para nada, e uma request a mais em toda abertura da tela seria custo
+    fixo para um caminho que quase ninguém percorre.
+  */
+  const [oportunidade, setOportunidade] = useState(null);
+  const [desfechoDe, setDesfechoDe] = useState(null);
+  const [contaAberta, setContaAberta] = useState(null);
+  const [acaoSalvarConta, setAcaoSalvarConta] = useState(null);
+  const [verticais, setVerticais] = useState([]);
+  const verticaisRef = useRef([]);
+
+  /*
+    Os ids do que está aberto vivem em ref, não nas dependências dos
+    callbacks. `onRecarregar` e `onSalvo` do OportunidadeDetalhe alimentam o
+    `mutar` da aba de tarefas dele; prop que troca de identidade a cada
+    render nesse caminho já produziu recarregamento em loop nas outras telas.
+    Com ref, os handlers nascem estáveis e continuam sabendo em quem mexer.
+  */
+  const abertaRef = useRef(null);
+  const oportunidadeRef = useRef(null);
+  useEffect(() => { abertaRef.current = aberta?.id ?? null; });
+  useEffect(() => { oportunidadeRef.current = oportunidade?.id ?? null; });
+
   // O `q === busca ? q : busca` não é microtuning: sem ele o timer dispara
   // uma vez na montagem, troca a identidade do estado e a tela recarrega
   // sozinha — mesmo bug que já custou uma carga dupla em Contas e no funil.
@@ -320,6 +375,133 @@ export default function Tarefas() {
     () => api.patch(`/crm/tarefas/${tarefa.id}`, corpoDaTarefa(form)),
     'Não foi possível salvar a tarefa.',
   );
+
+  // ── Drilldown: tarefa → oportunidade → conta ───────────────────────
+
+  /*
+    A tarefa aberta atrás do drilldown pode ter mudado por lá: concluir pela
+    aba de tarefas da oportunidade, ou finalizar a negociação, muda situação
+    e `status_oportunidade` — e é esse status que decide se a conclusão vai
+    exigir a próxima tarefa. Sem recarregar, o usuário voltaria para um
+    cartão que mente sobre o próprio estado.
+
+    Falha em silêncio: o kanban atrás já foi recarregado, e trocar a faixa de
+    erro por causa de um refresh de cortesia atrapalharia quem está no meio
+    de uma ação.
+  */
+  const recarregarTarefaAberta = useCallback(async () => {
+    const id = abertaRef.current;
+    if (!id) return;
+    try {
+      const { data } = await api.get(`/crm/tarefas/${id}`);
+      setAberta(data);
+    } catch {
+      /* silencioso de propósito — ver comentário acima */
+    }
+  }, []);
+
+  const abrirOportunidade = useCallback(async (id) => {
+    setErro(null);
+    try {
+      const { data } = await api.get(`/crm/oportunidades/${id}`);
+      setOportunidade(data);
+    } catch (err) {
+      setErro(mensagemDeErro(err, 'Não foi possível abrir a oportunidade.'));
+    }
+  }, []);
+
+  const fecharOportunidade = useCallback(() => {
+    setOportunidade(null);
+    setContaAberta(null);
+    setAcaoSalvarConta(null);
+  }, []);
+
+  const recarregarOportunidade = useCallback(async () => {
+    const id = oportunidadeRef.current;
+    if (!id) return;
+    try {
+      const { data } = await api.get(`/crm/oportunidades/${id}`);
+      setOportunidade(data);
+    } catch (err) {
+      setErro(mensagemDeErro(err, 'Não foi possível recarregar a oportunidade.'));
+    }
+  }, []);
+
+  /*
+    Qualquer mudança dentro do drilldown repercute em TRÊS superfícies: a
+    própria oportunidade, o kanban atrás e o cartão aberto. Recarregar só a
+    oportunidade era o caminho curto — e deixava a coluna Atrasadas com a
+    tarefa que o usuário acabou de concluir por dentro da aba.
+  */
+  const aoMudarOportunidade = useCallback(async () => {
+    await Promise.all([
+      recarregarOportunidade(),
+      carregar(),
+      recarregarTarefaAberta(),
+    ]);
+  }, [recarregarOportunidade, carregar, recarregarTarefaAberta]);
+
+  const aoSalvarOportunidade = useCallback((atualizada) => {
+    setOportunidade(atualizada);
+    carregar();
+    recarregarTarefaAberta();
+  }, [carregar, recarregarTarefaAberta]);
+
+  const abrirConta = useCallback(async (contaId) => {
+    setErro(null);
+    try {
+      const [conta, verts] = await Promise.all([
+        api.get(`/crm/contas/${contaId}`),
+        verticaisRef.current.length
+          ? Promise.resolve({ data: verticaisRef.current })
+          : api.get('/crm/dominio/verticais'),
+      ]);
+      verticaisRef.current = verts.data;
+      setVerticais(verts.data);
+      setContaAberta(conta.data);
+    } catch (err) {
+      setErro(mensagemDeErro(err, 'Não foi possível abrir a conta.'));
+    }
+  }, []);
+
+  const fecharConta = useCallback(() => {
+    setContaAberta(null);
+    setAcaoSalvarConta(null);
+  }, []);
+
+  const recarregarConta = useCallback(async () => {
+    const id = contaAberta?.id;
+    if (!id) return;
+    try {
+      const { data } = await api.get(`/crm/contas/${id}`);
+      setContaAberta(data);
+    } catch (err) {
+      setErro(mensagemDeErro(err, 'Não foi possível recarregar a conta.'));
+    }
+  }, [contaAberta]);
+
+  const criarVertical = useCallback(async (nome) => {
+    const { data } = await api.post('/crm/dominio/verticais', { nome });
+    setVerticais((vs) => {
+      const lista = vs.some((v) => v.id === data.id) ? vs : [...vs, data];
+      verticaisRef.current = lista;
+      return lista;
+    });
+    return data;
+  }, []);
+
+  /*
+    Renomear a empresa aqui muda o nome que aparece no cartão do kanban, no
+    subtítulo do modal da tarefa e no título da oportunidade. Sem recarregar
+    as três, o usuário salva e vê o nome antigo assim que fecha — e conclui
+    que não salvou.
+  */
+  const aoSalvarConta = useCallback((atualizada) => {
+    setContaAberta(atualizada);
+    carregar();
+    recarregarOportunidade();
+    recarregarTarefaAberta();
+  }, [carregar, recarregarOportunidade, recarregarTarefaAberta]);
 
   const atrasadas = colunas.find((c) => c.situacao === 'atrasada')?.quantidade ?? 0;
   const emAberto = colunas
@@ -490,6 +672,45 @@ export default function Tarefas() {
           <div className="space-y-4">
             {erro && <AlertMessage tipo="erro">{erro}</AlertMessage>}
 
+            {/*
+              ── A negociação, a um clique ──
+              O subtítulo do modal já DIZ o número; dizer não é o mesmo que
+              levar. Quem está decidindo o que fazer com a tarefa precisa da
+              fase, do valor e do histórico — e tinha que fechar tudo e
+              buscar o número na mão no funil.
+
+              Só existe quando a tarefa É de uma oportunidade. Em tarefa de
+              parceiro `oportunidade_id` vem nulo e o botão não aparece: um
+              botão que abre nada seria pior que a ausência dele.
+            */}
+            {aberta.oportunidade_id && (
+              <button
+                type="button"
+                onClick={() => abrirOportunidade(aberta.oportunidade_id)}
+                title={`Abrir a oportunidade ${aberta.oportunidade_numero}`}
+                aria-label={`Abrir a oportunidade ${aberta.oportunidade_numero}`}
+                className={
+                  'w-full flex items-center gap-2 px-3 py-2 rounded-lg text-xs ' +
+                  'border border-hipo-border bg-hipo-bg/40 text-hipo-ink text-left ' +
+                  'hover:bg-hipo-blueSoft hover:border-hipo-blue transition-colors ' +
+                  'focus:outline-none focus-visible:ring-2 focus-visible:ring-hipo-blue'
+                }
+              >
+                <Briefcase size={14} className="shrink-0 text-hipo-blue" aria-hidden="true" />
+                <span className="font-mono font-medium shrink-0">
+                  {aberta.oportunidade_numero}
+                </span>
+                <span className="truncate text-hipo-slate">
+                  {aberta.conta_razao_social}
+                </span>
+                <Maximize2
+                  size={12}
+                  className="ml-auto shrink-0 text-hipo-slate"
+                  aria-hidden="true"
+                />
+              </button>
+            )}
+
             <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1 text-xs">
               <div>
                 <dt className="inline text-hipo-slate">Tipo: </dt>
@@ -547,6 +768,112 @@ export default function Tarefas() {
           </div>
         )}
       </Modal>
+
+      {/*
+        ── Drilldown da oportunidade (nível 2) ──
+        Abre de dentro do modal da tarefa, então é nível 2 — declarado na
+        chamada, não deduzido da ordem do JSX. É o MESMO componente do funil,
+        com as mesmas props e editável: uma versão "só leitura" aqui viraria
+        uma segunda tela da oportunidade para manter, e ela envelheceria.
+
+        O Esc fecha só este, não os dois — ver a pilha em components/ui/Modal.
+      */}
+      <Modal
+        aberto={Boolean(oportunidade)}
+        onFechar={fecharOportunidade}
+        titulo={oportunidade
+          ? `${oportunidade.numero} · ${oportunidade.conta_razao_social}`
+          : undefined}
+        subtitulo={oportunidade ? (
+          <Badge tone={TOM_STATUS[oportunidade.status] || 'neutral'}>
+            {oportunidade.status}
+          </Badge>
+        ) : undefined}
+        size="full"
+        nivel={2}
+        bodySemPadding
+      >
+        {oportunidade && (
+          <OportunidadeDetalhe
+            oportunidade={oportunidade}
+            onRecarregar={aoMudarOportunidade}
+            onSalvo={aoSalvarOportunidade}
+            onDesfecho={setDesfechoDe}
+            onFechar={fecharOportunidade}
+            onAbrirConta={abrirConta}
+          />
+        )}
+      </Modal>
+
+      {/*
+        ── Drilldown da conta (nível 3) ──
+        Terceiro degrau da mesma pilha: tarefa → oportunidade → empresa. O
+        caminho inteiro existe no funil a partir do segundo degrau; aqui ele
+        só ganhou o primeiro.
+      */}
+      <Modal
+        aberto={Boolean(contaAberta)}
+        onFechar={fecharConta}
+        titulo={contaAberta?.razao_social}
+        subtitulo={contaAberta ? `CNPJ ${contaAberta.cnpj_formatado}` : undefined}
+        size="full"
+        nivel={3}
+        bodySemPadding
+        acoes={
+          // O aria-label separa esta barra da do modal de baixo: com dois
+          // modais no DOM há dois "Salvar", e sem rótulo nem o leitor de tela
+          // nem o teste sabem qual é de quem.
+          <div className="flex items-center gap-2" aria-label="Ações da conta">
+            <span className="text-xs text-hipo-slate mr-1">
+              {acaoSalvarConta?.sujo ? 'Alterações não salvas' : 'Tudo salvo'}
+            </span>
+            <Button size="sm" variant="ghost" onClick={fecharConta}>
+              Voltar à oportunidade
+            </Button>
+            <Button
+              size="sm"
+              onClick={() => acaoSalvarConta?.salvar()}
+              disabled={!acaoSalvarConta?.sujo}
+              loading={acaoSalvarConta?.salvando}
+            >
+              Salvar
+            </Button>
+          </div>
+        }
+      >
+        {contaAberta && (
+          <ContaDetalhe
+            conta={contaAberta}
+            verticais={verticais}
+            onCriarVertical={criarVertical}
+            onRecarregar={recarregarConta}
+            onSalvo={aoSalvarConta}
+            registrarSalvar={setAcaoSalvarConta}
+          />
+        )}
+      </Modal>
+
+      {/*
+        ── Finalizar a oportunidade (nível 3) ──
+        Aqui a oportunidade já é o nível 2, então o desfecho precisa ser o 3 —
+        por isso o `nivel` é passado, e não deixado no padrão do componente.
+        Com o padrão, o formulário abriria ATRÁS da oportunidade e pareceria
+        que o botão Finalizar não faz nada.
+      */}
+      <ModalDesfecho
+        oportunidade={desfechoDe}
+        nivel={3}
+        onFechar={() => setDesfechoDe(null)}
+        onConcluido={(o) => {
+          setDesfechoDe(null);
+          if (oportunidadeRef.current === o.id) setOportunidade(o);
+          carregar();
+          // O desfecho grava uma tarefa concluída e pode mudar o
+          // `status_oportunidade` da tarefa aberta atrás — que é o que decide
+          // se concluir ainda vai exigir a próxima.
+          recarregarTarefaAberta();
+        }}
+      />
 
       <ProducaoDoMes
         aberto={verProducao}
