@@ -10,6 +10,8 @@
 --   004_tarefas.sql      criou a tabela de tarefas do funil
 --   005_parceiros.sql    EC responsavel por parceiro + trilha da carteira
 --   006_tarefas_parceiro.sql  tarefa presa ao parceiro (alvo alternativo)
+--   010_nao_prospectar.sql  marca de empresa que ja e cliente da MedSeg
+--   011_agenda.sql       agenda de reunioes presa a tarefa + Google Calendar
 --
 -- Este arquivo e a fonte usada para criar o banco de teste no CI e deve
 -- refletir o estado acumulado das migrations.
@@ -708,3 +710,138 @@ CREATE TABLE IF NOT EXISTS tarefa_anexos (
 
 CREATE INDEX IF NOT EXISTS idx_tarefa_anexos_tarefa
     ON tarefa_anexos (tarefa_id, criado_em);
+
+
+-- ===========================================================================
+-- AGENDA DE REUNIOES  (migration 011)
+-- ===========================================================================
+-- Espelha api/migrations/011_agenda.sql. O CI monta o banco de teste com
+-- `psql -f api/schema.sql`, NAO com as migrations: migration que nao chega
+-- aqui derruba a suite inteira que usa `db_conn`.
+--
+-- A DECISAO CENTRAL: reuniao TEM uma tarefa, e exatamente uma. Ela nao
+-- repete horario, dono, titulo nem alvo -- acrescenta o que so a agenda
+-- precisa. Por isso NAO existem as colunas `inicio`, `responsavel_id` e
+-- `titulo`:
+--
+--     inicio    = tarefas.prazo
+--     fim       = tarefas.prazo + duracao_min
+--     anfitriao = tarefas.responsavel_id   (de quem e a coluna na grade)
+--     titulo    = tarefas.titulo
+--
+-- Duas tabelas com seu proprio "quando" e seu proprio "quem" divergiriam no
+-- primeiro reagendamento. Com a tarefa como dona, a agenda herda a situacao
+-- derivada, a regra "concluir exige a proxima", a producao do mes e o
+-- drilldown ate a conta -- tudo ja testado desde a Sprint 5.
+--
+-- Ver o cabecalho da migration para o resto do raciocinio.
+-- ---------------------------------------------------------------------------
+
+-- O "CF" do rotulo "CF - XPTO (Bruno) - ON".
+--
+-- Lista de dominio e nao CHECK porque o vocabulario ainda esta sendo
+-- descoberto -- a planilha de origem trazia so uma sigla. A guarda contra
+-- deriva esta na API: criar exige o modulo 'usuarios' (gestao); ler e usar e
+-- de todo mundo. Renomear e um UPDATE, nao uma migration.
+--
+-- CONSEQUENCIA NOS TESTES: a FK `criado_por` para usuarios faz o
+-- TRUNCATE usuarios CASCADE do conftest esvaziar esta tabela, igual as
+-- outras listas de dominio. Teste que precisa de um tipo cria o dele.
+CREATE TABLE IF NOT EXISTS tipos_reuniao (
+    id          SERIAL PRIMARY KEY,
+    sigla       VARCHAR(8)   NOT NULL UNIQUE,
+    nome        VARCHAR(120) NOT NULL,
+    slug        VARCHAR(120) NOT NULL UNIQUE,
+    ordem       SMALLINT     NOT NULL DEFAULT 100,
+    ativo       BOOLEAN      NOT NULL DEFAULT TRUE,
+    criado_por  UUID REFERENCES usuarios(id) ON DELETE SET NULL,
+    criado_em   TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    CONSTRAINT ck_tipo_reuniao_sigla CHECK (sigla ~ '^[A-Z0-9]{1,8}$'),
+    CONSTRAINT ck_tipo_reuniao_nome  CHECK (length(btrim(nome)) > 0)
+);
+
+-- O `nome` vai para o TITULO do evento no Google, na forma
+-- "<razao social> <CNPJ> | <nome> Controller MedSeg". So 'Apresentacao'
+-- esta confirmado (copiado de um convite real); os outros sao a leitura
+-- mais provavel das siglas da planilha de origem, e corrigir e um UPDATE.
+INSERT INTO tipos_reuniao (sigla, nome, slug, ordem) VALUES
+    ('CD',  'Diagnostico',    'diagnostico',    10),
+    ('AP',  'Apresentacao',   'apresentacao',   20),
+    ('CF',  'Fechamento',     'fechamento',     30),
+    ('FUP', 'Follow-up',      'follow-up',      40),
+    ('VT',  'Visita tecnica', 'visita-tecnica', 50)
+ON CONFLICT (slug) DO NOTHING;
+
+
+CREATE TABLE IF NOT EXISTS reunioes (
+    id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+
+    -- NOT NULL e UNIQUE. O UNIQUE nao e zelo: sem ele, "colocar na agenda"
+    -- clicado duas vezes criaria duas linhas com o mesmo horario e o mesmo
+    -- dono, e a grade mostraria a reuniao em duplicidade.
+    tarefa_id     UUID NOT NULL UNIQUE REFERENCES tarefas(id) ON DELETE CASCADE,
+
+    duracao_min   SMALLINT NOT NULL DEFAULT 30,
+    tipo_id       INTEGER REFERENCES tipos_reuniao(id) ON DELETE RESTRICT,
+    modalidade    VARCHAR(12) NOT NULL DEFAULT 'online',
+
+    -- Sem CHECK amarrando endereco a presencial e link a online: reuniao
+    -- online com endereco (a sala de onde o vendedor fala) e presencial com
+    -- link (o socio que entra remoto) sao casos reais, e um CHECK que os
+    -- proibisse so ensinaria a escolher a modalidade errada para salvar.
+    endereco      TEXT,
+    link_video    TEXT,
+
+    contato_id    UUID REFERENCES contatos(id) ON DELETE SET NULL,
+    convidados    TEXT[] NOT NULL DEFAULT '{}',
+    observacoes   TEXT,
+
+    -- google_calendar_id e o e-mail do anfitriao NO MOMENTO da
+    -- sincronizacao, e nao o do responsavel atual: para apagar ou atualizar
+    -- o evento e preciso personificar quem o criou. Sem esta coluna, trocar
+    -- o anfitriao deixaria um evento fantasma na agenda do anterior.
+    google_calendar_id     TEXT,
+    google_event_id        TEXT,
+    google_link            TEXT,
+    google_sincronizado_em TIMESTAMPTZ,
+    -- Coluna e nao log: a tela precisa dizer "o convite nao saiu". Convite
+    -- que o cliente nunca recebeu e reuniao que nao vai acontecer.
+    google_erro            TEXT,
+
+    criado_por    UUID REFERENCES usuarios(id) ON DELETE SET NULL,
+    criado_em     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    atualizado_em TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+    CONSTRAINT ck_reuniao_duracao CHECK (duracao_min BETWEEN 5 AND 480),
+    CONSTRAINT ck_reuniao_modalidade CHECK (modalidade IN ('online', 'presencial')),
+    CONSTRAINT ck_reuniao_google_completo CHECK (
+        google_event_id IS NULL
+        OR (google_calendar_id IS NOT NULL AND google_sincronizado_em IS NOT NULL)
+    )
+);
+
+-- A grade pergunta "as reunioes desta semana", e a resposta vem da tarefa.
+-- NAO e parcial (ao contrario de idx_tarefas_abertas): a agenda mostra
+-- tambem o que ja aconteceu -- semana passada e consulta legitima.
+CREATE INDEX IF NOT EXISTS idx_tarefas_responsavel_prazo
+    ON tarefas (responsavel_id, prazo);
+
+CREATE INDEX IF NOT EXISTS idx_reunioes_tipo
+    ON reunioes (tipo_id) WHERE tipo_id IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS idx_reunioes_nao_sincronizadas
+    ON reunioes (criado_em) WHERE google_event_id IS NULL;
+
+
+-- Os NOSSOS que entram na reuniao alem do anfitriao. O anfitriao NAO entra
+-- aqui: ele e tarefas.responsavel_id, e repeti-lo criaria a pergunta "e se
+-- as duas discordarem?", que nao tem resposta boa.
+CREATE TABLE IF NOT EXISTS reuniao_participantes (
+    reuniao_id  UUID NOT NULL REFERENCES reunioes(id)  ON DELETE CASCADE,
+    usuario_id  UUID NOT NULL REFERENCES usuarios(id)  ON DELETE CASCADE,
+    criado_em   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (reuniao_id, usuario_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_reuniao_participantes_usuario
+    ON reuniao_participantes (usuario_id);

@@ -20,7 +20,7 @@
 #  O job de deploy faz rsync + restart, e mais nada. A ordem entre os
 #  passos abaixo NAO e negociavel:
 #
-#    1. MIGRATION (antes do deploy). Aditiva e idempotente. Tabela que
+#    1. MIGRATION 011 (antes do deploy). Aditiva e idempotente. Tabela que
 #       existe antes do codigo que a usa nunca quebra nada; o contrario,
 #       sim.
 #    2. BIBLIOTECAS DO GOOGLE (depois do deploy). O deploy NAO roda
@@ -106,7 +106,7 @@ $REPO_URL = "https://github.com/tuliohorta77/Hipo-Web/actions"
 $LIBS = "google-api-python-client==2.149.0 google-auth==2.35.0"
 
 $ESPERADOS = @(
-    @{ Arquivo = "api\migrations\010_agenda.sql";      Marcador = "reuniao_participantes" },
+    @{ Arquivo = "api\migrations\011_agenda.sql";      Marcador = "reuniao_participantes" },
     @{ Arquivo = "api\services\agenda.py";             Marcador = "descricao_evento" },
     @{ Arquivo = "api\services\google_agenda.py";      Marcador = "with_subject" },
     @{ Arquivo = "api\routers\crm_agenda.py";          Marcador = "remover_evento_da_tarefa" },
@@ -117,8 +117,8 @@ $ESPERADOS = @(
     @{ Arquivo = "api\schema.sql";                     Marcador = "reuniao_participantes" },
     @{ Arquivo = "api\requirements.txt";               Marcador = "google-api-python-client" },
     @{ Arquivo = "api\routers\crm_tarefas.py";         Marcador = "remover_evento_da_tarefa" },
-    @{ Arquivo = "infra\aplicar-010-agenda.sh";        Marcador = "tipos_reuniao" },
-    @{ Arquivo = "web\src\pages\crm\Agenda.jsx";       Marcador = "Marcar reuniao em" },
+    @{ Arquivo = "infra\aplicar-011-agenda.sh";        Marcador = "tipos_reuniao" },
+    @{ Arquivo = "web\src\pages\crm\Agenda.jsx";       Marcador = "/crm/agenda/semana" },
     @{ Arquivo = "web\src\components\crm\ModalReuniao.jsx";  Marcador = "Marcar e enviar convite" },
     @{ Arquivo = "web\src\components\crm\agendaComum.js";    Marcador = "FUSO_OPERACAO" },
     @{ Arquivo = "web\src\components\Layout.jsx";      Marcador = "/crm/agenda" },
@@ -127,10 +127,19 @@ $ESPERADOS = @(
     @{ Arquivo = "web\src\tests\ModalReuniao.test.jsx"; Marcador = "Tentar de novo" }
 )
 
-# O marcador de Agenda.jsx e sem acento de proposito: o aria-label real e
-# "Marcar reuniao em ... as ..." com acentos, e Get-Content -Raw num
-# arquivo UTF-8 lido por PowerShell 5.1 pode embaralhar acento. Comparar
-# so o trecho ASCII torna a checagem independente de encoding.
+# TODO MARCADOR AQUI E ASCII PURO, e nenhum deles pode depender de acento:
+# Get-Content -Raw de um arquivo UTF-8 no PowerShell 5.1 embaralha acento, e
+# a checagem falharia num arquivo que esta CERTO.
+#
+# Isso ja custou uma execucao: o marcador do Agenda.jsx era "Marcar reuniao
+# em", tirado do aria-label da celula vazia. So que o aria-label e um
+# template literal -- `Marcar reuniao em ${dia} as ${slot}` -- e a palavra
+# no arquivo tem til. A versao sem acento nao existia em lugar nenhum, e o
+# pre-voo acusou "versao ANTIGA do arquivo" num arquivo recem-escrito.
+#
+# A licao: o marcador tem que ser um trecho que exista LITERALMENTE no
+# arquivo e nao passe perto de acento. Caminho de rota, nome de simbolo e
+# nome de constante servem; texto de interface, nao.
 
 # =====================================================================
 # Utilidades
@@ -240,7 +249,16 @@ foreach ($tabela in @("tipos_reuniao", "reunioes", "reuniao_participantes")) {
         Abortar "api\schema.sql nao cria '$tabela'. O CI monta o banco de teste a partir dele -- a suite inteira cairia."
     }
 }
-Bom "schema.sql espelha a migration 010"
+Bom "schema.sql espelha a migration 011"
+
+# A agenda nasceu numerada 010 e foi renumerada para 011: a 010 ficou com
+# `nao_prospectar`, de outra frente de trabalho que chegou primeiro. Se o
+# arquivo antigo sobreviveu no disco, sao duas migrations com o mesmo
+# numero -- e o proximo a aplicar a mao aplica a errada.
+if (Test-Path "api\migrations\010_agenda.sql") {
+    Abortar "existe api\migrations\010_agenda.sql (versao renumerada). Apague-o: a agenda agora e a 011, e a 010 e a nao_prospectar."
+}
+Bom "sem colisao de numeracao na 010"
 
 # Asserts de igualdade exata em modulos_do_cargo quebram a cada modulo
 # novo. Esta entrega NAO cria modulo (a agenda vive em 'crm'), entao os
@@ -255,7 +273,15 @@ if ($sujos.Count -gt 0) {
     Write-Host "  O commit vai levar:" -ForegroundColor Yellow
     foreach ($l in $sujos) { Write-Host "     $l" -ForegroundColor Gray }
     $inesperados = @($sujos | Where-Object {
-        $_ -notmatch 'api/(migrations/010_agenda\.sql|services/(agenda|google_agenda)\.py|routers/(crm_agenda|crm_tarefas)\.py|tests/test_(agenda_regras|crm_agenda)\.py|main\.py|config\.py|schema\.sql|requirements\.txt|\.env\.template)' -and
+        $_ -notmatch 'api/(migrations/011_agenda\.sql|services/(agenda|google_agenda)\.py|routers/(crm_agenda|crm_tarefas)\.py|tests/test_(agenda_regras|crm_agenda)\.py|main\.py|config\.py|schema\.sql|requirements\.txt|\.env\.template)' -and
+        $_ -notmatch 'infra/aplicar-011-agenda\.sh' -and
+        # A 010_nao_prospectar e de OUTRA frente. Se estiver na arvore, e
+        # dela -- nao um arquivo perdido desta entrega.
+        $_ -notmatch 'api/migrations/010_nao_prospectar\.sql' -and
+        # As EXCLUSOES dos orfaos da renumeracao (a agenda nasceu 010 e virou
+        # 011). Sao parte desta entrega tanto quanto os arquivos novos --
+        # sem elas o repositorio ficaria com duas migrations numeradas 010.
+        $_ -notmatch 'api/migrations/010_agenda\.sql' -and
         $_ -notmatch 'infra/aplicar-010-agenda\.sh' -and
         $_ -notmatch 'web/src/(App\.jsx|components/(Layout\.jsx|crm/(ModalReuniao\.jsx|agendaComum\.js|AbaTarefas\.jsx|OportunidadeDetalhe\.jsx|tarefaComum\.jsx))|pages/crm/(Agenda|Oportunidades|Tarefas)\.jsx|tests/(Agenda|ModalReuniao|Layout)\.test\.jsx)' -and
         $_ -notmatch 'deploy-014-agenda\.ps1'
@@ -349,10 +375,10 @@ else {
 
 if ($PularMigration) {
     Titulo "2. Migration -- PULADA"
-    Aviso "so use isto se a 010 JA foi aplicada; sem as tabelas, a agenda da 500."
+    Aviso "so use isto se a 011 JA foi aplicada; sem as tabelas, a agenda da 500."
 }
 else {
-    Titulo "2. Migration 010_agenda no RDS"
+    Titulo "2. Migration 011_agenda no RDS"
 
     Write-Host ""
     Write-Host "  ADITIVA e IDEMPOTENTE: CREATE TABLE/INDEX IF NOT EXISTS e um" -ForegroundColor Gray
@@ -362,16 +388,16 @@ else {
     Write-Host "  Roda ANTES do deploy: tabela que existe antes do codigo que a" -ForegroundColor Gray
     Write-Host "  usa nunca quebra nada; o contrario, sim." -ForegroundColor Gray
 
-    Confirmar "Aplicar a 010 no RDS de producao?"
+    Confirmar "Aplicar a 011 no RDS de producao?"
 
     Executar "enviando a migration" {
-        scp -i $Chave "api\migrations\010_agenda.sql" "${UsuarioSsh}@${Ip}:/tmp/010_agenda.sql"
+        scp -i $Chave "api\migrations\011_agenda.sql" "${UsuarioSsh}@${Ip}:/tmp/011_agenda.sql"
     }
     Executar "enviando o aplicador" {
-        scp -i $Chave "infra\aplicar-010-agenda.sh" "${UsuarioSsh}@${Ip}:/tmp/aplicar-010-agenda.sh"
+        scp -i $Chave "infra\aplicar-011-agenda.sh" "${UsuarioSsh}@${Ip}:/tmp/aplicar-011-agenda.sh"
     }
     Executar "aplicando" {
-        ssh -i $Chave "$UsuarioSsh@$Ip" "sudo bash /tmp/aplicar-010-agenda.sh /tmp/010_agenda.sql"
+        ssh -i $Chave "$UsuarioSsh@$Ip" "sudo bash /tmp/aplicar-011-agenda.sh /tmp/011_agenda.sql"
     }
     Bom "tabelas da agenda criadas"
 }
@@ -446,7 +472,7 @@ else {
 
     if (-not $numeroPr) {
         Passo "nenhum PR aberto -- criando"
-        & gh pr create --base $RamoAlvo --head $ramo --title $Mensagem --body "Entrega 014 -- agenda de reunioes. Toda reuniao E uma tarefa (tarefa_id UNIQUE NOT NULL): horario, dono, titulo e alvo continuam em tarefas. Migration 010 (aditiva) aplicada antes do deploy. As bibliotecas do Google e a linha GOOGLE_SA_ARQUIVO no .env entram DEPOIS do deploy -- o pydantic-settings recusa chave que o Settings nao declara."
+        & gh pr create --base $RamoAlvo --head $ramo --title $Mensagem --body "Entrega 014 -- agenda de reunioes. Toda reuniao E uma tarefa (tarefa_id UNIQUE NOT NULL): horario, dono, titulo e alvo continuam em tarefas. Migration 011 (aditiva) aplicada antes do deploy. As bibliotecas do Google e a linha GOOGLE_SA_ARQUIVO no .env entram DEPOIS do deploy -- o pydantic-settings recusa chave que o Settings nao declara."
         if ($LASTEXITCODE -ne 0) {
             Abortar "nao consegui criar o PR. Se foi 'No commits between', o merge ja aconteceu: use .\deploy-007-retomar.ps1."
         }

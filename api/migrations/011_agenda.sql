@@ -1,5 +1,8 @@
 -- =====================================================================
--- HIPO -- 010_agenda.sql
+-- HIPO -- 011_agenda.sql
+--
+-- (Era 010. Renumerada: a 010 ficou com `nao_prospectar`, de outra
+--  frente de trabalho, que chegou primeiro no disco.)
 --
 -- Agenda de reunioes: a grade semanal do Executivo de Vendas, presa a
 -- tarefa que ja existia e espelhada no Google Calendar.

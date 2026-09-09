@@ -1,22 +1,22 @@
 #!/usr/bin/env bash
 # =====================================================================
-#  HIPO -- aplica a migration 010_agenda.sql no RDS
+#  HIPO -- aplica a migration 011_agenda.sql no RDS
 #
 #  Roda NA EC2, como root. O /home/hipo/app/.env e do ec2-user (o rsync
 #  do CI o escreve) mesmo com o app rodando como hipo -- por isso root,
 #  e nao `sudo -iu hipo`. Mesma escolha do aplicar-009-anexos.sh.
 #
-#  A 010 e ADITIVA e IDEMPOTENTE: CREATE TABLE / CREATE INDEX IF NOT
+#  A 011 e ADITIVA e IDEMPOTENTE: CREATE TABLE / CREATE INDEX IF NOT
 #  EXISTS e um INSERT com ON CONFLICT DO NOTHING. Rodar duas vezes nao
 #  duplica a semente e nao ha DROP -- logo nao exige o export em CSV que
 #  as migrations destrutivas exigem.
 #
 #  USO (chamado pelo deploy-014, ou a mao):
-#     sudo bash /tmp/aplicar-010-agenda.sh /tmp/010_agenda.sql
+#     sudo bash /tmp/aplicar-011-agenda.sh /tmp/011_agenda.sql
 # =====================================================================
 set -euo pipefail
 
-ARQ="${1:-/tmp/010_agenda.sql}"
+ARQ="${1:-/tmp/011_agenda.sql}"
 ENV_FILE="/home/hipo/app/.env"
 
 [ -f "$ARQ" ]      || { echo "ERRO: migration nao encontrada em $ARQ"; exit 1; }
@@ -131,4 +131,4 @@ async def main() -> int:
 sys.exit(asyncio.run(main()))
 PY
 
-echo "migration 010 aplicada."
+echo "migration 011 aplicada."

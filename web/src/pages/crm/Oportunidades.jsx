@@ -36,6 +36,7 @@ import FunilOportunidades from '../../components/crm/FunilOportunidades';
 import OportunidadeDetalhe from '../../components/crm/OportunidadeDetalhe';
 import ContaDetalhe from '../../components/crm/ContaDetalhe';
 import ModalDesfecho from '../../components/crm/ModalDesfecho';
+import ModalReuniao from '../../components/crm/ModalReuniao';
 
 const POR_PAGINA = 50;
 const CHAVE_VISAO = 'crm_oportunidades_visao';
@@ -252,6 +253,11 @@ export default function Oportunidades() {
   const [novaAberta, setNovaAberta] = useState(false);
   const [detalhe, setDetalhe] = useState(null);
   const [desfechoDe, setDesfechoDe] = useState(null);
+  // A oportunidade para a qual se está marcando reunião. Vive aqui, e não
+  // dentro do OportunidadeDetalhe, pelo mesmo motivo do desfecho: é a
+  // página que sabe empilhar um modal sobre o outro.
+  const [agendandoPara, setAgendandoPara] = useState(null);
+  const [usuariosAgenda, setUsuariosAgenda] = useState([]);
   const [kpiAtivo, setKpiAtivo] = useState(null);
   // Drilldown da empresa, empilhado sobre a oportunidade. `verticais` só é
   // buscada quando o drilldown abre pela primeira vez: o funil não precisa
@@ -405,6 +411,25 @@ export default function Oportunidades() {
     tela antes — mesma nota que existe sobre as props do ContaDetalhe.
   */
   const verticaisRef = useRef([]);
+
+  /*
+    Abre o formulário de reunião com a oportunidade PRESA — quem clicou
+    "Agendar reunião" dentro do negócio já respondeu de qual negócio é.
+
+    Busca a lista de usuários na primeira vez e guarda: o seletor de
+    anfitrião e o de participantes precisam dela, e o funil não.
+  */
+  const abrirAgendamento = useCallback(async (oportunidade) => {
+    setAgendandoPara(oportunidade);
+    setUsuariosAgenda((atual) => {
+      if (atual.length === 0) {
+        api.get('/crm/dominio/usuarios')
+          .then(({ data }) => setUsuariosAgenda(data))
+          .catch(() => setUsuariosAgenda([]));
+      }
+      return atual;
+    });
+  }, []);
 
   const abrirConta = useCallback(async (contaId) => {
     setErro(null);
@@ -843,6 +868,7 @@ export default function Oportunidades() {
             onDesfecho={setDesfechoDe}
             onFechar={() => setDetalhe(null)}
             onAbrirConta={abrirConta}
+            onAgendarReuniao={abrirAgendamento}
           />
         )}
       </Modal>
@@ -916,6 +942,27 @@ export default function Oportunidades() {
           if (detalhe?.id === o.id) setDetalhe(o);
           carregar();
         }}
+      />
+
+      {/*
+        ── Marcar reunião ──
+        Nível 2: abre de dentro do modal da oportunidade. Declarado aqui, e
+        não deduzido da ordem do JSX — com o padrão, abriria ATRÁS da
+        oportunidade e pareceria que o botão não faz nada. Ver a pilha em
+        components/ui/Modal.
+
+        A lista de usuários é buscada só quando o primeiro agendamento
+        abre: o funil não precisa dela para nada, e uma request a mais em
+        toda abertura da tela seria custo fixo por um caminho que nem todo
+        mundo percorre. Mesmo cuidado das verticais no drilldown da conta.
+      */}
+      <ModalReuniao
+        aberto={Boolean(agendandoPara)}
+        nivel={2}
+        onFechar={() => setAgendandoPara(null)}
+        onSalvo={() => { recarregarDetalhe(); carregar(); }}
+        oportunidade={agendandoPara}
+        usuarios={usuariosAgenda}
       />
     </div>
   );
