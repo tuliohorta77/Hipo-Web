@@ -49,6 +49,27 @@
 #  indice novo (a subconsulta usa `idx_tarefas_abertas_por_opp`, que a 004
 #  ja criou). Nada de .env, nada de pip. E so codigo: push, CI, deploy.
 #
+#  O CONSERTO DO WORKFLOW ANDA JUNTO (run #179)
+#
+#  O primeiro deploy da 016 ficou vermelho, e nao por causa do codigo. O
+#  passo "Deploy do Backend" terminava com `sleep 5` e um `curl -sf` no
+#  /health: se a API levasse 6 segundos para subir, o passo morria com
+#  exit 1 e ZERO linha de log -- o curl e silencioso nos dois caminhos. O
+#  unico texto na tela era um aviso do rsync ("cannot delete non-empty
+#  directory: parsers") que nao tinha relacao nenhuma com a falha, e que
+#  mandava quem investigasse para o lado errado.
+#
+#  Consequencia: o restart RODOU (o backend foi para a 016), mas o passo
+#  "Deploy do Frontend", que vem depois, nunca chegou a rodar. Producao
+#  ficou com backend novo e tela velha -- e a tela velha e justamente a
+#  que ainda cobra a proxima tarefa.
+#
+#  .github/workflows/ci-cd.yml traz as duas correcoes: o health check
+#  espera ate 60s e despeja o journal quando estoura, e o __pycache__ vira
+#  filtro 'perishable' para o rsync poder apagar a pasta do legado. E o
+#  smoke daqui parou de aprovar o front so por ele responder 200 -- agora
+#  procura, dentro do bundle servido, uma frase que so existe na 016.
+#
 #  FLUXO
 #     0. pre-voo (arquivos no disco, escopo do commit)
 #     1. testes locais (pytest das regras puras + vitest + build)
@@ -228,6 +249,9 @@ if ($sujos.Count -gt 0) {
     $inesperados = @($sujos | Where-Object {
         $_ -notmatch 'api/(services/tarefa\.py|routers/(crm_tarefas|crm_agenda)\.py|tests/test_(tarefa_regras|crm_tarefas|crm_agenda)\.py)' -and
         $_ -notmatch 'web/src/(components/crm/(tarefaComum\.jsx|AbaTarefas\.jsx|ModalReuniao\.jsx)|pages/crm/Tarefas\.jsx|tests/(Tarefas|ModalReuniao)\.test\.jsx)' -and
+        # O conserto do workflow anda junto: e ele que faz o deploy chegar
+        # ao passo do frontend. Ver o cabecalho.
+        $_ -notmatch '\.github/workflows/ci-cd\.yml' -and
         $_ -notmatch 'deploy-016-proxima-tarefa\.ps1'
     })
     if ($inesperados.Count -gt 0) {
@@ -422,11 +446,48 @@ else {
         Abortar "nao consegui ler o openapi: $($_.Exception.Message)"
     }
 
-    Passo "front..."
+    # O FRONT PRECISA PROVAR A VERSAO, e nao so responder 200.
+    #
+    # Um HTTP 200 aqui e o mesmo 200 de tres meses atras: diz que o nginx
+    # esta de pe, nao que o bundle novo chegou. E foi exatamente isso que
+    # escondeu o problema no run #179 -- o passo "Deploy do Backend" morreu
+    # no health check, o "Deploy do Frontend" (que vem DEPOIS) nunca rodou,
+    # e o smoke aprovou o front mesmo assim. Ficou backend novo com tela
+    # velha, e a tela velha e justamente a que ainda cobrava a proxima
+    # tarefa -- o bug parecia nao ter sido corrigido.
+    #
+    # A prova e uma FRASE que so existe na 016, procurada dentro do bundle
+    # servido. Nao serve comparar o hash do arquivo com o do build local: o
+    # bundle de producao e compilado pelo runner, e qualquer diferenca de
+    # versao de node mudaria o hash sem mudar o conteudo -- alarme falso
+    # numa checagem que precisa ser confiavel.
+    #
+    # A frase e ASCII pura de proposito. Com acento, dependeria de como o
+    # PowerShell decodificou a resposta, e um mismatch de encoding
+    # reprovaria um deploy que esta certo.
+    Passo "front (bundle servido, nao so HTTP 200)..."
     try {
         $front = Invoke-WebRequest -Uri $UrlPublica -TimeoutSec 20 -UseBasicParsing
         if ($front.StatusCode -ne 200) { Abortar "o front respondeu HTTP $($front.StatusCode)" }
-        Bom "front servido (HTTP 200)"
+
+        $achou = [regex]::Match($front.Content, 'assets/(index-[A-Za-z0-9_-]+\.js)')
+        if (-not $achou.Success) {
+            Abortar "nao achei a tag do bundle no index.html servido. O /var/www/hipo esta com outra coisa."
+        }
+        $bundle = $achou.Groups[1].Value
+        Bom "bundle servido: $bundle"
+
+        $js = Invoke-WebRequest -Uri "$UrlPublica/assets/$bundle" -TimeoutSec 40 -UseBasicParsing
+        if ($js.Content -notmatch 'outra tarefa em aberto') {
+            Abortar @"
+o bundle em producao ($bundle) e ANTERIOR a 016.
+    O backend ja esta novo, mas a tela velha nao conhece 'outras_abertas' --
+    ela cai no padrao estrito e continua cobrando a proxima tarefa. Nada
+    quebra, mas o bug relatado ainda aparece.
+    O passo 'Deploy do Frontend' do CI nao rodou. Confira o run em $REPO_URL
+"@
+        }
+        Bom "a tela em producao e a da 016"
     }
     catch { Abortar "o front nao respondeu: $($_.Exception.Message)" }
 }
