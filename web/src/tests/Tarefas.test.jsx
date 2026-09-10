@@ -52,6 +52,9 @@ function tarefa(id, extra = {}) {
     cancelada_em: null,
     motivo_cancelamento: null,
     tarefa_anterior_id: null,
+    // Quantas OUTRAS tarefas do mesmo alvo estão em aberto. Zero = esta é a
+    // última, e é só nesse caso que concluir exige a próxima.
+    outras_abertas: 0,
     criado_em: '2026-08-01T12:00:00Z',
     ...extra,
   };
@@ -408,6 +411,63 @@ describe('Tarefas — o detalhe', () => {
     fireEvent.click(screen.getByLabelText('Concluir Cobrar proposta'));
     expect(await screen.findByLabelText('Próxima: Título')).toBeInTheDocument();
     expect(screen.getByText('Concluir tarefa').closest('button')).toBeDisabled();
+  });
+
+  it('com outra tarefa aberta no alvo, não pede a próxima', async () => {
+    /*
+      A regra é do ALVO: a oportunidade nunca fica sem próximo passo. Com
+      outra tarefa aberta ela não fica — e cobrar mais uma era o que fazia o
+      número de abertas crescer a cada conclusão, sem nunca voltar.
+    */
+    mockGet.mockImplementation(respostas(
+      COLUNAS.map((c) => (c.situacao === 'atrasada'
+        ? { ...c, itens: [{ ...c.itens[0], outras_abertas: 1 }] }
+        : c))
+    ));
+    await abrir();
+    fireEvent.click(screen.getByLabelText('Concluir Cobrar proposta'));
+    expect(
+      await screen.findByText(/já tem outra tarefa em aberto/)
+    ).toBeInTheDocument();
+    expect(screen.queryByLabelText('Próxima: Título')).not.toBeInTheDocument();
+    // E o botão libera sem preencher nada.
+    expect(
+      screen.getByText('Concluir tarefa').closest('button')
+    ).not.toBeDisabled();
+  });
+
+  it('a frase diz QUANTAS estão abertas, para a dispensa não parecer bug', async () => {
+    mockGet.mockImplementation(respostas(
+      COLUNAS.map((c) => (c.situacao === 'atrasada'
+        ? { ...c, itens: [{ ...c.itens[0], outras_abertas: 3 }] }
+        : c))
+    ));
+    await abrir();
+    fireEvent.click(screen.getByLabelText('Concluir Cobrar proposta'));
+    expect(
+      await screen.findByText(/outras 3 tarefas em aberto/)
+    ).toBeInTheDocument();
+  });
+
+  it('parceiro com outra aberta também é dispensado', async () => {
+    mockGet.mockImplementation(respostas(
+      COLUNAS.map((c) => (c.situacao === 'atrasada'
+        ? {
+          ...c,
+          itens: [{
+            ...c.itens[0],
+            alvo: 'parceiro', alvo_rotulo: 'Parceiro',
+            oportunidade_id: null, oportunidade_numero: null,
+            status_oportunidade: null, outras_abertas: 1,
+          }],
+        }
+        : c))
+    ));
+    await abrir();
+    fireEvent.click(screen.getByLabelText('Concluir Cobrar proposta'));
+    expect(
+      await screen.findByText(/Esta parceria já tem outra tarefa em aberto/)
+    ).toBeInTheDocument();
   });
 
   it('oportunidade finalizada não pede a próxima', async () => {

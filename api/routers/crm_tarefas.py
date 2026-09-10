@@ -195,6 +195,14 @@ class TarefaOut(BaseModel):
     # linha do tempo de uma negociação antiga custaria dezenas de idas ao
     # banco.
     reuniao_id: UUID | None = None
+    # Quantas OUTRAS tarefas do mesmo alvo estão em aberto.
+    #
+    # A tela precisa deste número junto do `status_oportunidade` para saber,
+    # antes de abrir o formulário, se a conclusão vai exigir a próxima:
+    # exige só quem está fechando a ÚLTIMA aberta. Ler só o status voltaria
+    # a cobrar a próxima de toda tarefa — o comportamento que fazia a
+    # oportunidade acumular tarefa aberta sem parar.
+    outras_abertas: int = 0
     criado_em: datetime
 
 
@@ -252,7 +260,25 @@ _SELECT_BASE = """
            t.prazo, t.concluida_em, t.resultado,
            t.cancelada_em, t.motivo_cancelamento,
            t.tarefa_anterior_id, t.criado_em,
-           rn.id AS reuniao_id
+           rn.id AS reuniao_id,
+           -- Quantas OUTRAS tarefas do mesmo alvo estão em aberto. A tela
+           -- lê isto para saber, ANTES de abrir o formulário, se aquela
+           -- conclusão vai exigir a próxima — a mesma conta que
+           -- `contar_outras_abertas` faz no momento de gravar.
+           --
+           -- Subconsulta correlacionada e não um JOIN agregado: com JOIN,
+           -- a contagem precisaria de GROUP BY na query inteira, e as seis
+           -- telas que usam este SELECT passariam a carregar um GROUP BY
+           -- que nenhuma delas pediu. O plano usa
+           -- `idx_tarefas_abertas_por_opp` (parcial, só as abertas) e
+           -- `idx_tarefas_conta`.
+           (SELECT count(*) FROM tarefas x
+             WHERE x.id <> t.id
+               AND x.concluida_em IS NULL AND x.cancelada_em IS NULL
+               AND (CASE WHEN t.oportunidade_id IS NOT NULL
+                         THEN x.oportunidade_id = t.oportunidade_id
+                         ELSE x.conta_id = t.conta_id END)
+           ) AS outras_abertas
       FROM tarefas t
       LEFT JOIN oportunidades o ON o.id = t.oportunidade_id
       LEFT JOIN contas co       ON co.id = o.conta_id
@@ -328,6 +354,82 @@ async def _estado_e_alvo(
         row["oportunidade_id"],
         row["conta_id"],
     )
+
+
+async def _travar_alvo(
+    conn, oportunidade_id: UUID | None, conta_id: UUID | None
+) -> None:
+    """
+    Trava a linha do ALVO para serializar as conclusões dele.
+
+    Sem isto, duas pessoas fechando as duas últimas tarefas da mesma
+    oportunidade ao mesmo tempo leriam, cada uma, "ainda sobra outra
+    aberta". As duas passariam sem próxima e a oportunidade acabaria sem
+    próximo passo — a única coisa que a regra existe para impedir.
+
+    Trava o ALVO e não as tarefas: é o alvo que tem a invariante, e é ele
+    que uma tarefa nova poderia estar entrando enquanto a contagem roda.
+    A tranca vale só até o fim da transação, e como a oportunidade é
+    disputada por duas ou três pessoas no máximo, ninguém espera.
+    """
+    if oportunidade_id is not None:
+        await conn.execute(
+            "SELECT 1 FROM oportunidades WHERE id = $1 FOR UPDATE",
+            oportunidade_id,
+        )
+    elif conta_id is not None:
+        await conn.execute(
+            "SELECT 1 FROM contas WHERE id = $1 FOR UPDATE", conta_id
+        )
+
+
+async def contar_outras_abertas(
+    conn,
+    tarefa_id: UUID | None,
+    oportunidade_id: UUID | None,
+    conta_id: UUID | None,
+) -> int:
+    """
+    Quantas OUTRAS tarefas do mesmo alvo estão em aberto.
+
+    É o número que decide se concluir esta aqui obriga a marcar a próxima
+    (ver services/tarefa.exige_proxima). Zero significa "esta é a última" —
+    e é só nesse caso que a próxima é cobrada.
+
+    "Aberta" aqui é a mesma definição de `esta_aberta`: nem concluída nem
+    cancelada. Não passa pelo relógio de propósito — atrasada continua
+    sendo um próximo passo, só que atrasado, e tratá-la como inexistente
+    faria a tela cobrar uma tarefa nova de quem já está devendo uma.
+
+    `tarefa_id` None conta TODAS as abertas do alvo: é o que a lista usa
+    para avisar quantas existem, sem excluir nenhuma.
+
+    Usa `idx_tarefas_abertas_por_opp` (parcial, só as abertas) no caminho da
+    oportunidade, e `idx_tarefas_conta` no do parceiro.
+    """
+    if oportunidade_id is not None:
+        return await conn.fetchval(
+            """
+            SELECT count(*) FROM tarefas
+             WHERE oportunidade_id = $1
+               AND concluida_em IS NULL AND cancelada_em IS NULL
+               AND ($2::uuid IS NULL OR id <> $2)
+            """,
+            oportunidade_id, tarefa_id,
+        )
+    if conta_id is not None:
+        return await conn.fetchval(
+            """
+            SELECT count(*) FROM tarefas
+             WHERE conta_id = $1
+               AND concluida_em IS NULL AND cancelada_em IS NULL
+               AND ($2::uuid IS NULL OR id <> $2)
+            """,
+            conta_id, tarefa_id,
+        )
+    # Sem alvo não deveria existir (ck_tarefa_alvo), mas devolver 0 aqui
+    # falha para o lado SEGURO: exige a próxima em vez de dispensá-la.
+    return 0
 
 
 async def validar_referencias(
@@ -906,11 +1008,17 @@ async def concluir(
     """
     Conclui a tarefa e agenda a próxima na MESMA transação.
 
-    A próxima é obrigatória enquanto a oportunidade está aberta, e SEMPRE em
-    tarefa de parceiro. Só a oportunidade já finalizada aceita o campo nulo —
-    acabou, não há próximo passo. Quem não tem próximo passo com um parceiro
-    cancela a tarefa (que é dizer "isso não ia acontecer") ou tira o parceiro
-    da carteira; nenhuma das duas saídas exige próxima.
+    A próxima é obrigatória para quem está fechando a ÚLTIMA tarefa aberta
+    do alvo — é assim que a oportunidade nunca fica sem próximo passo.
+    Sobrando outra aberta, concluir é livre: o próximo passo continua lá.
+    Oportunidade já finalizada nunca exige, e quem não tem próximo passo com
+    um parceiro cancela a tarefa (que é dizer "isso não ia acontecer") ou
+    tira o parceiro da carteira; nenhuma das duas saídas exige próxima.
+
+    A CONTAGEM MORA DENTRO DA TRANSAÇÃO, depois da tranca do alvo. Contada
+    fora, duas conclusões simultâneas das duas últimas tarefas leriam
+    "sobra uma" cada uma e as duas passariam — deixando a oportunidade sem
+    próximo passo, que é a única coisa que a regra impede.
 
     Devolve a tarefa CONCLUÍDA, não a nova. Quem chamou está fechando um
     item; a lista recarrega e mostra as duas.
@@ -919,17 +1027,26 @@ async def concluir(
         conn, tarefa_id
     )
 
-    try:
-        regras.validar_conclusao(estado, status_opp, payload.proxima is not None)
-    except TarefaInvalida as e:
-        raise HTTPException(422, str(e))
-
     if payload.proxima is not None:
         await validar_referencias(
             conn, oportunidade_id, conta_id, payload.proxima.responsavel_id
         )
 
     async with conn.transaction():
+        await _travar_alvo(conn, oportunidade_id, conta_id)
+        outras = await contar_outras_abertas(
+            conn, tarefa_id, oportunidade_id, conta_id
+        )
+        try:
+            regras.validar_conclusao(
+                estado, status_opp, payload.proxima is not None,
+                outras_abertas=outras,
+            )
+        except TarefaInvalida as e:
+            # Levantar de dentro da transação desfaz tudo — e não há nada
+            # gravado ainda, então o rollback é de uma transação vazia.
+            raise HTTPException(422, str(e))
+
         await conn.execute(
             """
             UPDATE tarefas

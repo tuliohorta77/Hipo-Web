@@ -89,16 +89,29 @@ export const STATUS_ABERTOS = ['ativa', 'suspensa'];
  *
  * A regra, agora num lugar só:
  *
- *   parceiro                    -> SEMPRE exige. Parceria não tem estado
- *                                  final que dispense; sem próximo contato
- *                                  marcado a relação some da agenda.
+ *   sobra OUTRA tarefa aberta   -> não exige. A regra é do ALVO — a
+ *                                  oportunidade nunca fica sem próximo
+ *                                  passo —, e com outra aberta ela não
+ *                                  ficou. Ganha das duas linhas abaixo.
+ *   parceiro                    -> exige. Parceria não tem estado final que
+ *                                  dispense; sem próximo contato marcado a
+ *                                  relação some da agenda.
  *   oportunidade viva           -> exige (ativa ou suspensa).
  *   oportunidade finalizada     -> não exige. Acabou, não há próximo passo.
  *
- * `alvo` vem pronto do servidor em toda tarefa. Inferir de campo nulo aqui
- * seria recriar exatamente o bug que esta função conserta.
+ * `outrasAbertas` vem pronto do servidor (`tarefa.outras_abertas`), pelo
+ * mesmo motivo de `alvo`: é a MESMA conta que o backend refaz, travada, no
+ * momento de gravar. Contar aqui exigiria a lista inteira de tarefas do
+ * alvo em toda tela que conclui — e a que divergisse seria a que a pessoa
+ * está olhando.
+ *
+ * O default 0 é para o servidor antigo: sem o campo, a tela volta a cobrar
+ * a próxima sempre, que é o comportamento ESTRITO. Falhar para o lado que
+ * pede demais é chato; para o lado que dispensa seria deixar a
+ * oportunidade parar em silêncio.
  */
-export function exigeProximaTarefa(alvo, statusOportunidade) {
+export function exigeProximaTarefa(alvo, statusOportunidade, outrasAbertas = 0) {
+  if (outrasAbertas > 0) return false;
   if (alvo === 'parceiro') return true;
   return STATUS_ABERTOS.includes(statusOportunidade);
 }
@@ -343,11 +356,18 @@ const SAIDA_SEM_PROXIMA = {
 /**
  * Concluir, cancelar e editar — os três painéis, num componente só.
  *
- * `exigeProxima` vem de fora porque depende do STATUS DA OPORTUNIDADE, e
- * cada tela o descobre de um jeito: a aba já tem a oportunidade em mãos, a
- * tela de gestão recebe o status junto do cartão. O backend recusa com 422 de
- * qualquer forma; aqui a tela só evita levar o usuário até o botão achando
- * que vai passar.
+ * `exigeProxima` é uma FUNÇÃO `(tarefa) => bool`, e não um booleano.
+ *
+ * Virou função quando a regra passou a depender de duas coisas que moram em
+ * lugares diferentes: o STATUS DA OPORTUNIDADE, que só a tela tem com
+ * frescor (a aba acabou de recebê-lo, a tela de gestão o traz no cartão), e
+ * QUANTAS OUTRAS TAREFAS DO ALVO ESTÃO ABERTAS, que vem em cada tarefa. Um
+ * booleano calculado uma vez para a lista inteira obrigaria cada chamador a
+ * refazer metade da regra na hora de aplicá-la — e regra pela metade em dois
+ * lugares foi exatamente o que quebrou a conclusão de tarefa de parceiro.
+ *
+ * O backend recusa com 422 de qualquer forma; aqui a tela só evita levar o
+ * usuário até o botão achando que vai passar.
  */
 export function PainelAcoesTarefa({
   tarefa, painel, setPainel, usuarios, exigeProxima, ocupado,
@@ -357,6 +377,7 @@ export function PainelAcoesTarefa({
   // mesmo, sem nenhuma das duas precisar saber da outra.
   onAgendar,
 }) {
+  const exigeProximaAqui = exigeProxima(tarefa);
   const [resultado, setResultado] = useState('');
   const [motivo, setMotivo] = useState('');
   const [proxima, setProxima] = useState(() => tarefaVazia(tarefa.responsavel_id));
@@ -446,7 +467,7 @@ export function PainelAcoesTarefa({
           onChange={(e) => setResultado(e.target.value)}
         />
 
-        {exigeProxima ? (
+        {exigeProximaAqui ? (
           <div className="space-y-2">
             <div className="flex items-center gap-2 text-xs text-hipo-slate">
               <AlertTriangle size={13} className="text-hipo-warning" />
@@ -461,8 +482,22 @@ export function PainelAcoesTarefa({
             />
           </div>
         ) : (
+          /*
+            DIZER QUAL DAS DUAS DISPENSAS SE APLICOU.
+
+            Sem isso, o formulário às vezes pede a próxima e às vezes não, e
+            a diferença fica invisível — o usuário conclui que é bug e para
+            de confiar na regra. Cada frase nomeia o motivo, e o de sobrar
+            outra tarefa aberta vem primeiro porque é o novo.
+          */
           <p className="text-xs text-hipo-slate">
-            Oportunidade finalizada — não é preciso agendar a próxima.
+            {tarefa.outras_abertas > 0
+              ? `Esta ${tarefa.alvo === 'parceiro' ? 'parceria' : 'oportunidade'} `
+                + `já tem ${tarefa.outras_abertas === 1
+                  ? 'outra tarefa em aberto'
+                  : `outras ${tarefa.outras_abertas} tarefas em aberto`}`
+                + ' — não é preciso agendar a próxima.'
+              : 'Oportunidade finalizada — não é preciso agendar a próxima.'}
           </p>
         )}
 
@@ -474,8 +509,8 @@ export function PainelAcoesTarefa({
           <Button
             size="sm"
             loading={ocupado}
-            disabled={exigeProxima && formIncompleto(proxima)}
-            onClick={() => onConcluir(tarefa, resultado, exigeProxima ? proxima : null)
+            disabled={exigeProximaAqui && formIncompleto(proxima)}
+            onClick={() => onConcluir(tarefa, resultado, exigeProximaAqui ? proxima : null)
               .then((ok) => ok && setPainel(null))}
           >
             Concluir tarefa

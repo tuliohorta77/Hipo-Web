@@ -146,30 +146,109 @@ class TestSituacao:
 
 class TestExigeProxima:
     def test_oportunidade_ativa_exige(self):
-        assert exige_proxima("ativa")
+        assert exige_proxima("ativa", outras_abertas=0)
 
     def test_suspensa_tambem_exige(self):
         """
         Suspender é pausa. Pausa sem data para voltar é como oportunidade
         morre em silêncio.
         """
-        assert exige_proxima("suspensa")
+        assert exige_proxima("suspensa", outras_abertas=0)
 
     @pytest.mark.parametrize("status", ["conquistado", "perdido", "cancelado"])
     def test_finalizada_nao_exige(self, status):
-        assert not exige_proxima(status)
+        assert not exige_proxima(status, outras_abertas=0)
+
+
+class TestOutrasAbertasDispensamAProxima:
+    """
+    A regra é do ALVO, não da tarefa: uma oportunidade nunca pode ficar sem
+    próximo passo aberto. Segue daí que a próxima só é cobrada de quem fecha
+    a ÚLTIMA aberta — sobrando outra, o próximo passo continua lá.
+
+    Foi a agenda que expôs o problema. A reunião é uma tarefa a mais na
+    oportunidade: com uma tarefa já aberta, marcar a reunião dava duas, e
+    fechar a reunião exigia criar uma terceira. Duas abertas para sempre, e
+    o número crescendo sozinho.
+    """
+
+    @pytest.mark.parametrize("status", ["ativa", "suspensa", None])
+    def test_com_outra_aberta_nao_exige(self, status):
+        assert not exige_proxima(status, outras_abertas=1)
+
+    def test_muitas_abertas_tambem_dispensam(self):
+        assert not exige_proxima("ativa", outras_abertas=7)
+
+    def test_a_ultima_aberta_volta_a_exigir(self):
+        """
+        A fronteira inteira da regra: 1 dispensa, 0 cobra. É o que garante
+        que a oportunidade não fica sem próximo passo.
+        """
+        assert not exige_proxima("ativa", outras_abertas=1)
+        assert exige_proxima("ativa", outras_abertas=0)
+
+    def test_finalizada_nao_exige_nem_sendo_a_ultima(self):
+        """
+        As duas dispensas são independentes: a do alvo (sobra outra aberta)
+        e a do status (acabou o negócio). Uma não anula a outra.
+        """
+        assert not exige_proxima("conquistado", outras_abertas=0)
+        assert not exige_proxima("conquistado", outras_abertas=3)
+
+    def test_parceiro_com_outra_aberta_nao_exige(self):
+        """
+        Parceiro exigia SEMPRE, e o motivo continua válido: sem próximo
+        contato marcado, a relação some da agenda. Mas com outra tarefa
+        aberta ela não sumiu — é isso que a contagem responde.
+        """
+        assert regras.exige_proxima(None, outras_abertas=0) is True
+        assert regras.exige_proxima(None, outras_abertas=1) is False
+
+    def test_validar_conclusao_deixa_passar_sem_proxima(self):
+        validar_conclusao(
+            aberta(AGORA), "ativa", tem_proxima=False, outras_abertas=1
+        )
+
+    def test_e_a_proxima_continua_aceita(self):
+        """
+        Dispensar não é proibir: quem quer marcar o passo seguinte junto da
+        conclusão continua podendo, com outra aberta ou sem.
+        """
+        validar_conclusao(
+            aberta(AGORA), "ativa", tem_proxima=True, outras_abertas=1
+        )
+
+    def test_o_parametro_e_obrigatorio(self):
+        """
+        Sem default de propósito. Com default, uma chamada nova que
+        esquecesse de passá-lo voltaria em silêncio ao comportamento antigo
+        — e o sintoma seria um formulário cobrando a próxima sem motivo,
+        coisa que o usuário aprende a contornar em vez de reportar.
+        """
+        with pytest.raises(TypeError):
+            exige_proxima("ativa")
+        with pytest.raises(TypeError):
+            validar_conclusao(aberta(AGORA), "ativa", tem_proxima=False)
+
+    def test_tambem_e_keyword_only(self):
+        """
+        Posicional entraria como `tem_proxima` numa chamada distraída de
+        `exige_proxima` — e trocar esses dois inverte a regra.
+        """
+        with pytest.raises(TypeError):
+            exige_proxima("ativa", 1)
 
 
 class TestValidarConclusao:
     def test_ativa_sem_proxima_e_recusada(self):
         with pytest.raises(TarefaInvalida, match="agendar a próxima tarefa"):
-            validar_conclusao(aberta(AGORA), "ativa", tem_proxima=False)
+            validar_conclusao(aberta(AGORA), "ativa", tem_proxima=False, outras_abertas=0)
 
     def test_ativa_com_proxima_passa(self):
-        validar_conclusao(aberta(AGORA), "ativa", tem_proxima=True)
+        validar_conclusao(aberta(AGORA), "ativa", tem_proxima=True, outras_abertas=0)
 
     def test_finalizada_sem_proxima_passa(self):
-        validar_conclusao(aberta(AGORA), "conquistado", tem_proxima=False)
+        validar_conclusao(aberta(AGORA), "conquistado", tem_proxima=False, outras_abertas=0)
 
     def test_mensagem_diz_o_que_fazer(self):
         """
@@ -177,18 +256,18 @@ class TestValidarConclusao:
         finalizar a oportunidade.
         """
         with pytest.raises(TarefaInvalida) as e:
-            validar_conclusao(aberta(AGORA), "ativa", tem_proxima=False)
+            validar_conclusao(aberta(AGORA), "ativa", tem_proxima=False, outras_abertas=0)
         assert "finalize a oportunidade" in str(e.value).lower()
 
     def test_nao_conclui_duas_vezes(self):
         e = EstadoTarefa(prazo=AGORA, concluida_em=AGORA)
         with pytest.raises(TarefaInvalida, match="já foi concluída"):
-            validar_conclusao(e, "ativa", tem_proxima=True)
+            validar_conclusao(e, "ativa", tem_proxima=True, outras_abertas=0)
 
     def test_nao_conclui_cancelada(self):
         e = EstadoTarefa(prazo=AGORA, cancelada_em=AGORA)
         with pytest.raises(TarefaInvalida, match="foi cancelada"):
-            validar_conclusao(e, "ativa", tem_proxima=True)
+            validar_conclusao(e, "ativa", tem_proxima=True, outras_abertas=0)
 
 
 class TestValidarCancelamento:
@@ -291,16 +370,16 @@ class TestExigeProximaNoParceiro:
     """
 
     def test_tarefa_de_parceiro_exige_sempre(self):
-        assert regras.exige_proxima(None) is True
+        assert regras.exige_proxima(None, outras_abertas=0) is True
 
     def test_concluir_sem_proxima_e_recusado(self):
         estado = EstadoTarefa(prazo=datetime(2026, 8, 12, 9, tzinfo=timezone.utc))
         with pytest.raises(TarefaInvalida, match="próxima conversa"):
-            regras.validar_conclusao(estado, None, tem_proxima=False)
+            regras.validar_conclusao(estado, None, tem_proxima=False, outras_abertas=0)
 
     def test_concluir_com_proxima_passa(self):
         estado = EstadoTarefa(prazo=datetime(2026, 8, 12, 9, tzinfo=timezone.utc))
-        regras.validar_conclusao(estado, None, tem_proxima=True)
+        regras.validar_conclusao(estado, None, tem_proxima=True, outras_abertas=0)
 
     def test_a_mensagem_do_parceiro_nao_manda_finalizar(self):
         """
@@ -311,7 +390,7 @@ class TestExigeProximaNoParceiro:
         """
         estado = EstadoTarefa(prazo=datetime(2026, 8, 12, 9, tzinfo=timezone.utc))
         with pytest.raises(TarefaInvalida) as e:
-            regras.validar_conclusao(estado, None, tem_proxima=False)
+            regras.validar_conclusao(estado, None, tem_proxima=False, outras_abertas=0)
         texto = str(e.value)
         assert "finalize a oportunidade" not in texto
         assert "cancele a tarefa" in texto
@@ -320,7 +399,7 @@ class TestExigeProximaNoParceiro:
     def test_oportunidade_continua_com_a_mensagem_dela(self):
         estado = EstadoTarefa(prazo=datetime(2026, 8, 12, 9, tzinfo=timezone.utc))
         with pytest.raises(TarefaInvalida, match="finalize a oportunidade"):
-            regras.validar_conclusao(estado, "ativa", tem_proxima=False)
+            regras.validar_conclusao(estado, "ativa", tem_proxima=False, outras_abertas=0)
 
 
 # ── A janela de datas do resumo ──────────────────────────────────────

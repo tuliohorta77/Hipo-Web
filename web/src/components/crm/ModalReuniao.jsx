@@ -300,8 +300,15 @@ function PainelDesfecho({
   // na grade. Ainda assim a regra vem da função compartilhada, e não de um
   // `STATUS_ABERTOS.includes(...)` escrito aqui: foi exatamente essa cópia
   // que produziu o bug do formulário que não aparecia (ver `exigeProximaTarefa`).
+  //
+  // `outras_abertas` é o que conserta a esteira: a reunião É uma tarefa da
+  // oportunidade, e com outra ainda aberta fechá-la não deixa o negócio sem
+  // próximo passo. Sem isso, cada reunião concluída obrigava a criar mais
+  // uma tarefa e o número de abertas nunca voltava para um.
   const exigeProxima = escolha === 'realizada'
-    && exigeProximaTarefa('oportunidade', reuniao.status_oportunidade);
+    && exigeProximaTarefa(
+      'oportunidade', reuniao.status_oportunidade, reuniao.outras_abertas,
+    );
 
   const agora = Date.now();
   const horas = (new Date(reuniao.inicio).getTime() - agora) / 3600000;
@@ -399,6 +406,19 @@ function PainelDesfecho({
             idBase={`proxima-reuniao-${reuniao.id}`}
           />
         </div>
+      ) : escolha === 'realizada' && reuniao.outras_abertas > 0 ? (
+        /*
+          Dizer POR QUE a próxima não está sendo pedida. Sem a frase, o
+          formulário pede às vezes e às vezes não, a diferença fica
+          invisível, e o usuário conclui que é bug.
+        */
+        <p className="text-xs text-hipo-slate">
+          Esta oportunidade já tem{' '}
+          {reuniao.outras_abertas === 1
+            ? 'outra tarefa em aberto'
+            : `outras ${reuniao.outras_abertas} tarefas em aberto`}
+          {' '}— não é preciso agendar a próxima.
+        </p>
       ) : (
         escolha !== 'realizada' && (
           <p className="text-xs text-hipo-slate">

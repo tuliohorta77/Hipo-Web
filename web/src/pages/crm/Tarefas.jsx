@@ -545,9 +545,10 @@ export default function Tarefas() {
   const limpar = () => { setBusca(''); setResponsavel(padraoResponsavel); };
 
   /*
-    Concluir exige a próxima enquanto a oportunidade está viva — e SEMPRE em
-    tarefa de parceiro. Alvo e status vêm no próprio payload da tarefa (o
-    JOIN já existia no backend); buscar por tarefa aberta seria N+1.
+    Concluir exige a próxima de quem fecha a ÚLTIMA tarefa aberta do alvo —
+    é assim que a oportunidade nunca fica sem próximo passo. Alvo, status e
+    contagem vêm todos no payload da tarefa (o JOIN e a subconsulta já estão
+    no backend); buscar por tarefa aberta seria N+1.
 
     O `alvo` não pode faltar aqui. Olhar só para `status_oportunidade` foi o
     que quebrou a conclusão de tarefa de parceiro nesta tela: o campo chega
@@ -555,9 +556,12 @@ export default function Tarefas() {
     o backend recusava com 422 — sem saída dentro do módulo de tarefas. A
     regra mora em `exigeProximaTarefa`, uma só, compartilhada com a aba.
   */
-  const exigeProxima = aberta
-    ? exigeProximaTarefa(aberta.alvo, aberta.status_oportunidade)
-    : false;
+  const exigeProxima = useCallback(
+    (t) => exigeProximaTarefa(
+      t.alvo, t.status_oportunidade, t.outras_abertas,
+    ),
+    [],
+  );
 
   return (
     <div className="h-full min-h-0 flex flex-col gap-2">

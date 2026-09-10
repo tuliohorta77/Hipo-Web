@@ -47,7 +47,8 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from database import get_conn
 from routers.auth import usuario_atual
 from routers.crm_tarefas import (
-    ProximaTarefa, TarefaBase, _inserir, validar_referencias,
+    ProximaTarefa, TarefaBase, _inserir, _travar_alvo, contar_outras_abertas,
+    validar_referencias,
 )
 from routers.permissions import requer_qualquer_modulo
 from services import agenda as regras
@@ -324,6 +325,11 @@ class ReuniaoOut(BaseModel):
     # Da tarefa. `situacao` e `status_oportunidade` vêm juntos porque a
     # tela precisa saber, antes de abrir o cartão, se aquilo ainda pode ser
     # mexido — e buscar por reunião seria N+1 num JOIN que já existe.
+    # Quantas OUTRAS tarefas do mesmo alvo estão em aberto. O painel de
+    # desfecho lê isto junto de `status_oportunidade`: "Realizada" só exige
+    # a próxima quando esta é a última aberta.
+    outras_abertas: int = 0
+
     titulo: str
     descricao: str | None
     situacao: str
@@ -495,7 +501,22 @@ _SELECT_BASE = """
            -- Vai para o TITULO do evento: grupos com varias razoes sociais
            -- parecidas sao comuns na carteira, e e o CNPJ que diz de qual
            -- filial e a reuniao.
-           COALESCE(cp.cnpj, co.cnpj)                 AS conta_cnpj
+           COALESCE(cp.cnpj, co.cnpj)                 AS conta_cnpj,
+           -- Quantas OUTRAS tarefas do mesmo alvo estao em aberto. E o que
+           -- diz ao painel de desfecho se registrar "Realizada" vai exigir
+           -- a proxima tarefa: exige so quem fecha a ULTIMA aberta.
+           --
+           -- Sem isto, a reuniao -- que e uma tarefa a mais na oportunidade
+           -- -- cobrava a proxima toda vez, e o numero de tarefas abertas
+           -- nunca voltava para uma. Mesma conta de
+           -- `contar_outras_abertas`, que valida no momento de gravar.
+           (SELECT count(*) FROM tarefas x
+             WHERE x.id <> t.id
+               AND x.concluida_em IS NULL AND x.cancelada_em IS NULL
+               AND (CASE WHEN t.oportunidade_id IS NOT NULL
+                         THEN x.oportunidade_id = t.oportunidade_id
+                         ELSE x.conta_id = t.conta_id END)
+           ) AS outras_abertas
       FROM reunioes r
       JOIN tarefas  t  ON t.id = r.tarefa_id
       LEFT JOIN tipos_reuniao tr ON tr.id = r.tipo_id
@@ -1689,16 +1710,6 @@ async def registrar_desfecho(
     desfecho = payload.desfecho
     encerra = regras.encerra_a_reuniao(desfecho)
 
-    try:
-        if encerra:
-            regras_tarefa.validar_cancelamento(estado)
-        else:
-            regras_tarefa.validar_conclusao(
-                estado, atual["status_oportunidade"], payload.proxima is not None
-            )
-    except TarefaInvalida as e:
-        raise HTTPException(422, str(e))
-
     if payload.proxima is not None:
         await validar_referencias(
             conn, atual["oportunidade_id"], atual["alvo_conta_id"],
@@ -1710,6 +1721,28 @@ async def registrar_desfecho(
     observacao = (payload.observacao or "").strip() or None
 
     async with conn.transaction():
+        # A validação entra na transação por causa da contagem: a próxima só
+        # é exigida de quem fecha a ÚLTIMA tarefa aberta do alvo, e esse
+        # número precisa ser lido com o alvo travado. Foi a reunião que
+        # tornou isso visível — ela é uma tarefa a mais na oportunidade, e
+        # cobrar a próxima ao fechá-la fazia a conta nunca zerar.
+        await _travar_alvo(conn, atual["oportunidade_id"], atual["alvo_conta_id"])
+        outras = await contar_outras_abertas(
+            conn, atual["tarefa_id"],
+            atual["oportunidade_id"], atual["alvo_conta_id"],
+        )
+        try:
+            if encerra:
+                regras_tarefa.validar_cancelamento(estado)
+            else:
+                regras_tarefa.validar_conclusao(
+                    estado, atual["status_oportunidade"],
+                    payload.proxima is not None,
+                    outras_abertas=outras,
+                )
+        except TarefaInvalida as e:
+            raise HTTPException(422, str(e))
+
         if encerra:
             await conn.execute(
                 """

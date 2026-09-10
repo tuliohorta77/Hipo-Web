@@ -13,10 +13,12 @@ Três regras moram aqui:
      três com o relógio. Guardar 'atrasada' no banco exigiria um job virando
      o estado à meia-noite, e falha de job produz dado mentiroso.
 
-  2. CONCLUIR EXIGE A PRÓXIMA. Enquanto a oportunidade está aberta, fechar
-     uma tarefa sem marcar a seguinte deixaria o negócio sem próximo passo —
-     que é exatamente o buraco que o CRM existe para tapar. A exceção é a
-     oportunidade já finalizada: acabou, não há próxima.
+  2. A OPORTUNIDADE NUNCA FICA SEM PRÓXIMO PASSO ABERTO. É a regra do ALVO,
+     e dela sai a obrigação da próxima tarefa: quem fecha a ÚLTIMA tarefa
+     aberta precisa marcar a seguinte, senão o negócio para em silêncio —
+     que é exatamente o buraco que o CRM existe para tapar. Sobrando outra
+     tarefa aberta, fechar é livre: o próximo passo continua lá. A exceção
+     é a oportunidade já finalizada: acabou, não há próxima.
 
   3. EXATAMENTE UM ALVO. Toda tarefa é de uma oportunidade OU de um parceiro,
      nunca das duas e nunca de nenhum. Ver `validar_alvo`.
@@ -159,29 +161,51 @@ def situacao(
     return "futura"
 
 
-def exige_proxima(status_oportunidade: str | None) -> bool:
+def exige_proxima(
+    status_oportunidade: str | None, *, outras_abertas: int,
+) -> bool:
     """
     Concluir esta tarefa obriga a criar a próxima?
 
-    Sim enquanto a oportunidade está viva (ativa ou suspensa). Não quando ela
-    já foi finalizada — conquistada, perdida ou cancelada não têm próximo
-    passo comercial, e exigir um só produziria tarefa de mentira que ninguém
-    vai fazer.
+    A REGRA É SOBRE O ALVO, NÃO SOBRE A TAREFA: uma oportunidade nunca pode
+    ficar sem um próximo passo em aberto. Segue daí que a próxima só é
+    exigida de quem está fechando a ÚLTIMA tarefa aberta — se ainda sobra
+    outra, o próximo passo continua lá e não há buraco a tapar.
 
-    Suspensa continua exigindo de propósito: suspender é pausa, e pausa sem
-    data para voltar é como oportunidade morre em silêncio.
+    `outras_abertas` é quantas OUTRAS tarefas do mesmo alvo estão em aberto.
+    É keyword-only e sem default de propósito: com default, uma chamada nova
+    que esquecesse de passá-lo voltaria em silêncio ao comportamento antigo,
+    e o sintoma seria um formulário exigindo a próxima sem motivo — coisa que
+    o usuário aprende a contornar em vez de reportar.
 
-    TAREFA DE PARCEIRO EXIGE SEMPRE (`status_oportunidade` chega None).
-    Parceria não tem estado final que dispense a próxima — e é exatamente
-    por isso que ela exige: sem um próximo contato marcado, a relação some
-    da agenda de todo mundo e só reaparece meses depois, como parceiro
-    dormente. O farol mostra que parou; a corrente de tarefas é o que
-    impede de parar.
+    ── Por que isso mudou (entrega 016) ─────────────────────────────────
+    A regra era "oportunidade viva sempre exige", olhando só para a tarefa
+    que está sendo fechada. Com a agenda, isso virou uma esteira: a
+    oportunidade tinha uma tarefa aberta, alguém marcava uma reunião — que
+    é OUTRA tarefa —, e fechar a reunião exigia criar mais uma. Duas
+    abertas, sempre, e o número crescia sozinho. Contando o alvo, o
+    encadeamento volta a ser o que ele existe para ser: uma garantia de que
+    o negócio não para, não um gerador de tarefas.
+
+    ── O que NÃO mudou ──────────────────────────────────────────────────
+    Oportunidade finalizada não exige — conquistada, perdida ou cancelada
+    não têm próximo passo comercial, e exigir um produziria tarefa de
+    mentira que ninguém vai fazer. Suspensa continua exigindo: suspender é
+    pausa, e pausa sem data para voltar é como oportunidade morre em
+    silêncio.
+
+    TAREFA DE PARCEIRO (`status_oportunidade` chega None) segue a mesma
+    regra do alvo. Parceria não tem estado final que dispense a próxima —
+    sem um próximo contato marcado, a relação some da agenda de todo mundo e
+    só reaparece meses depois, como parceiro dormente. Mas com outra tarefa
+    aberta ela não sumiu, e é isso que `outras_abertas` responde.
 
     Quem realmente não tem próximo passo com um parceiro não deve concluir a
     tarefa: deve CANCELAR (que é dizer "isso não ia acontecer") ou tirar o
     parceiro da carteira. As duas saídas existem e nenhuma exige próxima.
     """
+    if outras_abertas > 0:
+        return False
     if status_oportunidade is None:
         return True
     return status_oportunidade in ("ativa", "suspensa")
@@ -207,16 +231,26 @@ def validar_conclusao(
     estado: EstadoTarefa,
     status_oportunidade: str | None,
     tem_proxima: bool,
+    *,
+    outras_abertas: int,
 ) -> None:
     """
     Levanta TarefaInvalida com mensagem em português se a conclusão não pode
     acontecer. O CHECK do banco é a última linha de defesa; esta é a primeira.
+
+    `outras_abertas` PRECISA ter sido contado dentro da mesma transação que
+    vai gravar a conclusão, e com o alvo travado. Contado fora, duas
+    conclusões simultâneas das duas últimas tarefas leriam "sobra uma" cada
+    uma, as duas passariam sem próxima, e a oportunidade acabaria sem
+    próximo passo — exatamente o buraco que esta regra existe para impedir.
+    Ver `_travar_alvo` em routers/crm_tarefas.py.
     """
     if estado.cancelada_em is not None:
         raise TarefaInvalida("Esta tarefa foi cancelada e não pode ser concluída.")
     if estado.concluida_em is not None:
         raise TarefaInvalida("Esta tarefa já foi concluída.")
-    if exige_proxima(status_oportunidade) and not tem_proxima:
+    if exige_proxima(status_oportunidade, outras_abertas=outras_abertas) \
+            and not tem_proxima:
         alvo = "parceiro" if status_oportunidade is None else "oportunidade"
         raise TarefaInvalida(_SEM_PROXIMA[alvo])
 

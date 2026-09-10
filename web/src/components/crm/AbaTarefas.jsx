@@ -206,16 +206,25 @@ export default function AbaTarefas({ oportunidade, parceiro, onMudou }) {
   const alvo = ehParceiro ? parceiro : oportunidade;
   const alvoId = alvo.id;
 
-  // A oportunidade dispensa a próxima quando já foi finalizada — acabou, não
-  // há próximo passo. O parceiro exige SEMPRE: parceria não tem estado final
-  // que dispense, e sem próximo contato marcado a relação some da agenda de
-  // todo mundo. Mesma regra do backend (services/tarefa.exige_proxima), e o
-  // 422 de lá é a rede embaixo desta linha.
+  // Quem fecha a ÚLTIMA tarefa aberta precisa marcar a seguinte — é assim
+  // que a oportunidade nunca fica sem próximo passo. Sobrando outra aberta,
+  // concluir é livre. Finalizada nunca exige: acabou, não há próximo passo.
+  // Mesma regra do backend (services/tarefa.exige_proxima), e o 422 de lá é
+  // a rede embaixo desta linha.
+  //
+  // Função e não booleano: o status vem do alvo (que esta tela tem fresco,
+  // recém-carregado) e a contagem vem de CADA TAREFA. Ver
+  // `PainelAcoesTarefa`.
   //
   // A função é compartilhada com a tela de gestão de propósito: as duas já
   // divergiram uma vez, e a que divergiu era a que o usuário estava usando.
-  const exigeProxima = exigeProximaTarefa(
-    ehParceiro ? 'parceiro' : 'oportunidade', oportunidade?.status,
+  const exigeProxima = useCallback(
+    (t) => exigeProximaTarefa(
+      ehParceiro ? 'parceiro' : 'oportunidade',
+      oportunidade?.status,
+      t.outras_abertas,
+    ),
+    [ehParceiro, oportunidade?.status],
   );
 
   const filtro = ehParceiro ? { conta_id: alvoId } : { oportunidade_id: alvoId };

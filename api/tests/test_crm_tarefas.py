@@ -482,6 +482,161 @@ class TestKanban:
 
 # ── Conclusão e a corrente ───────────────────────────────────────────
 
+class TestOutrasAbertasDispensamAProxima:
+    """
+    A regra é do ALVO: a oportunidade nunca fica sem próximo passo aberto.
+    Logo a próxima só é cobrada de quem fecha a ÚLTIMA aberta.
+
+    O caso que originou isto: uma oportunidade com uma tarefa aberta ganha
+    uma reunião — que é outra tarefa. Fechar a reunião exigia criar uma
+    terceira, e a oportunidade ficava com duas abertas para sempre.
+    """
+
+    async def test_com_duas_abertas_a_segunda_fecha_sem_proxima(
+        self, db_conn, client, cenario
+    ):
+        h, o, u = cenario["headers"], cenario["opp"]["id"], cenario["usuario_id"]
+        a = await nova_tarefa(client, h, o, u, titulo="FUP do lead")
+        b = await nova_tarefa(client, h, o, u, titulo="Apresentação")
+
+        resp = await client.post(
+            f"/crm/tarefas/{b['id']}/concluir",
+            json={"resultado": "Aconteceu"}, headers=h,
+        )
+        assert resp.status_code == 200, resp.text
+
+        body = (await client.get(f"/crm/tarefas?oportunidade_id={o}", headers=h)).json()
+        assert body["abertas"] == 1
+        assert body["total"] == 2   # nenhuma tarefa nova foi inventada
+        assert next(i for i in body["itens"] if i["id"] == a["id"])["situacao"] != "concluida"
+
+    async def test_e_a_ultima_volta_a_exigir(self, db_conn, client, cenario):
+        """
+        A outra metade da regra, e a que importa: fechar a última sem
+        marcar a seguinte deixaria o negócio parado em silêncio.
+        """
+        h, o, u = cenario["headers"], cenario["opp"]["id"], cenario["usuario_id"]
+        a = await nova_tarefa(client, h, o, u)
+        b = await nova_tarefa(client, h, o, u)
+        await client.post(
+            f"/crm/tarefas/{b['id']}/concluir", json={}, headers=h,
+        )
+        resp = await client.post(
+            f"/crm/tarefas/{a['id']}/concluir", json={}, headers=h,
+        )
+        assert resp.status_code == 422
+        assert "próxima tarefa" in resp.json()["detail"]
+
+    async def test_o_ciclo_fecha_em_uma_aberta_e_para_de_crescer(
+        self, db_conn, client, cenario
+    ):
+        """
+        A prova do sintoma relatado: antes, cada volta somava uma tarefa
+        aberta e o número nunca voltava. Aqui ele volta.
+        """
+        h, o, u = cenario["headers"], cenario["opp"]["id"], cenario["usuario_id"]
+        await nova_tarefa(client, h, o, u, titulo="FUP do lead")
+        for _ in range(3):
+            reuniao = await nova_tarefa(
+                client, h, o, u, tipo="reuniao", titulo="Apresentação",
+            )
+            r = await client.post(
+                f"/crm/tarefas/{reuniao['id']}/concluir",
+                json={"resultado": "ok"}, headers=h,
+            )
+            assert r.status_code == 200, r.text
+            corpo = (await client.get(
+                f"/crm/tarefas?oportunidade_id={o}", headers=h
+            )).json()
+            assert corpo["abertas"] == 1
+
+    async def test_tarefa_de_parceiro_segue_a_mesma_regra(
+        self, db_conn, client, cenario
+    ):
+        """
+        Parceiro exigia SEMPRE. O motivo continua válido — sem próximo
+        contato a relação some da agenda — mas com outra tarefa aberta ela
+        não sumiu.
+        """
+        h, u = cenario["headers"], cenario["usuario_id"]
+        # A conta do cenário vira parceira: `nova_conta` usa um CNPJ fixo, e
+        # criar uma segunda esbarraria na unicidade dele.
+        conta = cenario["conta"]
+        await db_conn.execute(
+            "UPDATE contas SET eh_finder = TRUE WHERE id = $1",
+            uuid.UUID(conta["id"]),
+        )
+        base = {
+            "conta_id": conta["id"], "tipo": "ligacao",
+            "responsavel_id": u, "prazo": em(1),
+        }
+        a = (await client.post(
+            "/crm/tarefas", json={**base, "titulo": "Ligar"}, headers=h
+        )).json()
+        b = (await client.post(
+            "/crm/tarefas", json={**base, "titulo": "Café"}, headers=h
+        )).json()
+
+        assert (await client.post(
+            f"/crm/tarefas/{b['id']}/concluir", json={}, headers=h
+        )).status_code == 200
+
+        # A última do parceiro volta a exigir, com a mensagem dele.
+        resp = await client.post(
+            f"/crm/tarefas/{a['id']}/concluir", json={}, headers=h
+        )
+        assert resp.status_code == 422
+        assert "próxima conversa" in resp.json()["detail"]
+
+    async def test_outra_oportunidade_nao_conta(self, db_conn, client, cenario):
+        """
+        A contagem é POR ALVO. Se olhasse todas as tarefas abertas do
+        sistema, qualquer negócio ativo em qualquer lugar dispensaria a
+        próxima de todos os outros.
+        """
+        h, o, u = cenario["headers"], cenario["opp"]["id"], cenario["usuario_id"]
+        outra = await nova_oportunidade(client, h, cenario["conta"]["id"])
+        await nova_tarefa(client, h, outra["id"], u)
+
+        t = await nova_tarefa(client, h, o, u)
+        resp = await client.post(
+            f"/crm/tarefas/{t['id']}/concluir", json={}, headers=h
+        )
+        assert resp.status_code == 422
+
+    async def test_tarefa_cancelada_nao_conta_como_aberta(
+        self, db_conn, client, cenario
+    ):
+        h, o, u = cenario["headers"], cenario["opp"]["id"], cenario["usuario_id"]
+        a = await nova_tarefa(client, h, o, u)
+        b = await nova_tarefa(client, h, o, u)
+        await client.post(
+            f"/crm/tarefas/{b['id']}/cancelar",
+            json={"motivo": "duplicada"}, headers=h,
+        )
+        resp = await client.post(
+            f"/crm/tarefas/{a['id']}/concluir", json={}, headers=h
+        )
+        assert resp.status_code == 422
+
+    async def test_a_tela_recebe_a_contagem(self, db_conn, client, cenario):
+        """
+        `outras_abertas` vem pronto do servidor para o formulário saber,
+        ANTES de abrir, se aquela conclusão vai exigir a próxima. Recalcular
+        no navegador daria uma segunda versão da mesma conta.
+        """
+        h, o, u = cenario["headers"], cenario["opp"]["id"], cenario["usuario_id"]
+        a = await nova_tarefa(client, h, o, u)
+        assert (await client.get(
+            f"/crm/tarefas/{a['id']}", headers=h
+        )).json()["outras_abertas"] == 0
+
+        await nova_tarefa(client, h, o, u)
+        assert (await client.get(
+            f"/crm/tarefas/{a['id']}", headers=h
+        )).json()["outras_abertas"] == 1
+
+
 class TestConcluir:
     async def test_sem_proxima_com_oportunidade_ativa_e_recusado(
         self, db_conn, client, cenario

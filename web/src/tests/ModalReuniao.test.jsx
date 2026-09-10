@@ -65,6 +65,9 @@ function reuniao(extra = {}) {
     desfecho_em: null, desfecho_por_nome: null, desfecho_observacao: null,
     desfecho_antecedencia_horas: null,
     desfecho_sugerido: 'cancelada', pendente_de_desfecho: false,
+    // Zero = a reunião é a última tarefa aberta da oportunidade, e é só
+    // nesse caso que "Realizada" exige a próxima.
+    outras_abertas: 0,
     contato_id: 'ct1', contato_nome: 'Nivaldo',
     contato_email: 'adm@nnredutores.com.br',
     convidados: [],
@@ -439,6 +442,38 @@ describe('ModalReuniao — registrar o desfecho', () => {
     expect(
       screen.getByText(/^Registrar cancelada$/).closest('button')
     ).not.toBeDisabled();
+  });
+
+  it('com outra tarefa aberta na oportunidade, realizada não exige a próxima', async () => {
+    /*
+      O sintoma relatado depois da 015. A reunião É uma tarefa da
+      oportunidade: com a tarefa original ainda aberta, fechar a reunião
+      exigia criar uma terceira, e o negócio ficava com duas abertas para
+      sempre. A regra é do ALVO — a oportunidade nunca fica sem próximo
+      passo —, e com outra aberta ela não ficou.
+    */
+    await abrir({
+      reuniao: reuniao({ desfecho_sugerido: 'realizada', outras_abertas: 1 }),
+    });
+    expect(screen.queryByText(/exige a próxima/)).not.toBeInTheDocument();
+    expect(
+      await screen.findByText(/já tem outra tarefa em aberto/)
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/^Registrar realizada$/).closest('button')
+    ).not.toBeDisabled();
+  });
+
+  it('e o POST sai sem próxima nesse caso', async () => {
+    mockPost.mockResolvedValue({ data: reuniao({ situacao: 'concluida' }) });
+    await abrir({
+      reuniao: reuniao({ desfecho_sugerido: 'realizada', outras_abertas: 2 }),
+    });
+    fireEvent.click(screen.getByText(/^Registrar realizada$/));
+    await waitFor(() => expect(mockPost).toHaveBeenCalled());
+    const corpo = mockPost.mock.calls[0][1];
+    expect(corpo.desfecho).toBe('realizada');
+    expect(corpo.proxima).toBeNull();
   });
 
   it('oportunidade finalizada dispensa a próxima', async () => {

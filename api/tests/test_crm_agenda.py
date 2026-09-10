@@ -1277,6 +1277,9 @@ class TestDesfecho:
         """
         É a regra da Sprint 5, e é ela que faz a reunião empurrar o funil
         em vez de virar um fato isolado.
+
+        Vale quando a reunião é a ÚLTIMA tarefa aberta da oportunidade —
+        que é o caso aqui, e é o que garante que o negócio não para.
         """
         h, opp, uid = cenario["headers"], cenario["oportunidade"]["id"], cenario["usuario_id"]
         r = await nova_reuniao(client, h, opp, uid)
@@ -1286,6 +1289,80 @@ class TestDesfecho:
         )
         assert resp.status_code == 422
         assert "próxima" in resp.text
+
+    async def test_com_outra_tarefa_aberta_nao_exige_a_proxima(
+        self, cenario, client,
+    ):
+        """
+        O sintoma relatado depois da 015, na íntegra: a oportunidade tinha
+        uma tarefa aberta, alguém marcou uma apresentação — que é OUTRA
+        tarefa —, e fechar a apresentação exigia criar mais uma. Duas
+        abertas, sempre, com o número crescendo a cada volta.
+
+        A regra é do ALVO: a oportunidade nunca fica sem próximo passo. Com
+        a tarefa original ainda aberta, ela não ficou.
+        """
+        h, opp, uid = cenario["headers"], cenario["oportunidade"]["id"], cenario["usuario_id"]
+        aberta = (await client.post("/crm/tarefas", json={
+            "oportunidade_id": opp, "tipo": "ligacao", "titulo": "FUP do lead",
+            "responsavel_id": uid, "prazo": as_horas(proxima_segunda(), 8),
+        }, headers=h)).json()
+
+        r = await nova_reuniao(client, h, opp, uid)
+        resp = await client.post(
+            f"/crm/agenda/reunioes/{r['id']}/desfecho",
+            json={"desfecho": "realizada", "observacao": "gostaram"}, headers=h,
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["situacao"] == "concluida"
+
+        # A tarefa original continua de pé, e nenhuma foi inventada.
+        lista = (await client.get(
+            f"/crm/tarefas?oportunidade_id={opp}", headers=h
+        )).json()
+        assert lista["total"] == 2
+        assert lista["abertas"] == 1
+        assert next(
+            i for i in lista["itens"] if i["id"] == aberta["id"]
+        )["situacao"] != "concluida"
+
+    async def test_a_reuniao_informa_a_contagem_para_a_tela(
+        self, cenario, client,
+    ):
+        """
+        `outras_abertas` vem pronto na reunião para o painel de desfecho
+        saber, antes de abrir, se "Realizada" vai pedir a próxima.
+        Recalcular no navegador daria uma segunda versão da mesma conta.
+        """
+        h, opp, uid = cenario["headers"], cenario["oportunidade"]["id"], cenario["usuario_id"]
+        r = await nova_reuniao(client, h, opp, uid)
+        assert r["outras_abertas"] == 0
+
+        await client.post("/crm/tarefas", json={
+            "oportunidade_id": opp, "tipo": "ligacao", "titulo": "FUP",
+            "responsavel_id": uid, "prazo": as_horas(proxima_segunda(), 8),
+        }, headers=h)
+        depois = (await client.get(
+            f"/crm/agenda/reunioes/{r['id']}", headers=h
+        )).json()
+        assert depois["outras_abertas"] == 1
+
+    async def test_cancelar_a_reuniao_nunca_exigiu_e_continua_assim(
+        self, cenario, client,
+    ):
+        """
+        Cancelar é dizer que aquilo não ia acontecer, não que o negócio
+        andou — e por isso nunca exigiu a próxima, com ou sem outra aberta.
+        Este teste existe para a mudança da regra não ter mexido nisso sem
+        querer.
+        """
+        h, opp, uid = cenario["headers"], cenario["oportunidade"]["id"], cenario["usuario_id"]
+        r = await nova_reuniao(client, h, opp, uid)
+        resp = await client.post(
+            f"/crm/agenda/reunioes/{r['id']}/desfecho",
+            json={"desfecho": "no_show"}, headers=h,
+        )
+        assert resp.status_code == 200, resp.text
 
     @pytest.mark.parametrize("desfecho", ["cancelada", "no_show"])
     async def test_nao_realizada_cancela_e_nao_exige_proxima(
