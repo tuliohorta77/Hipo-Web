@@ -381,6 +381,13 @@ export default function OportunidadeDetalhe({
   const [acaoEmCurso, setAcaoEmCurso] = useState(null);
   const [contatos, setContatos] = useState([]);
   const [origens, setOrigens] = useState([]);
+  // O EntityPicker mostra o RÓTULO do item selecionado, e o rótulo não cabe
+  // no `form` — lá só vive o id que vai no PATCH. Guardar o objeto escolhido
+  // aqui é o que faz o campo exibir a conta recém-selecionada: antes o value
+  // era montado com `oportunidade.finder_razao_social`, que só muda depois
+  // de salvar, então escolher um finder deixava o campo em branco (ou com o
+  // nome do finder anterior) até recarregar a oportunidade.
+  const [finderSel, setFinderSel] = useState(null);
   const idCarregado = useRef(null);
 
   const finalizada = ['perdido', 'cancelado', 'conquistado'].includes(oportunidade.status);
@@ -398,6 +405,14 @@ export default function OportunidadeDetalhe({
       origem_id: oportunidade.origem_id ?? '',
       finder_conta_id: oportunidade.finder_conta_id || '',
     });
+    setFinderSel(
+      oportunidade.finder_conta_id
+        ? {
+            id: oportunidade.finder_conta_id,
+            razao_social: oportunidade.finder_razao_social,
+          }
+        : null,
+    );
     setAba('dados');
     setErro(null);
   }, [oportunidade]);
@@ -606,10 +621,11 @@ export default function OportunidadeDetalhe({
             <div>
               <EntityPicker
                 label="Finder (parceiro que indicou)"
-                value={form.finder_conta_id
-                  ? { id: form.finder_conta_id, razao_social: oportunidade.finder_razao_social }
-                  : null}
-                onChange={(c) => set('finder_conta_id', c ? c.id : '')}
+                value={finderSel}
+                onChange={(c) => {
+                  setFinderSel(c);
+                  set('finder_conta_id', c ? c.id : '');
+                }}
                 buscar={async (q) => {
                   const { data } = await api.get('/crm/contas/busca', {
                     params: { q, apenas_finders: false },

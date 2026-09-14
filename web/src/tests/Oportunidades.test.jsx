@@ -394,8 +394,17 @@ describe('Oportunidades — o drill da oportunidade', () => {
     geracao_disponivel: true, pdf_disponivel: true,
   };
 
+  const CONTAS_BUSCA_FINDER = [
+    {
+      id: 'c9', razao_social: 'Contabil Parceira LTDA',
+      cnpj_formatado: '11.222.333/0001-81', eh_finder: true,
+      ativo: true, nao_prospectar: false,
+    },
+  ];
+
   function respostasComDetalhe(url) {
     if (url === '/crm/oportunidades/o1') return Promise.resolve({ data: DETALHE });
+    if (url === '/crm/contas/busca') return Promise.resolve({ data: CONTAS_BUSCA_FINDER });
     if (url.endsWith('/proposta-padrao')) return Promise.resolve({ data: PADRAO_PROPOSTA });
     if (url.endsWith('/propostas')) return Promise.resolve({ data: [] });
     if (url === '/crm/contatos') {
@@ -490,6 +499,28 @@ describe('Oportunidades — o drill da oportunidade', () => {
     await abrir();
     fireEvent.click(screen.getByTestId('tab-proposta'));
     expect(await screen.findByLabelText('Mensalidade (R$)')).toBeInTheDocument();
+  });
+
+  it('o finder escolhido aparece no campo sem precisar salvar', async () => {
+    /*
+      Regressão real: o rótulo do picker vinha de `oportunidade
+      .finder_razao_social`, que só muda depois do PATCH. Como esta
+      oportunidade não tem finder, escolher um na lupa deixava o campo em
+      branco — parecia que o clique não tinha funcionado, e o usuário
+      clicava de novo.
+    */
+    await abrir();
+    fireEvent.click(screen.getByLabelText('Buscar Finder (parceiro que indicou)'));
+    fireEvent.change(screen.getByPlaceholderText('Digite para buscar…'), {
+      target: { value: 'contabil' },
+    });
+    fireEvent.click(await screen.findByText('Contabil Parceira LTDA'));
+
+    await waitFor(() => {
+      expect(screen.queryByPlaceholderText('Digite para buscar…')).not.toBeInTheDocument();
+    });
+    expect(screen.getByText('Contabil Parceira LTDA')).toBeInTheDocument();
+    expect(screen.queryByText('Nenhum')).not.toBeInTheDocument();
   });
 });
 
