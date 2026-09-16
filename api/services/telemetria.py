@@ -242,6 +242,94 @@ async def operacao(conn, dia: date) -> dict:
     }
 
 
+async def atividades(conn, dia: date) -> dict:
+    """
+    O que cada pessoa LANCOU no dia, por hora e por tipo.
+
+    Substitui "acoes" como numero de producao. Ver o cabecalho de
+    services/atividade.py para o porque: 89% das requests de 15/09 eram
+    leitura.
+
+    A HORA SAI DO BANCO JA NO FUSO DA OPERACAO. O e-mail antigo mostrava a
+    entrada da equipe as 11h e a saida as 21h -- era o horario UTC do
+    timestamptz formatado sem conversao. Converter aqui, com o mesmo
+    AT TIME ZONE que recorta o dia, faz a hora e o dia sairem da mesma
+    regra.
+    """
+    from services import atividade as svc
+
+    janela_e = _JANELA.replace("criado_em", "e.criado_em")
+
+    linhas = await conn.fetch(f"""
+        SELECT e.usuario_id, u.nome, e.cargo, e.metodo, e.rota, e.status,
+               extract(hour FROM e.criado_em AT TIME ZONE '{FUSO_OPERACAO}')::int AS hora,
+               count(*) AS qtd
+        FROM uso_eventos e
+        JOIN usuarios u ON u.id = e.usuario_id
+        WHERE {janela_e}
+          AND e.status < 400
+          AND e.metodo NOT IN ('GET', 'HEAD', 'OPTIONS')
+        GROUP BY e.usuario_id, u.nome, e.cargo, e.metodo, e.rota, e.status, hora
+    """, dia)
+
+    presencas = await conn.fetch(f"""
+        SELECT e.usuario_id, u.nome, max(e.cargo) AS cargo,
+               to_char(min(e.criado_em) AT TIME ZONE '{FUSO_OPERACAO}', 'HH24:MI') AS entrada,
+               to_char(max(e.criado_em) AT TIME ZONE '{FUSO_OPERACAO}', 'HH24:MI') AS saida
+        FROM uso_eventos e
+        JOIN usuarios u ON u.id = e.usuario_id
+        WHERE {janela_e}
+        GROUP BY e.usuario_id, u.nome
+    """, dia)
+
+    return svc.agregar([dict(r) for r in linhas], [dict(r) for r in presencas])
+
+
+async def reunioes(conn, dia: date, agora=None) -> dict:
+    """
+    Reunioes que ACONTECERAM no dia (pelo prazo) com o desfecho, e
+    agendamentos MARCADOS no dia (pelo criado_em) por quem marcou.
+
+    `agora` e parametro para o teste ser deterministico: o desfecho
+    'pendente' depende do relogio.
+    """
+    from datetime import datetime, timezone
+
+    from services import relatorio_reunioes as svc
+
+    agora = agora or datetime.now(timezone.utc)
+    janela_prazo = _JANELA.replace("criado_em", "t.prazo")
+    janela_r = _JANELA.replace("criado_em", "r.criado_em")
+
+    linhas = await conn.fetch(f"""
+        SELECT t.prazo, t.concluida_em, t.cancelada_em,
+               r.duracao_min, r.desfecho, r.modalidade,
+               ua.nome  AS anfitriao,
+               ua.cargo AS anfitriao_cargo,
+               ug.nome  AS agendado_por,
+               coalesce(c.nome_fantasia, c.razao_social) AS empresa,
+               tr.sigla AS tipo_sigla, tr.nome AS tipo_nome
+        FROM reunioes r
+        JOIN tarefas t            ON t.id = r.tarefa_id
+        LEFT JOIN usuarios ua     ON ua.id = t.responsavel_id
+        LEFT JOIN usuarios ug     ON ug.id = r.agendado_por
+        LEFT JOIN oportunidades o ON o.id = t.oportunidade_id
+        LEFT JOIN contas c        ON c.id = coalesce(t.conta_id, o.conta_id)
+        LEFT JOIN tipos_reuniao tr ON tr.id = r.tipo_id
+        WHERE {janela_prazo}
+    """, dia)
+
+    agendamentos = await conn.fetch(f"""
+        SELECT u.nome, u.cargo, count(*) AS qtd
+        FROM reunioes r
+        LEFT JOIN usuarios u ON u.id = r.agendado_por
+        WHERE {janela_r}
+        GROUP BY u.nome, u.cargo
+    """, dia)
+
+    return svc.montar([dict(r) for r in linhas], [dict(r) for r in agendamentos], agora)
+
+
 async def comparativo(conn, dia: date) -> dict:
     """
     Mesmos números do dia anterior com dado, para o relatório dizer 'caiu'.
@@ -275,6 +363,10 @@ async def comparativo(conn, dia: date) -> dict:
         "dia_semana": _DIAS_SEMANA[anterior["dia"].weekday()],
         "acoes": ad.get("acoes"),
         "pessoas_ativas": ad.get("pessoas_ativas"),
+        # Ausente em fechamentos anteriores a 16/09: fica None e o KPI sai
+        # sem variacao, em vez de comparar contra um zero que nunca existiu.
+        "atividades": (m or {}).get("atividades", {}).get("total"),
+        "reunioes_realizadas": (m or {}).get("reunioes", {}).get("realizadas"),
         "oportunidades_criadas": op.get("oportunidades_criadas"),
         "tarefas_concluidas": op.get("tarefas_concluidas"),
     }
@@ -300,6 +392,8 @@ async def metricas_do_dia(conn, dia: date) -> dict:
         "fuso": FUSO_OPERACAO,
         "adocao": await adocao(conn, dia),
         "operacao": await operacao(conn, dia),
+        "atividades": await atividades(conn, dia),
+        "reunioes": await reunioes(conn, dia),
         "comparativo": await comparativo(conn, dia),
         "conteudo": await relatorio_conteudo.conteudo(conn, dia, FUSO_OPERACAO),
     }

@@ -16,6 +16,9 @@ sobrevive à maioria dos clientes.
 from __future__ import annotations
 
 from datetime import date, datetime
+from zoneinfo import ZoneInfo
+
+_FUSO = ZoneInfo("America/Sao_Paulo")
 
 AZUL = "#2563eb"
 TINTA = "#0f172a"
@@ -41,13 +44,26 @@ def data_por_extenso(d: date) -> str:
 
 
 def hora_curta(iso: str | None) -> str:
-    """'2026-08-17T14:32:05-03:00' → '14:32'. Entrada inválida vira '—'."""
+    """
+    ISO com fuso -> 'HH:MM' no horário de Brasília. Entrada inválida vira '—'.
+
+    CONVERTE ANTES DE FORMATAR. O asyncpg devolve timestamptz em UTC, e o
+    `.isoformat()` grava '2026-09-15T11:46:00+00:00' no JSON. Formatar direto
+    mostrava a equipe entrando às 11h e saindo às 21h -- três horas à frente
+    -- no e-mail de 15/09. Datetime sem fuso é tratado como já local.
+
+    >>> hora_curta("2026-09-15T11:46:00+00:00")
+    '08:46'
+    """
     if not iso:
         return "—"
     try:
-        return datetime.fromisoformat(iso).strftime("%H:%M")
+        dt = datetime.fromisoformat(iso)
     except ValueError:
         return "—"
+    if dt.tzinfo is not None:
+        dt = dt.astimezone(_FUSO)
+    return dt.strftime("%H:%M")
 
 
 def variacao(atual, anterior) -> str:
@@ -224,6 +240,213 @@ def _bloco_conteudo(cont: dict) -> list[str]:
     return saida
 
 
+# ── Atividade da equipe ─────────────────────────────────────────────────
+#
+# A partir de 16/09 o e-mail mede o que foi LANCADO, nao o que foi clicado.
+# "Acoes" (toda request) saiu da tela: 89% eram leitura, e o numero fazia
+# quem navega muito parecer quem produz muito. O dado bruto continua em
+# `adocao` para quem consultar a API.
+
+_CALOR = ("#eff6ff", "#dbeafe", "#bfdbfe", "#93c5fd")
+
+_COR_SITUACAO = {
+    "realizada": VERDE,
+    "no_show": VERMELHO,
+    "cancelada": SUAVE,
+    "pendente": AMBAR,
+    "agendada": TEXTO,
+}
+
+
+def _celula_calor(n: int, maximo: int) -> str:
+    """Celula da tabela usuario x hora. Zero fica apagado; o resto ganha tom."""
+    base = ("text-align:center;font-size:11px;padding:6px 2px;"
+            f"border-bottom:1px solid {BORDA};")
+    if not n:
+        return f'<td style="{base}color:#cbd5e1">·</td>'
+    nivel = min(len(_CALOR) - 1, (n * len(_CALOR) - 1) // max(maximo, 1))
+    return (f'<td style="{base}background:{_CALOR[nivel]};color:{TINTA};'
+            f'font-weight:600">{n}</td>')
+
+
+def _nome_com_cargo(nome, cargo) -> str:
+    cargo_html = (f'<div style="font-size:10px;color:{SUAVE}">{_esc(cargo)}</div>'
+                  if cargo else "")
+    return f'<div style="font-size:12px;color:{TINTA}">{_esc(nome)}</div>{cargo_html}'
+
+
+def _tabela_usuario_hora(at: dict) -> str:
+    horas = at.get("horas") or []
+    pessoas = at.get("por_pessoa") or []
+    if not pessoas:
+        return f'<p style="color:{SUAVE};font-size:13px;margin:0 0 8px">Ninguém entrou no sistema.</p>'
+
+    maximo = max([n for p in pessoas for n in p["por_hora"]] + [1])
+    th_base = (f"font-size:10px;color:{SUAVE};font-weight:600;text-transform:uppercase;"
+               f"padding:6px 2px;border-bottom:1px solid {BORDA}")
+    cab = (f'<th style="{th_base};text-align:left;padding-left:6px">Pessoa</th>'
+           f'<th style="{th_base};text-align:left">Expediente</th>'
+           + "".join(f'<th style="{th_base};text-align:center">{h}h</th>' for h in horas)
+           + f'<th style="{th_base};text-align:right;padding-right:6px">Total</th>')
+
+    td = f"padding:6px 2px;border-bottom:1px solid {BORDA};"
+    trs = []
+    for p in pessoas:
+        expediente = (f'{_esc(p.get("entrada") or "—")}–{_esc(p.get("saida") or "—")}')
+        trs.append(
+            "<tr>"
+            f'<td style="{td}padding-left:6px">{_nome_com_cargo(p["nome"], p.get("cargo"))}</td>'
+            f'<td style="{td}font-size:11px;color:{TEXTO};white-space:nowrap">{expediente}</td>'
+            + "".join(_celula_calor(n, maximo) for n in p["por_hora"])
+            + f'<td style="{td}text-align:right;padding-right:6px;font-size:13px;'
+              f'font-weight:700;color:{TINTA}">{p["total"]}</td>'
+            "</tr>"
+        )
+
+    totais = at.get("total_por_hora") or [0] * len(horas)
+    tf = f"padding:7px 2px;border-top:2px solid {BORDA};font-size:11px;font-weight:700;color:{TINTA};"
+    trs.append(
+        "<tr>"
+        f'<td style="{tf}padding-left:6px" colspan="2">Equipe</td>'
+        + "".join(f'<td style="{tf}text-align:center">{n or ""}</td>' for n in totais)
+        + f'<td style="{tf}text-align:right;padding-right:6px;font-size:13px">{at.get("total", 0)}</td>'
+        "</tr>"
+    )
+    return (
+        '<table width="100%" cellpadding="0" cellspacing="0" role="presentation" '
+        f'style="border-collapse:collapse;margin-bottom:6px"><tr>{cab}</tr>{"".join(trs)}</table>'
+        f'<p style="font-size:11px;color:{SUAVE};margin:4px 0 0">Atividade = registro criado, '
+        f'alterado ou concluído com sucesso. Consultas e navegação não contam. '
+        f'Horário de Brasília.</p>'
+    )
+
+
+def _bloco_equipe(metricas: dict) -> list[str]:
+    at = metricas.get("atividades")
+    if not at:
+        return []
+    ad = metricas.get("adocao", {}) or {}
+    re_ = metricas.get("reunioes", {}) or {}
+    comp = metricas.get("comparativo", {}) or {}
+    tem_base = comp.get("disponivel")
+
+    saida: list[str] = []
+    w = saida.append
+    w(_titulo("Atividade da equipe"))
+
+    taxa = re_.get("taxa_realizacao_pct")
+    w(_linha_kpis([
+        _kpi("Atividades", at.get("total", 0),
+             variacao(at.get("total"), comp.get("atividades")) if tem_base else ""),
+        _kpi("Pessoas ativas", ad.get("pessoas_ativas", 0),
+             variacao(ad.get("pessoas_ativas"), comp.get("pessoas_ativas")) if tem_base else ""),
+        _kpi("Reuniões realizadas", f'{re_.get("realizadas", 0)}/{re_.get("total", 0)}',
+             f"{str(taxa).replace('.', ',')}% das que tiveram desfecho" if taxa is not None else "",
+             VERDE if re_.get("realizadas") else TINTA),
+        _kpi("No-show", re_.get("no_show", 0),
+             f'{re_.get("pendentes", 0)} sem desfecho' if re_.get("pendentes") else "",
+             VERMELHO if re_.get("no_show") else TINTA),
+    ]))
+
+    w(_tabela_usuario_hora(at))
+
+    if not ad.get("disponivel", True):
+        w(f'<p style="font-size:13px;color:{TINTA};background:#f1f5f9;'
+          f'border:1px solid #e2e8f0;padding:10px 12px;border-radius:8px;'
+          f'margin:8px 0 0"><strong>Sem telemetria neste dia.</strong> '
+          f'A captura de uso ainda não estava ativa, então não dá para dizer '
+          f'quem acessou nem o que foi lançado.</p>')
+
+    ausentes = ad.get("sem_acesso_hoje", [])
+    if ausentes:
+        nomes = ", ".join(f'{_esc(a["nome"])} ({_esc(a["cargo"] or "sem cargo")})' for a in ausentes)
+        w(f'<p style="font-size:13px;color:{AMBAR};background:#fffbeb;border:1px solid #fde68a;'
+          f'padding:10px 12px;border-radius:8px;margin:8px 0 0">'
+          f'<strong>Não acessaram:</strong> {nomes}</p>')
+    return saida
+
+
+def _bloco_reunioes(re_: dict | None) -> list[str]:
+    if re_ is None:
+        return []
+    saida: list[str] = []
+    w = saida.append
+    w(_titulo("Reuniões do dia"))
+
+    if not re_.get("total"):
+        w(f'<p style="color:{SUAVE};font-size:13px;margin:0 0 8px">Nenhuma reunião marcada para o dia.</p>')
+    else:
+        w(_tabela(
+            ["Anfitrião", "Total", "Realizadas", "Canceladas", "No-show", "Sem desfecho"],
+            [[
+                _nome_com_cargo(p["nome"], p.get("cargo")), str(p["total"]),
+                f'<span style="color:{VERDE};font-weight:600">{p["realizadas"]}</span>',
+                str(p["canceladas"]),
+                (f'<span style="color:{VERMELHO};font-weight:600">{p["no_show"]}</span>'
+                 if p["no_show"] else "0"),
+                (f'<span style="color:{AMBAR};font-weight:600">{p["pendentes"]}</span>'
+                 if p["pendentes"] else "0"),
+            ] for p in re_.get("por_anfitriao", [])],
+            ["left", "right", "right", "right", "right", "right"],
+        ))
+        w(_tabela(
+            ["Hora", "Anfitrião", "Empresa", "Tipo", "Marcada por", "Situação"],
+            [[
+                _esc(i["hora"]), _esc(i["anfitriao"]), _esc(i["empresa"]),
+                _esc(i["tipo"]), _esc(i["agendado_por"]),
+                f'<span style="color:{_COR_SITUACAO.get(i["situacao"], TEXTO)};'
+                f'font-weight:600">{_esc(i["situacao_rotulo"])}</span>',
+            ] for i in re_.get("itens", [])],
+            ["left", "left", "left", "left", "left", "left"],
+        ))
+        if re_.get("pendentes"):
+            w(f'<p style="font-size:12px;color:{AMBAR};margin:4px 0 0">'
+              f'{re_["pendentes"]} reunião(ões) já terminaram e ninguém registrou o que '
+              f'aconteceu. Ficam fora da taxa de realização até alguém registrar.</p>')
+
+    ag = re_.get("agendamentos_por_pessoa") or []
+    if ag:
+        lista = " · ".join(f'{_esc(a["nome"])} <strong>{a["qtd"]}</strong>' for a in ag)
+        w(f'<p style="font-size:13px;color:{TEXTO};margin:10px 0 0">'
+          f'<strong>Agendamentos marcados no dia ({re_.get("agendamentos_total", 0)}):</strong> '
+          f'{lista}</p>')
+    return saida
+
+
+def _bloco_detalhe(at: dict | None) -> list[str]:
+    if not at:
+        return []
+    pessoas = at.get("por_pessoa") or []
+    if not pessoas:
+        return []
+    saida: list[str] = []
+    w = saida.append
+    w(_titulo("O que cada um lançou"))
+    for p in pessoas:
+        cargo = f' <span style="color:{SUAVE};font-weight:400">· {_esc(p["cargo"])}</span>' if p.get("cargo") else ""
+        w(f'<div style="font-size:14px;font-weight:700;color:{TINTA};margin:16px 0 6px">'
+          f'{_esc(p["nome"])}{cargo}'
+          f'<span style="float:right;font-size:13px;color:{AZUL}">{p["total"]} '
+          f'{"atividade" if p["total"] == 1 else "atividades"}</span></div>')
+        if not p["por_tipo"]:
+            w(f'<p style="font-size:13px;color:{AMBAR};margin:0 0 6px">'
+              f'Entrou no sistema ({_esc(p.get("entrada") or "—")}–{_esc(p.get("saida") or "—")}) '
+              f'e não lançou nada.</p>')
+            continue
+        linhas = []
+        grupo_atual = None
+        for t_ in p["por_tipo"]:
+            grupo = t_["grupo"] if t_["grupo"] != grupo_atual else ""
+            grupo_atual = t_["grupo"]
+            linhas.append([
+                f'<span style="color:{SUAVE};font-size:12px">{_esc(grupo)}</span>',
+                _esc(t_["tipo"]),
+                f'<strong>{t_["qtd"]}</strong>',
+            ])
+        w(_tabela(["Área", "Tipo", "Qtd"], linhas, ["left", "left", "right"]))
+    return saida
+
+
 def montar_html(metricas: dict, narrativa: str | None = None) -> str:
     """E-mail completo. `narrativa` ausente simplesmente não desenha a seção."""
     dia = date.fromisoformat(metricas["dia"])
@@ -255,44 +478,25 @@ def montar_html(metricas: dict, narrativa: str | None = None) -> str:
           f'Leitura gerada por IA sobre os números abaixo. Os números vêm do banco.'
           f'</div></div>')
 
+    equipe = _bloco_equipe(metricas)
+    if equipe:
+        w("".join(equipe))
+        w("".join(_bloco_reunioes(metricas.get("reunioes"))))
+        w("".join(_bloco_detalhe(metricas.get("atividades"))))
+    else:
+        # Fechamento gravado antes de 16/09 (sem `atividades`), reprocessado
+        # para reenvio: mostra a tabela antiga em vez de um e-mail sem equipe.
+        w(_titulo("Por colaborador"))
+        w(_tabela(
+            ["Pessoa", "Cargo", "Ações", "Telas", "Entrada", "Saída"],
+            [[
+                _esc(p["nome"]), _esc(p["cargo"] or "—"), str(p["acoes"]), str(p["telas"]),
+                hora_curta(p.get("primeira")), hora_curta(p.get("ultima")),
+            ] for p in ad.get("por_pessoa", [])],
+            ["left", "left", "right", "right", "right", "right"],
+        ))
+
     w("".join(_bloco_conteudo(metricas.get("conteudo", {}) or {})))
-
-    w(_titulo("Uso do sistema"))
-    w(_linha_kpis([
-        _kpi("Ações", ad.get("acoes", 0),
-             variacao(ad.get("acoes"), comp.get("acoes")) if tem_base else ""),
-        _kpi("Pessoas ativas", ad.get("pessoas_ativas", 0),
-             variacao(ad.get("pessoas_ativas"), comp.get("pessoas_ativas")) if tem_base else ""),
-        _kpi("Erros", ad.get("erros", 0),
-             f"{ad.get('taxa_erro_pct')}% das ações" if ad.get("taxa_erro_pct") is not None else "",
-             VERMELHO if (ad.get("erros") or 0) else TINTA),
-        _kpi("Latência p95", f"{ad.get('latencia_p95_ms', 0)} ms",
-             f"média {ad.get('latencia_media_ms', 0)} ms"),
-    ]))
-
-    w(_titulo("Por colaborador"))
-    w(_tabela(
-        ["Pessoa", "Cargo", "Ações", "Telas", "Entrada", "Saída"],
-        [[
-            _esc(p["nome"]), _esc(p["cargo"] or "—"), str(p["acoes"]), str(p["telas"]),
-            hora_curta(p.get("primeira")), hora_curta(p.get("ultima")),
-        ] for p in ad.get("por_pessoa", [])],
-        ["left", "left", "right", "right", "right", "right"],
-    ))
-
-    if not ad.get("disponivel", True):
-        w(f'<p style="font-size:13px;color:{TINTA};background:#f1f5f9;'
-          f'border:1px solid #e2e8f0;padding:10px 12px;border-radius:8px;'
-          f'margin:4px 0 0"><strong>Sem telemetria neste dia.</strong> '
-          f'A captura de uso ainda não estava ativa, então não dá para dizer '
-          f'quem acessou. Os números de Operação abaixo não dependem dela.</p>')
-
-    ausentes = ad.get("sem_acesso_hoje", [])
-    if ausentes:
-        nomes = ", ".join(f'{_esc(a["nome"])} ({_esc(a["cargo"] or "sem cargo")})' for a in ausentes)
-        w(f'<p style="font-size:13px;color:{AMBAR};background:#fffbeb;border:1px solid #fde68a;'
-          f'padding:10px 12px;border-radius:8px;margin:4px 0 0">'
-          f'<strong>Não acessaram hoje:</strong> {nomes}</p>')
 
     w(_titulo("Operação"))
     w(_linha_kpis([
@@ -312,14 +516,13 @@ def montar_html(metricas: dict, narrativa: str | None = None) -> str:
              f"{op.get('parceiros_sem_ec', 0)} sem EC"),
     ]))
 
-    # As tabelas de rota saíram daqui em 31/08. `/crm/parceiros/{conta_id}` e
-    # a contagem de 401 são diagnóstico de desenvolvedor; quem lê este e-mail
-    # é o dono da operação, e para ele a rota não sugere ação nenhuma. Os
-    # dados continuam em `adocao.rotas_mais_usadas` para quem consultar a API.
+    # "Uso do sistema" (ações brutas, erros, latência) saiu em 16/09, e as
+    # tabelas de rota já tinham saído em 31/08: é diagnóstico de
+    # desenvolvedor. Os dados seguem em `adocao` para quem consultar a API.
 
     w(f'<p style="font-size:11px;color:{SUAVE};margin-top:26px;padding-top:14px;'
       f'border-top:1px solid {BORDA}">HIPO · gerado automaticamente no fechamento '
-      f'do dia · fuso {_esc(metricas.get("fuso", "America/Sao_Paulo"))}</p>')
+      f'do dia · horários de Brasília ({_esc(metricas.get("fuso", "America/Sao_Paulo"))})</p>')
     w("</div>")
 
     corpo = "".join(partes)
@@ -336,6 +539,82 @@ def montar_html(metricas: dict, narrativa: str | None = None) -> str:
         f'border:1px solid {BORDA}"><tr><td>{corpo}</td></tr></table>'
         f"</td></tr></table></body></html>"
     )
+
+
+def _texto_equipe(metricas: dict) -> list[str]:
+    at = metricas.get("atividades")
+    if not at:
+        return []
+    ad = metricas.get("adocao", {}) or {}
+    linhas = [f"ATIVIDADE DA EQUIPE ({at.get('total', 0)} atividades, "
+              f"{ad.get('pessoas_ativas', 0)} pessoas)"]
+    horas = at.get("horas") or []
+    pessoas = at.get("por_pessoa") or []
+    if not pessoas:
+        linhas += ["  (ninguém entrou no sistema)", ""]
+        return linhas
+    largura = max(len(p["nome"] or "") for p in pessoas)
+    largura = max(largura, len("Equipe"))
+    cab = " " * (largura + 2) + "".join(f"{h:>4}" for h in horas) + "  Total"
+    linhas.append(cab)
+    for p in pessoas:
+        celulas = "".join(f"{(n or '.'):>4}" for n in p["por_hora"])
+        linhas.append(f"  {p['nome']:<{largura}}{celulas}  {p['total']:>5}"
+                      f"   ({p.get('entrada') or '—'}–{p.get('saida') or '—'})")
+    totais = at.get("total_por_hora") or []
+    linhas.append(f"  {'Equipe':<{largura}}" + "".join(f"{(n or ''):>4}" for n in totais)
+                  + f"  {at.get('total', 0):>5}")
+    linhas.append("  Atividade = registro criado, alterado ou concluído. Horário de Brasília.")
+
+    if not ad.get("disponivel", True):
+        linhas += ["  Sem telemetria neste dia: a captura de uso não estava ativa."]
+    ausentes = ad.get("sem_acesso_hoje", [])
+    if ausentes:
+        linhas += ["", "NÃO ACESSARAM"]
+        linhas += [f"  {a['nome']} ({a['cargo'] or 'sem cargo'})" for a in ausentes]
+    linhas.append("")
+    return linhas
+
+
+def _texto_reunioes(re_: dict | None) -> list[str]:
+    if re_ is None:
+        return []
+    linhas = [f"REUNIÕES DO DIA ({re_.get('total', 0)} no total: "
+              f"realizadas {re_.get('realizadas', 0)}, canceladas {re_.get('canceladas', 0)}, "
+              f"no-show {re_.get('no_show', 0)}, sem desfecho {re_.get('pendentes', 0)})"]
+    if not re_.get("total"):
+        linhas.append("  Nenhuma reunião marcada para o dia.")
+    for p in re_.get("por_anfitriao", []):
+        linhas.append(f"  {p['nome']}: total {p['total']} · realizadas {p['realizadas']} · "
+                      f"canceladas {p['canceladas']} · no-show {p['no_show']} · "
+                      f"sem desfecho {p['pendentes']}")
+    if re_.get("itens"):
+        linhas.append("")
+    for i in re_.get("itens", []):
+        linhas.append(f"  {i['hora']}  {i['anfitriao']} · {i['empresa']} · {i['tipo']} · "
+                      f"marcada por {i['agendado_por']} · {i['situacao_rotulo'].upper()}")
+    ag = re_.get("agendamentos_por_pessoa") or []
+    if ag:
+        linhas.append("")
+        linhas.append(f"  Agendamentos marcados no dia ({re_.get('agendamentos_total', 0)}): "
+                      + " · ".join(f"{a['nome']} {a['qtd']}" for a in ag))
+    linhas.append("")
+    return linhas
+
+
+def _texto_detalhe(at: dict | None) -> list[str]:
+    if not at or not at.get("por_pessoa"):
+        return []
+    linhas = ["O QUE CADA UM LANÇOU"]
+    for p in at["por_pessoa"]:
+        linhas.append(f"  {p['nome']} ({p.get('cargo') or 'sem cargo'}): {p['total']} "
+                      f"{'atividade' if p['total'] == 1 else 'atividades'}")
+        if not p["por_tipo"]:
+            linhas.append("      entrou no sistema e não lançou nada")
+        for t_ in p["por_tipo"]:
+            linhas.append(f"      {t_['qtd']:>4}  {t_['grupo']} · {t_['tipo']}")
+    linhas.append("")
+    return linhas
 
 
 def montar_texto(metricas: dict, narrativa: str | None = None) -> str:
@@ -356,6 +635,27 @@ def montar_texto(metricas: dict, narrativa: str | None = None) -> str:
     ]
     if narrativa:
         linhas += [narrativa.strip(), ""]
+
+    equipe = _texto_equipe(metricas)
+    if equipe:
+        linhas += equipe
+        linhas += _texto_reunioes(metricas.get("reunioes"))
+        linhas += _texto_detalhe(metricas.get("atividades"))
+    else:
+        linhas += ["POR COLABORADOR"]
+        for p in ad.get("por_pessoa", []) or [None]:
+            if p is None:
+                linhas.append(
+                    "  (sem telemetria neste dia)"
+                    if not ad.get("disponivel", True)
+                    else "  (ninguém usou o sistema hoje)"
+                )
+                break
+            linhas.append(
+                f"  {p['nome']} ({p['cargo'] or 'sem cargo'}): {p['acoes']} ações, "
+                f"{p['telas']} telas, {hora_curta(p.get('primeira'))}–{hora_curta(p.get('ultima'))}"
+            )
+        linhas.append("")
 
     cont = metricas.get("conteudo", {}) or {}
 
@@ -410,41 +710,6 @@ def montar_texto(metricas: dict, narrativa: str | None = None) -> str:
         linhas.append("")
 
     linhas += [
-        "USO DO SISTEMA",
-        f"  Ações: {ad.get('acoes', 0)}",
-        f"  Pessoas ativas: {ad.get('pessoas_ativas', 0)}",
-        f"  Erros: {ad.get('erros', 0)} ({ad.get('taxa_erro_pct')}%)",
-        f"  Latência p95: {ad.get('latencia_p95_ms', 0)} ms",
-        "",
-        "POR COLABORADOR",
-    ]
-    for p in ad.get("por_pessoa", []) or [None]:
-        if p is None:
-            linhas.append(
-                "  (sem telemetria neste dia)"
-                if not ad.get("disponivel", True)
-                else "  (ninguém usou o sistema hoje)"
-            )
-            break
-        linhas.append(
-            f"  {p['nome']} ({p['cargo'] or 'sem cargo'}): {p['acoes']} ações, "
-            f"{p['telas']} telas, {hora_curta(p.get('primeira'))}–{hora_curta(p.get('ultima'))}"
-        )
-
-    if not ad.get("disponivel", True):
-        linhas += [
-            "", "SEM TELEMETRIA NESTE DIA",
-            "  A captura de uso ainda não estava ativa; não dá para dizer quem",
-            "  acessou. Os números de OPERAÇÃO abaixo não dependem dela.",
-        ]
-
-    ausentes = ad.get("sem_acesso_hoje", [])
-    if ausentes:
-        linhas += ["", "NÃO ACESSARAM HOJE"]
-        linhas += [f"  {a['nome']} ({a['cargo'] or 'sem cargo'})" for a in ausentes]
-
-    linhas += [
-        "",
         "OPERAÇÃO",
         f"  Oportunidades criadas: {op.get('oportunidades_criadas', 0)}",
         f"  Mudanças de fase: {op.get('mudancas_de_fase', 0)}",
@@ -455,7 +720,7 @@ def montar_texto(metricas: dict, narrativa: str | None = None) -> str:
         f"  Carteira de parceiros: {op.get('carteira_parceiros', 0)} "
         f"({op.get('parceiros_sem_ec', 0)} sem EC)",
         "",
-        "HIPO · gerado automaticamente no fechamento do dia",
+        "HIPO · gerado automaticamente no fechamento do dia · horários de Brasília",
     ]
     return "\n".join(linhas)
 
@@ -464,15 +729,26 @@ def assunto(metricas: dict) -> str:
     """
     Assunto com o resumo do dia: quem lê no celular decide se abre por aqui.
 
-    >>> assunto({"dia": "2026-08-17", "adocao": {"pessoas_ativas": 4},
-    ...          "operacao": {"oportunidades_criadas": 2}})
-    'HIPO 17/08 — 4 pessoas, 2 oportunidades'
+    >>> assunto({"dia": "2026-09-15", "adocao": {"pessoas_ativas": 5},
+    ...          "atividades": {"total": 181},
+    ...          "reunioes": {"total": 6, "realizadas": 4}})
+    'HIPO 15/09 — 5 pessoas, 181 atividades, 4/6 reuniões realizadas'
     """
     dia = date.fromisoformat(metricas["dia"])
     pessoas = metricas.get("adocao", {}).get("pessoas_ativas", 0)
-    opps = metricas.get("operacao", {}).get("oportunidades_criadas", 0)
-    return (
-        f"HIPO {dia.strftime('%d/%m')} — {pessoas} "
-        f"{'pessoa' if pessoas == 1 else 'pessoas'}, {opps} "
-        f"{'oportunidade' if opps == 1 else 'oportunidades'}"
-    )
+    partes = [f"{pessoas} {'pessoa' if pessoas == 1 else 'pessoas'}"]
+
+    at = metricas.get("atividades")
+    if at is not None:
+        n = at.get("total", 0)
+        partes.append(f"{n} {'atividade' if n == 1 else 'atividades'}")
+    else:
+        opps = metricas.get("operacao", {}).get("oportunidades_criadas", 0)
+        partes.append(f"{opps} {'oportunidade' if opps == 1 else 'oportunidades'}")
+
+    re_ = metricas.get("reunioes") or {}
+    if re_.get("total"):
+        partes.append(f"{re_.get('realizadas', 0)}/{re_['total']} "
+                      f"{'reunião realizada' if re_['total'] == 1 else 'reuniões realizadas'}")
+
+    return f"HIPO {dia.strftime('%d/%m')} — " + ", ".join(partes)

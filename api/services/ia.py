@@ -54,7 +54,11 @@ Escreva 3 ou 4 parágrafos curtos, em português do Brasil:
    urgência.
 2. O que está perto de fechar (`conteudo.perto_de_fechar`) e quem dá para
    acionar por indicação (`conteudo.parceiros_para_acionar`).
-3. O que aconteceu no dia — uso do sistema e movimento da operação.
+3. O que aconteceu no dia: `atividades` (o que cada pessoa LANÇOU — use
+   `por_pessoa[].total` e `por_tipo`), `reunioes` (realizadas, canceladas,
+   no-show e sem desfecho, por anfitrião) e o movimento da `operacao`.
+   Reunião "sem desfecho" é cobrança: diga de quem é. Não fale em "ações",
+   "requests" ou "cliques" — esse número não aparece no e-mail.
 4. Uma recomendação concreta para amanhã, ligada a UM item específico
    daqueles que você citou.
 
@@ -99,6 +103,14 @@ Regras:
 # tambem nao pode citar.
 _CAMPOS_OCULTOS = ("rotas_mais_usadas", "erros_por_rota")
 
+# A partir de 16/09 o bloco "Uso do sistema" tambem saiu do e-mail: acoes
+# brutas, erros, latencia e a tabela por colaborador com acoes/telas. De
+# `adocao`, o leitor so ve estas chaves. Lista do que FICA, e nao do que
+# sai: um campo novo em `adocao` nasce escondido da IA ate alguem decidir
+# mostra-lo no e-mail.
+_ADOCAO_VISIVEL = ("disponivel", "pessoas_ativas", "sem_acesso_hoje")
+_COMPARATIVO_OCULTO = ("acoes",)
+
 
 def metricas_para_narrar(metricas: dict) -> dict:
     """
@@ -130,14 +142,29 @@ def metricas_para_narrar(metricas: dict) -> dict:
     >>> m = {"adocao": {"acoes": 10, "rotas_mais_usadas": [1], "erros_por_rota": [2]}}
     >>> metricas_para_narrar(m)["adocao"]
     {'acoes': 10}
+    >>> m2 = {"atividades": {"total": 3}, "adocao": {"acoes": 10, "pessoas_ativas": 2}}
+    >>> metricas_para_narrar(m2)["adocao"]
+    {'pessoas_ativas': 2}
     >>> m["adocao"]["rotas_mais_usadas"]
     [1]
     """
     copia = dict(metricas)
     adocao = copia.get("adocao")
     if isinstance(adocao, dict):
-        copia["adocao"] = {
-            k: v for k, v in adocao.items() if k not in _CAMPOS_OCULTOS
+        if "atividades" in copia:
+            copia["adocao"] = {
+                k: v for k, v in adocao.items() if k in _ADOCAO_VISIVEL
+            }
+        else:
+            # Payload anterior a 16/09: o e-mail ainda desenha a tabela
+            # antiga por colaborador, entao so as rotas ficam de fora.
+            copia["adocao"] = {
+                k: v for k, v in adocao.items() if k not in _CAMPOS_OCULTOS
+            }
+    comp = copia.get("comparativo")
+    if isinstance(comp, dict) and "atividades" in copia:
+        copia["comparativo"] = {
+            k: v for k, v in comp.items() if k not in _COMPARATIVO_OCULTO
         }
     return copia
 

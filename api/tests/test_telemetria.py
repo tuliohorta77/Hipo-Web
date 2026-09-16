@@ -342,3 +342,172 @@ class TestEndpoints:
         body = (await client.get("/telemetria/relatorios", headers=u["headers"])).json()
         assert body["total"] == 1
         assert body["itens"][0]["acoes"] == 5
+
+
+# ── Atividades e reuniões do fechamento (16/09) ─────────────────────
+
+DIA_FIXO = date(2026, 9, 15)
+
+
+def _em_sp(hora: int, minuto: int = 0, dia: date = DIA_FIXO) -> datetime:
+    return datetime(dia.year, dia.month, dia.day, hora, minuto, tzinfo=FUSO_OPERACAO)
+
+
+async def _usuario(db_conn, nome: str, cargo: str, email: str):
+    return await db_conn.fetchval("""
+        INSERT INTO usuarios (nome, email, senha_hash, cargo)
+        VALUES ($1, $2, 'x', $3) RETURNING id
+    """, nome, email, cargo)
+
+
+async def _evento(db_conn, uid, cargo, metodo, rota, status, quando, n=1):
+    for _ in range(n):
+        await db_conn.execute("""
+            INSERT INTO uso_eventos
+                (usuario_id, cargo, metodo, rota, modulo, status, duracao_ms, criado_em)
+            VALUES ($1, $2, $3, $4, 'crm', $5, 5, $6)
+        """, uid, cargo, metodo, rota, status, quando)
+
+
+class TestAtividades:
+    async def test_so_escrita_com_sucesso_e_na_hora_de_brasilia(self, db_conn):
+        uid = await _usuario(db_conn, "Kethlleen Gomes", "SDR", "k@teste.com")
+        concluir = "/crm/tarefas/{tarefa_id}/concluir"
+        await _evento(db_conn, uid, "SDR", "POST", concluir, 200, _em_sp(10, 5), n=3)
+        await _evento(db_conn, uid, "SDR", "POST", "/crm/tarefas", 201, _em_sp(17, 40))
+        await _evento(db_conn, uid, "SDR", "GET", "/crm/tarefas/kanban", 200, _em_sp(8, 46), n=50)
+        await _evento(db_conn, uid, "SDR", "POST", "/crm/contatos/{contato_id}/vinculos", 409,
+                      _em_sp(11))
+        await _evento(db_conn, uid, "SDR", "POST", "/auth/login", 200, _em_sp(8, 46))
+
+        r = await tel.atividades(db_conn, DIA_FIXO)
+        assert r["total"] == 4
+        p = r["por_pessoa"][0]
+        assert p["nome"] == "Kethlleen Gomes"
+        assert p["por_hora"][r["horas"].index(10)] == 3
+        assert p["por_hora"][r["horas"].index(17)] == 1
+        # Expediente pelo primeiro e ultimo evento de QUALQUER tipo, local.
+        assert (p["entrada"], p["saida"]) == ("08:46", "17:40")
+        assert {t["tipo"]: t["qtd"] for t in p["por_tipo"]} == {
+            "Tarefa criada": 1, "Tarefa concluída": 3,
+        }
+
+    async def test_evento_das_22h_fica_no_dia_local(self, db_conn):
+        """22h de 15/09 em Brasília é 01h de 16/09 em UTC."""
+        uid = await _usuario(db_conn, "Gabriel Lira", "SDR", "g@teste.com")
+        await _evento(db_conn, uid, "SDR", "POST", "/crm/tarefas", 201, _em_sp(22, 0))
+        r = await tel.atividades(db_conn, DIA_FIXO)
+        assert r["total"] == 1
+        assert r["horas"][-1] == 22
+        seguinte = await tel.atividades(db_conn, DIA_FIXO + timedelta(days=1))
+        assert seguinte["total"] == 0
+
+    async def test_quem_so_leu_aparece_com_zero(self, db_conn):
+        uid = await _usuario(db_conn, "Jakeline Santana", "EV", "j@teste.com")
+        await _evento(db_conn, uid, "EV", "GET", "/crm/tarefas", 200, _em_sp(9), n=10)
+        r = await tel.atividades(db_conn, DIA_FIXO)
+        assert r["total"] == 0
+        assert r["por_pessoa"][0]["nome"] == "Jakeline Santana"
+        assert r["por_pessoa"][0]["por_tipo"] == []
+
+    async def test_dia_vazio(self, db_conn):
+        r = await tel.atividades(db_conn, date(2020, 1, 1))
+        assert r == {"total": 0, "horas": list(range(8, 19)),
+                     "total_por_hora": [0] * 11, "por_pessoa": []}
+
+
+async def _reuniao(db_conn, *, ev, sdr, conta_id, tipo_id, inicio: datetime,
+                   desfecho=None, concluida=False, criado_em=None):
+    tarefa_id = await db_conn.fetchval("""
+        INSERT INTO tarefas (conta_id, tipo, titulo, responsavel_id, prazo,
+                             concluida_em, criado_por)
+        VALUES ($1, 'reuniao', 'Reunião', $2, $3, $4, $5) RETURNING id
+    """, conta_id, ev, inicio, inicio + timedelta(minutes=30) if concluida else None, sdr)
+    await db_conn.execute("""
+        INSERT INTO reunioes (tarefa_id, duracao_min, tipo_id, agendado_por,
+                              desfecho, desfecho_em, criado_por, criado_em)
+        VALUES ($1, 30, $2, $3, $4, $5, $3, $6)
+    """, tarefa_id, tipo_id, sdr, desfecho,
+        inicio + timedelta(hours=1) if desfecho else None,
+        criado_em or inicio - timedelta(days=2))
+
+
+class TestReunioesDoFechamento:
+    async def _base(self, db_conn):
+        ev = await _usuario(db_conn, "Bruno Gonçalo", "EV", "b@teste.com")
+        sdr = await _usuario(db_conn, "Kethlleen Gomes", "SDR", "k2@teste.com")
+        conta = await db_conn.fetchval("""
+            INSERT INTO contas (razao_social, nome_fantasia, cnpj, eh_finder, criado_por)
+            VALUES ('Metalurgica Andrade Ltda', 'Metalurgica Andrade', '11222333000181',
+                    TRUE, $1) RETURNING id
+        """, sdr)
+        tipo = await db_conn.fetchval("""
+            INSERT INTO tipos_reuniao (sigla, nome, slug) VALUES ('DG', 'Diagnóstico', 'dg-t')
+            RETURNING id
+        """)
+        return ev, sdr, conta, tipo
+
+    async def test_desfechos_por_anfitriao(self, db_conn):
+        ev, sdr, conta, tipo = await self._base(db_conn)
+        await _reuniao(db_conn, ev=ev, sdr=sdr, conta_id=conta, tipo_id=tipo,
+                       inicio=_em_sp(9), desfecho="realizada")
+        await _reuniao(db_conn, ev=ev, sdr=sdr, conta_id=conta, tipo_id=tipo,
+                       inicio=_em_sp(14), desfecho="no_show")
+        await _reuniao(db_conn, ev=ev, sdr=sdr, conta_id=conta, tipo_id=tipo,
+                       inicio=_em_sp(16), concluida=True)
+        await _reuniao(db_conn, ev=ev, sdr=sdr, conta_id=conta, tipo_id=tipo,
+                       inicio=_em_sp(17))
+        # Outro dia: nao entra.
+        await _reuniao(db_conn, ev=ev, sdr=sdr, conta_id=conta, tipo_id=tipo,
+                       inicio=_em_sp(9, dia=DIA_FIXO + timedelta(days=1)))
+
+        agora = datetime(2026, 9, 16, 6, 10, tzinfo=timezone.utc)
+        r = await tel.reunioes(db_conn, DIA_FIXO, agora=agora)
+        assert (r["total"], r["realizadas"], r["no_show"], r["pendentes"]) == (4, 2, 1, 1)
+        assert r["por_anfitriao"][0]["nome"] == "Bruno Gonçalo"
+        item = r["itens"][0]
+        assert item["hora"] == "09:00"
+        assert item["empresa"] == "Metalurgica Andrade"
+        assert item["tipo"] == "DG · Diagnóstico"
+        assert item["agendado_por"] == "Kethlleen Gomes"
+
+    async def test_agendamento_conta_no_dia_em_que_foi_marcado(self, db_conn):
+        ev, sdr, conta, tipo = await self._base(db_conn)
+        # Marcada em 15/09 para 18/09: agendamento do dia 15, reuniao do dia 18.
+        await _reuniao(db_conn, ev=ev, sdr=sdr, conta_id=conta, tipo_id=tipo,
+                       inicio=_em_sp(10, dia=date(2026, 9, 18)), criado_em=_em_sp(11))
+        r = await tel.reunioes(db_conn, DIA_FIXO)
+        assert r["total"] == 0
+        assert r["agendamentos_total"] == 1
+        assert r["agendamentos_por_pessoa"][0]["nome"] == "Kethlleen Gomes"
+
+
+class TestMetricasDoDiaNovosBlocos:
+    async def test_payload_traz_atividades_e_reunioes(self, db_conn):
+        uid = await _usuario(db_conn, "Aline Martins", "EC", "a@teste.com")
+        await _evento(db_conn, uid, "EC", "POST", "/crm/tarefas", 201, _em_sp(11))
+        m = await tel.metricas_do_dia(db_conn, DIA_FIXO)
+        assert m["atividades"]["total"] == 1
+        assert m["reunioes"]["total"] == 0
+
+    async def test_comparativo_le_atividades_do_fechamento_anterior(self, db_conn):
+        import json
+        await db_conn.execute("""
+            INSERT INTO relatorios_diarios (dia, metricas) VALUES ($1, $2::jsonb)
+        """, DIA_FIXO - timedelta(days=1), json.dumps({
+            "adocao": {"acoes": 900, "pessoas_ativas": 4},
+            "operacao": {}, "atividades": {"total": 150},
+            "reunioes": {"realizadas": 3},
+        }))
+        c = await tel.comparativo(db_conn, DIA_FIXO)
+        assert c["atividades"] == 150
+        assert c["reunioes_realizadas"] == 3
+
+    async def test_comparativo_de_fechamento_antigo_nao_inventa_zero(self, db_conn):
+        import json
+        await db_conn.execute("""
+            INSERT INTO relatorios_diarios (dia, metricas) VALUES ($1, $2::jsonb)
+        """, DIA_FIXO - timedelta(days=1), json.dumps({
+            "adocao": {"acoes": 900, "pessoas_ativas": 4}, "operacao": {},
+        }))
+        assert (await tel.comparativo(db_conn, DIA_FIXO))["atividades"] is None
