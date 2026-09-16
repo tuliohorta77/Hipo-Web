@@ -203,6 +203,33 @@ describe('Tarefas — as quatro colunas', () => {
     expect(await screen.findByText('+10 não exibidas')).toBeInTheDocument();
   });
 
+  it('carregar mais busca a próxima página da coluna e anexa os cartões', async () => {
+    const atrasada = { ...COLUNAS[0], quantidade: 3 };
+    const base = respostas(COLUNAS.map((c) => (c.situacao === 'atrasada' ? atrasada : c)));
+    mockGet.mockImplementation((url, cfg) => {
+      if (url === '/crm/tarefas/kanban/coluna') {
+        return Promise.resolve({
+          data: {
+            ...atrasada,
+            itens: [tarefa('9', { situacao: 'atrasada', titulo: 'Tarefa escondida' })],
+          },
+        });
+      }
+      return base(url, cfg);
+    });
+    montar();
+    await screen.findByRole('region', { name: 'Atrasadas' });
+    fireEvent.click(await coluna('Atrasadas').findByRole('button', { name: /Carregar mais 1/ }));
+
+    expect(await coluna('Atrasadas').findByText('Tarefa escondida')).toBeInTheDocument();
+    expect(mockGet).toHaveBeenCalledWith('/crm/tarefas/kanban/coluna', {
+      params: { situacao: 'atrasada', offset: 2, limit: 100 },
+    });
+    // Os cartões que já estavam continuam lá.
+    expect(coluna('Atrasadas').getByText('Cobrar proposta')).toBeInTheDocument();
+    expect(coluna('Atrasadas').queryByRole('button', { name: /Carregar mais/ })).not.toBeInTheDocument();
+  });
+
   it('cada coluna rola por dentro; a tela não rola', async () => {
     montar();
     await screen.findByRole('region', { name: 'Atrasadas' });

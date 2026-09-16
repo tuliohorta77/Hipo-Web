@@ -479,6 +479,59 @@ class TestKanban:
         assert atrasadas["quantidade"] == 3
         assert len(atrasadas["itens"]) == 1
 
+    async def test_carregar_mais_percorre_a_coluna_inteira_sem_repetir(
+        self, db_conn, client, cenario
+    ):
+        """
+        Regressao: "146 atrasadas" mostrava 100 cartoes e "+46 nao exibidas"
+        sem caminho ate as outras. Paginando por /kanban/coluna, toda tarefa
+        aparece uma vez, na ordem do /kanban — inclusive com prazos iguais.
+        """
+        h, o, u = cenario["headers"], cenario["opp"]["id"], cenario["usuario_id"]
+        prazo_igual = em(-3)
+        criadas = set()
+        for i in range(5):
+            t = await nova_tarefa(client, h, o, u, prazo=prazo_igual, titulo=f"T{i}")
+            criadas.add(t["id"])
+
+        vistos = []
+        while True:
+            resp = await client.get(
+                f"/crm/tarefas/kanban/coluna?situacao=atrasada&offset={len(vistos)}&limit=2",
+                headers=h,
+            )
+            assert resp.status_code == 200, resp.text
+            pagina = resp.json()
+            if not pagina["itens"]:
+                break
+            vistos += [i["id"] for i in pagina["itens"]]
+
+        assert len(vistos) == len(set(vistos))
+        assert criadas <= set(vistos)
+
+        tudo = next(
+            c for c in (await client.get("/crm/tarefas/kanban?por_coluna=500", headers=h)).json()
+            if c["situacao"] == "atrasada"
+        )
+        assert [i["id"] for i in tudo["itens"]] == vistos
+        assert tudo["quantidade"] == len(vistos)
+
+    async def test_coluna_respeita_o_responsavel(self, db_conn, client, cenario):
+        h, o, u = cenario["headers"], cenario["opp"]["id"], cenario["usuario_id"]
+        await nova_tarefa(client, h, o, u, prazo=em(-1), titulo="Minha")
+        pagina = (await client.get(
+            f"/crm/tarefas/kanban/coluna?situacao=atrasada&responsavel_id={uuid.uuid4()}",
+            headers=h,
+        )).json()
+        assert pagina["quantidade"] == 0
+        assert pagina["itens"] == []
+
+    async def test_coluna_com_situacao_invalida_e_422(self, db_conn, client, cenario):
+        resp = await client.get(
+            "/crm/tarefas/kanban/coluna?situacao=cancelada", headers=cenario["headers"]
+        )
+        assert resp.status_code == 422
+
 
 # ── Conclusão e a corrente ───────────────────────────────────────────
 

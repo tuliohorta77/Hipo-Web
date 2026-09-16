@@ -34,7 +34,7 @@
 // depois de cada mover/finalizar —, então a lista nunca fica atrasada em
 // relação ao desenho.
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ChevronDown, Flag, ThermometerSun, CalendarClock, User, X, TrendingDown,
 } from 'lucide-react';
@@ -43,6 +43,7 @@ import api from '../../api';
 import Badge from '../ui/Badge';
 import Button from '../ui/Button';
 import Empty from '../ui/Empty';
+import CarregarMais, { PAGINA_KANBAN, mesclarItens } from './CarregarMais';
 
 // Largura mínima da faixa. Uma fase com 1 oportunidade contra outra com 300
 // renderizaria uma tira de meio pixel — invisível e, pior, não clicável.
@@ -169,22 +170,45 @@ function PainelDaFase({
   const [total, setTotal] = useState(0);
   const [carregando, setCarregando] = useState(true);
   const [erro, setErro] = useState(null);
+  const [carregandoMais, setCarregandoMais] = useState(false);
+  // Quantos itens o usuário já puxou. Ref pelo mesmo motivo do kanban: a
+  // recarga depois de mover/finalizar precisa devolver o painel até onde ele
+  // estava, e em estado isso viraria dependência de `carregar`.
+  const limite = useRef(PAGINA_KANBAN);
+  const faseDoLimite = useRef(fase.fase);
+
+  const buscar = useCallback((offset, limit) => api.get('/crm/oportunidades', {
+    params: {
+      ...params,
+      fase: fase.fase,
+      apenas_abertas: true,
+      ordenar_por: 'temperatura',
+      desc: true,
+      limit,
+      offset,
+    },
+  }).then(({ data }) => data), [fase.fase, params]);
 
   const carregar = useCallback(async () => {
     setCarregando(true);
     setErro(null);
+    if (faseDoLimite.current !== fase.fase) {
+      limite.current = PAGINA_KANBAN;
+      faseDoLimite.current = fase.fase;
+    }
     try {
-      const { data } = await api.get('/crm/oportunidades', {
-        params: {
-          ...params,
-          fase: fase.fase,
-          apenas_abertas: true,
-          ordenar_por: 'temperatura',
-          desc: true,
-          limit: 100,
-        },
-      });
-      setItens(data.itens);
+      // O /crm/oportunidades aceita até 200 por request; o painel raramente
+      // passa disso, mas o laço garante que nunca volte menor do que estava.
+      let data = await buscar(0, Math.min(limite.current, 200));
+      let lista = data.itens;
+      while (lista.length < Math.min(limite.current, data.total) && data.itens.length) {
+        const antes = lista.length;
+        // eslint-disable-next-line no-await-in-loop
+        data = await buscar(antes, Math.min(limite.current - antes, 200));
+        lista = mesclarItens(lista, data.itens);
+        if (lista.length === antes) break;   // só repetidos: não há mais o que puxar
+      }
+      setItens(lista);
       setTotal(data.total);
     } catch {
       setErro('Não foi possível carregar as oportunidades desta fase.');
@@ -193,7 +217,21 @@ function PainelDaFase({
     }
     // `resumo` entra de propósito: a página troca o objeto a cada recarga do
     // funil, e é isso que mantém o painel em dia depois de mover ou finalizar.
-  }, [fase.fase, params, resumo]);
+  }, [fase.fase, buscar, resumo]);
+
+  async function carregarMais() {
+    setCarregandoMais(true);
+    try {
+      const data = await buscar(itens.length, PAGINA_KANBAN);
+      limite.current = itens.length + PAGINA_KANBAN;
+      setItens((atuais) => mesclarItens(atuais, data.itens));
+      setTotal(data.total);
+    } catch {
+      setErro('Não foi possível carregar mais oportunidades desta fase.');
+    } finally {
+      setCarregandoMais(false);
+    }
+  }
 
   useEffect(() => { carregar(); }, [carregar]);
 
@@ -244,10 +282,15 @@ function PainelDaFase({
         )}
       </div>
 
-      {itens.length < total && (
-        <p className="shrink-0 px-3 py-1.5 text-center text-[11px] text-hipo-muted border-t border-hipo-border">
-          +{total - itens.length} não exibidas
-        </p>
+      {!carregando && !erro && itens.length < total && (
+        <div className="shrink-0 px-2 pb-2 border-t border-hipo-border">
+          <CarregarMais
+            exibidos={itens.length}
+            total={total}
+            carregando={carregandoMais}
+            onCarregar={carregarMais}
+          />
+        </div>
       )}
     </aside>
   );

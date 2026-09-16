@@ -1005,6 +1005,75 @@ class TestKanban:
         )).json()
         assert sum(c["quantidade"] for c in colunas) == 1
 
+    async def test_carregar_mais_percorre_a_coluna_inteira_sem_repetir(
+        self, db_conn, client, usuario_adm
+    ):
+        """
+        Regressao: a coluna mostrava os primeiros cartoes e "+N nao exibidas"
+        sem caminho ate o resto. Paginando por /kanban/coluna, toda
+        oportunidade aparece exatamente uma vez, na ordem do /kanban.
+        """
+        h = usuario_adm["headers"]
+        conta = await nova_conta(client, h)
+        criadas = {(await nova_oportunidade(client, h, conta["id"]))["id"] for _ in range(5)}
+
+        primeira = next(
+            c for c in (await client.get(
+                "/crm/oportunidades/kanban?por_coluna=2", headers=h
+            )).json() if c["fase"] == "suspect"
+        )
+        vistos = [i["id"] for i in primeira["itens"]]
+        while len(vistos) < primeira["quantidade"]:
+            resp = await client.get(
+                f"/crm/oportunidades/kanban/coluna?fase=suspect&offset={len(vistos)}&limit=2",
+                headers=h,
+            )
+            assert resp.status_code == 200, resp.text
+            pagina = resp.json()
+            assert pagina["quantidade"] == 5
+            assert pagina["itens"], "pagina vazia antes do fim da coluna"
+            vistos += [i["id"] for i in pagina["itens"]]
+
+        assert len(vistos) == len(set(vistos)) == 5
+        assert set(vistos) == criadas
+
+        tudo = next(
+            c for c in (await client.get(
+                "/crm/oportunidades/kanban?por_coluna=10", headers=h
+            )).json() if c["fase"] == "suspect"
+        )
+        assert [i["id"] for i in tudo["itens"]] == vistos
+
+    async def test_coluna_respeita_os_filtros(self, db_conn, client, usuario_adm):
+        h = usuario_adm["headers"]
+        a = await nova_conta(client, h, CNPJ_A, "Alfa")
+        b = await nova_conta(client, h, CNPJ_B, "Beta")
+        await nova_oportunidade(client, h, a["id"])
+        await nova_oportunidade(client, h, b["id"])
+        pagina = (await client.get(
+            f"/crm/oportunidades/kanban/coluna?fase=suspect&conta_id={a['id']}",
+            headers=h,
+        )).json()
+        assert pagina["quantidade"] == 1
+        assert [i["conta_id"] for i in pagina["itens"]] == [a["id"]]
+
+    async def test_coluna_finalizado_pagina_e_e_somente_leitura(
+        self, db_conn, client, usuario_adm
+    ):
+        resp = await client.get(
+            "/crm/oportunidades/kanban/coluna?fase=finalizado&offset=0",
+            headers=usuario_adm["headers"],
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["somente_leitura"] is True
+
+    async def test_coluna_com_fase_invalida_e_422(self, db_conn, client, usuario_adm):
+        resp = await client.get(
+            "/crm/oportunidades/kanban/coluna?fase=inexistente",
+            headers=usuario_adm["headers"],
+        )
+        assert resp.status_code == 422
+
 
 # ── Resumo ───────────────────────────────────────────────────────────
 

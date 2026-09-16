@@ -110,6 +110,22 @@ describe('Kanban — estrutura', () => {
     expect(screen.getByText('+9 não exibidas')).toBeInTheDocument();
   });
 
+  it('carregar mais devolve a coluna inteira para a página', () => {
+    const onCarregarMais = vi.fn();
+    const lead = { ...COLUNAS[1], quantidade: 10, itens: [item('1')] };
+    montar({
+      colunas: COLUNAS.map((c) => (c.fase === 'lead' ? lead : c)),
+      onCarregarMais,
+    });
+    fireEvent.click(screen.getByRole('button', { name: /Carregar mais 9/ }));
+    expect(onCarregarMais).toHaveBeenCalledWith(lead);
+  });
+
+  it('coluna completa não tem botão de carregar mais', () => {
+    montar({ onCarregarMais: vi.fn() });
+    expect(screen.queryByRole('button', { name: /Carregar mais/ })).not.toBeInTheDocument();
+  });
+
   it('coluna vazia mostra o estado vazio', () => {
     montar();
     expect(regiao('Negociação')).toHaveTextContent('Vazio');

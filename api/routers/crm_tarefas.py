@@ -726,11 +726,62 @@ COLUNAS_KANBAN = [
 ]
 
 
+async def _itens_por_situacao(conn, responsavel_id, q, dias_concluidas) -> dict[str, list]:
+    """
+    Todas as tarefas do kanban já separadas e ordenadas por coluna.
+
+    Compartilhado entre /kanban e /kanban/coluna para que as duas rotas vejam
+    exatamente o mesmo conjunto, na mesma ordem — é isso que garante que a
+    página seguinte continue de onde a anterior parou.
+    """
+    p = _Params()
+    where = [
+        f"(t.concluida_em IS NULL AND t.cancelada_em IS NULL"
+        f" OR t.concluida_em >= NOW() - ({p.add(str(dias_concluidas))} || ' days')::interval)"
+    ]
+    if responsavel_id is not None:
+        where.append(f"t.responsavel_id = {p.add(responsavel_id)}")
+    busca = _clausula_busca(q, p)
+    if busca:
+        where.append(busca)
+
+    # `t.id` desempata prazos iguais: sem ele a ordem entre duas tarefas das
+    # 14h é do Postgres, e uma página poderia repetir o cartão da outra.
+    rows = await conn.fetch(
+        f"{_SELECT_BASE} WHERE {' AND '.join(where)} ORDER BY t.prazo, t.id",
+        *p.valores,
+    )
+
+    agora = _agora()
+    itens = [_linha(r, agora) for r in rows]
+
+    por_situacao = {}
+    for chave, _rotulo in COLUNAS_KANBAN:
+        # Atrasada e hoje: mais antiga primeiro, que é a ordem de atacar.
+        # Futura: a mais próxima primeiro. Concluída: a mais recente primeiro,
+        # porque ali a pergunta é "o que acabou de andar". O sort do Python é
+        # estável, então o desempate por id do SQL sobrevive.
+        da_coluna = [i for i in itens if i["situacao"] == chave]
+        da_coluna.sort(key=lambda i: i["prazo"], reverse=(chave == "concluida"))
+        por_situacao[chave] = da_coluna
+    return por_situacao
+
+
+def _coluna(chave, rotulo, itens, offset, limit) -> dict:
+    return {
+        "situacao": chave,
+        "rotulo": rotulo,
+        "quantidade": len(itens),
+        "itens": itens[offset:offset + limit],
+        "somente_leitura": chave == "concluida",
+    }
+
+
 @router.get("/kanban", response_model=list[ColunaTarefas])
 async def kanban(
     responsavel_id: UUID | None = None,
     q: str | None = Query(None, max_length=200),
-    por_coluna: int = Query(100, ge=1, le=300),
+    por_coluna: int = Query(100, ge=1, le=500),
     dias_concluidas: int = Query(7, ge=1, le=90),
     conn=Depends(get_conn),
     user=Depends(usuario_atual),
@@ -753,44 +804,45 @@ async def kanban(
         recorte em SQL exigiria repetir a regra de 'hoje' lá, e duas fontes
         de verdade divergem no primeiro ajuste.
 
+    A contagem é da coluna inteira; os cartões são os primeiros `por_coluna`.
+    O resto vem página a página por GET /kanban/coluna — nenhuma tarefa fica
+    inalcançável atrás de um "+46 não exibidas".
+
     Este endpoint precisa vir declarado ANTES de /{tarefa_id}: com o wildcard
     primeiro, "kanban" é lido como id e a resposta vira 422. Mesma armadilha
     que já custou um 404 em /crm/dominio/usuarios.
     """
-    p = _Params()
-    where = [
-        f"(t.concluida_em IS NULL AND t.cancelada_em IS NULL"
-        f" OR t.concluida_em >= NOW() - ({p.add(str(dias_concluidas))} || ' days')::interval)"
+    por_situacao = await _itens_por_situacao(conn, responsavel_id, q, dias_concluidas)
+    return [
+        _coluna(chave, rotulo, por_situacao[chave], 0, por_coluna)
+        for chave, rotulo in COLUNAS_KANBAN
     ]
-    if responsavel_id is not None:
-        where.append(f"t.responsavel_id = {p.add(responsavel_id)}")
-    busca = _clausula_busca(q, p)
-    if busca:
-        where.append(busca)
 
-    rows = await conn.fetch(
-        f"{_SELECT_BASE} WHERE {' AND '.join(where)} ORDER BY t.prazo",
-        *p.valores,
-    )
 
-    agora = _agora()
-    itens = [_linha(r, agora) for r in rows]
+@router.get("/kanban/coluna", response_model=ColunaTarefas)
+async def kanban_coluna(
+    situacao: str = Query(...),
+    offset: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=500),
+    responsavel_id: UUID | None = None,
+    q: str | None = Query(None, max_length=200),
+    dias_concluidas: int = Query(7, ge=1, le=90),
+    conn=Depends(get_conn),
+    user=Depends(usuario_atual),
+):
+    """
+    Uma coluna do kanban de tarefas, a partir de `offset`. É o "carregar mais".
 
-    colunas = []
-    for chave, rotulo in COLUNAS_KANBAN:
-        # Atrasada e hoje: mais antiga primeiro, que é a ordem de atacar.
-        # Futura: a mais próxima primeiro. Concluída: a mais recente primeiro,
-        # porque ali a pergunta é "o que acabou de andar".
-        da_coluna = [i for i in itens if i["situacao"] == chave]
-        da_coluna.sort(key=lambda i: i["prazo"], reverse=(chave == "concluida"))
-        colunas.append({
-            "situacao": chave,
-            "rotulo": rotulo,
-            "quantidade": len(da_coluna),
-            "itens": da_coluna[:por_coluna],
-            "somente_leitura": chave == "concluida",
-        })
-    return colunas
+    Mesmos filtros e mesma ordem do /kanban. Também declarado antes de
+    /{tarefa_id}, pela mesma armadilha do /kanban.
+    """
+    rotulos = dict(COLUNAS_KANBAN)
+    if situacao not in rotulos:
+        raise HTTPException(
+            422, f"Situação inválida: '{situacao}'. Use: {', '.join(rotulos)}."
+        )
+    por_situacao = await _itens_por_situacao(conn, responsavel_id, q, dias_concluidas)
+    return _coluna(situacao, rotulos[situacao], por_situacao[situacao], offset, limit)
 
 
 @router.get("/resumo", response_model=ResumoTarefas)

@@ -37,6 +37,7 @@ import { Flag, GripVertical, ThermometerSun, CalendarClock, User } from 'lucide-
 
 import Badge from '../ui/Badge';
 import Button from '../ui/Button';
+import CarregarMais from './CarregarMais';
 
 const TOM_TEMPERATURA = (t) => {
   if (t === null || t === undefined) return 'neutral';
@@ -170,6 +171,8 @@ export default function KanbanOportunidades({
   onMover,
   onDesfecho,
   carregando,
+  onCarregarMais,
+  carregandoMais = null,
 }) {
   const [arrastando, setArrastando] = useState(null);
   const [alvo, setAlvo] = useState(null);
@@ -271,11 +274,13 @@ export default function KanbanOportunidades({
             )}
           </ul>
 
-          {coluna.itens.length < coluna.quantidade && (
-            <p className="shrink-0 pt-1.5 text-center text-xs text-hipo-muted">
-              +{coluna.quantidade - coluna.itens.length} não exibidas
-            </p>
-          )}
+          {/* Toda coluna chega ao último cartão — ver CarregarMais.jsx. */}
+          <CarregarMais
+            exibidos={coluna.itens.length}
+            total={coluna.quantidade}
+            carregando={carregandoMais === coluna.fase}
+            onCarregar={onCarregarMais ? () => onCarregarMais(coluna) : undefined}
+          />
         </section>
       ))}
     </div>

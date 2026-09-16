@@ -69,6 +69,9 @@ import ContaDetalhe from '../../components/crm/ContaDetalhe';
 import ModalDesfecho from '../../components/crm/ModalDesfecho';
 import AnexosTarefa from '../../components/crm/AnexosTarefa';
 import ModalReuniao from '../../components/crm/ModalReuniao';
+import CarregarMais, {
+  PAGINA_KANBAN, completarColuna, mesclarItens,
+} from '../../components/crm/CarregarMais';
 import {
   ABERTAS, ICONE_TIPO, SITUACAO,
   PainelAcoesTarefa,
@@ -149,7 +152,7 @@ function Cartao({ tarefa, onAbrir }) {
 
 // ── Coluna ───────────────────────────────────────────────────────────
 
-function Coluna({ coluna, onAbrir }) {
+function Coluna({ coluna, onAbrir, onCarregarMais, carregandoMais }) {
   const Icone = ICONE_COLUNA[coluna.situacao] || CircleDot;
   const tom = SITUACAO[coluna.situacao] || SITUACAO.cancelada;
 
@@ -186,11 +189,13 @@ function Coluna({ coluna, onAbrir }) {
         )}
       </ul>
 
-      {coluna.itens.length < coluna.quantidade && (
-        <p className="shrink-0 pt-1.5 text-center text-xs text-hipo-muted">
-          +{coluna.quantidade - coluna.itens.length} não exibidas
-        </p>
-      )}
+      {/* Toda coluna chega à última tarefa — ver CarregarMais.jsx. */}
+      <CarregarMais
+        exibidos={coluna.itens.length}
+        total={coluna.quantidade}
+        carregando={carregandoMais}
+        onCarregar={onCarregarMais ? () => onCarregarMais(coluna) : undefined}
+      />
     </section>
   );
 }
@@ -278,18 +283,64 @@ export default function Tarefas() {
     return p;
   }, [q, responsavel]);
 
+  /*
+    ── Carregar mais ──
+    `limites` guarda, por coluna, quantos cartões o usuário já puxou. Vive em
+    ref para não entrar nas dependências de `carregar`: se entrasse, cada
+    "carregar mais" dispararia uma recarga completa da tela.
+
+    Toda recarga (concluir, cancelar, editar...) volta a pedir a primeira
+    página e depois completa cada coluna até onde ela estava — sem isso,
+    quem rolou até a tarefa 250 voltaria para a 100 a cada ação. Trocar o
+    filtro zera tudo: é outra pergunta, e começa do topo.
+  */
+  const limites = useRef({});
+  const paramsDosLimites = useRef(params);
+  const [carregandoMais, setCarregandoMais] = useState(null);
+
+  const buscarPagina = useCallback(
+    (situacao, offset, limit) => api
+      .get('/crm/tarefas/kanban/coluna', { params: { ...params, situacao, offset, limit } })
+      .then(({ data }) => data),
+    [params],
+  );
+
   const carregar = useCallback(async () => {
     setCarregando(true);
     setErro(null);
+    if (paramsDosLimites.current !== params) {
+      limites.current = {};
+      paramsDosLimites.current = params;
+    }
     try {
       const { data } = await api.get('/crm/tarefas/kanban', { params });
-      setColunas(data);
+      const completas = await Promise.all(data.map((c) => completarColuna(
+        c, limites.current[c.situacao],
+        (offset, limit) => buscarPagina(c.situacao, offset, limit),
+      )));
+      setColunas(completas);
     } catch (err) {
       setErro(mensagemDeErro(err, 'Não foi possível carregar as tarefas.'));
     } finally {
       setCarregando(false);
     }
-  }, [params]);
+  }, [params, buscarPagina]);
+
+  const carregarMais = useCallback(async (coluna) => {
+    const offset = coluna.itens.length;
+    setCarregandoMais(coluna.situacao);
+    try {
+      const pagina = await buscarPagina(coluna.situacao, offset, PAGINA_KANBAN);
+      limites.current[coluna.situacao] = offset + PAGINA_KANBAN;
+      setColunas((cs) => cs.map((c) => (c.situacao === coluna.situacao
+        ? { ...c, quantidade: pagina.quantidade, itens: mesclarItens(c.itens, pagina.itens) }
+        : c)));
+    } catch (err) {
+      setErro(mensagemDeErro(err, 'Não foi possível carregar mais tarefas.'));
+    } finally {
+      setCarregandoMais(null);
+    }
+  }, [buscarPagina]);
 
   useEffect(() => { carregar(); }, [carregar]);
 
@@ -674,7 +725,13 @@ export default function Tarefas() {
         ) : (
           <div className="h-full flex gap-2 overflow-x-auto overflow-y-hidden pb-1">
             {colunas.map((c) => (
-              <Coluna key={c.situacao} coluna={c} onAbrir={(t) => { setAberta(t); setPainel(null); }} />
+              <Coluna
+                key={c.situacao}
+                coluna={c}
+                onAbrir={(t) => { setAberta(t); setPainel(null); }}
+                onCarregarMais={carregarMais}
+                carregandoMais={carregandoMais === c.situacao}
+              />
             ))}
           </div>
         )}

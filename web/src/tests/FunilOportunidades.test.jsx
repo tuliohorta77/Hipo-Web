@@ -190,6 +190,7 @@ describe('FunilOportunidades — o painel da fase', () => {
         ordenar_por: 'temperatura',
         desc: true,
         limit: 100,
+        offset: 0,
       },
     });
   });
@@ -268,5 +269,28 @@ describe('FunilOportunidades — o painel da fase', () => {
     montar();
     fireEvent.click(screen.getByLabelText('Ver oportunidades em Negociação'));
     expect(await screen.findByText('+39 não exibidas')).toBeInTheDocument();
+  });
+
+  it('carregar mais no painel busca a próxima página e anexa', async () => {
+    const primeira = Array.from({ length: 100 }, (_, i) => ({
+      ...OPP, id: `o${i}`, numero: `OPP-2026-1${String(i).padStart(4, '0')}`,
+    }));
+    mockGet
+      .mockResolvedValueOnce({ data: { total: 101, limit: 100, offset: 0, itens: primeira } })
+      .mockResolvedValueOnce({
+        data: {
+          total: 101, limit: 100, offset: 100,
+          itens: [{ ...OPP, id: 'ultima', numero: 'OPP-2026-99999' }],
+        },
+      });
+    montar();
+    fireEvent.click(screen.getByLabelText('Ver oportunidades em Negociação'));
+    fireEvent.click(await screen.findByRole('button', { name: /Carregar mais 1/ }));
+
+    expect(await screen.findByText('OPP-2026-99999')).toBeInTheDocument();
+    expect(screen.getByText('OPP-2026-10000')).toBeInTheDocument();
+    expect(mockGet).toHaveBeenLastCalledWith('/crm/oportunidades', {
+      params: expect.objectContaining({ fase: 'negociacao', offset: 100, limit: 100 }),
+    });
   });
 });

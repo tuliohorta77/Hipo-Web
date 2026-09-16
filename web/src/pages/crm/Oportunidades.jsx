@@ -37,6 +37,9 @@ import OportunidadeDetalhe from '../../components/crm/OportunidadeDetalhe';
 import ContaDetalhe from '../../components/crm/ContaDetalhe';
 import ModalDesfecho from '../../components/crm/ModalDesfecho';
 import ModalReuniao from '../../components/crm/ModalReuniao';
+import {
+  PAGINA_KANBAN, completarColuna, mesclarItens,
+} from '../../components/crm/CarregarMais';
 
 const POR_PAGINA = 50;
 const CHAVE_VISAO = 'crm_oportunidades_visao';
@@ -327,6 +330,49 @@ export default function Oportunidades() {
     return p;
   }, [filtros.q, filtros.envolvido_id]);
 
+  /*
+    ── Carregar mais no kanban ──
+    `limitesKanban` guarda, por fase, quantos cartões o usuário já puxou.
+    Ref e não estado: em estado entraria nas dependências de `carregar`, e
+    cada "carregar mais" viraria uma recarga completa da tela.
+
+    Toda recarga (mover, finalizar, editar...) pede a primeira página e
+    completa cada coluna até onde ela estava — sem isso, quem rolou até o
+    suspect 250 voltaria para o 100 a cada cartão movido. Trocar filtro zera:
+    é outra pergunta, e começa do topo.
+  */
+  const limitesKanban = useRef({});
+  const paramsDosLimites = useRef(params);
+  const [carregandoMais, setCarregandoMais] = useState(null);
+
+  const buscarPaginaKanban = useCallback(
+    (fase, offset, limit) => api
+      .get('/crm/oportunidades/kanban/coluna', { params: { ...params, fase, offset, limit } })
+      .then(({ data }) => data),
+    [params],
+  );
+
+  const carregarMais = useCallback(async (coluna) => {
+    const offset = coluna.itens.length;
+    setCarregandoMais(coluna.fase);
+    try {
+      const pagina = await buscarPaginaKanban(coluna.fase, offset, PAGINA_KANBAN);
+      limitesKanban.current[coluna.fase] = offset + PAGINA_KANBAN;
+      setColunas((cs) => cs.map((c) => (c.fase === coluna.fase
+        ? {
+          ...c,
+          quantidade: pagina.quantidade,
+          ticket_total: pagina.ticket_total,
+          itens: mesclarItens(c.itens, pagina.itens),
+        }
+        : c)));
+    } catch (err) {
+      setErro(mensagemDeErro(err, 'Não foi possível carregar mais oportunidades.'));
+    } finally {
+      setCarregandoMais(null);
+    }
+  }, [buscarPaginaKanban]);
+
   const carregar = useCallback(async () => {
     if (!visao) return;
     setCarregando(true);
@@ -357,14 +403,24 @@ export default function Oportunidades() {
 
       const [kpis, dados] = await Promise.all(chamadas);
       setResumo(kpis.data);
-      if (visao === 'kanban') setColunas(dados.data);
+      if (visao === 'kanban') {
+        if (paramsDosLimites.current !== params) {
+          limitesKanban.current = {};
+          paramsDosLimites.current = params;
+        }
+        const completas = await Promise.all(dados.data.map((c) => completarColuna(
+          c, limitesKanban.current[c.fase],
+          (offset, limit) => buscarPaginaKanban(c.fase, offset, limit),
+        )));
+        setColunas(completas);
+      }
       else if (visao === 'tabela') setLista(dados.data);
     } catch (err) {
       setErro(mensagemDeErro(err, 'Não foi possível carregar o funil.'));
     } finally {
       setCarregando(false);
     }
-  }, [visao, params, filtros.fase, filtros.status, filtros.apenas_abertas, pagina]);
+  }, [visao, params, filtros.fase, filtros.status, filtros.apenas_abertas, pagina, buscarPaginaKanban]);
 
   useEffect(() => { carregar(); }, [carregar]);
 
@@ -713,6 +769,8 @@ export default function Oportunidades() {
             onAbrir={abrir}
             onMover={mover}
             onDesfecho={setDesfechoDe}
+            onCarregarMais={carregarMais}
+            carregandoMais={carregandoMais}
           />
         ) : visao === 'funil' ? (
           <FunilOportunidades

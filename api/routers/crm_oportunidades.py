@@ -663,6 +663,10 @@ async def resumo(
 # resultado ficaria pior do que se o CNPJ não fosse consultado.
 _MIN_DIGITOS_CNPJ = 3
 
+# Teto de cartões por página de coluna do kanban. O front pede de 100 em 100;
+# o teto só impede alguém de pedir a tabela inteira numa request.
+POR_COLUNA_MAX = 500
+
 
 def _montar_filtros(
     q, fase, status, conta_id, envolvido_id, finder_conta_id, origem_id,
@@ -745,7 +749,7 @@ async def kanban(
     origem_id: int | None = None,
     temperatura_min: int | None = Query(None, ge=0, le=90),
     previsao_ate: date | None = None,
-    por_coluna: int = Query(50, ge=1, le=200),
+    por_coluna: int = Query(100, ge=1, le=POR_COLUNA_MAX),
     conn=Depends(get_conn),
     user=Depends(usuario_atual),
 ):
@@ -755,7 +759,8 @@ async def kanban(
 
     A contagem e o ticket são do total da coluna, não dos cartões devolvidos:
     o topo precisa mostrar o pipeline inteiro mesmo quando a coluna tem mais
-    itens do que cabe na tela.
+    itens do que cabe na tela. O resto da coluna vem, página a página, por
+    GET /kanban/coluna — nenhum cartão fica inalcançável.
 
     A coluna Finalizado é diferente das outras em três pontos, e cada um tem
     motivo:
@@ -769,55 +774,94 @@ async def kanban(
       * `somente_leitura=True`. Fechar exige status e motivo, então o front
         não deixa soltar cartão ali — abre o modal de desfecho.
     """
+    filtros = (q, conta_id, envolvido_id, finder_conta_id, origem_id,
+               temperatura_min, previsao_ate)
+    colunas = [
+        await _coluna_aberta(conn, fase, filtros, por_coluna, 0)
+        for fase in regras.FASES_ABERTAS
+    ]
+    colunas.append(await _coluna_finalizado(conn, filtros, por_coluna, 0))
+    return colunas
+
+
+@router.get("/kanban/coluna", response_model=ColunaKanban)
+async def kanban_coluna(
+    fase: str = Query(...),
+    offset: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=POR_COLUNA_MAX),
+    q: str | None = Query(None, max_length=200),
+    conta_id: UUID | None = None,
+    envolvido_id: UUID | None = None,
+    finder_conta_id: UUID | None = None,
+    origem_id: int | None = None,
+    temperatura_min: int | None = Query(None, ge=0, le=90),
+    previsao_ate: date | None = None,
+    conn=Depends(get_conn),
+    user=Depends(usuario_atual),
+):
+    """
+    Uma coluna do kanban, a partir de `offset`. É o "carregar mais".
+
+    Existe porque a coluna com 1.124 suspects mostrava os primeiros cartões e
+    um "+1074 não exibidas" sem caminho nenhum até eles. Cartão que existe e
+    não pode ser alcançado é dado perdido para quem opera a tela.
+
+    Mesmos filtros e MESMA ordenação do /kanban — com desempate por id —, para
+    que a página N+1 continue exatamente de onde a N parou, sem repetir nem
+    pular cartão.
+    """
+    filtros = (q, conta_id, envolvido_id, finder_conta_id, origem_id,
+               temperatura_min, previsao_ate)
+    if fase == "finalizado":
+        return await _coluna_finalizado(conn, filtros, limit, offset)
+    if fase not in regras.FASES_ABERTAS:
+        raise HTTPException(
+            422,
+            f"Fase inválida: '{fase}'. Use: "
+            f"{', '.join([*regras.FASES_ABERTAS, 'finalizado'])}.",
+        )
+    return await _coluna_aberta(conn, fase, filtros, limit, offset)
+
+
+async def _coluna_aberta(conn, fase, filtros, limit, offset) -> dict:
+    """Uma das cinco colunas abertas: totais da coluna inteira + uma página."""
+    q, conta_id, envolvido_id, finder_conta_id, origem_id, temperatura_min, previsao_ate = filtros
     where, params = _montar_filtros(
-        q, None, None, conta_id, envolvido_id, finder_conta_id, origem_id,
+        q, [fase], None, conta_id, envolvido_id, finder_conta_id, origem_id,
         temperatura_min, previsao_ate, True,
     )
-    clausula = f"WHERE {' AND '.join(where)}" if where else ""
+    clausula = f"WHERE {' AND '.join(where)}"
 
-    totais = await conn.fetch(
+    totais = await conn.fetchrow(
         f"""
-        SELECT o.fase, count(*) AS quantidade,
+        SELECT count(*) AS quantidade,
                COALESCE(sum(o.valor_mensalidade), 0) AS ticket_total
           FROM oportunidades o
           JOIN contas c ON c.id = o.conta_id
           {clausula}
-         GROUP BY o.fase
         """,
         *params,
     )
-    mapa = {r["fase"]: r for r in totais}
-
-    colunas = []
-    for fase in regras.FASES_ABERTAS:
-        rows = await conn.fetch(
-            f"""
-            {_SELECT_BASE}
-            {clausula + ' AND ' if clausula else 'WHERE '} o.fase = ${len(params) + 1}
-            ORDER BY o.temperatura DESC NULLS LAST, o.previsao_fechamento NULLS LAST, o.criado_em
-            LIMIT ${len(params) + 2}
-            """,
-            *params, fase, por_coluna,
-        )
-        colunas.append({
-            "fase": fase,
-            "rotulo": regras.ROTULOS_FASE[fase],
-            "quantidade": mapa.get(fase, {}).get("quantidade", 0),
-            "ticket_total": mapa.get(fase, {}).get("ticket_total", 0),
-            "itens": [_linha(r) for r in rows],
-        })
-
-    colunas.append(await _coluna_finalizado(
-        conn, q, conta_id, envolvido_id, finder_conta_id, origem_id,
-        temperatura_min, previsao_ate, por_coluna,
-    ))
-    return colunas
+    rows = await conn.fetch(
+        f"""
+        {_SELECT_BASE}
+        {clausula}
+        ORDER BY o.temperatura DESC NULLS LAST, o.previsao_fechamento NULLS LAST,
+                 o.criado_em, o.id
+        LIMIT ${len(params) + 1} OFFSET ${len(params) + 2}
+        """,
+        *params, limit, offset,
+    )
+    return {
+        "fase": fase,
+        "rotulo": regras.ROTULOS_FASE[fase],
+        "quantidade": totais["quantidade"],
+        "ticket_total": totais["ticket_total"],
+        "itens": [_linha(r) for r in rows],
+    }
 
 
-async def _coluna_finalizado(
-    conn, q, conta_id, envolvido_id, finder_conta_id, origem_id,
-    temperatura_min, previsao_ate, por_coluna,
-) -> dict:
+async def _coluna_finalizado(conn, filtros, limit, offset) -> dict:
     """
     A sexta coluna: o que fechou no mês corrente, em qualquer dos três
     desfechos. Só leitura.
@@ -826,6 +870,7 @@ async def _coluna_finalizado(
     quando fechou, não quando nasceu. Uma oportunidade aberta em maio e ganha
     em agosto pertence a agosto.
     """
+    q, conta_id, envolvido_id, finder_conta_id, origem_id, temperatura_min, previsao_ate = filtros
     where, params = _montar_filtros(
         q, None, None, conta_id, envolvido_id, finder_conta_id, origem_id,
         temperatura_min, previsao_ate, False,
@@ -852,10 +897,10 @@ async def _coluna_finalizado(
         f"""
         {_SELECT_BASE}
         {clausula}
-        ORDER BY o.atualizado_em DESC
-        LIMIT ${len(params) + 1}
+        ORDER BY o.atualizado_em DESC, o.id
+        LIMIT ${len(params) + 1} OFFSET ${len(params) + 2}
         """,
-        *params, por_coluna,
+        *params, limit, offset,
     )
 
     return {

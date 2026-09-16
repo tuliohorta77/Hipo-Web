@@ -343,6 +343,74 @@ describe('Oportunidades — tabela', () => {
 });
 
 describe('Oportunidades — kanban', () => {
+  it('carregar mais puxa a próxima página da fase, com os filtros da tela', async () => {
+    const suspect = vazia('suspect', 'Suspect', {
+      quantidade: 2, ticket_total: 5000, itens: [{ ...OPP, id: 's1', numero: 'OPP-2026-00010', fase: 'suspect' }],
+    });
+    const base = respostas(null);
+    mockGet.mockImplementation((url, cfg) => {
+      if (url === '/crm/oportunidades/kanban') {
+        return Promise.resolve({ data: COLUNAS.map((c) => (c.fase === 'suspect' ? suspect : c)) });
+      }
+      if (url === '/crm/oportunidades/kanban/coluna') {
+        return Promise.resolve({
+          data: {
+            ...suspect,
+            itens: [{ ...OPP, id: 's2', numero: 'OPP-2026-00011', fase: 'suspect' }],
+          },
+        });
+      }
+      return base(url, cfg);
+    });
+    montar();
+    const regiao = await screen.findByRole('region', { name: 'Fase Suspect' });
+    fireEvent.click(within(regiao).getByRole('button', { name: /Carregar mais 1/ }));
+
+    expect(await within(regiao).findByText('OPP-2026-00011')).toBeInTheDocument();
+    expect(within(regiao).getByText('OPP-2026-00010')).toBeInTheDocument();
+    expect(mockGet).toHaveBeenCalledWith('/crm/oportunidades/kanban/coluna', {
+      params: { fase: 'suspect', offset: 1, limit: 100 },
+    });
+  });
+
+  it('depois de carregar mais, mover um cartão recarrega sem encolher a coluna', async () => {
+    const s = (n) => ({ ...OPP, id: `s${n}`, numero: `OPP-2026-0010${n}`, fase: 'suspect' });
+    const suspect = vazia('suspect', 'Suspect', { quantidade: 3, itens: [s(1)] });
+    const base = respostas(null);
+    mockGet.mockImplementation((url, cfg) => {
+      if (url === '/crm/oportunidades/kanban') {
+        return Promise.resolve({ data: COLUNAS.map((c) => (c.fase === 'suspect' ? suspect : c)) });
+      }
+      if (url === '/crm/oportunidades/kanban/coluna') {
+        const { offset, limit } = cfg.params;
+        return Promise.resolve({
+          data: { ...suspect, itens: [s(1), s(2), s(3)].slice(offset, offset + limit) },
+        });
+      }
+      return base(url, cfg);
+    });
+    mockPatch.mockResolvedValue({ data: {} });
+    montar();
+    const regiao = await screen.findByRole('region', { name: 'Fase Suspect' });
+    fireEvent.click(within(regiao).getByRole('button', { name: /Carregar mais 2/ }));
+    expect(await within(regiao).findByText('OPP-2026-00103')).toBeInTheDocument();
+
+    fireEvent.change(
+      screen.getByLabelText('Mover OPP-2026-00001 para outra fase'),
+      { target: { value: 'lead' } }
+    );
+    await waitFor(() => expect(mockPatch).toHaveBeenCalled());
+    await waitFor(() => {
+      const recompletou = mockGet.mock.calls.filter(
+        ([u, c]) => u === '/crm/oportunidades/kanban/coluna' && c.params.limit !== 100
+      );
+      expect(recompletou.length).toBeGreaterThan(0);
+    });
+    expect(await within(
+      await screen.findByRole('region', { name: 'Fase Suspect' })
+    ).findByText('OPP-2026-00103')).toBeInTheDocument();
+  });
+
   it('mover cartão chama o endpoint de fase', async () => {
     montar();
     await screen.findByRole('region', { name: 'Fase Suspect' });
