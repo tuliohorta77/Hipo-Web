@@ -8,6 +8,18 @@ USO
   python -m scripts.fechamento_diario --sem-email  # calcula e grava, não envia
   python -m scripts.fechamento_diario --so-imprime # nem grava, só mostra
 
+  # Reenvio de teste: assunto próprio e só para um endereço
+  python -m scripts.fechamento_diario --dia 2026-09-15 --teste --para tulio.horta@controllermedseg.com
+
+POR QUE O MODO --teste EXISTE
+  Reenviar o mesmo dia repete o mesmo assunto ("HIPO 15/09 — ..."), e o
+  Gmail empilha tudo numa conversa só. Pior: ele esconde como "conteúdo
+  citado" o que se repete entre as mensagens da conversa — e num e-mail
+  reenviado, se repete quase tudo. Sobra à vista só o que mudou, que costuma
+  ser o texto da IA. `--teste` põe "[TESTE hh:mm]" na frente do assunto, o
+  que abre uma conversa nova a cada envio, e não marca o dia como enviado:
+  o fechamento de verdade continua sabendo que ainda não saiu.
+
 POR QUE FECHA ONTEM E NÃO HOJE
   O timer roda de madrugada. "Hoje" às 3h da manhã é um dia com três horas de
   dados. O fechamento sempre olha para o dia anterior completo.
@@ -48,6 +60,15 @@ logging.basicConfig(
     format="%(asctime)s %(levelname)s %(name)s: %(message)s",
 )
 log = logging.getLogger("hipo.fechamento")
+
+
+def assunto_de_teste(assunto: str, agora: datetime) -> str:
+    """
+    >>> from datetime import datetime
+    >>> assunto_de_teste("HIPO 15/09 — 5 pessoas", datetime(2026, 9, 16, 19, 41, 7))
+    '[TESTE 19:41:07] HIPO 15/09 — 5 pessoas'
+    """
+    return f"[TESTE {agora.strftime('%H:%M:%S')}] {assunto}"
 
 
 def ontem() -> date:
@@ -92,7 +113,8 @@ async def ja_enviado(conn, dia: date) -> bool:
     ))
 
 
-async def executar(dia: date, enviar_email: bool, forcar_email: bool, so_imprime: bool) -> int:
+async def executar(dia: date, enviar_email: bool, forcar_email: bool, so_imprime: bool,
+                   teste: bool = False, para_override: list[str] | None = None) -> int:
     conn = await asyncpg.connect(settings.DATABASE_URL)
     try:
         log.info("fechando %s", dia.isoformat())
@@ -117,11 +139,27 @@ async def executar(dia: date, enviar_email: bool, forcar_email: bool, so_imprime
             log.info("narrativa gerada por %s (%d caracteres)", modelo, len(narrativa))
 
         if enviar_email:
-            if await ja_enviado(conn, dia) and not forcar_email:
+            if teste:
+                from zoneinfo import ZoneInfo
+                para = para_override or email_ses.destinatarios()
+                assunto = assunto_de_teste(
+                    relatorio_render.assunto(metricas),
+                    datetime.now(ZoneInfo(tel.FUSO_OPERACAO)),
+                )
+                email_ses.enviar(
+                    assunto=assunto,
+                    html=relatorio_render.montar_html(metricas, narrativa),
+                    texto=relatorio_render.montar_texto(metricas, narrativa),
+                    para=para,
+                )
+                # Teste NAO chama marcar_enviado: o timer de verdade tem de
+                # continuar enviando o dia, se ele ainda nao saiu.
+                log.info("teste: enviado com assunto %r", assunto)
+            elif await ja_enviado(conn, dia) and not forcar_email:
                 log.info("relatório de %s já foi enviado; use --forcar-email para repetir",
                          dia.isoformat())
             else:
-                para = email_ses.destinatarios()
+                para = para_override or email_ses.destinatarios()
                 try:
                     email_ses.enviar(
                         assunto=relatorio_render.assunto(metricas),
@@ -154,7 +192,17 @@ def main() -> int:
     p.add_argument("--sem-email", action="store_true", help="calcula e grava, não envia")
     p.add_argument("--forcar-email", action="store_true", help="reenvia mesmo já enviado")
     p.add_argument("--so-imprime", action="store_true", help="imprime o JSON e sai")
+    p.add_argument("--teste", action="store_true",
+                   help="assunto com [TESTE hh:mm:ss]; nao marca o dia como enviado")
+    p.add_argument("--para", help="destinatarios separados por virgula (substitui o .env)")
     args = p.parse_args()
+
+    para = [e.strip() for e in (args.para or "").split(",") if e.strip()] or None
+    if para and not (args.teste or args.forcar_email):
+        # --para sozinho num dia ainda nao enviado marcaria o fechamento como
+        # enviado tendo ido so para uma pessoa -- e a equipe nunca receberia.
+        print("ERRO: --para so vale junto com --teste ou --forcar-email.", file=sys.stderr)
+        return 1
 
     try:
         dia = date.fromisoformat(args.dia) if args.dia else ontem()
@@ -171,6 +219,8 @@ def main() -> int:
         enviar_email=not args.sem_email,
         forcar_email=args.forcar_email,
         so_imprime=args.so_imprime,
+        teste=args.teste,
+        para_override=para,
     ))
 
 
