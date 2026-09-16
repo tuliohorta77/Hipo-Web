@@ -413,6 +413,7 @@ class TestAtividades:
     async def test_dia_vazio(self, db_conn):
         r = await tel.atividades(db_conn, date(2020, 1, 1))
         assert r == {"total": 0, "horas": list(range(8, 19)),
+                     "oportunidades_trabalhadas": 0, "oportunidades_primeira_vez": 0,
                      "total_por_hora": [0] * 11, "por_pessoa": []}
 
 
@@ -511,3 +512,84 @@ class TestMetricasDoDiaNovosBlocos:
             "adocao": {"acoes": 900, "pessoas_ativas": 4}, "operacao": {},
         }))
         assert (await tel.comparativo(db_conn, DIA_FIXO))["atividades"] is None
+
+
+class TestOportunidadesTrabalhadas:
+    """
+    Trabalhada = teve tarefa CONCLUIDA no dia. Primeira vez = a primeira
+    tarefa concluida da historia dela (carga inicial incluida).
+    """
+
+    async def _cenario(self, db_conn):
+        bruno = await _usuario(db_conn, "Bruno Gonçalo", "EV", "bo@teste.com")
+        kety = await _usuario(db_conn, "Kethlleen Gomes", "SDR", "ko@teste.com")
+        conta = await db_conn.fetchval("""
+            INSERT INTO contas (razao_social, cnpj, criado_por)
+            VALUES ('Conta Opp', '11222333000181', $1) RETURNING id
+        """, bruno)
+
+        async def opp(numero):
+            return await db_conn.fetchval("""
+                INSERT INTO oportunidades (numero, conta_id, temperatura, criado_por)
+                VALUES ($1, $2, 10, $3) RETURNING id
+            """, numero, conta, bruno)
+
+        async def tarefa(opp_id, resp, concluida_em=None, prazo=None):
+            await db_conn.execute("""
+                INSERT INTO tarefas (oportunidade_id, tipo, titulo, responsavel_id,
+                                     prazo, concluida_em, criado_por)
+                VALUES ($1, 'ligacao', 'Ligar', $2, $3, $4, $2)
+            """, opp_id, resp, prazo or _em_sp(9), concluida_em)
+
+        return bruno, kety, opp, tarefa
+
+    async def test_conta_trabalhadas_e_primeira_vez(self, db_conn):
+        bruno, kety, opp, tarefa = await self._cenario(db_conn)
+        nova = await opp("OPP-T-1")         # primeira tarefa concluida hoje
+        antiga = await opp("OPP-T-2")       # ja tinha concluida antes
+        so_criada = await opp("OPP-T-3")    # tarefa aberta: nao trabalhada
+
+        await tarefa(nova, bruno, concluida_em=_em_sp(10))
+        await tarefa(nova, bruno, concluida_em=_em_sp(15))   # mesma opp, 2x: conta 1
+        await tarefa(antiga, bruno, concluida_em=_em_sp(10, dia=date(2026, 7, 1)))
+        await tarefa(antiga, bruno, concluida_em=_em_sp(11))
+        await tarefa(so_criada, bruno)
+
+        r = await tel.atividades(db_conn, DIA_FIXO)
+        assert r["oportunidades_trabalhadas"] == 2
+        assert r["oportunidades_primeira_vez"] == 1
+        p = next(x for x in r["por_pessoa"] if x["nome"] == "Bruno Gonçalo")
+        assert (p["oportunidades_trabalhadas"], p["oportunidades_primeira_vez"]) == (2, 1)
+
+    async def test_duas_pessoas_na_mesma_opp_conta_uma_vez_no_total(self, db_conn):
+        bruno, kety, opp, tarefa = await self._cenario(db_conn)
+        o = await opp("OPP-T-9")
+        await tarefa(o, kety, concluida_em=_em_sp(9))
+        await tarefa(o, bruno, concluida_em=_em_sp(14))
+
+        r = await tel.atividades(db_conn, DIA_FIXO)
+        assert r["oportunidades_trabalhadas"] == 1
+        assert r["oportunidades_primeira_vez"] == 1
+        por_nome = {x["nome"]: x for x in r["por_pessoa"]}
+        assert por_nome["Kethlleen Gomes"]["oportunidades_trabalhadas"] == 1
+        assert por_nome["Bruno Gonçalo"]["oportunidades_trabalhadas"] == 1
+        # O credito de "primeira vez" e da oportunidade no dia, para quem trabalhou.
+        assert por_nome["Bruno Gonçalo"]["oportunidades_primeira_vez"] == 1
+
+    async def test_concluida_as_22h_e_do_dia_local(self, db_conn):
+        bruno, kety, opp, tarefa = await self._cenario(db_conn)
+        o = await opp("OPP-T-7")
+        await tarefa(o, bruno, concluida_em=_em_sp(22))
+        assert (await tel.atividades(db_conn, DIA_FIXO))["oportunidades_trabalhadas"] == 1
+        seguinte = await tel.atividades(db_conn, DIA_FIXO + timedelta(days=1))
+        assert seguinte["oportunidades_trabalhadas"] == 0
+
+    async def test_tarefa_de_parceiro_nao_conta_como_oportunidade(self, db_conn):
+        bruno, kety, opp, tarefa = await self._cenario(db_conn)
+        conta = await db_conn.fetchval("SELECT id FROM contas LIMIT 1")
+        await db_conn.execute("""
+            INSERT INTO tarefas (conta_id, tipo, titulo, responsavel_id, prazo,
+                                 concluida_em, criado_por)
+            VALUES ($1, 'ligacao', 'Parceiro', $2, $3, $3, $2)
+        """, conta, bruno, _em_sp(10))
+        assert (await tel.atividades(db_conn, DIA_FIXO))["oportunidades_trabalhadas"] == 0

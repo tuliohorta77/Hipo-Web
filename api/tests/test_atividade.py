@@ -178,3 +178,22 @@ class TestAgregar:
             _linha(uid="u2", nome="Gabriel Lira", qtd=7),
         ], [])
         assert [p["nome"] for p in r["por_pessoa"]] == ["Gabriel Lira", "Aline Martins"]
+
+
+class TestAgregarOportunidades:
+    def test_total_vem_do_banco_e_nao_da_soma(self):
+        r = a.agregar(
+            [],
+            [],
+            [{"usuario_id": "u1", "nome": "A", "cargo": "SDR", "trabalhadas": 3, "primeira_vez": 1},
+             {"usuario_id": "u2", "nome": "B", "cargo": "EV", "trabalhadas": 2, "primeira_vez": 1}],
+            {"trabalhadas": 4, "primeira_vez": 1},
+        )
+        assert r["oportunidades_trabalhadas"] == 4
+        assert r["oportunidades_primeira_vez"] == 1
+        assert [p["oportunidades_trabalhadas"] for p in r["por_pessoa"]] == [3, 2]
+
+    def test_sem_oportunidades_fica_zero(self):
+        r = a.agregar([_linha()], [])
+        assert r["oportunidades_trabalhadas"] == 0
+        assert r["por_pessoa"][0]["oportunidades_primeira_vez"] == 0

@@ -60,7 +60,9 @@ Escreva 3 ou 4 parágrafos curtos, em português do Brasil:
    Reunião "sem desfecho" é cobrança: diga de quem é. Não fale em "ações",
    "requests" ou "cliques" — esse número não aparece no e-mail.
 4. Uma recomendação concreta para amanhã, ligada a UM item específico
-   daqueles que você citou.
+   daqueles que você citou. A recomendação é uma AÇÃO sobre esse item
+   ("ligar para a conta X", "registrar o desfecho da reunião das 14h"), e
+   não uma regra, prazo ou meta nova.
 
 Regras:
 - NÃO invente número, nome ou tendência que não esteja no JSON.
@@ -92,12 +94,27 @@ Regras:
 - Se adocao.disponivel for false, a captura de uso NÃO estava ativa nesse dia.
   Nesse caso não diga que ninguém acessou nem cite ausentes: diga que não há
   telemetria para o dia e comente apenas o bloco de operação.
+- NÃO CRIE PRAZO, META, LIMITE OU REGRA DE NEGÓCIO. "Em 48 horas", "até
+  sexta", "no mínimo 10 ligações", "qualifique como perda se não
+  responder" são políticas que ninguém definiu. A operação decide prazos e
+  critérios; você só aponta o item. Todo número do texto tem de estar no
+  JSON — inclusive horas, dias e quantidades dentro de uma recomendação.
+- NÃO SOME, SUBTRAIA NEM CALCULE PERCENTUAL. Cite o número como ele está no
+  JSON. Se o total que você quer citar não vier pronto, descreva sem ele.
 - Se o dia foi vazio ou quase, diga isso em uma frase e pare. Dia parado não
   merece três parágrafos de análise.
 - Sem saudação, sem despedida, sem markdown. Só os parágrafos.
 - Cite nomes de pessoas quando for relevante para a ação.
 """
 
+
+# PRAZO INVENTADO NA RECOMENDACAO (16/09). O fechamento de 15/09 foi
+# descartado por "Se a oportunidade nao se recuperar em 48 horas, qualifique-a
+# como perda". O 48 nao existia no JSON -- a guarda fez o trabalho dela. Mas o
+# problema maior era a frase: uma politica comercial inventada, dita com
+# a autoridade do relatorio. Nenhuma guarda pega politica sem numero ("ate o
+# fim da semana"), entao a regra mora na INSTRUCAO, como manda o cabecalho
+# de validacao_numerica.
 
 # Campos que o e-mail deixou de mostrar em 31/08 e que, por isso, a narrativa
 # tambem nao pode citar.

@@ -287,7 +287,9 @@ def _tabela_usuario_hora(at: dict) -> str:
     cab = (f'<th style="{th_base};text-align:left;padding-left:6px">Pessoa</th>'
            f'<th style="{th_base};text-align:left">Expediente</th>'
            + "".join(f'<th style="{th_base};text-align:center">{h}h</th>' for h in horas)
-           + f'<th style="{th_base};text-align:right;padding-right:6px">Total</th>')
+           + f'<th style="{th_base};text-align:right">Total</th>'
+           + f'<th style="{th_base};text-align:right" title="Oportunidades trabalhadas">Opp.</th>'
+           + f'<th style="{th_base};text-align:right;padding-right:6px">1ª vez</th>')
 
     td = f"padding:6px 2px;border-bottom:1px solid {BORDA};"
     trs = []
@@ -298,8 +300,12 @@ def _tabela_usuario_hora(at: dict) -> str:
             f'<td style="{td}padding-left:6px">{_nome_com_cargo(p["nome"], p.get("cargo"))}</td>'
             f'<td style="{td}font-size:11px;color:{TEXTO};white-space:nowrap">{expediente}</td>'
             + "".join(_celula_calor(n, maximo) for n in p["por_hora"])
-            + f'<td style="{td}text-align:right;padding-right:6px;font-size:13px;'
+            + f'<td style="{td}text-align:right;font-size:13px;'
               f'font-weight:700;color:{TINTA}">{p["total"]}</td>'
+            + f'<td style="{td}text-align:right;font-size:13px;color:{TINTA}">'
+              f'{p.get("oportunidades_trabalhadas", 0)}</td>'
+            + f'<td style="{td}text-align:right;padding-right:6px;font-size:13px;color:{AZUL}">'
+              f'{p.get("oportunidades_primeira_vez", 0)}</td>'
             "</tr>"
         )
 
@@ -309,7 +315,10 @@ def _tabela_usuario_hora(at: dict) -> str:
         "<tr>"
         f'<td style="{tf}padding-left:6px" colspan="2">Equipe</td>'
         + "".join(f'<td style="{tf}text-align:center">{n or ""}</td>' for n in totais)
-        + f'<td style="{tf}text-align:right;padding-right:6px;font-size:13px">{at.get("total", 0)}</td>'
+        + f'<td style="{tf}text-align:right;font-size:13px">{at.get("total", 0)}</td>'
+        + f'<td style="{tf}text-align:right;font-size:13px">{at.get("oportunidades_trabalhadas", 0)}</td>'
+        + f'<td style="{tf}text-align:right;padding-right:6px;font-size:13px;color:{AZUL}">'
+          f'{at.get("oportunidades_primeira_vez", 0)}</td>'
         "</tr>"
     )
     return (
@@ -317,7 +326,9 @@ def _tabela_usuario_hora(at: dict) -> str:
         f'style="border-collapse:collapse;margin-bottom:6px"><tr>{cab}</tr>{"".join(trs)}</table>'
         f'<p style="font-size:11px;color:{SUAVE};margin:4px 0 0">Atividade = registro criado, '
         f'alterado ou concluído com sucesso. Consultas e navegação não contam. '
-        f'Horário de Brasília.</p>'
+        f'Opp. = oportunidades com tarefa concluída no dia; 1ª vez = a primeira '
+        f'tarefa concluída da história dela. Na linha Equipe, oportunidade '
+        f'trabalhada por duas pessoas conta uma vez. Horário de Brasília.</p>'
     )
 
 
@@ -346,6 +357,13 @@ def _bloco_equipe(metricas: dict) -> list[str]:
         _kpi("No-show", re_.get("no_show", 0),
              f'{re_.get("pendentes", 0)} sem desfecho' if re_.get("pendentes") else "",
              VERMELHO if re_.get("no_show") else TINTA),
+    ]))
+    w(_linha_kpis([
+        _kpi("Oportunidades trabalhadas", at.get("oportunidades_trabalhadas", 0),
+             variacao(at.get("oportunidades_trabalhadas"),
+                      comp.get("oportunidades_trabalhadas")) if tem_base else "",),
+        _kpi("Trabalhadas pela 1ª vez", at.get("oportunidades_primeira_vez", 0),
+             "primeira tarefa concluída da oportunidade", AZUL),
     ]))
 
     w(_tabela_usuario_hora(at))
@@ -555,15 +573,21 @@ def _texto_equipe(metricas: dict) -> list[str]:
         return linhas
     largura = max(len(p["nome"] or "") for p in pessoas)
     largura = max(largura, len("Equipe"))
-    cab = " " * (largura + 2) + "".join(f"{h:>4}" for h in horas) + "  Total"
+    linhas.append(f"  Oportunidades trabalhadas: {at.get('oportunidades_trabalhadas', 0)} "
+                  f"(pela 1ª vez: {at.get('oportunidades_primeira_vez', 0)})")
+    cab = " " * (largura + 2) + "".join(f"{h:>4}" for h in horas) + "  Total  Opp  1ªvez"
     linhas.append(cab)
     for p in pessoas:
         celulas = "".join(f"{(n or '.'):>4}" for n in p["por_hora"])
         linhas.append(f"  {p['nome']:<{largura}}{celulas}  {p['total']:>5}"
+                      f"  {p.get('oportunidades_trabalhadas', 0):>3}"
+                      f"  {p.get('oportunidades_primeira_vez', 0):>5}"
                       f"   ({p.get('entrada') or '—'}–{p.get('saida') or '—'})")
     totais = at.get("total_por_hora") or []
     linhas.append(f"  {'Equipe':<{largura}}" + "".join(f"{(n or ''):>4}" for n in totais)
-                  + f"  {at.get('total', 0):>5}")
+                  + f"  {at.get('total', 0):>5}"
+                  + f"  {at.get('oportunidades_trabalhadas', 0):>3}"
+                  + f"  {at.get('oportunidades_primeira_vez', 0):>5}")
     linhas.append("  Atividade = registro criado, alterado ou concluído. Horário de Brasília.")
 
     if not ad.get("disponivel", True):

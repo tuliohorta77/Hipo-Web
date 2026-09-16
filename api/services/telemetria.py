@@ -282,7 +282,56 @@ async def atividades(conn, dia: date) -> dict:
         GROUP BY e.usuario_id, u.nome
     """, dia)
 
-    return svc.agregar([dict(r) for r in linhas], [dict(r) for r in presencas])
+    # OPORTUNIDADE TRABALHADA = teve tarefa CONCLUIDA no dia. PRIMEIRA VEZ =
+    # essa foi a primeira tarefa concluida da historia dela, carga inicial
+    # incluida (decisao de 16/09): oportunidade importada que ja tinha contato
+    # nao aparece como nova. Credito vai para o responsavel da tarefa -- a
+    # tabela nao guarda quem clicou em concluir.
+    #
+    # Sai de `tarefas`, e nao de uso_eventos: a telemetria guarda o template
+    # da rota, sem o id, e nao sabe QUAL oportunidade foi tocada.
+    janela_t = _JANELA.replace("criado_em", "t.concluida_em")
+    _cte = f"""
+        WITH do_dia AS (
+            SELECT t.oportunidade_id, t.responsavel_id
+            FROM tarefas t
+            WHERE t.oportunidade_id IS NOT NULL
+              AND t.concluida_em IS NOT NULL
+              AND {janela_t}
+        ),
+        primeira AS (
+            SELECT oportunidade_id, min(concluida_em) AS em
+            FROM tarefas
+            WHERE oportunidade_id IS NOT NULL AND concluida_em IS NOT NULL
+              AND oportunidade_id IN (SELECT oportunidade_id FROM do_dia)
+            GROUP BY oportunidade_id
+        )
+    """
+    _primeira_no_dia = (
+        f"p.em >= (($1::date)::timestamp AT TIME ZONE '{FUSO_OPERACAO}')"
+    )
+    opp_pessoa = await conn.fetch(f"""
+        {_cte}
+        SELECT d.responsavel_id AS usuario_id, u.nome, u.cargo,
+               count(DISTINCT d.oportunidade_id) AS trabalhadas,
+               count(DISTINCT d.oportunidade_id) FILTER (WHERE {_primeira_no_dia}) AS primeira_vez
+        FROM do_dia d
+        JOIN primeira p ON p.oportunidade_id = d.oportunidade_id
+        JOIN usuarios u ON u.id = d.responsavel_id
+        GROUP BY d.responsavel_id, u.nome, u.cargo
+    """, dia)
+    opp_total = await conn.fetchrow(f"""
+        {_cte}
+        SELECT count(DISTINCT d.oportunidade_id) AS trabalhadas,
+               count(DISTINCT d.oportunidade_id) FILTER (WHERE {_primeira_no_dia}) AS primeira_vez
+        FROM do_dia d
+        JOIN primeira p ON p.oportunidade_id = d.oportunidade_id
+    """, dia)
+
+    return svc.agregar(
+        [dict(r) for r in linhas], [dict(r) for r in presencas],
+        [dict(r) for r in opp_pessoa], dict(opp_total) if opp_total else None,
+    )
 
 
 async def reunioes(conn, dia: date, agora=None) -> dict:
@@ -366,6 +415,7 @@ async def comparativo(conn, dia: date) -> dict:
         # Ausente em fechamentos anteriores a 16/09: fica None e o KPI sai
         # sem variacao, em vez de comparar contra um zero que nunca existiu.
         "atividades": (m or {}).get("atividades", {}).get("total"),
+        "oportunidades_trabalhadas": (m or {}).get("atividades", {}).get("oportunidades_trabalhadas"),
         "reunioes_realizadas": (m or {}).get("reunioes", {}).get("realizadas"),
         "oportunidades_criadas": op.get("oportunidades_criadas"),
         "tarefas_concluidas": op.get("tarefas_concluidas"),

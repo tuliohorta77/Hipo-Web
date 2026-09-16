@@ -180,7 +180,9 @@ def janela_de_horas(horas_com_atividade) -> list[int]:
     return list(range(ini, fim + 1))
 
 
-def agregar(linhas: list[dict], presencas: list[dict]) -> dict:
+def agregar(linhas: list[dict], presencas: list[dict],
+            oportunidades: list[dict] | None = None,
+            oportunidades_total: dict | None = None) -> dict:
     """
     Monta o bloco `atividades` do fechamento.
 
@@ -189,6 +191,12 @@ def agregar(linhas: list[dict], presencas: list[dict]) -> dict:
       operacao), qtd.
     `presencas`: quem teve QUALQUER evento no dia (inclusive so leitura),
       com usuario_id, nome, cargo, entrada, saida ('HH:MM' no fuso).
+
+    `oportunidades`: por responsavel -- usuario_id, nome, cargo, trabalhadas,
+      primeira_vez. `oportunidades_total`: trabalhadas, primeira_vez da equipe,
+      contadas com DISTINCT no banco. NAO e a soma das pessoas: uma
+      oportunidade trabalhada por duas pessoas no mesmo dia conta uma vez no
+      total e uma vez para cada uma.
 
     Quem entrou e nao lancou nada aparece com zero. Esse zero e informacao
     -- "abriu o sistema o dia inteiro e nao registrou nada" -- e some se a
@@ -203,6 +211,7 @@ def agregar(linhas: list[dict], presencas: list[dict]) -> dict:
                 "nome": nome, "cargo": cargo,
                 "entrada": None, "saida": None,
                 "total": 0, "_hora": {}, "_tipo": {},
+                "opp": 0, "opp_primeira": 0,
             }
         return pessoas[chave]
 
@@ -210,6 +219,11 @@ def agregar(linhas: list[dict], presencas: list[dict]) -> dict:
         alvo = _pessoa(p["usuario_id"], p["nome"], p["cargo"])
         alvo["entrada"] = p.get("entrada")
         alvo["saida"] = p.get("saida")
+
+    for o in oportunidades or []:
+        alvo = _pessoa(o["usuario_id"], o["nome"], o["cargo"])
+        alvo["opp"] = int(o["trabalhadas"])
+        alvo["opp_primeira"] = int(o["primeira_vez"])
 
     horas_vistas: set[int] = set()
     for r in linhas:
@@ -243,6 +257,8 @@ def agregar(linhas: list[dict], presencas: list[dict]) -> dict:
             "entrada": p["entrada"],
             "saida": p["saida"],
             "total": p["total"],
+            "oportunidades_trabalhadas": p["opp"],
+            "oportunidades_primeira_vez": p["opp_primeira"],
             "por_hora": [p["_hora"].get(h, 0) for h in horas],
             "por_tipo": [
                 {"grupo": t["tipo"].grupo, "tipo": t["tipo"].rotulo, "qtd": t["qtd"]}
@@ -250,10 +266,13 @@ def agregar(linhas: list[dict], presencas: list[dict]) -> dict:
             ],
         })
 
-    saida.sort(key=lambda p: (-p["total"], p["nome"] or ""))
+    saida.sort(key=lambda p: (-p["total"], -p["oportunidades_trabalhadas"], p["nome"] or ""))
 
+    tot = oportunidades_total or {}
     return {
         "total": sum(p["total"] for p in saida),
+        "oportunidades_trabalhadas": int(tot.get("trabalhadas") or 0),
+        "oportunidades_primeira_vez": int(tot.get("primeira_vez") or 0),
         "horas": horas,
         "total_por_hora": [sum(p["por_hora"][i] for p in saida) for i in range(len(horas))],
         "por_pessoa": saida,

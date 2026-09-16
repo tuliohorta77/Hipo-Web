@@ -43,11 +43,14 @@ METRICAS = {
     },
     "atividades": {
         "total": 31,
+        "oportunidades_trabalhadas": 17,
+        "oportunidades_primeira_vez": 6,
         "horas": [8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18],
         "total_por_hora": [0, 0, 26, 0, 0, 0, 5, 0, 0, 0, 0],
         "por_pessoa": [
             {"nome": "Aline Martins", "cargo": "EC", "entrada": "08:20", "saida": "17:54",
-             "total": 31, "por_hora": [0, 0, 26, 0, 0, 0, 5, 0, 0, 0, 0],
+             "total": 31, "oportunidades_trabalhadas": 17, "oportunidades_primeira_vez": 6,
+             "por_hora": [0, 0, 26, 0, 0, 0, 5, 0, 0, 0, 0],
              "por_tipo": [
                  {"grupo": "Tarefas", "tipo": "Tarefa concluída", "qtd": 24},
                  {"grupo": "Tarefas", "tipo": "Tarefa criada", "qtd": 5},
@@ -87,6 +90,7 @@ METRICAS = {
     "comparativo": {
         "disponivel": True, "dia": "2026-08-14", "acoes": 90, "pessoas_ativas": 4,
         "oportunidades_criadas": 3, "tarefas_concluidas": 4, "atividades": 20,
+        "oportunidades_trabalhadas": 12,
     },
     "conteudo": {
         "precisa_de_acao": [
@@ -296,6 +300,16 @@ class TestHtml:
                                      "agendamentos_por_pessoa": []})
         assert "Nenhuma reunião marcada para o dia." in r.montar_html(m)
 
+    def test_oportunidades_trabalhadas_e_primeira_vez(self):
+        html = r.montar_html(METRICAS)
+        assert "Oportunidades trabalhadas" in html
+        assert "Trabalhadas pela 1ª vez" in html
+        assert ">17<" in html and ">6<" in html
+        assert "+5 vs. dia anterior" in html
+        assert ">Opp.</th>" in html and ">1ª vez</th>" in html
+        txt = r.montar_texto(METRICAS)
+        assert "Oportunidades trabalhadas: 17 (pela 1ª vez: 6)" in txt
+
     def test_variacao_de_atividades_contra_o_dia_anterior(self):
         assert "+11 vs. dia anterior" in r.montar_html(METRICAS)
 
@@ -415,6 +429,22 @@ class TestIaFallback:
         assert "acoes" not in copia["comparativo"]
         assert copia["atividades"]["total"] == 31
         assert METRICAS["adocao"]["acoes"] == 120, "a original não pode ser mutada"
+
+    def test_prompt_proibe_prazo_e_regra_inventados(self):
+        """
+        15/09: "Se a oportunidade nao se recuperar em 48 horas, qualifique-a
+        como perda". A guarda pegou o 48; a frase sem numero passaria. A
+        proibicao precisa estar escrita na instrucao.
+        """
+        assert "NÃO CRIE PRAZO, META, LIMITE OU REGRA DE NEGÓCIO" in ia.INSTRUCAO
+        assert "NÃO SOME, SUBTRAIA NEM CALCULE PERCENTUAL" in ia.INSTRUCAO
+
+    def test_guarda_descarta_o_prazo_inventado_de_15_09(self):
+        from services.validacao_numerica import numeros_invalidos, numeros_permitidos
+        texto = ("Se a oportunidade não se recuperar em 48 horas, qualifique-a "
+                 "como perda.")
+        permitidos = numeros_permitidos(ia.metricas_para_narrar(METRICAS))
+        assert numeros_invalidos(texto, permitidos) == ["48"]
 
     def test_prompt_proibe_inventar_numero(self):
         """
