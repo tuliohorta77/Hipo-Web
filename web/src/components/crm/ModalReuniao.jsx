@@ -13,8 +13,15 @@
 // vendedor está usando na hora. É a mesma razão que fez `tarefaComum`
 // existir para a aba e a tela de gestão de tarefas.
 //
+// ── Com quem é a reunião ─────────────────────────────────────────────
+// Ou com uma OPORTUNIDADE (o cliente) ou com um PARCEIRO (o escritório de
+// contabilidade que indica). Os ECs fazem reunião com contador, e ela não
+// tem negócio por trás: é a relação de parceria — o mesmo alvo das tarefas
+// do módulo Parceiros. O backend sempre aceitou os dois (`conta_id`); o que
+// faltava era o formulário deixar escolher.
+//
 // ── O que muda entre criar e editar ──────────────────────────────────
-// A oportunidade só é escolhida na CRIAÇÃO. Mover uma reunião de negócio
+// O alvo (oportunidade ou parceiro) só é escolhido na CRIAÇÃO. Mover uma reunião de negócio
 // mudaria o alvo da tarefa por baixo, e com ele a linha do tempo e a
 // métrica de duas oportunidades ao mesmo tempo. Quem errou o negócio
 // cancela e marca de novo — duas ações claras em vez de uma silenciosa.
@@ -49,7 +56,10 @@ import AnexosTarefa from './AnexosTarefa';
 
 function formVazio(usuarioPadrao = '') {
   return {
+    // 'oportunidade' | 'parceiro'
+    alvo: 'oportunidade',
     oportunidade: null,
+    parceiro: null,
     anfitriao_id: usuarioPadrao,
     // Quem leva o CRÉDITO do agendamento, que não é necessariamente quem
     // está digitando: o SDR marca por telefone e o ADM lança. Vem
@@ -74,7 +84,9 @@ function formVazio(usuarioPadrao = '') {
 
 function formDaReuniao(r) {
   return {
+    alvo: r.oportunidade_id ? 'oportunidade' : 'parceiro',
     oportunidade: null,
+    parceiro: null,
     anfitriao_id: r.anfitriao_id,
     agendado_por: r.agendado_por || '',
     inicio: paraCampoLocal(r.inicio),
@@ -234,6 +246,9 @@ export default function ModalReuniao({
   //                    de quem clicou "Agendar reunião" dentro do negócio
   slotInicial = '',
   oportunidade = null,
+  // `parceiro` — { id, razao_social, cnpj_formatado } de quem clicou "Agendar
+  //              reunião" dentro do parceiro. Mesmo papel de `oportunidade`.
+  parceiro = null,
   anfitriaoInicial = '',
   // Editar: a reunião existente. Presente = modo edição.
   reuniao: reuniaoRecebida = null,
@@ -273,7 +288,7 @@ export default function ModalReuniao({
   // Remonta o formulário sempre que o modal abre num alvo diferente. A
   // chave é o id da reunião (ou o slot, na criação): sem ela, abrir um
   // cartão depois de outro mostraria os dados do anterior por um render.
-  const chave = reuniao?.id || slotInicial || oportunidade?.id || 'novo';
+  const chave = reuniao?.id || slotInicial || oportunidade?.id || parceiro?.id || 'novo';
   useEffect(() => {
     if (!aberto) return;
     setErro(null);
@@ -288,7 +303,9 @@ export default function ModalReuniao({
         // são pessoas diferentes em todo agendamento que o SDR faz.
         agendado_por: eu,
         inicio: slotInicial || '',
+        alvo: parceiro ? 'parceiro' : 'oportunidade',
         oportunidade: oportunidade || null,
+        parceiro: parceiro || null,
         contato_id: oportunidade?.contato_id || '',
       });
     }
@@ -305,7 +322,10 @@ export default function ModalReuniao({
   // Os contatos da EMPRESA da reunião — é entre eles que está quem recebe
   // o convite. `|| []` não é paranoia: uma resposta sem `itens` deixava o
   // map estourar e a tela inteira virava branco (Sprint 4).
-  const contaId = reuniao?.conta_id || form.oportunidade?.conta_id || oportunidade?.conta_id;
+  const contaId = reuniao?.conta_id
+    || (form.alvo === 'parceiro'
+      ? (form.parceiro?.id || parceiro?.id)
+      : (form.oportunidade?.conta_id || oportunidade?.conta_id));
   useEffect(() => {
     if (!aberto || !contaId) { setContatos([]); return; }
     api.get('/crm/contatos', { params: { conta_id: contaId, limit: 100 } })
@@ -319,7 +339,8 @@ export default function ModalReuniao({
 
   const incompleto = useMemo(() => {
     if (!form.anfitriao_id || !form.inicio) return true;
-    if (!editando && !form.oportunidade) return true;
+    if (!editando && form.alvo === 'oportunidade' && !form.oportunidade) return true;
+    if (!editando && form.alvo === 'parceiro' && !form.parceiro) return true;
     return false;
   }, [form, editando]);
 
@@ -344,7 +365,9 @@ export default function ModalReuniao({
       agendado_por: form.agendado_por || null,
     };
     if (editando) return base;
-    return { ...base, oportunidade_id: form.oportunidade.id };
+    return form.alvo === 'parceiro'
+      ? { ...base, conta_id: form.parceiro.id }
+      : { ...base, oportunidade_id: form.oportunidade.id };
   }, [form, editando]);
 
   async function acao(fn, padrao) {
@@ -440,8 +463,10 @@ export default function ModalReuniao({
         editando ? (
           <span className="flex flex-wrap items-center gap-2">
             <span>{reuniao.conta_razao_social}</span>
-            {reuniao.oportunidade_numero && (
+            {reuniao.oportunidade_numero ? (
               <span className="font-mono">{reuniao.oportunidade_numero}</span>
+            ) : (
+              <Badge tone="info">Parceiro</Badge>
             )}
             {reuniao.fora_da_grade && (
               <Badge tone="warning">fora da grade</Badge>
@@ -478,29 +503,91 @@ export default function ModalReuniao({
         {/* ── Quando e com quem ── */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           {!editando && (
-            <div className="md:col-span-2">
-              <EntityPicker
-                label="Oportunidade"
-                value={form.oportunidade}
-                // Preso quando veio de dentro do negócio: quem clicou
-                // "Agendar reunião" na oportunidade já respondeu isso.
-                disabled={Boolean(oportunidade)}
-                onChange={(o) => setForm((f) => ({
-                  ...f, oportunidade: o, contato_id: o?.contato_id || '',
-                }))}
-                buscar={async (q) => {
-                  const { data } = await api.get('/crm/oportunidades', {
-                    params: { q, limit: 20 },
-                  });
-                  return data.itens || [];
-                }}
-                paraItem={(o) => ({
-                  id: o.id,
-                  titulo: o.conta_razao_social,
-                  subtitulo: o.numero,
-                })}
-                placeholder="Buscar por empresa, número ou CNPJ"
-              />
+            <div className="md:col-span-2 space-y-2">
+              {/*
+                Com quem é a reunião. Some quando o alvo já veio preso — de
+                dentro da oportunidade ou do parceiro, a pergunta já foi
+                respondida.
+              */}
+              {!oportunidade && !parceiro && (
+                <div
+                  role="radiogroup"
+                  aria-label="Reunião com"
+                  className="inline-flex rounded-lg border border-hipo-border p-0.5 bg-hipo-bg"
+                >
+                  {[
+                    { valor: 'oportunidade', rotulo: 'Cliente (oportunidade)' },
+                    { valor: 'parceiro', rotulo: 'Parceiro (contador)' },
+                  ].map((op) => (
+                    <button
+                      key={op.valor}
+                      type="button"
+                      role="radio"
+                      aria-checked={form.alvo === op.valor}
+                      onClick={() => setForm((f) => ({
+                        ...f, alvo: op.valor, oportunidade: null, parceiro: null, contato_id: '',
+                      }))}
+                      className={
+                        'px-3 h-8 text-xs font-medium rounded-md transition-colors ' +
+                        (form.alvo === op.valor
+                          ? 'bg-hipo-card text-hipo-blue shadow-sm'
+                          : 'text-hipo-slate hover:text-hipo-ink')
+                      }
+                    >
+                      {op.rotulo}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {form.alvo === 'parceiro' ? (
+                <EntityPicker
+                  label="Parceiro"
+                  value={form.parceiro}
+                  disabled={Boolean(parceiro)}
+                  onChange={(c) => setForm((f) => ({ ...f, parceiro: c, contato_id: '' }))}
+                  // /crm/contas/busca e nao /crm/parceiros: a carteira de
+                  // parceiros e modulo do EC, mas marcar reuniao com o
+                  // contador e algo que o SDR tambem faz pelo EC. A busca de
+                  // contas e do modulo crm, que todo cargo tem.
+                  buscar={async (q) => {
+                    const { data } = await api.get('/crm/contas/busca', {
+                      params: { q, apenas_finders: true },
+                    });
+                    return Array.isArray(data) ? data : [];
+                  }}
+                  paraItem={(c) => ({
+                    id: c.id,
+                    titulo: c.nome_fantasia || c.razao_social,
+                    subtitulo: c.cnpj_formatado,
+                  })}
+                  placeholder="Buscar escritório por nome ou CNPJ"
+                  hint="Só aparecem contas marcadas como parceiras."
+                />
+              ) : (
+                <EntityPicker
+                  label="Oportunidade"
+                  value={form.oportunidade}
+                  // Preso quando veio de dentro do negócio: quem clicou
+                  // "Agendar reunião" na oportunidade já respondeu isso.
+                  disabled={Boolean(oportunidade)}
+                  onChange={(o) => setForm((f) => ({
+                    ...f, oportunidade: o, contato_id: o?.contato_id || '',
+                  }))}
+                  buscar={async (q) => {
+                    const { data } = await api.get('/crm/oportunidades', {
+                      params: { q, limit: 20 },
+                    });
+                    return data.itens || [];
+                  }}
+                  paraItem={(o) => ({
+                    id: o.id,
+                    titulo: o.conta_razao_social,
+                    subtitulo: o.numero,
+                  })}
+                  placeholder="Buscar por empresa, número ou CNPJ"
+                />
+              )}
             </div>
           )}
 

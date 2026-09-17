@@ -69,6 +69,7 @@ import FarolSemanal from '../../components/ui/FarolSemanal';
 import MiniFunil from '../../components/ui/MiniFunil';
 import ParceiroDetalhe from '../../components/crm/ParceiroDetalhe';
 import TransferirCarteira, { SEM_EC } from '../../components/crm/TransferirCarteira';
+import ModalReuniao from '../../components/crm/ModalReuniao';
 
 const POR_PAGINA = 50;
 
@@ -169,6 +170,10 @@ export default function Parceiros() {
   const [erro, setErro] = useState(null);
   const [kpiAtivo, setKpiAtivo] = useState(null);
   const [selecionado, setSelecionado] = useState(null);
+  // O parceiro com quem se está marcando reunião, e o contador que avisa a
+  // aba de Tarefas do detalhe para recarregar quando ela for criada.
+  const [agendandoCom, setAgendandoCom] = useState(null);
+  const [versaoTarefas, setVersaoTarefas] = useState(0);
   const [transferindo, setTransferindo] = useState(false);
   const debounce = useRef(null);
   const navigate = useNavigate();
@@ -640,9 +645,35 @@ export default function Parceiros() {
               tela estaria mentindo sobre o que o usuário acabou de fazer.
             */
             onRecarregar={() => { carregar(); abrir(selecionado.id); }}
+            onAgendarReuniao={(p) => setAgendandoCom({
+              id: p.id, razao_social: p.razao_social,
+              nome_fantasia: p.nome_fantasia, cnpj_formatado: p.cnpj_formatado,
+            })}
+            versaoTarefas={versaoTarefas}
           />
         )}
       </Modal>
+
+      {/*
+        ── Marcar reunião com o parceiro (nível 2) ──
+        O MESMO formulário da Agenda, com o parceiro preso. Montado só quando
+        abre: fechado, não há por que buscar tipos de reunião.
+      */}
+      {agendandoCom && (
+        <ModalReuniao
+          aberto
+          nivel={2}
+          parceiro={agendandoCom}
+          anfitriaoInicial={selecionado?.ec_responsavel_id || ''}
+          usuarios={usuarios}
+          onFechar={() => setAgendandoCom(null)}
+          onSalvo={() => {
+            setVersaoTarefas((v) => v + 1);
+            carregar();
+            if (selecionado) abrir(selecionado.id);
+          }}
+        />
+      )}
 
       <TransferirCarteira
         aberto={transferindo}

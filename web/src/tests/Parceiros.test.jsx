@@ -831,3 +831,38 @@ describe('Parceiros — a aba de Tarefas e a mesma da venda', () => {
     expect(within(dialogo).getByLabelText(/^Título/).tagName).toBe('INPUT');
   });
 });
+
+
+describe('Parceiros — reunião com o contador', () => {
+  it('o drilldown agenda reunião com o parceiro já preso', async () => {
+    montar();
+    const dialogo = await abrirParceiro();
+    fireEvent.click(within(dialogo).getByText('Agendar reunião'));
+
+    const form = await screen.findByText('Marcar reunião');
+    expect(form).toBeInTheDocument();
+    // Alvo preso: nem pergunta "com quem", nem deixa trocar o parceiro.
+    expect(screen.queryByRole('radiogroup', { name: 'Reunião com' })).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Buscar Parceiro')).toBeDisabled();
+  });
+
+  it('marcar manda o conta_id do parceiro, sem oportunidade', async () => {
+    mockPost.mockResolvedValue({ data: { id: 'r1' } });
+    montar();
+    const dialogo = await abrirParceiro();
+    fireEvent.click(within(dialogo).getByText('Agendar reunião'));
+    await screen.findByText('Marcar reunião');
+    fireEvent.change(screen.getByLabelText('Data e hora'), {
+      target: { value: '2026-09-21T10:00' },
+    });
+    fireEvent.change(screen.getByLabelText('Anfitrião'), { target: { value: USUARIOS[0].id } });
+    fireEvent.click(screen.getByText('Marcar e enviar convite'));
+
+    await waitFor(() => expect(mockPost).toHaveBeenCalled());
+    const [url, corpo] = mockPost.mock.calls[0];
+    expect(url).toBe('/crm/agenda/reunioes');
+    expect(corpo.conta_id).toBe('p1');
+    expect(corpo.oportunidade_id).toBeUndefined();
+  });
+});
+

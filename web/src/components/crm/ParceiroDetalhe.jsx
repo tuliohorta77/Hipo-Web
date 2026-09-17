@@ -26,7 +26,9 @@
 // mover de fase.
 
 import { useCallback, useEffect, useState } from 'react';
-import { ExternalLink, History, Handshake, UserMinus } from 'lucide-react';
+import {
+  CalendarPlus, ExternalLink, History, Handshake, UserMinus,
+} from 'lucide-react';
 
 import api from '../../api';
 import AbaTarefas from './AbaTarefas';
@@ -218,6 +220,12 @@ function AbaCarteira({ parceiro }) {
 export default function ParceiroDetalhe({
   parceiro, usuarios, periodo,
   onRecarregar, onSalvo, onFechar, onAbrirNoFunil,
+  // Marcar reunião com o contador. A página abre o formulário da agenda —
+  // o mesmo da oportunidade — com o parceiro já preso.
+  onAgendarReuniao,
+  // Muda quando algo fora da aba criou tarefa (a reunião marcada pelo
+  // botão do rodapé) — é o que faz a linha do tempo recarregar.
+  versaoTarefas = 0,
 }) {
   const [aba, setAba] = useState('dados');
   const [erro, setErro] = useState(null);
@@ -389,7 +397,7 @@ export default function ParceiroDetalhe({
             drilldown, mesmos painéis, mesma regra da próxima obrigatória.
           */}
           {aba === 'tarefas' && (
-            <AbaTarefas parceiro={parceiro} onMudou={onRecarregar} />
+            <AbaTarefas parceiro={parceiro} onMudou={onRecarregar} versao={versaoTarefas} />
           )}
 
           {aba === 'indicacoes' && (
@@ -424,6 +432,21 @@ export default function ParceiroDetalhe({
           </span>
 
           <div className="ml-auto flex flex-wrap items-center gap-2">
+            {/*
+              Mesmo lugar e mesmo rótulo da oportunidade: a reunião do EC com
+              o contador é marcada daqui, e aparece na Agenda e na aba de
+              Tarefas do parceiro — ela É uma tarefa do parceiro.
+            */}
+            {onAgendarReuniao && (
+              <Button
+                size="sm"
+                variant="secondary"
+                icon={CalendarPlus}
+                onClick={() => onAgendarReuniao(parceiro)}
+              >
+                Agendar reunião
+              </Button>
+            )}
             <Button
               size="sm"
               variant="secondary"

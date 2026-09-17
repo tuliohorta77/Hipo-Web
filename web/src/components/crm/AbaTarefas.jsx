@@ -219,7 +219,7 @@ function Evento({
 // que o usuário está usando na hora. Foi por isso que o TarefasDoParceiro,
 // que existia separado, foi apagado.
 
-export default function AbaTarefas({ oportunidade, parceiro, onMudou }) {
+export default function AbaTarefas({ oportunidade, parceiro, onMudou, versao = 0 }) {
   const [dados, setDados] = useState({ total: 0, abertas: 0, atrasadas: 0, itens: [] });
   const [usuarios, setUsuarios] = useState([]);
   const [carregando, setCarregando] = useState(true);
@@ -277,7 +277,9 @@ export default function AbaTarefas({ oportunidade, parceiro, onMudou }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ehParceiro, alvoId]);
 
-  useEffect(() => { carregar(); }, [carregar]);
+  // `versao` muda quando alguém FORA da aba criou tarefa neste alvo — a
+  // reunião marcada pelo botão do rodapé do detalhe, por exemplo.
+  useEffect(() => { carregar(); }, [carregar, versao]);
 
   useEffect(() => {
     api.get('/crm/dominio/usuarios')

@@ -1991,3 +1991,124 @@ class TestEditarReuniaoPelaTarefa:
             f"/crm/tarefas/{t['id']}", json={"prazo": as_horas(sabado, 10)}, headers=h,
         )
         assert resp.status_code == 200, resp.text
+
+
+# ── Reunião com parceiro (contador) ──────────────────────────────────
+#
+# Os ECs fazem reunião com o escritório de contabilidade, e ela não tem
+# oportunidade por trás: o alvo é o parceiro, o mesmo das tarefas do módulo
+# Parceiros. A tela passou a oferecer isso; estes testes travam o caminho
+# inteiro no backend — busca, criação por quem não tem o módulo, grade e
+# desfecho.
+
+async def novo_parceiro(client, headers, cnpj=CNPJ_B, razao="Contabilidade Beta LTDA"):
+    conta = await nova_conta(client, headers, cnpj=cnpj, razao=razao)
+    resp = await client.patch(
+        f"/crm/parceiros/{conta['id']}", json={"eh_finder": True}, headers=headers
+    )
+    assert resp.status_code == 200, resp.text
+    return conta
+
+
+class TestReuniaoComParceiro:
+    async def test_busca_de_parceiros_serve_quem_nao_tem_o_modulo(
+        self, cenario, client, db_conn,
+    ):
+        """
+        O formulário busca por /crm/contas/busca, do módulo crm. SDR não tem
+        o módulo parceiros e precisa conseguir marcar pelo EC.
+        """
+        await novo_parceiro(client, cenario["headers"])
+        sdr = await criar_usuario(db_conn, client, "SDR", "sdr-parc@teste.com")
+        resp = await client.get(
+            "/crm/contas/busca", params={"q": "Beta", "apenas_finders": True},
+            headers=sdr["headers"],
+        )
+        assert resp.status_code == 200, resp.text
+        assert [c["razao_social"] for c in resp.json()] == ["Contabilidade Beta LTDA"]
+        # Cliente comum não aparece como opção de parceiro.
+        resp = await client.get(
+            "/crm/contas/busca", params={"q": "Metalurgica", "apenas_finders": True},
+            headers=sdr["headers"],
+        )
+        assert resp.json() == []
+
+    async def test_sdr_marca_reuniao_com_parceiro(self, cenario, client, db_conn):
+        parceiro = await novo_parceiro(client, cenario["headers"])
+        sdr = await criar_usuario(db_conn, client, "SDR", "sdr-marca@teste.com")
+        resp = await client.post(
+            "/crm/agenda/reunioes",
+            json={
+                "conta_id": parceiro["id"],
+                "anfitriao_id": cenario["usuario_id"],
+                "inicio": as_horas(proxima_segunda(), 11),
+            },
+            headers=sdr["headers"],
+        )
+        assert resp.status_code == 201, resp.text
+        corpo = resp.json()
+        assert corpo["conta_razao_social"] == "Contabilidade Beta LTDA"
+        # A reunião é tarefa do parceiro: aparece na aba dele.
+        tarefas = (await client.get(
+            "/crm/tarefas", params={"conta_id": parceiro["id"]},
+            headers=cenario["headers"],
+        )).json()
+        assert [t["reuniao_id"] for t in tarefas["itens"]] == [corpo["id"]]
+        assert tarefas["itens"][0]["alvo"] == "parceiro"
+
+    async def test_conta_que_nao_e_parceira_e_recusada(self, cenario, client):
+        resp = await client.post(
+            "/crm/agenda/reunioes",
+            json={
+                "conta_id": cenario["conta"]["id"],
+                "anfitriao_id": cenario["usuario_id"],
+                "inicio": as_horas(proxima_segunda(), 11),
+            },
+            headers=cenario["headers"],
+        )
+        assert resp.status_code == 422
+        assert "parceira" in resp.json()["detail"]
+
+    async def test_reuniao_com_parceiro_aparece_na_grade(self, cenario, client):
+        h = cenario["headers"]
+        parceiro = await novo_parceiro(client, h)
+        r = (await client.post(
+            "/crm/agenda/reunioes",
+            json={
+                "conta_id": parceiro["id"],
+                "anfitriao_id": cenario["usuario_id"],
+                "inicio": as_horas(proxima_segunda(), 14),
+            },
+            headers=h,
+        )).json()
+        semana = (await client.get(
+            "/crm/agenda/semana",
+            params={"inicio": proxima_segunda().isoformat(), "anfitriao_id": cenario["usuario_id"]},
+            headers=h,
+        ))
+        assert semana.status_code == 200, semana.text
+        assert r["id"] in semana.text
+
+    async def test_realizada_com_parceiro_exige_a_proxima(self, cenario, client):
+        """Parceria não tem estado final: sem próximo contato, a relação some."""
+        h, uid = cenario["headers"], cenario["usuario_id"]
+        parceiro = await novo_parceiro(client, h)
+        r = (await client.post(
+            "/crm/agenda/reunioes",
+            json={
+                "conta_id": parceiro["id"], "anfitriao_id": uid,
+                "inicio": as_horas(proxima_segunda(), 15),
+            },
+            headers=h,
+        )).json()
+        sem = await client.post(
+            f"/crm/agenda/reunioes/{r['id']}/desfecho",
+            json={"desfecho": "realizada"}, headers=h,
+        )
+        assert sem.status_code == 422
+        com = await client.post(
+            f"/crm/agenda/reunioes/{r['id']}/desfecho",
+            json={"desfecho": "realizada", "proxima": proxima_de(uid)}, headers=h,
+        )
+        assert com.status_code == 200, com.text
+        assert com.json()["desfecho"] == "realizada"

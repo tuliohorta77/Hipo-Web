@@ -661,3 +661,64 @@ describe('ModalReuniao — aberto a partir da tarefa', () => {
   });
 });
 
+
+describe('ModalReuniao — reunião com parceiro', () => {
+  const PARCEIRO = {
+    id: 'p1', razao_social: 'Contabilidade Beta LTDA', nome_fantasia: 'Beta Contábil',
+    cnpj_formatado: '11.444.777/0001-61', eh_finder: true,
+  };
+
+  it('do slot vazio, deixa escolher entre cliente e parceiro', async () => {
+    await abrir({ slotInicial: '2026-09-09T14:00', anfitriaoInicial: 'u1' });
+    const grupo = screen.getByRole('radiogroup', { name: 'Reunião com' });
+    expect(grupo).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: 'Cliente (oportunidade)' }))
+      .toHaveAttribute('aria-checked', 'true');
+    fireEvent.click(screen.getByRole('radio', { name: 'Parceiro (contador)' }));
+    expect(screen.getByText('Parceiro')).toBeInTheDocument();
+    expect(screen.queryByText('Oportunidade')).not.toBeInTheDocument();
+    expect(screen.getByText('Marcar e enviar convite').closest('button')).toBeDisabled();
+  });
+
+  it('com o parceiro preso, manda conta_id e busca os contatos dele', async () => {
+    mockPost.mockResolvedValue({ data: reuniao({ oportunidade_id: null }) });
+    await abrir({ parceiro: PARCEIRO, anfitriaoInicial: 'u1' });
+    expect(screen.queryByRole('radiogroup', { name: 'Reunião com' })).not.toBeInTheDocument();
+    await waitFor(() => expect(mockGet).toHaveBeenCalledWith(
+      '/crm/contatos', { params: { conta_id: 'p1', limit: 100 } },
+    ));
+    fireEvent.change(screen.getByLabelText('Data e hora'), {
+      target: { value: '2026-09-09T14:00' },
+    });
+    fireEvent.click(screen.getByText('Marcar e enviar convite'));
+    await waitFor(() => expect(mockPost).toHaveBeenCalled());
+    const corpo = mockPost.mock.calls[0][1];
+    expect(corpo.conta_id).toBe('p1');
+    expect(corpo).not.toHaveProperty('oportunidade_id');
+  });
+
+  it('a busca de parceiros usa as contas parceiras, que todo cargo enxerga', async () => {
+    mockGet.mockImplementation((url) => {
+      if (url === '/crm/agenda/tipos') return Promise.resolve({ data: TIPOS });
+      if (url === '/crm/contas/busca') return Promise.resolve({ data: [PARCEIRO] });
+      return Promise.resolve({ data: [] });
+    });
+    await abrir({ slotInicial: '2026-09-09T14:00', anfitriaoInicial: 'u1' });
+    fireEvent.click(screen.getByRole('radio', { name: 'Parceiro (contador)' }));
+    fireEvent.click(screen.getByLabelText('Buscar Parceiro'));
+    fireEvent.change(screen.getByPlaceholderText('Digite para buscar…'), {
+      target: { value: 'Beta' },
+    });
+    await waitFor(() => expect(mockGet).toHaveBeenCalledWith(
+      '/crm/contas/busca', { params: { q: 'Beta', apenas_finders: true } },
+    ));
+  });
+
+  it('reunião de parceiro aberta para editar se identifica como parceiro', async () => {
+    await abrir({
+      reuniao: reuniao({ oportunidade_id: null, oportunidade_numero: null, conta_razao_social: 'Contabilidade Beta LTDA' }),
+    });
+    expect(screen.getByText('Parceiro')).toBeInTheDocument();
+  });
+});
+
