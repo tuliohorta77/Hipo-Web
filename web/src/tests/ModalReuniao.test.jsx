@@ -614,3 +614,50 @@ describe('ModalReuniao — reunião fechada', () => {
     expect(screen.getByLabelText('Agendado por')).toBeDisabled();
   });
 });
+
+
+describe('ModalReuniao — aberto a partir da tarefa', () => {
+  it('com só o id, busca a reunião e abre o mesmo formulário', async () => {
+    mockGet.mockImplementation((url) => {
+      if (url === '/crm/agenda/reunioes/r1') return Promise.resolve({ data: reuniao() });
+      if (url === '/crm/agenda/tipos') return Promise.resolve({ data: TIPOS });
+      if (url === '/crm/contatos') return Promise.resolve({ data: { itens: CONTATOS } });
+      return Promise.resolve({ data: [] });
+    });
+    render(
+      <ModalReuniao aberto reuniaoId="r1" onFechar={vi.fn()} usuarios={USUARIOS} />
+    );
+    expect(await screen.findByText('AP - XPTO (Jakeline) - ON')).toBeInTheDocument();
+    expect(screen.getByLabelText('Duração')).toBeInTheDocument();
+    // O desfecho mora no mesmo formulário.
+    expect(screen.getByRole('radiogroup', { name: 'Desfecho da reunião' })).toBeInTheDocument();
+  });
+
+  it('o detalhe da tarefa aparece e vai no PATCH', async () => {
+    mockPatch.mockResolvedValue({ data: reuniao({ descricao: 'Levar proposta' }) });
+    await abrir({ reuniao: reuniao({ descricao: 'Levar contrato' }) });
+    const campo = screen.getByLabelText('Detalhe da tarefa');
+    expect(campo.value).toBe('Levar contrato');
+    fireEvent.change(campo, { target: { value: 'Levar proposta' } });
+    fireEvent.click(screen.getByText('Salvar reunião'));
+    await waitFor(() => expect(mockPatch).toHaveBeenCalled());
+    expect(mockPatch.mock.calls[0][1].descricao).toBe('Levar proposta');
+  });
+
+  it('realizada com próxima do tipo reunião põe a próxima na agenda', async () => {
+    mockPost.mockImplementation((url) => Promise.resolve({
+      data: url.endsWith('/desfecho') ? reuniao({ proxima_id: 'p1' }) : {},
+    }));
+    const onFechar = vi.fn();
+    await abrir({ reuniao: reuniao({ desfecho_sugerido: 'realizada' }), onFechar });
+    fireEvent.change(screen.getByLabelText('Próxima: Título'), { target: { value: 'Fechamento' } });
+    fireEvent.change(screen.getByLabelText('Próxima: Tipo'), { target: { value: 'reuniao' } });
+    fireEvent.change(screen.getByLabelText('Próxima: Responsável'), { target: { value: 'u1' } });
+    fireEvent.click(screen.getByText('Registrar realizada'));
+    await waitFor(() => expect(mockPost).toHaveBeenCalledWith(
+      '/crm/agenda/reunioes/de-tarefa/p1', { modalidade: 'online' },
+    ));
+    await waitFor(() => expect(onFechar).toHaveBeenCalled());
+  });
+});
+

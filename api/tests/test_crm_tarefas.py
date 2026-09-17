@@ -526,6 +526,21 @@ class TestKanban:
         assert pagina["quantidade"] == 0
         assert pagina["itens"] == []
 
+    async def test_concluir_devolve_o_id_da_proxima(self, db_conn, client, cenario):
+        h, o, u = cenario["headers"], cenario["opp"]["id"], cenario["usuario_id"]
+        t = await nova_tarefa(client, h, o, u)
+        resp = await client.post(
+            f"/crm/tarefas/{t['id']}/concluir",
+            json={"proxima": proxima(u)}, headers=h,
+        )
+        assert resp.status_code == 200, resp.text
+        corpo = resp.json()
+        assert corpo["proxima_id"]
+        nova = (await client.get(f"/crm/tarefas/{corpo['proxima_id']}", headers=h)).json()
+        assert nova["tarefa_anterior_id"] == t["id"]
+        # Listas não carregam o campo: ele só existe na resposta da conclusão.
+        assert nova["proxima_id"] is None
+
     async def test_coluna_com_situacao_invalida_e_422(self, db_conn, client, cenario):
         resp = await client.get(
             "/crm/tarefas/kanban/coluna?situacao=cancelada", headers=cenario["headers"]

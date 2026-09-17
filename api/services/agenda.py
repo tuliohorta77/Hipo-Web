@@ -58,7 +58,20 @@ __all__ = [
     "antecedencia_horas", "desfecho_pelo_relogio", "sugestao_de_desfecho",
     "desfecho_efetivo",
     "pendente_de_desfecho", "validar_desfecho", "encerra_a_reuniao",
+    "TIPOS_AGENDAVEIS", "eh_agendavel",
 ]
+
+# Os tipos de tarefa que SÃO compromisso com hora marcada e, por isso,
+# vivem na agenda. Ligação, e-mail e WhatsApp não ocupam slot nem geram
+# convite. Uma constante só, lida pelo router da agenda (que recusa pôr
+# outro tipo na grade) e pelo de tarefas (que recusa fechar uma reunião
+# pela porta de tarefa comum) — duas listas divergiriam no primeiro tipo
+# novo.
+TIPOS_AGENDAVEIS = ("reuniao", "visita")
+
+
+def eh_agendavel(tipo: str | None) -> bool:
+    return tipo in TIPOS_AGENDAVEIS
 
 # Teto de convidados externos numa reunião. Não é limite do Google (que
 # aceita centenas): é o ponto a partir do qual isto deixou de ser uma

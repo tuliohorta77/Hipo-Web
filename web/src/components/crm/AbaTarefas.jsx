@@ -26,10 +26,15 @@
 // ao clicar. Botões em toda linha devolveriam o peso visual que a caixa
 // tinha — e a maioria das linhas é histórico, onde não há o que fazer.
 //
-// ── Por que nada abre modal ──────────────────────────────────────────
-// Esta aba vive DENTRO do modal da oportunidade. Modal sobre modal empilha
-// z-index, rouba foco e faz o Esc fechar os dois, perdendo o formulário em
-// edição — a mesma razão que fez o EntityPicker virar popover.
+// ── Por que quase nada abre modal ────────────────────────────────────
+// Esta aba vive DENTRO do modal da oportunidade. Criar, concluir e editar
+// tarefa acontecem aqui mesmo, inline.
+//
+// A exceção é a REUNIÃO. Ela tem formulário próprio (tipo, duração, convite,
+// quem agendou) e ele é o mesmo da Agenda: reescrevê-lo inline daria à
+// mesma reunião duas caras — o defeito que existia, com a Agenda
+// perguntando "o que aconteceu?" e esta aba oferecendo Concluir/Cancelar.
+// O ModalReuniao abre no nível 3 da pilha, e o Esc fecha só ele.
 
 import { useCallback, useEffect, useState } from 'react';
 import { Plus, CircleDot } from 'lucide-react';
@@ -40,8 +45,12 @@ import Badge from '../ui/Badge';
 import Empty from '../ui/Empty';
 import AlertMessage from '../ui/AlertMessage';
 import AnexosTarefa from './AnexosTarefa';
+import ModalReuniao from './ModalReuniao';
 import {
-  ABERTAS, ICONE_TIPO, SITUACAO,
+  PainelReuniaoDaTarefa, SeloDesfecho, agendarProximaSeForReuniao,
+} from './DesfechoReuniao';
+import {
+  ABERTAS, ICONE_TIPO, SITUACAO, TIPOS_AGENDAVEIS,
   CamposTarefa, PainelAcoesTarefa,
   corpoDaTarefa, dataCompleta, dataCurta, exigeProximaTarefa, formIncompleto,
   mensagemDeErro, tarefaVazia,
@@ -52,6 +61,7 @@ import {
 function Evento({
   tarefa, ultima, aberta, expandida, usuarios, exigeProxima, ocupado,
   onAlternar, onConcluir, onCancelar, onEditar, onAgendar,
+  onRegistrarDesfecho, onAbrirReuniao,
 }) {
   const [painel, setPainel] = useState(null);   // 'concluir' | 'cancelar' | 'editar'
 
@@ -85,7 +95,9 @@ function Evento({
         >
           <span className="flex items-baseline gap-2">
             <span className={`text-sm font-medium ${tom.texto}`}>
-              {tarefa.tipo_rotulo}
+              {tarefa.reuniao_tipo_sigla
+                ? `${tarefa.reuniao_tipo_sigla} · ${tarefa.tipo_rotulo}`
+                : tarefa.tipo_rotulo}
             </span>
             <span className={
               'text-sm truncate group-hover:underline ' +
@@ -99,7 +111,9 @@ function Evento({
               </span>
             )}
           </span>
-          <span className={`block text-xs ${tom.texto}`}>{tom.palavra}</span>
+          {tarefa.desfecho_efetivo
+            ? <span className="block mt-0.5"><SeloDesfecho tarefa={tarefa} /></span>
+            : <span className={`block text-xs ${tom.texto}`}>{tom.palavra}</span>}
         </button>
 
         {/* ── Drilldown ── */}
@@ -159,7 +173,20 @@ function Evento({
               Ações só em tarefa aberta. Tarefa fechada é histórico, e o
               backend recusa edição — mostrar o botão seria mentira.
             */}
-            {aberta && (
+            {aberta && tarefa.agendavel && onRegistrarDesfecho && (
+              <PainelReuniaoDaTarefa
+                tarefa={tarefa}
+                painel={painel}
+                setPainel={setPainel}
+                usuarios={usuarios}
+                ocupado={ocupado}
+                onRegistrarDesfecho={onRegistrarDesfecho}
+                onAbrirReuniao={onAbrirReuniao}
+                onEditar={onEditar}
+                onAgendar={onAgendar}
+              />
+            )}
+            {aberta && !(tarefa.agendavel && onRegistrarDesfecho) && (
               <PainelAcoesTarefa
                 tarefa={tarefa}
                 painel={painel}
@@ -201,6 +228,7 @@ export default function AbaTarefas({ oportunidade, parceiro, onMudou }) {
   const [criando, setCriando] = useState(false);
   const [nova, setNova] = useState(() => tarefaVazia());
   const [expandida, setExpandida] = useState(null);
+  const [reuniaoAberta, setReuniaoAberta] = useState(null);
 
   const ehParceiro = Boolean(parceiro);
   const alvo = ehParceiro ? parceiro : oportunidade;
@@ -278,21 +306,85 @@ export default function AbaTarefas({ oportunidade, parceiro, onMudou }) {
     }
   }, [carregar, onMudou]);
 
-  const criar = () => mutar(
-    () => api.post('/crm/tarefas', { ...filtro, ...corpoDaTarefa(nova) }),
-    'Não foi possível criar a tarefa.',
-  ).then((ok) => {
-    if (ok) { setNova(tarefaVazia()); setCriando(false); }
-    return ok;
-  });
+  const novaEhReuniao = TIPOS_AGENDAVEIS.includes(nova.tipo);
 
-  const concluir = (tarefa, resultado, proxima) => mutar(
-    () => api.post(`/crm/tarefas/${tarefa.id}/concluir`, {
-      resultado: resultado.trim() || null,
-      proxima: proxima ? corpoDaTarefa(proxima) : null,
-    }),
-    'Não foi possível concluir a tarefa.',
-  );
+  /*
+    TODA REUNIÃO NASCE NA AGENDA.
+
+    Reunião ou visita criada aqui vai direto pelo POST da agenda, que cria a
+    tarefa e a reunião na mesma transação e recusa horário ocupado ANTES de
+    gravar qualquer coisa. Criar a tarefa e depois tentar agendar deixaria,
+    no primeiro conflito, uma reunião fora da grade. Em seguida o formulário
+    completo abre, para escolher o tipo (DG, AP...) e quem recebe o convite.
+  */
+  const criar = async () => {
+    const corpo = corpoDaTarefa(nova);
+    let criada = null;
+    const ok = await mutar(
+      async () => {
+        if (novaEhReuniao) {
+          ({ data: criada } = await api.post('/crm/agenda/reunioes', {
+            ...filtro,
+            anfitriao_id: corpo.responsavel_id,
+            inicio: corpo.prazo,
+            titulo: corpo.titulo,
+            descricao: corpo.descricao,
+            modalidade: corpo.tipo === 'visita' ? 'presencial' : 'online',
+          }));
+        } else {
+          await api.post('/crm/tarefas', { ...filtro, ...corpo });
+        }
+      },
+      novaEhReuniao
+        ? 'Não foi possível marcar a reunião.'
+        : 'Não foi possível criar a tarefa.',
+    );
+    if (ok) {
+      setNova(tarefaVazia());
+      setCriando(false);
+      if (criada?.id) setReuniaoAberta(criada.id);
+    }
+    return ok;
+  };
+
+  const avisarSeProximaNaoAgendou = async (proxima, resposta) => {
+    const problema = await agendarProximaSeForReuniao(proxima, resposta?.proxima_id);
+    if (problema) {
+      setErro(problema);
+      await carregar();
+    }
+  };
+
+  const concluir = async (tarefa, resultado, proxima) => {
+    const corpoProxima = proxima ? corpoDaTarefa(proxima) : null;
+    let resposta = null;
+    const ok = await mutar(
+      async () => {
+        ({ data: resposta } = await api.post(`/crm/tarefas/${tarefa.id}/concluir`, {
+          resultado: resultado.trim() || null,
+          proxima: corpoProxima,
+        }));
+      },
+      'Não foi possível concluir a tarefa.',
+    );
+    if (ok) await avisarSeProximaNaoAgendou(corpoProxima, resposta);
+    return ok;
+  };
+
+  // Reunião e visita: a mesma pergunta da Agenda, pelo mesmo endpoint.
+  const registrarDesfecho = async (tarefa, corpo) => {
+    let resposta = null;
+    const ok = await mutar(
+      async () => {
+        ({ data: resposta } = await api.post(
+          `/crm/agenda/tarefas/${tarefa.id}/desfecho`, corpo,
+        ));
+      },
+      'Não foi possível registrar o desfecho da reunião.',
+    );
+    if (ok) await avisarSeProximaNaoAgendou(corpo.proxima, resposta);
+    return ok;
+  };
 
   const cancelar = (tarefa, motivo) => mutar(
     () => api.post(`/crm/tarefas/${tarefa.id}/cancelar`, {
@@ -351,7 +443,13 @@ export default function AbaTarefas({ oportunidade, parceiro, onMudou }) {
       {/* ── Criação inline. Nunca modal: esta aba já vive dentro de um. ── */}
       {criando && (
         <div className="border border-hipo-border rounded-lg p-3 space-y-3 bg-hipo-bg/40">
-          <CamposTarefa valor={nova} onChange={setNova} usuarios={usuarios} />
+          <CamposTarefa valor={nova} onChange={setNova} usuarios={usuarios} avisoAgenda={false} />
+          {novaEhReuniao && (
+            <p className="text-xs text-hipo-slate">
+              Reunião e visita entram direto na agenda. Depois de marcar, abre o
+              formulário da reunião para escolher o tipo e quem recebe o convite.
+            </p>
+          )}
           <div className="flex justify-end gap-2">
             <Button size="sm" variant="ghost" onClick={() => setCriando(false)}>
               Cancelar
@@ -360,7 +458,7 @@ export default function AbaTarefas({ oportunidade, parceiro, onMudou }) {
               size="sm" loading={ocupado} disabled={formIncompleto(nova)}
               onClick={criar}
             >
-              Criar tarefa
+              {novaEhReuniao ? 'Marcar na agenda' : 'Criar tarefa'}
             </Button>
           </div>
         </div>
@@ -398,9 +496,23 @@ export default function AbaTarefas({ oportunidade, parceiro, onMudou }) {
               onCancelar={cancelar}
               onEditar={editar}
               onAgendar={agendar}
+              onRegistrarDesfecho={registrarDesfecho}
+              onAbrirReuniao={setReuniaoAberta}
             />
           ))}
         </ol>
+      )}
+
+      {/* Montado só quando abre: fechado, não tem por que buscar tipos e usuário. */}
+      {reuniaoAberta && (
+      <ModalReuniao
+        aberto
+        nivel={3}
+        reuniaoId={reuniaoAberta}
+        usuarios={usuarios}
+        onSalvo={() => { carregar(); onMudou?.(); }}
+        onFechar={() => { setReuniaoAberta(null); carregar(); onMudou?.(); }}
+      />
       )}
     </div>
   );

@@ -27,8 +27,8 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  CalendarPlus, RefreshCw, AlertTriangle, CheckCircle2,
-  Mail, X, Plus, ExternalLink, ClipboardCheck,
+  CalendarPlus, RefreshCw, CheckCircle2,
+  Mail, X, Plus, ExternalLink,
 } from 'lucide-react';
 
 import api, { getUser } from '../../api';
@@ -39,13 +39,13 @@ import AlertMessage from '../ui/AlertMessage';
 import Input, { Select, Textarea } from '../ui/Input';
 import EntityPicker from '../EntityPicker';
 import {
-  DESFECHOS, DURACOES, DURACAO_PADRAO, MODALIDADES, POR_DESFECHO,
-  antecedenciaEmPalavras, mensagemDeErro, paraCampoLocal, paraIso,
+  DURACOES, DURACAO_PADRAO, MODALIDADES,
+  mensagemDeErro, paraCampoLocal, paraIso,
 } from './agendaComum';
 import {
-  CamposTarefa, corpoDaTarefa, dataCompleta, exigeProximaTarefa,
-  formIncompleto, tarefaVazia,
-} from './tarefaComum';
+  DesfechoRegistrado, PainelDesfecho, agendarProximaSeForReuniao,
+} from './DesfechoReuniao';
+import AnexosTarefa from './AnexosTarefa';
 
 function formVazio(usuarioPadrao = '') {
   return {
@@ -67,6 +67,7 @@ function formVazio(usuarioPadrao = '') {
     convidados: [],
     participantes: [],
     titulo: '',
+    descricao: '',
     observacoes: '',
   };
 }
@@ -86,6 +87,7 @@ function formDaReuniao(r) {
     convidados: r.convidados || [],
     participantes: (r.participantes || []).map((p) => p.usuario_id),
     titulo: r.titulo || '',
+    descricao: r.descricao || '',
     observacoes: r.observacoes || '',
   };
 }
@@ -219,232 +221,6 @@ function EstadoDoConvite({ reuniao, onSincronizar, ocupado }) {
   );
 }
 
-// ── O desfecho ───────────────────────────────────────────────────────
-
-/**
- * O que aconteceu com a reunião, depois de registrado.
- *
- * Mostra o EFETIVO, que pode não ter sido registrado por ninguém: quem
- * concluiu a tarefa pela aba de Tarefas fechou a reunião sem passar por
- * aqui, e o servidor deduz `realizada`. A tela diz qual dos dois é —
- * apresentar uma dedução com a mesma cara de um registro faria alguém
- * defender na reunião de segunda um número que ninguém afirmou.
- */
-function DesfechoRegistrado({ reuniao }) {
-  const d = POR_DESFECHO[reuniao.desfecho_efetivo];
-  if (!d) return null;
-  const Icone = d.Icone;
-  const deduzido = !reuniao.desfecho;
-  const antecedencia = antecedenciaEmPalavras(reuniao.desfecho_antecedencia_horas);
-
-  return (
-    <div className="border-t border-hipo-border pt-4">
-      <div className="flex flex-wrap items-center gap-2">
-        <Badge tone={d.tom}>
-          <Icone size={12} aria-hidden="true" />
-          {d.rotulo}
-        </Badge>
-        {deduzido ? (
-          <span className="text-xs text-hipo-slate">
-            deduzido do fechamento da tarefa — ninguém registrou pela agenda
-          </span>
-        ) : (
-          <span className="text-xs text-hipo-slate">
-            registrado por {reuniao.desfecho_por_nome || 'alguém'} em{' '}
-            {dataCompleta(reuniao.desfecho_em)}
-            {/*
-              A antecedência que o SERVIDOR gravou no instante do registro
-              — não a recalculada agora. É ela que responde, seis meses
-              depois, "esse no-show foi avisado com quanto tempo?".
-            */}
-            {antecedencia && ` · ${antecedencia}`}
-          </span>
-        )}
-      </div>
-      {reuniao.desfecho_observacao && (
-        <p className="mt-2 text-sm text-hipo-ink whitespace-pre-wrap">
-          {reuniao.desfecho_observacao}
-        </p>
-      )}
-    </div>
-  );
-}
-
-/**
- * Registrar o que aconteceu: realizada, cancelada ou no-show.
- *
- * ── Por que três botões e não "Cancelar reunião" ─────────────────────
- * A pergunta que a operação precisa responder não é "cancelo?", é "o que
- * aconteceu?" — e ela tem três respostas, não duas. Um botão de cancelar
- * ao lado de um de concluir deixaria o no-show sem porta, e ele é
- * justamente o número que dói.
- *
- * ── Por que a sugestão vem pronta do servidor ────────────────────────
- * A régua das 24h mora em `services/agenda`, e quem decide o que
- * pré-selecionar é ele (`desfecho_sugerido`). Recalcular aqui daria uma
- * segunda versão da mesma conta, e a que divergisse seria a que a pessoa
- * está olhando na hora de responder.
- *
- * A ANTECEDÊNCIA ao lado é calculada no navegador de propósito: ela muda a
- * cada minuto que o modal fica aberto, e é rótulo, não dado. O número que
- * vale fica gravado pelo servidor no instante do registro.
- */
-function PainelDesfecho({
-  reuniao, usuarios, ocupado, onRegistrar,
-}) {
-  const [escolha, setEscolha] = useState(reuniao.desfecho_sugerido || 'realizada');
-  const [observacao, setObservacao] = useState('');
-  const [proxima, setProxima] = useState(() => tarefaVazia(reuniao.anfitriao_id));
-
-  // Reunião é sempre de uma oportunidade — não existe reunião de parceiro
-  // na grade. Ainda assim a regra vem da função compartilhada, e não de um
-  // `STATUS_ABERTOS.includes(...)` escrito aqui: foi exatamente essa cópia
-  // que produziu o bug do formulário que não aparecia (ver `exigeProximaTarefa`).
-  //
-  // `outras_abertas` é o que conserta a esteira: a reunião É uma tarefa da
-  // oportunidade, e com outra ainda aberta fechá-la não deixa o negócio sem
-  // próximo passo. Sem isso, cada reunião concluída obrigava a criar mais
-  // uma tarefa e o número de abertas nunca voltava para um.
-  const exigeProxima = escolha === 'realizada'
-    && exigeProximaTarefa(
-      'oportunidade', reuniao.status_oportunidade, reuniao.outras_abertas,
-    );
-
-  const agora = Date.now();
-  const horas = (new Date(reuniao.inicio).getTime() - agora) / 3600000;
-  const antecedencia = antecedenciaEmPalavras(horas);
-
-  return (
-    <div className="border-t border-hipo-border pt-4 space-y-3">
-      <p className="flex items-center gap-1.5 text-sm font-medium text-hipo-ink">
-        <ClipboardCheck size={14} className="text-hipo-blue" />
-        O que aconteceu?
-      </p>
-
-      <div
-        role="radiogroup"
-        aria-label="Desfecho da reunião"
-        className="grid grid-cols-1 sm:grid-cols-3 gap-2"
-      >
-        {DESFECHOS.map((d) => {
-          const Icone = d.Icone;
-          const marcado = escolha === d.valor;
-          return (
-            <button
-              key={d.valor}
-              type="button"
-              role="radio"
-              aria-checked={marcado}
-              onClick={() => setEscolha(d.valor)}
-              className={
-                'text-left px-3 py-2 rounded-lg border transition-colors ' +
-                'focus:outline-none focus-visible:ring-2 focus-visible:ring-hipo-blue ' +
-                (marcado
-                  ? 'border-hipo-blue bg-hipo-blueSoft'
-                  : 'border-hipo-border hover:bg-hipo-bg')
-              }
-            >
-              <span className="flex items-center gap-1.5 text-sm font-medium text-hipo-ink">
-                <Icone size={14} aria-hidden="true" />
-                {d.rotulo}
-              </span>
-              <span className="block mt-0.5 text-[11px] leading-snug text-hipo-slate">
-                {d.ajuda}
-              </span>
-            </button>
-          );
-        })}
-      </div>
-
-      {/*
-        A régua das 24h escrita por extenso, e não deixada como conta de
-        cabeça. Quem lê "avisado 3h antes" entende num relance por que o
-        sistema propôs no-show — e discorda com conhecimento de causa, se
-        for o caso.
-      */}
-      {antecedencia && reuniao.desfecho_sugerido !== 'realizada' && (
-        <p className="text-xs text-hipo-slate">
-          A reunião foi {antecedencia === 'depois da hora marcada'
-            ? 'marcada para antes de agora'
-            : `avisada ${antecedencia}`}
-          {' '}— pela régua das 24h isso é{' '}
-          <strong className="font-medium text-hipo-ink">
-            {POR_DESFECHO[reuniao.desfecho_sugerido]?.rotulo?.toLowerCase()}
-          </strong>.
-        </p>
-      )}
-
-      <Textarea
-        id={`desfecho-obs-${reuniao.id}`}
-        label="O que aconteceu (opcional)"
-        rows={2}
-        value={observacao}
-        onChange={(e) => setObservacao(e.target.value)}
-        placeholder={escolha === 'realizada'
-          ? 'Gostaram do PCMSO, pediram proposta para 40 vidas'
-          : 'Cliente pediu para remarcar na semana que vem'}
-      />
-
-      {/*
-        Só "Realizada" conclui a tarefa, e é por isso que só ela exige a
-        próxima: concluir é dizer que o negócio ANDOU, e negócio que anda
-        tem próximo passo. Cancelar não é isso — mas aceita a próxima do
-        mesmo jeito, porque remarcar é o desfecho natural de um no-show.
-      */}
-      {exigeProxima ? (
-        <div className="space-y-2">
-          <p className="flex items-center gap-1.5 text-xs text-hipo-slate">
-            <AlertTriangle size={13} className="text-hipo-warning shrink-0" />
-            Toda reunião realizada exige a próxima. Se não há próximo passo,
-            finalize a oportunidade.
-          </p>
-          <CamposTarefa
-            valor={proxima}
-            onChange={setProxima}
-            usuarios={usuarios}
-            prefixo="Próxima: "
-            idBase={`proxima-reuniao-${reuniao.id}`}
-          />
-        </div>
-      ) : escolha === 'realizada' && reuniao.outras_abertas > 0 ? (
-        /*
-          Dizer POR QUE a próxima não está sendo pedida. Sem a frase, o
-          formulário pede às vezes e às vezes não, a diferença fica
-          invisível, e o usuário conclui que é bug.
-        */
-        <p className="text-xs text-hipo-slate">
-          Esta oportunidade já tem{' '}
-          {reuniao.outras_abertas === 1
-            ? 'outra tarefa em aberto'
-            : `outras ${reuniao.outras_abertas} tarefas em aberto`}
-          {' '}— não é preciso agendar a próxima.
-        </p>
-      ) : (
-        escolha !== 'realizada' && (
-          <p className="text-xs text-hipo-slate">
-            O evento sai da agenda de todo mundo e o Google avisa o cliente.
-            O horário volta a ficar livre.
-          </p>
-        )
-      )}
-
-      <div className="flex justify-end">
-        <Button
-          loading={ocupado}
-          disabled={exigeProxima && formIncompleto(proxima)}
-          onClick={() => onRegistrar({
-            desfecho: escolha,
-            observacao: observacao.trim() || null,
-            proxima: exigeProxima ? corpoDaTarefa(proxima) : null,
-          })}
-        >
-          Registrar {POR_DESFECHO[escolha]?.rotulo?.toLowerCase()}
-        </Button>
-      </div>
-    </div>
-  );
-}
-
 // ── Componente ───────────────────────────────────────────────────────
 
 export default function ModalReuniao({
@@ -460,10 +236,29 @@ export default function ModalReuniao({
   oportunidade = null,
   anfitriaoInicial = '',
   // Editar: a reunião existente. Presente = modo edição.
-  reuniao = null,
+  reuniao: reuniaoRecebida = null,
+  // Ou só o id dela — o caminho das telas de Tarefas, que conhecem a
+  // tarefa e não a reunião inteira. O modal busca e abre igual ao da
+  // Agenda: é o MESMO formulário, e é isso que faz a reunião ter uma cara
+  // só, venha de onde vier.
+  reuniaoId = null,
   usuarios = [],
 }) {
+  const [buscada, setBuscada] = useState(null);
+  const [aviso, setAviso] = useState(null);
+  useEffect(() => {
+    if (!aberto || !reuniaoId || reuniaoRecebida) { setBuscada(null); return; }
+    let vivo = true;
+    api.get(`/crm/agenda/reunioes/${reuniaoId}`)
+      .then(({ data }) => { if (vivo) setBuscada(data); })
+      .catch((err) => {
+        if (vivo) setErro(mensagemDeErro(err, 'Não foi possível abrir a reunião.'));
+      });
+    return () => { vivo = false; };
+  }, [aberto, reuniaoId, reuniaoRecebida]);
+  const reuniao = reuniaoRecebida || buscada;
   const editando = Boolean(reuniao);
+  const carregandoReuniao = Boolean(reuniaoId) && !reuniao;
 
   const [form, setForm] = useState(() => formVazio());
   const [tipos, setTipos] = useState([]);
@@ -482,6 +277,7 @@ export default function ModalReuniao({
   useEffect(() => {
     if (!aberto) return;
     setErro(null);
+    setAviso(null);
     if (reuniao) {
       setForm(formDaReuniao(reuniao));
     } else {
@@ -539,6 +335,7 @@ export default function ModalReuniao({
       participantes: form.participantes,
       observacoes: form.observacoes.trim() || null,
       titulo: form.titulo.trim() || null,
+      descricao: form.descricao.trim() || null,
       inicio: paraIso(form.inicio),
       anfitriao_id: form.anfitriao_id,
       // Em branco o servidor usa quem criou. Só chega null quando a lista
@@ -596,7 +393,18 @@ export default function ModalReuniao({
       ),
       'Não foi possível registrar o desfecho da reunião.',
     );
-    if (feita) onFechar();
+    if (!feita) return;
+    const problema = await agendarProximaSeForReuniao(
+      corpoDesfecho.proxima, feita.proxima_id,
+    );
+    if (problema) {
+      // O desfecho já está gravado; fechar esconderia o aviso de que a
+      // próxima reunião não entrou na grade.
+      setBuscada(feita);
+      setAviso(problema);
+      return;
+    }
+    onFechar();
   }
 
   function sincronizar() {
@@ -607,6 +415,19 @@ export default function ModalReuniao({
   }
 
   const onlineSemLink = form.modalidade === 'online';
+
+  // Aberto pelo id: até a reunião chegar não há o que desenhar — mostrar o
+  // formulário vazio de "Marcar reunião" nesse meio-tempo convidaria a
+  // criar uma segunda.
+  if (carregandoReuniao) {
+    return (
+      <Modal aberto={aberto} onFechar={onFechar} nivel={nivel} size="lg" titulo="Reunião">
+        {erro
+          ? <AlertMessage tipo="erro">{erro}</AlertMessage>
+          : <p className="py-8 text-center text-sm text-hipo-slate">Carregando reunião…</p>}
+      </Modal>
+    );
+  }
 
   return (
     <Modal
@@ -631,6 +452,7 @@ export default function ModalReuniao({
     >
       <div className="space-y-4">
         {erro && <AlertMessage tipo="erro">{erro}</AlertMessage>}
+        {aviso && <AlertMessage tipo="aviso">{aviso}</AlertMessage>}
 
         {editando && (
           <EstadoDoConvite
@@ -871,6 +693,21 @@ export default function ModalReuniao({
             onChange={set('titulo')}
             placeholder="em branco, usamos o rótulo da grade"
           />
+          {/*
+            O detalhe da TAREFA. A tela de Tarefas mostra este texto; sem
+            ele aqui, a mesma reunião tinha um texto num lado e não no
+            outro. Observações são da reunião; o detalhe é o que aparece na
+            linha do tempo da negociação.
+          */}
+          <Textarea
+            id="reuniao-descricao"
+            label="Detalhe da tarefa"
+            rows={2}
+            value={form.descricao}
+            disabled={fechada}
+            onChange={set('descricao')}
+            placeholder="Contexto que aparece na tarefa e na linha do tempo"
+          />
           <Textarea
             id="reuniao-observacoes"
             label="Observações"
@@ -881,6 +718,22 @@ export default function ModalReuniao({
             placeholder="O que precisa levar, o que já foi combinado"
           />
         </div>
+
+        {/*
+          Os anexos são da tarefa, e a tela de Tarefas sempre os mostrou. A
+          Agenda não — e o print da confirmação do cliente sumia dependendo
+          de por onde a reunião era aberta.
+        */}
+        {editando && (
+          <AnexosTarefa
+            tarefa={{
+              id: reuniao.tarefa_id,
+              concluida_em: reuniao.concluida_em,
+              cancelada_em: reuniao.cancelada_em,
+            }}
+            nivelLightbox={3}
+          />
+        )}
 
         {/* ── O desfecho ── */}
         {editando && (

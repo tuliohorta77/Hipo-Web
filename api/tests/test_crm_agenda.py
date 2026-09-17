@@ -594,9 +594,10 @@ class TestConflito:
         h, opp, uid = cenario["headers"], cenario["oportunidade"]["id"], cenario["usuario_id"]
         r = await nova_reuniao(client, h, opp, uid)
         concluir = await client.post(
-            f"/crm/tarefas/{r['tarefa_id']}/concluir",
+            f"/crm/agenda/reunioes/{r['id']}/desfecho",
             json={
-                "resultado": "aconteceu",
+                "desfecho": "realizada",
+                "observacao": "aconteceu",
                 "proxima": {
                     "tipo": "ligacao", "titulo": "Retomar",
                     "responsavel_id": uid,
@@ -819,9 +820,9 @@ class TestEditar:
         h, opp, uid = cenario["headers"], cenario["oportunidade"]["id"], cenario["usuario_id"]
         r = await nova_reuniao(client, h, opp, uid)
         await client.post(
-            f"/crm/tarefas/{r['tarefa_id']}/concluir",
+            f"/crm/agenda/reunioes/{r['id']}/desfecho",
             json={
-                "resultado": "ok",
+                "desfecho": "realizada",
                 "proxima": {
                     "tipo": "ligacao", "titulo": "Retomar",
                     "responsavel_id": uid, "prazo": as_horas(proxima_segunda(2), 9),
@@ -881,12 +882,11 @@ class TestCancelar:
         )
         assert resp.status_code == 422
 
-    async def test_cancelar_a_tarefa_por_fora_nao_quebra(self, cenario, client):
+    async def test_rota_de_tarefa_nao_cancela_reuniao_da_agenda(self, cenario, client):
         """
-        A tela de gestão e a aba da oportunidade cancelam pela rota de
-        tarefa, que chama `remover_evento_da_tarefa`. Com o Google
-        desligado a chamada é inócua — o que este teste trava é que ela não
-        estoure e derrube o cancelamento.
+        Regressão: a tela de Tarefas cancelava a reunião sem perguntar se
+        foi cancelamento com aviso ou no-show, e o relógio da hora do clique
+        decidia. Agora a rota de tarefa recusa e aponta para o desfecho.
         """
         h, opp, uid = cenario["headers"], cenario["oportunidade"]["id"], cenario["usuario_id"]
         r = await nova_reuniao(client, h, opp, uid)
@@ -894,9 +894,10 @@ class TestCancelar:
             f"/crm/tarefas/{r['tarefa_id']}/cancelar",
             json={"motivo": "duplicada"}, headers=h,
         )
-        assert resp.status_code == 200, resp.text
+        assert resp.status_code == 422
+        assert "No-show" in resp.json()["detail"]
         depois = (await client.get(f"/crm/agenda/reunioes/{r['id']}", headers=h)).json()
-        assert depois["situacao"] == "cancelada"
+        assert depois["situacao"] != "cancelada"
 
 
 # ── A grade da semana ────────────────────────────────────────────────
@@ -1465,7 +1466,7 @@ class TestDesfecho:
             "SELECT motivo_cancelamento FROM tarefas WHERE id = $1", r["tarefa_id"]
         ) == "No-show"
 
-    async def test_fechada_por_outra_tela_deduz_o_desfecho(self, cenario, client):
+    async def test_fechada_por_outra_tela_deduz_o_desfecho(self, cenario, client, db_conn):
         """
         A aba de Tarefas e a tela de gestão não conhecem a agenda. Sem a
         dedução, uma reunião que comprovadamente aconteceu ficaria pendente
@@ -1473,9 +1474,11 @@ class TestDesfecho:
         """
         h, opp, uid = cenario["headers"], cenario["oportunidade"]["id"], cenario["usuario_id"]
         r = await nova_reuniao(client, h, opp, uid)
-        await client.post(
-            f"/crm/tarefas/{r['tarefa_id']}/concluir",
-            json={"resultado": "ok", "proxima": proxima_de(uid)}, headers=h,
+        # Hoje a rota de tarefa recusa fechar reunião da agenda; o caso que
+        # sobra é o HISTÓRICO, fechado antes dessa trava. Simulado no banco.
+        await db_conn.execute(
+            "UPDATE tarefas SET concluida_em = NOW() WHERE id = $1",
+            UUID(r["tarefa_id"]),
         )
         depois = (await client.get(f"/crm/agenda/reunioes/{r['id']}", headers=h)).json()
         assert depois["desfecho"] is None          # ninguém registrou
@@ -1787,3 +1790,204 @@ class TestProdutividade:
             headers=cenario["headers"],
         )
         assert resp.status_code == 200
+
+
+# ── A reunião vista pela tarefa ──────────────────────────────────────
+#
+# Regressão do pedido: a mesma reunião aparecia de um jeito na Agenda e de
+# outro em Tarefas. Na tarefa não havia Realizada / Cancelada / No-show, a
+# edição de horário ignorava conflito e convite, e o cartão dizia
+# "cancelado" para um no-show.
+
+async def tarefa_solta(client, headers, opp_id, uid, tipo="reuniao", **extra):
+    """Reunião ou visita criada como TAREFA, sem passar pela agenda."""
+    corpo = {
+        "oportunidade_id": opp_id, "tipo": tipo, "titulo": "Reunião antiga",
+        "responsavel_id": uid, "prazo": as_horas(proxima_segunda(), 14),
+    }
+    corpo.update(extra)
+    resp = await client.post("/crm/tarefas", json=corpo, headers=headers)
+    assert resp.status_code == 201, resp.text
+    return resp.json()
+
+
+class TestReuniaoPelaTarefa:
+    async def test_concluir_pela_rota_de_tarefa_e_recusado(self, cenario, client):
+        h, opp, uid = cenario["headers"], cenario["oportunidade"]["id"], cenario["usuario_id"]
+        r = await nova_reuniao(client, h, opp, uid)
+        resp = await client.post(
+            f"/crm/tarefas/{r['tarefa_id']}/concluir",
+            json={"resultado": "ok", "proxima": proxima_de(uid)}, headers=h,
+        )
+        assert resp.status_code == 422
+        assert "Realizada" in resp.json()["detail"]
+
+    async def test_desfecho_pela_tarefa_na_agenda_e_o_mesmo_registro(self, cenario, client):
+        h, opp, uid = cenario["headers"], cenario["oportunidade"]["id"], cenario["usuario_id"]
+        r = await nova_reuniao(client, h, opp, uid)
+        resp = await client.post(
+            f"/crm/agenda/tarefas/{r['tarefa_id']}/desfecho",
+            json={"desfecho": "no_show", "observacao": "não apareceu"}, headers=h,
+        )
+        assert resp.status_code == 200, resp.text
+        corpo = resp.json()
+        assert corpo["id"] == r["id"]
+        assert corpo["desfecho"] == "no_show"
+        assert corpo["situacao"] == "cancelada"
+
+        tarefa = (await client.get(f"/crm/tarefas/{r['tarefa_id']}", headers=h)).json()
+        assert tarefa["desfecho_efetivo"] == "no_show"
+        assert tarefa["desfecho_rotulo"] == "No-show"
+
+    async def test_tarefa_fora_da_agenda_ganha_o_registro_sem_convite(
+        self, cenario, client, db_conn,
+    ):
+        h, opp, uid = cenario["headers"], cenario["oportunidade"]["id"], cenario["usuario_id"]
+        t = await tarefa_solta(client, h, opp, uid, tipo="visita")
+        assert t["reuniao_id"] is None
+        assert t["agendavel"] is True
+        assert t["desfecho_sugerido"] == "cancelada"   # dias à frente
+
+        resp = await client.post(
+            f"/crm/agenda/tarefas/{t['id']}/desfecho",
+            json={"desfecho": "cancelada"}, headers=h,
+        )
+        assert resp.status_code == 200, resp.text
+        corpo = resp.json()
+        assert corpo["tarefa_id"] == t["id"]
+        assert corpo["desfecho"] == "cancelada"
+        assert corpo["modalidade"] == "presencial"
+        assert corpo["google_event_id"] is None
+        linha = await db_conn.fetchrow(
+            "SELECT agendado_por, google_erro FROM reunioes WHERE tarefa_id = $1",
+            UUID(t["id"]),
+        )
+        assert str(linha["agendado_por"]) == uid
+        # Não tentou sincronizar: nada de erro de convite para algo desmarcado.
+        assert linha["google_erro"] is None
+
+    async def test_validacao_que_falha_nao_deixa_registro_para_tras(
+        self, cenario, client, db_conn,
+    ):
+        """
+        Realizada na ÚLTIMA tarefa aberta exige a próxima. Sem ela, 422 — e
+        a tarefa continua fora da agenda, como estava.
+        """
+        h, opp, uid = cenario["headers"], cenario["oportunidade"]["id"], cenario["usuario_id"]
+        t = await tarefa_solta(client, h, opp, uid)
+        resp = await client.post(
+            f"/crm/agenda/tarefas/{t['id']}/desfecho",
+            json={"desfecho": "realizada"}, headers=h,
+        )
+        assert resp.status_code == 422
+        assert await db_conn.fetchval(
+            "SELECT count(*) FROM reunioes WHERE tarefa_id = $1", UUID(t["id"])
+        ) == 0
+
+    async def test_realizada_devolve_o_id_da_proxima(self, cenario, client):
+        h, opp, uid = cenario["headers"], cenario["oportunidade"]["id"], cenario["usuario_id"]
+        t = await tarefa_solta(client, h, opp, uid)
+        resp = await client.post(
+            f"/crm/agenda/tarefas/{t['id']}/desfecho",
+            json={"desfecho": "realizada", "proxima": proxima_de(uid)}, headers=h,
+        )
+        assert resp.status_code == 200, resp.text
+        proxima_id = resp.json()["proxima_id"]
+        assert proxima_id
+        nova = (await client.get(f"/crm/tarefas/{proxima_id}", headers=h)).json()
+        assert nova["tarefa_anterior_id"] == t["id"]
+
+    async def test_tarefa_que_nao_e_reuniao_nao_tem_desfecho(self, cenario, client):
+        h, opp, uid = cenario["headers"], cenario["oportunidade"]["id"], cenario["usuario_id"]
+        t = await tarefa_solta(client, h, opp, uid, tipo="ligacao")
+        assert t["agendavel"] is False
+        assert t["desfecho_sugerido"] is None
+        resp = await client.post(
+            f"/crm/agenda/tarefas/{t['id']}/desfecho",
+            json={"desfecho": "realizada"}, headers=h,
+        )
+        assert resp.status_code == 422
+
+    async def test_desfecho_duas_vezes_e_recusado(self, cenario, client):
+        h, opp, uid = cenario["headers"], cenario["oportunidade"]["id"], cenario["usuario_id"]
+        t = await tarefa_solta(client, h, opp, uid)
+        url = f"/crm/agenda/tarefas/{t['id']}/desfecho"
+        assert (await client.post(url, json={"desfecho": "cancelada"}, headers=h)).status_code == 200
+        segunda = await client.post(url, json={"desfecho": "no_show"}, headers=h)
+        assert segunda.status_code == 422
+
+    async def test_tarefa_mostra_a_sigla_do_tipo_da_reuniao(self, cenario, client):
+        h, opp, uid = cenario["headers"], cenario["oportunidade"]["id"], cenario["usuario_id"]
+        r = await nova_reuniao(client, h, opp, uid, tipo_id=cenario["tipo"]["id"])
+        tarefa = (await client.get(f"/crm/tarefas/{r['tarefa_id']}", headers=h)).json()
+        assert tarefa["reuniao_tipo_sigla"] == "CF"
+        assert tarefa["reuniao_duracao_min"] == r["duracao_min"]
+
+
+class TestEditarReuniaoPelaTarefa:
+    async def test_reagendar_pela_tarefa_checa_conflito(self, cenario, client):
+        """
+        Regressão: o PATCH da tarefa gravava o novo prazo direto, e a grade
+        ficava com duas reuniões do mesmo anfitrião no mesmo horário.
+        """
+        h, opp, uid = cenario["headers"], cenario["oportunidade"]["id"], cenario["usuario_id"]
+        await nova_reuniao(client, h, opp, uid, inicio=as_horas(proxima_segunda(), 10))
+        r = await nova_reuniao(client, h, opp, uid, inicio=as_horas(proxima_segunda(), 15))
+        resp = await client.patch(
+            f"/crm/tarefas/{r['tarefa_id']}",
+            json={"prazo": as_horas(proxima_segunda(), 10)}, headers=h,
+        )
+        assert resp.status_code == 409
+
+    async def test_reagendar_pela_tarefa_move_a_reuniao(self, cenario, client):
+        h, opp, uid = cenario["headers"], cenario["oportunidade"]["id"], cenario["usuario_id"]
+        r = await nova_reuniao(client, h, opp, uid)
+        novo = as_horas(proxima_segunda(), 16)
+        resp = await client.patch(
+            f"/crm/tarefas/{r['tarefa_id']}",
+            json={"prazo": novo, "descricao": "levar proposta"}, headers=h,
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["descricao"] == "levar proposta"
+        reuniao = (await client.get(f"/crm/agenda/reunioes/{r['id']}", headers=h)).json()
+        assert datetime.fromisoformat(reuniao["inicio"]) == datetime.fromisoformat(novo)
+
+    async def test_fim_de_semana_pela_tarefa_e_recusado(self, cenario, client):
+        h, opp, uid = cenario["headers"], cenario["oportunidade"]["id"], cenario["usuario_id"]
+        r = await nova_reuniao(client, h, opp, uid)
+        sabado = proxima_segunda() + timedelta(days=5)
+        resp = await client.patch(
+            f"/crm/tarefas/{r['tarefa_id']}",
+            json={"prazo": as_horas(sabado, 10)}, headers=h,
+        )
+        assert resp.status_code == 422
+
+    async def test_nao_troca_para_tipo_fora_da_agenda(self, cenario, client):
+        h, opp, uid = cenario["headers"], cenario["oportunidade"]["id"], cenario["usuario_id"]
+        r = await nova_reuniao(client, h, opp, uid)
+        resp = await client.patch(
+            f"/crm/tarefas/{r['tarefa_id']}", json={"tipo": "ligacao"}, headers=h,
+        )
+        assert resp.status_code == 422
+
+    async def test_descricao_da_tarefa_edita_pela_agenda(self, cenario, client):
+        h, opp, uid = cenario["headers"], cenario["oportunidade"]["id"], cenario["usuario_id"]
+        r = await nova_reuniao(client, h, opp, uid)
+        resp = await client.patch(
+            f"/crm/agenda/reunioes/{r['id']}",
+            json={"descricao": "  confirmar 40 vidas  "}, headers=h,
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["descricao"] == "confirmar 40 vidas"
+        tarefa = (await client.get(f"/crm/tarefas/{r['tarefa_id']}", headers=h)).json()
+        assert tarefa["descricao"] == "confirmar 40 vidas"
+
+    async def test_tarefa_comum_continua_editando_livre(self, cenario, client):
+        """Ligação não tem conflito de agenda: nada muda para ela."""
+        h, opp, uid = cenario["headers"], cenario["oportunidade"]["id"], cenario["usuario_id"]
+        t = await tarefa_solta(client, h, opp, uid, tipo="ligacao")
+        sabado = proxima_segunda() + timedelta(days=5)
+        resp = await client.patch(
+            f"/crm/tarefas/{t['id']}", json={"prazo": as_horas(sabado, 10)}, headers=h,
+        )
+        assert resp.status_code == 200, resp.text

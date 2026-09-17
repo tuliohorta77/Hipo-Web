@@ -252,7 +252,13 @@ export function formDaTarefa(tarefa) {
  * ajuste de paleta, e a que diverge é sempre a que o usuário está vendo.
  */
 
-export function CamposTarefa({ valor, onChange, usuarios, prefixo = '', idBase = 'tarefa' }) {
+export function CamposTarefa({
+  valor, onChange, usuarios, prefixo = '', idBase = 'tarefa',
+  // Diz, quando o tipo é reunião ou visita, que ela vai para a agenda. É o
+  // caso da PRÓXIMA tarefa marcada ao fechar outra. Quem já explica isso do
+  // seu jeito (a criação na aba) ou não agenda ao salvar (a edição) desliga.
+  avisoAgenda = true,
+}) {
   const set = (campo) => (e) => onChange({ ...valor, [campo]: e.target.value });
 
   /*
@@ -313,6 +319,13 @@ export function CamposTarefa({ valor, onChange, usuarios, prefixo = '', idBase =
         <option value="">— selecione —</option>
         {usuarios.map((u) => <option key={u.id} value={u.id}>{u.nome}</option>)}
       </Select>
+
+      {avisoAgenda && TIPOS_AGENDAVEIS.includes(valor.tipo) && (
+        <p className="md:col-span-2 text-xs text-hipo-slate">
+          Reunião e visita entram na agenda ao salvar — o horário precisa estar
+          livre para o responsável, em dia útil.
+        </p>
+      )}
 
       <div className="md:col-span-2">
         <Textarea
@@ -559,6 +572,7 @@ export function PainelAcoesTarefa({
         onChange={setEdicao}
         usuarios={usuarios}
         idBase={`edicao-${tarefa.id}`}
+        avisoAgenda={false}
       />
       <div className="flex justify-end gap-2">
         <Button size="sm" variant="ghost" onClick={() => setPainel(null)}>

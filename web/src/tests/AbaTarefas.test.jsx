@@ -18,6 +18,8 @@ vi.mock('../api', () => ({
     post: (...a) => mockPost(...a),
     patch: (...a) => mockPatch(...a),
   },
+  // O formulário da reunião abre de dentro da aba e lê quem está na tela.
+  getUser: () => ({ id: 'u1', nome: 'Jakeline Santana' }),
 }));
 
 import AbaTarefas from '../components/crm/AbaTarefas';
@@ -440,3 +442,83 @@ describe('AbaTarefas — cancelar e editar', () => {
     expect(mockPatch.mock.calls[0][1].titulo).toBe('Ligar amanhã');
   });
 });
+
+
+describe('AbaTarefas — reunião tem a mesma cara da agenda', () => {
+  const REUNIAO = tarefa('9', {
+    tipo: 'reuniao', tipo_rotulo: 'Reunião', agendavel: true,
+    titulo: 'Apresentação na sede', reuniao_id: 'r9', reuniao_tipo_sigla: 'AP',
+    desfecho_sugerido: 'realizada', outras_abertas: 1, status_oportunidade: 'ativa',
+  });
+
+  it('reunião aberta pergunta o que aconteceu, sem Concluir nem Cancelar', async () => {
+    mockGet.mockImplementation(respostas({ ...LISTA, itens: [REUNIAO] }));
+    montar();
+    fireEvent.click(await screen.findByText('Apresentação na sede'));
+    expect(await screen.findByText('O que aconteceu?')).toBeInTheDocument();
+    expect(screen.queryByText('Concluir')).not.toBeInTheDocument();
+    expect(screen.queryByText('Cancelar')).not.toBeInTheDocument();
+    expect(screen.getByText('AP · Reunião')).toBeInTheDocument();
+  });
+
+  it('registrar no-show vai pelo endpoint de desfecho da tarefa', async () => {
+    mockGet.mockImplementation(respostas({ ...LISTA, itens: [REUNIAO] }));
+    mockPost.mockResolvedValue({ data: { id: 'r9', proxima_id: null } });
+    montar();
+    fireEvent.click(await screen.findByText('Apresentação na sede'));
+    fireEvent.click(await screen.findByText('O que aconteceu?'));
+    fireEvent.click(screen.getByRole('radio', { name: /No-show/ }));
+    fireEvent.click(screen.getByText('Registrar no-show'));
+    await waitFor(() => expect(mockPost).toHaveBeenCalledWith(
+      '/crm/agenda/tarefas/9/desfecho',
+      expect.objectContaining({ desfecho: 'no_show' }),
+    ));
+  });
+
+  it('reunião fechada mostra o desfecho, não "cancelado"', async () => {
+    const fechada = { ...REUNIAO, situacao: 'cancelada', desfecho_efetivo: 'no_show' };
+    mockGet.mockImplementation(respostas({ ...LISTA, itens: [fechada] }));
+    montar();
+    expect(await screen.findByText('No-show')).toBeInTheDocument();
+    expect(screen.queryByText('cancelado')).not.toBeInTheDocument();
+  });
+
+  it('nova tarefa do tipo reunião nasce na agenda', async () => {
+    mockPost.mockResolvedValue({ data: { id: 'r-nova' } });
+    montar();
+    await screen.findByText('Ligar de novo');
+    fireEvent.click(screen.getByText('Nova tarefa'));
+    fireEvent.change(await screen.findByLabelText('Título'), {
+      target: { value: 'Apresentação' },
+    });
+    fireEvent.change(screen.getByLabelText('Tipo'), { target: { value: 'reuniao' } });
+    fireEvent.change(screen.getByLabelText('Responsável'), { target: { value: 'u2' } });
+    fireEvent.click(screen.getByText('Marcar na agenda'));
+
+    await waitFor(() => expect(mockPost).toHaveBeenCalled());
+    const [url, corpo] = mockPost.mock.calls[0];
+    expect(url).toBe('/crm/agenda/reunioes');
+    expect(corpo).toMatchObject({
+      oportunidade_id: 'o1', anfitriao_id: 'u2', titulo: 'Apresentação', modalidade: 'online',
+    });
+    expect(corpo.inicio).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+  });
+
+  it('concluir com próxima do tipo reunião põe a próxima na agenda', async () => {
+    mockPost.mockImplementation((url) => Promise.resolve({
+      data: url.endsWith('/concluir') ? { id: '2', proxima_id: 'p-nova' } : {},
+    }));
+    montar();
+    fireEvent.click(await screen.findByText('Enviar proposta'));
+    fireEvent.click(await screen.findByLabelText('Concluir Enviar proposta'));
+    fireEvent.change(screen.getByLabelText('Próxima: Título'), { target: { value: 'Apresentar' } });
+    fireEvent.change(screen.getByLabelText('Próxima: Tipo'), { target: { value: 'reuniao' } });
+    fireEvent.change(screen.getByLabelText('Próxima: Responsável'), { target: { value: 'u1' } });
+    fireEvent.click(screen.getByText('Concluir tarefa'));
+
+    await waitFor(() => expect(mockPost).toHaveBeenCalledWith(
+      '/crm/agenda/reunioes/de-tarefa/p-nova', { modalidade: 'online' },
+    ));
+  });
+});
+

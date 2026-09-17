@@ -63,7 +63,11 @@ export default function AnexosTarefa({ tarefa, onMudou, nivelLightbox = 2 }) {
   const carregar = useCallback(async () => {
     setCarregando(true);
     try {
-      const { data } = await api.get(`/crm/tarefas/${tarefa.id}/anexos`);
+      const resposta = await api.get(`/crm/tarefas/${tarefa.id}/anexos`);
+      // Lista ou nada: uma resposta fora do formato não pode derrubar o
+      // modal inteiro em que a galeria está — agora ela vive também no
+      // formulário da reunião.
+      const data = Array.isArray(resposta?.data) ? resposta.data : [];
       setItens(data);
 
       // Só as imagens: o PDF mostra ícone e só precisa de URL no clique.

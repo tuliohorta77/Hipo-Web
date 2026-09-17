@@ -36,6 +36,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 from database import get_conn
 from routers.auth import usuario_atual
+from services import agenda as agenda_regras
 from services import tarefa as regras
 from services.tarefa import EstadoTarefa, TarefaInvalida
 
@@ -203,6 +204,28 @@ class TarefaOut(BaseModel):
     # a cobrar a próxima de toda tarefa — o comportamento que fazia a
     # oportunidade acumular tarefa aberta sem parar.
     outras_abertas: int = 0
+    # ── A reunião, vista da tarefa ──
+    # Reunião e visita são a MESMA coisa na agenda e aqui. Antes, a tela de
+    # Tarefas mostrava "Reunião · cancelado" para um no-show e oferecia
+    # Concluir/Cancelar sem perguntar o que aconteceu, enquanto a Agenda
+    # perguntava. Estes campos levam para a tarefa o que a agenda sabe, com a
+    # mesma conta de services/agenda — nenhuma das duas telas deduz nada.
+    #
+    # `reuniao_tipo_sigla`  DG, AP, FC... (None fora da agenda ou sem tipo)
+    # `desfecho_efetivo`    o que vale para contagem; só em tarefa na agenda
+    # `desfecho_rotulo`     "Realizada", "Cancelada", "No-show"
+    # `desfecho_sugerido`   o que o formulário pré-seleciona; só em reunião
+    #                       ou visita AINDA ABERTA, com ou sem agenda
+    agendavel: bool = False
+    reuniao_tipo_sigla: str | None = None
+    reuniao_duracao_min: int | None = None
+    desfecho_efetivo: str | None = None
+    desfecho_rotulo: str | None = None
+    desfecho_sugerido: str | None = None
+    # Só na resposta de POST /concluir: o id da próxima tarefa criada junto.
+    # A tela precisa dele para pôr na agenda a próxima que é uma reunião —
+    # e buscá-la depois pela corrente seria uma segunda ida ao banco.
+    proxima_id: UUID | None = None
     criado_em: datetime
 
 
@@ -261,6 +284,9 @@ _SELECT_BASE = """
            t.cancelada_em, t.motivo_cancelamento,
            t.tarefa_anterior_id, t.criado_em,
            rn.id AS reuniao_id,
+           rn.desfecho AS reuniao_desfecho,
+           rn.duracao_min AS reuniao_duracao_min,
+           trn.sigla AS reuniao_tipo_sigla,
            -- Quantas OUTRAS tarefas do mesmo alvo estão em aberto. A tela
            -- lê isto para saber, ANTES de abrir o formulário, se aquela
            -- conclusão vai exigir a próxima — a mesma conta que
@@ -285,6 +311,7 @@ _SELECT_BASE = """
       LEFT JOIN contas cp       ON cp.id = t.conta_id
       LEFT JOIN usuarios u      ON u.id = t.responsavel_id
       LEFT JOIN reunioes rn     ON rn.tarefa_id = t.id
+      LEFT JOIN tipos_reuniao trn ON trn.id = rn.tipo_id
 """
 
 # Os JOINs viraram LEFT na 006. Com INNER, toda tarefa de parceiro sumiria
@@ -310,6 +337,26 @@ def _linha(row, agora: datetime) -> dict:
     d["tipo_rotulo"] = regras.ROTULOS_TIPO.get(d["tipo"], d["tipo"])
     d["alvo"] = "oportunidade" if d["oportunidade_id"] is not None else "parceiro"
     d["alvo_rotulo"] = regras.ROTULOS_ALVO[d["alvo"]]
+
+    d["agendavel"] = agenda_regras.eh_agendavel(d["tipo"])
+    desfecho_registrado = d.pop("reuniao_desfecho", None)
+    if d["agendavel"]:
+        if d["reuniao_id"] is not None:
+            d["desfecho_efetivo"] = agenda_regras.desfecho_efetivo(
+                desfecho=desfecho_registrado,
+                concluida_em=d["concluida_em"],
+                cancelada_em=d["cancelada_em"],
+                inicio=d["prazo"],
+            )
+            d["desfecho_rotulo"] = agenda_regras.ROTULO_DESFECHO.get(
+                d["desfecho_efetivo"]
+            )
+        if d["situacao"] in regras.SITUACOES_ABERTAS:
+            d["desfecho_sugerido"] = agenda_regras.sugestao_de_desfecho(
+                d["prazo"],
+                d["reuniao_duracao_min"] or agenda_regras.DURACAO_PADRAO_MIN,
+                agora,
+            )
     return d
 
 
@@ -353,6 +400,18 @@ async def _estado_e_alvo(
         row["status_oportunidade"],
         row["oportunidade_id"],
         row["conta_id"],
+    )
+
+
+MSG_REUNIAO_PELO_DESFECHO = (
+    "Esta tarefa é uma reunião da agenda: registre o que aconteceu "
+    "(Realizada, Cancelada ou No-show) em vez de concluir ou cancelar."
+)
+
+
+async def _reuniao_da_tarefa(conn, tarefa_id: UUID) -> UUID | None:
+    return await conn.fetchval(
+        "SELECT id FROM reunioes WHERE tarefa_id = $1", tarefa_id
     )
 
 
@@ -1030,6 +1089,40 @@ async def editar(
     if not campos:
         return await _obter(conn, tarefa_id)
 
+    # ── Tarefa que está na agenda ──
+    # Horário, dono e título de uma reunião moram na tarefa, mas mudá-los
+    # tem consequência que a tarefa comum não tem: conflito com outra
+    # reunião do mesmo anfitrião e convite do Google a refazer. Editar por
+    # aqui gravava direto em `tarefas` — a grade mostrava duas reuniões
+    # sobrepostas e o cliente continuava com o convite do horário antigo.
+    # Agora esses três campos passam pela MESMA edição da agenda.
+    reuniao_id = await _reuniao_da_tarefa(conn, tarefa_id)
+    if reuniao_id is not None:
+        if "tipo" in campos and not agenda_regras.eh_agendavel(campos["tipo"]):
+            raise HTTPException(
+                422,
+                "Esta tarefa está na agenda: o tipo só pode ser Reunião ou "
+                "Visita. Para desmarcar, registre o desfecho como Cancelada.",
+            )
+        da_reuniao = {}
+        if campos.get("prazo") is not None:
+            da_reuniao["inicio"] = campos.pop("prazo")
+        if campos.get("responsavel_id") is not None:
+            da_reuniao["anfitriao_id"] = campos.pop("responsavel_id")
+        if campos.get("titulo") is not None:
+            da_reuniao["titulo"] = campos.pop("titulo")
+        if da_reuniao:
+            # Import local: crm_agenda importa deste módulo (ver cancelar).
+            from routers.crm_agenda import ReuniaoEditar
+            from routers.crm_agenda import editar as editar_reuniao
+            try:
+                edicao = ReuniaoEditar(**da_reuniao)
+            except ValueError as e:
+                raise HTTPException(422, str(e))
+            await editar_reuniao(reuniao_id, edicao, conn=conn, user=user)
+        if not campos:
+            return await _obter(conn, tarefa_id)
+
     if "responsavel_id" in campos and campos["responsavel_id"] is not None:
         if not await conn.fetchval(
             "SELECT 1 FROM usuarios WHERE id = $1 AND ativo", campos["responsavel_id"]
@@ -1078,6 +1171,11 @@ async def concluir(
     estado, status_opp, oportunidade_id, conta_id = await _estado_e_alvo(
         conn, tarefa_id
     )
+    # Reunião na agenda não se fecha por aqui: concluir não diz se ela
+    # aconteceu, e o relatório passava a contar como "realizada" uma
+    # dedução que ninguém afirmou. A porta é POST /crm/agenda/tarefas/{id}/desfecho.
+    if await _reuniao_da_tarefa(conn, tarefa_id) is not None:
+        raise HTTPException(422, MSG_REUNIAO_PELO_DESFECHO)
 
     if payload.proxima is not None:
         await validar_referencias(
@@ -1109,13 +1207,14 @@ async def concluir(
             """,
             tarefa_id, (payload.resultado or "").strip() or None,
         )
+        proxima_id = None
         if payload.proxima is not None:
-            await _inserir(
+            proxima_id = await _inserir(
                 conn, payload.proxima, oportunidade_id, conta_id,
                 user["id"], tarefa_id,
             )
 
-    return await _obter(conn, tarefa_id)
+    return {**await _obter(conn, tarefa_id), "proxima_id": proxima_id}
 
 
 @router.post("/{tarefa_id}/cancelar", response_model=TarefaOut)
@@ -1134,6 +1233,10 @@ async def cancelar(
         regras.validar_cancelamento(estado)
     except TarefaInvalida as e:
         raise HTTPException(422, str(e))
+    # Cancelar não diz se foi cancelamento com aviso ou no-show — e é o
+    # no-show o número que a operação precisa enxergar.
+    if await _reuniao_da_tarefa(conn, tarefa_id) is not None:
+        raise HTTPException(422, MSG_REUNIAO_PELO_DESFECHO)
 
     await conn.execute(
         """
@@ -1146,18 +1249,5 @@ async def cancelar(
         tarefa_id, (payload.motivo or "").strip() or None,
     )
 
-    # Se esta tarefa estava na agenda, o compromisso com o CLIENTE morre
-    # junto. Sem isto, a reunião sumiria do HIPO e continuaria de pé na
-    # agenda de todo mundo — e alguém entraria numa sala vazia.
-    #
-    # Import LOCAL, não no topo: crm_agenda importa deste módulo
-    # (`validar_referencias`, `_inserir`), e um import no topo aqui fecharia
-    # o ciclo. Mesmo recurso, pelo mesmo motivo, que routers/auth.py usa
-    # para `modulos_do_cargo`.
-    #
-    # Melhor-esforço: falha do Google não desfaz o cancelamento — ela vira
-    # `reunioes.google_erro` e a tela da agenda oferece tentar de novo.
-    from routers.crm_agenda import remover_evento_da_tarefa
-    await remover_evento_da_tarefa(conn, tarefa_id)
 
     return await _obter(conn, tarefa_id)

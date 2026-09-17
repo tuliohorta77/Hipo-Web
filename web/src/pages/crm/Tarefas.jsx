@@ -69,6 +69,9 @@ import ContaDetalhe from '../../components/crm/ContaDetalhe';
 import ModalDesfecho from '../../components/crm/ModalDesfecho';
 import AnexosTarefa from '../../components/crm/AnexosTarefa';
 import ModalReuniao from '../../components/crm/ModalReuniao';
+import {
+  PainelReuniaoDaTarefa, SeloDesfecho, agendarProximaSeForReuniao,
+} from '../../components/crm/DesfechoReuniao';
 import CarregarMais, {
   PAGINA_KANBAN, completarColuna, mesclarItens,
 } from '../../components/crm/CarregarMais';
@@ -115,7 +118,13 @@ function Cartao({ tarefa, onAbrir }) {
       >
         <span className="flex items-center gap-1.5">
           <Icone size={13} className={`shrink-0 ${tom.texto}`} aria-hidden="true" />
-          <span className={`text-xs font-medium ${tom.texto}`}>{tarefa.tipo_rotulo}</span>
+          <span className={`text-xs font-medium ${tom.texto}`}>
+            {tarefa.reuniao_tipo_sigla
+              ? `${tarefa.reuniao_tipo_sigla} · ${tarefa.tipo_rotulo}`
+              : tarefa.tipo_rotulo}
+          </span>
+          {/* Reunião fechada diz O QUE aconteceu: no-show não é "concluída". */}
+          <SeloDesfecho tarefa={tarefa} />
           <span className="ml-auto shrink-0 text-xs text-hipo-slate tabular-nums">
             {dataCurta(tarefa.prazo)}
           </span>
@@ -248,6 +257,8 @@ export default function Tarefas() {
   // página, e não no OportunidadeDetalhe, porque só a página sabe em que
   // nível da pilha o modal precisa abrir — aqui a oportunidade já é o 2.
   const [agendandoPara, setAgendandoPara] = useState(null);
+  // A reunião aberta no formulário completo, a partir do cartão da tarefa.
+  const [reuniaoAberta, setReuniaoAberta] = useState(null);
   const [contaAberta, setContaAberta] = useState(null);
   const [acaoSalvarConta, setAcaoSalvarConta] = useState(null);
   const [verticais, setVerticais] = useState([]);
@@ -413,13 +424,54 @@ export default function Tarefas() {
     }
   }, [carregar]);
 
-  const concluir = (tarefa, resultado, proxima) => mutar(
-    () => api.post(`/crm/tarefas/${tarefa.id}/concluir`, {
-      resultado: resultado.trim() || null,
-      proxima: proxima ? corpoDaTarefa(proxima) : null,
-    }),
-    'Não foi possível concluir a tarefa.',
-  );
+  /*
+    Depois de fechar uma tarefa, a próxima que é reunião ou visita vai para
+    a agenda — toda reunião nasce na agenda. Se não entrar (horário ocupado,
+    fim de semana), o fechamento continua valendo e o aviso sobe para a faixa
+    da tela, porque o cartão já fechou.
+  */
+  const avisarSeProximaNaoAgendou = async (proxima, resposta) => {
+    const problema = await agendarProximaSeForReuniao(proxima, resposta?.proxima_id);
+    if (problema) {
+      setErro(problema);
+      await carregar();
+    }
+  };
+
+  const concluir = async (tarefa, resultado, proxima) => {
+    const corpoProxima = proxima ? corpoDaTarefa(proxima) : null;
+    let resposta = null;
+    const ok = await mutar(
+      async () => {
+        ({ data: resposta } = await api.post(`/crm/tarefas/${tarefa.id}/concluir`, {
+          resultado: resultado.trim() || null,
+          proxima: corpoProxima,
+        }));
+      },
+      'Não foi possível concluir a tarefa.',
+    );
+    if (ok) await avisarSeProximaNaoAgendou(corpoProxima, resposta);
+    return ok;
+  };
+
+  /*
+    Reunião e visita não se concluem nem se cancelam: registra-se o que
+    aconteceu — a mesma pergunta, as mesmas três respostas e o mesmo
+    endpoint de regra da Agenda.
+  */
+  const registrarDesfecho = async (tarefa, corpo) => {
+    let resposta = null;
+    const ok = await mutar(
+      async () => {
+        ({ data: resposta } = await api.post(
+          `/crm/agenda/tarefas/${tarefa.id}/desfecho`, corpo,
+        ));
+      },
+      'Não foi possível registrar o desfecho da reunião.',
+    );
+    if (ok) await avisarSeProximaNaoAgendou(corpo.proxima, resposta);
+    return ok;
+  };
 
   const cancelar = (tarefa, motivo) => mutar(
     () => api.post(`/crm/tarefas/${tarefa.id}/cancelar`, {
@@ -798,12 +850,18 @@ export default function Tarefas() {
             <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1 text-xs">
               <div>
                 <dt className="inline text-hipo-slate">Tipo: </dt>
-                <dd className="inline text-hipo-ink">{aberta.tipo_rotulo}</dd>
+                <dd className="inline text-hipo-ink">
+                  {aberta.reuniao_tipo_sigla
+                    ? `${aberta.tipo_rotulo} · ${aberta.reuniao_tipo_sigla}`
+                    : aberta.tipo_rotulo}
+                  {aberta.reuniao_duracao_min ? ` · ${aberta.reuniao_duracao_min} min` : ''}
+                </dd>
               </div>
               <div>
                 <dt className="inline text-hipo-slate">Situação: </dt>
                 <dd className="inline text-hipo-ink">
-                  {(SITUACAO[aberta.situacao] || SITUACAO.cancelada).palavra}
+                  {aberta.desfecho_rotulo
+                    || (SITUACAO[aberta.situacao] || SITUACAO.cancelada).palavra}
                 </dd>
               </div>
               <div>
@@ -846,7 +904,19 @@ export default function Tarefas() {
               onMudou={recarregarTarefaAberta}
             />
 
-            {ABERTAS.includes(aberta.situacao) ? (
+            {ABERTAS.includes(aberta.situacao) && aberta.agendavel ? (
+              <PainelReuniaoDaTarefa
+                tarefa={aberta}
+                painel={painel}
+                setPainel={setPainel}
+                usuarios={usuarios}
+                ocupado={ocupado}
+                onRegistrarDesfecho={registrarDesfecho}
+                onAbrirReuniao={setReuniaoAberta}
+                onEditar={editar}
+                onAgendar={agendar}
+              />
+            ) : ABERTAS.includes(aberta.situacao) ? (
               <PainelAcoesTarefa
                 tarefa={aberta}
                 painel={painel}
@@ -983,6 +1053,21 @@ export default function Tarefas() {
         pareceria que o botão não faz nada — a mesma armadilha que o
         ModalDesfecho acima também precisa declarar.
       */}
+      {/*
+        ── A reunião da tarefa (nível 2) ──
+        O MESMO formulário da Agenda, aberto sobre o cartão da tarefa: tipo,
+        duração, convite, quem agendou e o desfecho. É o que faz a reunião
+        ter uma cara só, venha de onde vier.
+      */}
+      <ModalReuniao
+        aberto={Boolean(reuniaoAberta)}
+        nivel={2}
+        reuniaoId={reuniaoAberta}
+        onFechar={() => { setReuniaoAberta(null); carregar(); recarregarTarefaAberta(); }}
+        onSalvo={() => { carregar(); recarregarTarefaAberta(); }}
+        usuarios={usuarios}
+      />
+
       <ModalReuniao
         aberto={Boolean(agendandoPara)}
         nivel={3}

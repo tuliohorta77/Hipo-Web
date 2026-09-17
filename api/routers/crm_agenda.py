@@ -204,6 +204,10 @@ class ReuniaoEditar(BaseModel):
     anfitriao_id: UUID | None = None
     agendado_por: UUID | None = None
     titulo: str | None = Field(None, max_length=200)
+    # O detalhe da TAREFA. A tela de Tarefas mostra e edita este campo; a
+    # Agenda não mostrava — e quem abria a mesma reunião pelos dois lados
+    # via textos diferentes. Encaminhado para `tarefas.descricao`.
+    descricao: str | None = None
 
     @field_validator("modalidade")
     @classmethod
@@ -354,6 +358,9 @@ class ReuniaoOut(BaseModel):
     google_erro: str | None
 
     observacoes: str | None
+    # Só na resposta do registro de desfecho: o id da próxima tarefa criada
+    # junto. A tela usa para pôr na agenda a próxima que é uma reunião.
+    proxima_id: UUID | None = None
     criado_em: datetime
 
 
@@ -1473,7 +1480,7 @@ async def criar_de_tarefa(
     )
     if tarefa is None:
         raise HTTPException(404, "Tarefa não encontrada.")
-    if tarefa["tipo"] not in ("reuniao", "visita"):
+    if not regras.eh_agendavel(tarefa["tipo"]):
         raise HTTPException(
             422,
             "Só tarefa do tipo Reunião ou Visita entra na agenda. "
@@ -1621,6 +1628,8 @@ async def editar(
             da_tarefa["responsavel_id"] = campos["anfitriao_id"]
         if "titulo" in campos:
             da_tarefa["titulo"] = campos["titulo"]
+        if "descricao" in campos:
+            da_tarefa["descricao"] = (campos["descricao"] or "").strip() or None
         if da_tarefa:
             sets, params = [], []
             for chave, valor in da_tarefa.items():
@@ -1694,7 +1703,75 @@ async def registrar_desfecho(
     do mês passado mudaria depois de fechado.
     """
     atual = await _obter_row(conn, reuniao_id)
+    return await _registrar_desfecho(conn, dict(atual), payload, user)
 
+
+@router.post("/tarefas/{tarefa_id}/desfecho", response_model=ReuniaoOut)
+async def registrar_desfecho_da_tarefa(
+    tarefa_id: UUID,
+    payload: DesfechoIn,
+    conn=Depends(get_conn),
+    user=Depends(usuario_atual),
+):
+    """
+    A mesma pergunta — o que aconteceu? — feita a partir da TAREFA.
+
+    É a porta que as telas de Tarefas (a gestão e a aba da oportunidade) usam
+    para fechar reunião ou visita. Antes elas ofereciam Concluir e Cancelar,
+    e a reunião saía dali sem desfecho: um no-show virava "cancelada" pela
+    hora do clique, e uma reunião que nem aconteceu virava "realizada".
+
+    Dois casos, uma regra:
+
+      * tarefa na agenda   -> exatamente o mesmo registro de
+                              POST /reunioes/{id}/desfecho.
+      * tarefa fora dela   -> reunião ou visita criada antes de toda reunião
+                              nascer na agenda. Ganha o registro de reunião
+                              NA MESMA TRANSAÇÃO do desfecho, sem convite do
+                              Google: mandar convite de algo que já aconteceu
+                              (ou já foi desmarcado) só confundiria o cliente.
+                              Com o registro, ela entra no relatório de
+                              produtividade como qualquer outra.
+    """
+    reuniao_id = await conn.fetchval(
+        "SELECT id FROM reunioes WHERE tarefa_id = $1", tarefa_id
+    )
+    if reuniao_id is not None:
+        atual = await _obter_row(conn, reuniao_id)
+        return await _registrar_desfecho(conn, dict(atual), payload, user)
+
+    tarefa = await conn.fetchrow(
+        """
+        SELECT t.id AS tarefa_id, t.tipo, t.prazo AS inicio,
+               t.concluida_em, t.cancelada_em, t.criado_por,
+               t.oportunidade_id, t.conta_id AS alvo_conta_id,
+               o.status AS status_oportunidade
+          FROM tarefas t
+          LEFT JOIN oportunidades o ON o.id = t.oportunidade_id
+         WHERE t.id = $1
+        """,
+        tarefa_id,
+    )
+    if tarefa is None:
+        raise HTTPException(404, "Tarefa não encontrada.")
+    if not regras.eh_agendavel(tarefa["tipo"]):
+        raise HTTPException(
+            422,
+            "Só reunião ou visita tem desfecho. Conclua ou cancele a tarefa.",
+        )
+    atual = {**dict(tarefa), "id": None, "desfecho": None}
+    return await _registrar_desfecho(conn, atual, payload, user)
+
+
+async def _registrar_desfecho(conn, atual: dict, payload: DesfechoIn, user) -> dict:
+    """
+    O registro do desfecho, para as duas portas.
+
+    `atual["id"]` None quer dizer "tarefa sem registro de reunião": o
+    registro é criado dentro da mesma transação, e só se tudo passar — uma
+    validação que falha (a próxima que faltou, por exemplo) não pode deixar
+    para trás uma reunião sem desfecho que a grade passaria a mostrar.
+    """
     if atual["desfecho"] is not None:
         raise HTTPException(
             422,
@@ -1770,11 +1847,35 @@ async def registrar_desfecho(
                 """,
                 atual["tarefa_id"], observacao,
             )
+        proxima_id = None
         if payload.proxima is not None:
-            await _inserir(
+            proxima_id = await _inserir(
                 conn, payload.proxima,
                 atual["oportunidade_id"], atual["alvo_conta_id"],
                 user["id"], atual["tarefa_id"],
+            )
+        reuniao_id = atual["id"]
+        if reuniao_id is None:
+            # Dois cliques simultâneos na mesma tarefa: o segundo acharia o
+            # registro já criado pelo primeiro e bateria no UNIQUE com 500.
+            if await conn.fetchval(
+                "SELECT 1 FROM reunioes WHERE tarefa_id = $1", atual["tarefa_id"]
+            ):
+                raise HTTPException(409, "O desfecho desta reunião acabou de ser registrado.")
+            reuniao_id = await conn.fetchval(
+                """
+                INSERT INTO reunioes (
+                    tarefa_id, duracao_min, modalidade, criado_por, agendado_por
+                )
+                VALUES ($1, $2, $3, $4, $5)
+                RETURNING id
+                """,
+                atual["tarefa_id"], regras.DURACAO_PADRAO_MIN,
+                "presencial" if atual["tipo"] == "visita" else "online",
+                user["id"],
+                # O crédito do agendamento é de quem criou a tarefa, não de
+                # quem está registrando o desfecho agora.
+                atual["criado_por"] or user["id"],
             )
         await conn.execute(
             """
@@ -1795,7 +1896,7 @@ async def registrar_desfecho(
     # calendário do vendedor — que é onde ele reconstrói a semana.
     if encerra:
         await remover_evento_da_tarefa(conn, atual["tarefa_id"])
-    return await _obter(conn, reuniao_id)
+    return {**await _obter(conn, reuniao_id), "proxima_id": proxima_id}
 
 
 @router.post("/reunioes/{reuniao_id}/cancelar", response_model=ReuniaoOut)

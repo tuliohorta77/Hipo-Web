@@ -931,3 +931,75 @@ describe('Tarefas — drilldown da oportunidade', () => {
     expect(screen.queryByTestId('tab-dados')).not.toBeInTheDocument();
   });
 });
+
+
+describe('Tarefas — reunião tem a mesma cara da agenda', () => {
+  const REUNIAO = tarefa('7', {
+    situacao: 'hoje', tipo: 'reuniao', tipo_rotulo: 'Reunião', agendavel: true,
+    titulo: 'Apresentação AP', reuniao_id: 'r7', reuniao_tipo_sigla: 'AP',
+    reuniao_duracao_min: 45, desfecho_sugerido: 'realizada', outras_abertas: 2,
+  });
+  const comReuniao = COLUNAS.map((c) => (c.situacao === 'hoje'
+    ? { ...c, quantidade: 1, itens: [REUNIAO] } : c));
+
+  it('o cartão da reunião abre com "O que aconteceu?" e sem Concluir', async () => {
+    mockGet.mockImplementation(respostas(comReuniao));
+    montar();
+    fireEvent.click(await screen.findByText('Apresentação AP'));
+    expect(await screen.findByText('O que aconteceu?')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Concluir Apresentação AP')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Cancelar Apresentação AP')).not.toBeInTheDocument();
+    expect(screen.getByText(/Reunião · AP · 45 min/)).toBeInTheDocument();
+  });
+
+  it('registra o desfecho pelo endpoint da agenda', async () => {
+    mockGet.mockImplementation(respostas(comReuniao));
+    mockPost.mockResolvedValue({ data: { id: 'r7', proxima_id: null } });
+    montar();
+    fireEvent.click(await screen.findByText('Apresentação AP'));
+    fireEvent.click(await screen.findByText('O que aconteceu?'));
+    fireEvent.click(screen.getByRole('radio', { name: /Cancelada/ }));
+    fireEvent.click(screen.getByText('Registrar cancelada'));
+    await waitFor(() => expect(mockPost).toHaveBeenCalledWith(
+      '/crm/agenda/tarefas/7/desfecho',
+      expect.objectContaining({ desfecho: 'cancelada' }),
+    ));
+  });
+
+  it('editar reunião abre o formulário completo da agenda', async () => {
+    const base = respostas(comReuniao);
+    mockGet.mockImplementation((url, cfg) => {
+      if (url === '/crm/agenda/reunioes/r7') {
+        return Promise.resolve({ data: {
+          id: 'r7', tarefa_id: '7', inicio: REUNIAO.prazo, duracao_min: 45,
+          rotulo: 'AP - Metalurgica (Jakeline) - ON', tipo_id: null, modalidade: 'online',
+          anfitriao_id: 'u1', agendado_por: 'u1', participantes: [], convidados: [],
+          titulo: 'Apresentação AP', descricao: null, situacao: 'hoje',
+          conta_razao_social: 'Metalurgica Alfa LTDA', oportunidade_id: 'o1',
+          desfecho: null, desfecho_sugerido: 'realizada', outras_abertas: 2,
+          google_event_id: null, google_erro: null,
+        } });
+      }
+      return base(url, cfg);
+    });
+    montar();
+    fireEvent.click(await screen.findByText('Apresentação AP'));
+    fireEvent.click(await screen.findByText('Editar reunião'));
+    expect(await screen.findByLabelText('Duração')).toBeInTheDocument();
+    expect(screen.getByLabelText('Agendado por')).toBeInTheDocument();
+    expect(mockGet).toHaveBeenCalledWith('/crm/agenda/reunioes/r7');
+  });
+
+  it('o cartão de reunião fechada mostra no-show', async () => {
+    const fechada = {
+      ...REUNIAO, situacao: 'concluida', desfecho_efetivo: 'no_show',
+      titulo: 'Reunião que não rolou',
+    };
+    mockGet.mockImplementation(respostas(COLUNAS.map((c) => (c.situacao === 'concluida'
+      ? { ...c, quantidade: 1, itens: [fechada] } : c))));
+    montar();
+    await screen.findByText('Reunião que não rolou');
+    expect(coluna('Concluídas').getByText('No-show')).toBeInTheDocument();
+  });
+});
+
