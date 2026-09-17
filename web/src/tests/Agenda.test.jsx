@@ -520,3 +520,30 @@ describe('Agenda — navegação', () => {
     expect(await screen.findByText('banco fora')).toBeInTheDocument();
   });
 });
+
+
+describe('Agenda — a reunião que a pessoa acompanha', () => {
+  function comUma(extra) {
+    const corpo = semana({ total: 1 });
+    corpo.dias[1].reunioes = [reuniao('r1', extra)];
+    return corpo;
+  }
+
+  it('reunião de outro anfitrião aparece marcada como acompanhando', async () => {
+    responder(comUma({
+      papel_na_agenda: 'participante', anfitriao_id: 'u2', anfitriao_nome: 'Bruno Gonçalo',
+    }));
+    await renderizar();
+    const cartao = screen.getByTitle(/acompanhando \(anfitrião: Bruno Gonçalo\)/);
+    expect(cartao).toBeInTheDocument();
+    expect(screen.getByLabelText('acompanhando')).toBeInTheDocument();
+  });
+
+  it('reunião da própria pessoa não ganha a marca', async () => {
+    responder(comUma({ papel_na_agenda: 'anfitriao' }));
+    await renderizar();
+    expect(screen.getByTitle('CF - XPTO (Bruno) - ON')).toBeInTheDocument();
+    expect(screen.queryByLabelText('acompanhando')).not.toBeInTheDocument();
+  });
+});
+

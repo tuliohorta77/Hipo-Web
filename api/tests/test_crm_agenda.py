@@ -2112,3 +2112,121 @@ class TestReuniaoComParceiro:
         )
         assert com.status_code == 200, com.text
         assert com.json()["desfecho"] == "realizada"
+
+
+# ── A reunião na agenda de quem acompanha ────────────────────────────
+#
+# Regressão: quem estava em "Nossa equipe" não via a reunião na própria
+# agenda — só o anfitrião. O horário parecia livre e dava para marcar outra
+# reunião por cima com essa pessoa de anfitriã.
+
+class TestAgendaDoParticipante:
+    async def _dois(self, db_conn, client):
+        a = await criar_usuario(db_conn, client, "EV", "ev-anfitriao@teste.com")
+        b = await criar_usuario(db_conn, client, "EC", "ec-participante@teste.com")
+        id_a = str(await db_conn.fetchval("SELECT id FROM usuarios WHERE email = $1", "ev-anfitriao@teste.com"))
+        id_b = str(await db_conn.fetchval("SELECT id FROM usuarios WHERE email = $1", "ec-participante@teste.com"))
+        return id_a, id_b
+
+    async def test_reuniao_aparece_na_agenda_do_participante(self, cenario, client, db_conn):
+        h, opp = cenario["headers"], cenario["oportunidade"]["id"]
+        id_a, id_b = await self._dois(db_conn, client)
+        r = await nova_reuniao(client, h, opp, id_a, participantes=[id_b])
+
+        semana = (await client.get(
+            "/crm/agenda/semana",
+            params={"inicio": proxima_segunda().isoformat(), "anfitriao_id": id_b},
+            headers=h,
+        )).json()
+        itens = [i for d in semana["dias"] for i in d["reunioes"]]
+        assert [i["id"] for i in itens] == [r["id"]]
+        assert itens[0]["papel_na_agenda"] == "participante"
+        assert semana["total"] == 1
+        # O slot dela conta como ocupado.
+        assert semana["livres"] == 5 * len(semana["slots"]) - 1
+
+        do_anfitriao = (await client.get(
+            "/crm/agenda/semana",
+            params={"inicio": proxima_segunda().isoformat(), "anfitriao_id": id_a},
+            headers=h,
+        )).json()
+        itens_a = [i for d in do_anfitriao["dias"] for i in d["reunioes"]]
+        assert itens_a[0]["papel_na_agenda"] == "anfitriao"
+
+    async def test_sem_filtro_nao_duplica_nem_marca_papel(self, cenario, client, db_conn):
+        h, opp = cenario["headers"], cenario["oportunidade"]["id"]
+        id_a, id_b = await self._dois(db_conn, client)
+        await nova_reuniao(client, h, opp, id_a, participantes=[id_b])
+        semana = (await client.get(
+            "/crm/agenda/semana", params={"inicio": proxima_segunda().isoformat()}, headers=h,
+        )).json()
+        itens = [i for d in semana["dias"] for i in d["reunioes"]]
+        assert len(itens) == 1
+        assert itens[0]["papel_na_agenda"] is None
+
+    async def test_participante_nao_pode_ser_anfitriao_no_mesmo_horario(
+        self, cenario, client, db_conn,
+    ):
+        h, opp = cenario["headers"], cenario["oportunidade"]["id"]
+        id_a, id_b = await self._dois(db_conn, client)
+        await nova_reuniao(client, h, opp, id_a, participantes=[id_b])
+        resp = await client.post(
+            "/crm/agenda/reunioes",
+            json={
+                "oportunidade_id": opp, "anfitriao_id": id_b,
+                "inicio": as_horas(proxima_segunda(), 9),
+            },
+            headers=h,
+        )
+        assert resp.status_code == 409
+        assert "como participante" in resp.json()["detail"]
+
+    async def test_participante_pode_estar_em_duas_reunioes_simultaneas(
+        self, cenario, client, db_conn,
+    ):
+        """O gestor que acompanha várias decide isso; o sistema não bloqueia."""
+        h, opp, uid = cenario["headers"], cenario["oportunidade"]["id"], cenario["usuario_id"]
+        id_a, id_b = await self._dois(db_conn, client)
+        await nova_reuniao(client, h, opp, id_a, participantes=[id_b])
+        segunda = await client.post(
+            "/crm/agenda/reunioes",
+            json={
+                "oportunidade_id": opp, "anfitriao_id": uid,
+                "inicio": as_horas(proxima_segunda(), 9), "participantes": [id_b],
+            },
+            headers=h,
+        )
+        assert segunda.status_code == 201, segunda.text
+
+    async def test_reagendar_anfitriao_para_cima_de_reuniao_que_acompanha(
+        self, cenario, client, db_conn,
+    ):
+        h, opp = cenario["headers"], cenario["oportunidade"]["id"]
+        id_a, id_b = await self._dois(db_conn, client)
+        await nova_reuniao(client, h, opp, id_a, participantes=[id_b])
+        dela = await nova_reuniao(
+            client, h, opp, id_b, inicio=as_horas(proxima_segunda(), 15),
+        )
+        resp = await client.patch(
+            f"/crm/agenda/reunioes/{dela['id']}",
+            json={"inicio": as_horas(proxima_segunda(), 9)}, headers=h,
+        )
+        assert resp.status_code == 409
+
+    async def test_cancelada_libera_o_participante(self, cenario, client, db_conn):
+        h, opp = cenario["headers"], cenario["oportunidade"]["id"]
+        id_a, id_b = await self._dois(db_conn, client)
+        r = await nova_reuniao(client, h, opp, id_a, participantes=[id_b])
+        await client.post(
+            f"/crm/agenda/reunioes/{r['id']}/desfecho",
+            json={"desfecho": "cancelada"}, headers=h,
+        )
+        resp = await client.post(
+            "/crm/agenda/reunioes",
+            json={
+                "oportunidade_id": opp, "anfitriao_id": id_b,
+                "inicio": as_horas(proxima_segunda(), 9),
+            },
+            headers=h,
+        )
+        assert resp.status_code == 201, resp.text

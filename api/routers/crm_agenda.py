@@ -358,6 +358,10 @@ class ReuniaoOut(BaseModel):
     google_erro: str | None
 
     observacoes: str | None
+    # Só na grade com uma agenda escolhida: 'anfitriao' quando a reunião é
+    # DELA, 'participante' quando ela está em "Nossa equipe" de uma reunião de
+    # outra pessoa. O cartão desenha os dois de um jeito diferente.
+    papel_na_agenda: str | None = None
     # Só na resposta do registro de desfecho: o id da próxima tarefa criada
     # junto. A tela usa para pôr na agenda a próxima que é uma reunião.
     proxima_id: UUID | None = None
@@ -667,11 +671,14 @@ async def _checar_conflito(
     """
     Recusa com 409 se o anfitrião já tem reunião sobrepondo este intervalo.
 
-    A verificação é só do ANFITRIÃO, não dos participantes. A grade é a
-    coluna de uma pessoa: é o dono da coluna que não pode estar em dois
-    lugares. Bloquear por participante impediria o gestor que acompanha
-    quatro reuniões de ser adicionado à quinta — e a decisão de acompanhar
-    duas ao mesmo tempo é dele, não do sistema.
+    Quem é verificado é o ANFITRIÃO da reunião nova, e ele está ocupado
+    tanto nas reuniões em que é anfitrião quanto nas que acompanha como
+    participante: nas duas ele já está em outro lugar, e as duas aparecem
+    na agenda dele. Decisão do Tulio, 17/09.
+
+    ADICIONAR PARTICIPANTE NÃO É BLOQUEADO. O gestor que acompanha quatro
+    reuniões pode ser adicionado à quinta no mesmo horário — a decisão de
+    acompanhar duas ao mesmo tempo é dele, não do sistema.
 
     CANCELADA NÃO OCUPA; CONCLUÍDA OCUPA. Cancelar é dizer que aquilo não
     vai acontecer, e o slot volta a valer. Concluída aconteceu: o horário
@@ -684,10 +691,13 @@ async def _checar_conflito(
     fim = regras.fim_de(inicio, duracao_min)
     row = await conn.fetchrow(
         """
-        SELECT r.id, t.titulo, t.prazo
+        SELECT r.id, t.titulo, t.prazo,
+               (t.responsavel_id <> $1) AS como_participante
           FROM reunioes r
           JOIN tarefas t ON t.id = r.tarefa_id
-         WHERE t.responsavel_id = $1
+         WHERE (t.responsavel_id = $1
+                OR EXISTS (SELECT 1 FROM reuniao_participantes rp
+                            WHERE rp.reuniao_id = r.id AND rp.usuario_id = $1))
            AND t.cancelada_em IS NULL
            AND ($4::uuid IS NULL OR r.id <> $4)
            AND t.prazo < $3
@@ -700,9 +710,10 @@ async def _checar_conflito(
     if row is None:
         return
     quando = regras.no_fuso(row["prazo"]).strftime("%d/%m às %H:%M")
+    papel = " (como participante)" if row["como_participante"] else ""
     raise HTTPException(
         409,
-        f"Esse horário já está ocupado: “{row['titulo']}” em {quando}.",
+        f"Esse horário já está ocupado{papel}: “{row['titulo']}” em {quando}.",
     )
 
 
@@ -1037,6 +1048,12 @@ async def semana(
     semana. É o que faz a seta de navegação e um link colado abrirem a
     mesma tela.
 
+    COM `anfitriao_id`, é a agenda DAQUELA PESSOA: as reuniões em que ela é
+    anfitriã e também as de outros em que ela está em "Nossa equipe". Antes
+    só entravam as primeiras, e quem acompanhava uma reunião não a via na
+    própria agenda — o horário parecia livre e o SDR marcava outra por cima.
+    Cada item diz qual dos dois papéis é (`papel_na_agenda`).
+
     SEM `anfitriao_id`, mostra a semana da equipe inteira — a visão de
     quem coordena, e a que o SDR usa para achar onde cabe a próxima. É a
     MESMA base para todo mundo: nada aqui é filtrado por quem está olhando,
@@ -1060,7 +1077,12 @@ async def semana(
     params: list = [de, ate]
     if anfitriao_id is not None:
         params.append(anfitriao_id)
-        where.append(f"t.responsavel_id = ${len(params)}")
+        n = len(params)
+        where.append(
+            f"(t.responsavel_id = ${n} OR EXISTS ("
+            f"SELECT 1 FROM reuniao_participantes rp"
+            f" WHERE rp.reuniao_id = r.id AND rp.usuario_id = ${n}))"
+        )
     # Os dois filtros são independentes e combináveis de propósito: "as
     # reuniões que EU marquei para o Bruno" é a pergunta do SDR conferindo
     # o próprio trabalho, e ela precisa dos dois ao mesmo tempo.
@@ -1075,6 +1097,11 @@ async def semana(
     parts = await _participantes(conn, [r["id"] for r in rows])
     agora = _agora()
     itens = [_linha(r, agora, parts) for r in rows]
+    if anfitriao_id is not None:
+        for item in itens:
+            item["papel_na_agenda"] = (
+                "anfitriao" if item["anfitriao_id"] == anfitriao_id else "participante"
+            )
 
     feriados = {
         r["data"]: r["motivo"]

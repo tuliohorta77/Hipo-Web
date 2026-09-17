@@ -32,7 +32,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ChevronLeft, ChevronRight, CalendarDays, CalendarClock,
-  AlertTriangle, Plus, CircleDot, ClipboardList, BarChart3,
+  AlertTriangle, Plus, CircleDot, ClipboardList, BarChart3, UsersRound,
 } from 'lucide-react';
 
 import api, { getUser } from '../../api';
@@ -81,17 +81,24 @@ function Cartao({ reuniao, onAbrir }) {
   const semConvite = !reuniao.google_event_id && reuniao.cancelada_em === null;
   const desfecho = POR_DESFECHO[reuniao.desfecho_efetivo];
   const IconeDesfecho = desfecho?.Icone;
+  /*
+    Na agenda de uma pessoa, a reunião de OUTRO anfitrião em que ela está em
+    "Nossa equipe" também aparece — é horário dela ocupado. O ícone de equipe
+    e o título dizem que ela acompanha, para não ser lida como reunião dela.
+  */
+  const participa = reuniao.papel_na_agenda === 'participante';
+  const acompanha = participa ? ` — acompanhando (anfitrião: ${reuniao.anfitriao_nome || '—'})` : '';
 
   return (
     <button
       type="button"
       onClick={() => onAbrir(reuniao)}
       title={
-        desfecho
+        (desfecho
           ? `${reuniao.rotulo} — ${desfecho.rotulo}`
           : reuniao.pendente_de_desfecho
             ? `${reuniao.rotulo} — falta registrar o que aconteceu`
-            : reuniao.rotulo
+            : reuniao.rotulo) + acompanha
       }
       className={
         'w-full text-left px-1.5 py-1 rounded border text-[11px] leading-tight ' +
@@ -101,10 +108,14 @@ function Cartao({ reuniao, onAbrir }) {
         // esquecida ficar VISÍVEL na própria grade, e não só num contador
         // na barra que ninguém precisa olhar.
         (reuniao.pendente_de_desfecho ? 'border-dashed ' : '') +
+        (participa ? 'opacity-80 ' : '') +
         tomDoCartao(reuniao)
       }
     >
       <span className="flex items-center gap-1">
+        {participa && (
+          <UsersRound size={10} className="shrink-0" aria-label="acompanhando" />
+        )}
         <Icone size={10} className="shrink-0" aria-hidden="true" />
         {/*
           A hora só aparece quando NÃO bate com a linha. Repeti-la em toda
