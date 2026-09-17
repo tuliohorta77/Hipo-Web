@@ -45,12 +45,17 @@ import Logo, { LogoWordmark } from './Logo';
 // Parceiros vem por último e é o único item da nav com módulo PRÓPRIO: só
 // EC e gestão o enxergam. Para SDR, EV e EP a barra continua com quatro
 // itens — é a diretriz "uma tela por função" aplicada também à navegação.
+// Monitor vem por último e é o painel de parede: quadro de metas do mês,
+// para a equipe inteira. Módulo 'crm' e não um próprio — a TV é de todos, e
+// módulo novo só valeria depois de cada pessoa relogar. Quem edita as metas
+// é a gestão, e isso é decidido DENTRO da tela.
 const NAV_ITEMS = [
   { to: '/crm/oportunidades', label: 'Oportunidades', modulo: 'crm' },
   { to: '/crm/tarefas', label: 'Tarefas', modulo: 'crm' },
   { to: '/crm/agenda', label: 'Agenda', modulo: 'crm' },
   { to: '/crm/contas', label: 'Contas', modulo: 'crm' },
   { to: '/crm/parceiros', label: 'Parceiros', modulo: 'parceiros' },
+  { to: '/monitor', label: 'Monitor', modulo: 'crm' },
 ];
 
 // Itens do dropdown do usuário (não da nav principal).

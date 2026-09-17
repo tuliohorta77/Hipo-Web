@@ -15,8 +15,17 @@ from fastapi.middleware.cors import CORSMiddleware
 from config import settings
 from middleware.telemetria import TelemetriaMiddleware, buffer, descarga_periodica
 from routers import (
-    auth, crm_agenda, crm_anexos, crm_contas, crm_contatos, crm_dominio,
-    crm_oportunidades, crm_parceiros, crm_propostas, crm_tarefas,
+    auth,
+    crm_agenda,
+    crm_anexos,
+    crm_contas,
+    crm_contatos,
+    crm_dominio,
+    crm_oportunidades,
+    crm_parceiros,
+    crm_propostas,
+    crm_tarefas,
+    monitor,
     telemetria,
 )
 from routers.permissions import requer_modulo
@@ -170,6 +179,17 @@ app.include_router(
 app.include_router(
     crm_dominio.router,
     prefix="/crm/dominio", tags=["CRM - Domínio"],
+    dependencies=[Depends(requer_modulo("crm"))],
+)
+
+
+# Monitor: o painel de parede. Modulo 'crm' e nao um modulo proprio — todo
+# cargo valido tem 'crm', a tela fica numa TV para a equipe inteira, e
+# modulo novo so valeria depois de todo mundo relogar. Quem barra a ESCRITA
+# de metas e feriados e `requer_gestao`, dentro do router.
+app.include_router(
+    monitor.router,
+    prefix="/monitor", tags=["Monitor"],
     dependencies=[Depends(requer_modulo("crm"))],
 )
 

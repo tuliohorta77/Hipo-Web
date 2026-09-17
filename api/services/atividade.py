@@ -113,6 +113,13 @@ CATALOGO: dict[tuple[str, str], Tipo] = {
     ("POST", "/crm/tarefas/{tarefa_id}/anexos"): _t("Anexos", "Anexo enviado", 70),
     ("DELETE", "/crm/anexos/{anexo_id}"): _t("Anexos", "Anexo excluído", 71),
 
+    # Monitor (metas e feriados)
+    ("PUT", "/monitor/metas"): _t("Cadastros", "Metas do monitor definidas", 83),
+    ("POST", "/monitor/metas/copiar"): _t("Cadastros", "Metas copiadas do mes anterior", 84),
+    ("POST", "/monitor/feriados"): _t("Cadastros", "Dia sem expediente marcado", 85),
+    ("POST", "/monitor/feriados/nacionais"): _t("Cadastros", "Feriados nacionais carregados", 86),
+    ("DELETE", "/monitor/feriados/{feriado_id}"): _t("Cadastros", "Dia sem expediente removido", 87),
+
     # Cadastros de apoio
     ("POST", "/crm/dominio/{tabela}"): _t("Cadastros", "Item de cadastro criado", 80),
     ("POST", "/crm/dominio/motivos/{tipo}"): _t("Cadastros", "Motivo criado", 81),

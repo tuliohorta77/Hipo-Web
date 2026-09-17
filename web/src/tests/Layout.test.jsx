@@ -61,13 +61,13 @@ describe('Layout — nav com o módulo crm', () => {
     }
   });
 
-  it('a nav segue a ordem do dia: funil, pendências, hora marcada, cadastro, parceria', () => {
+  it('a nav segue a ordem do dia: funil, pendências, hora marcada, cadastro, parceria, parede', () => {
     renderLayout();
     const nav = screen.getByLabelText('Navegação principal');
     const hrefs = [...nav.querySelectorAll('a')].map((a) => a.getAttribute('href'));
     expect(hrefs).toEqual([
       '/crm/oportunidades', '/crm/tarefas', '/crm/agenda',
-      '/crm/contas', '/crm/parceiros',
+      '/crm/contas', '/crm/parceiros', '/monitor',
     ]);
   });
 
@@ -96,6 +96,9 @@ describe('Layout — nav com o módulo crm', () => {
     const hrefs = [...nav.querySelectorAll('a')].map((a) => a.getAttribute('href'));
     expect(hrefs).toEqual([
       '/crm/oportunidades', '/crm/tarefas', '/crm/agenda', '/crm/contas',
+      // O Monitor é o painel de parede e fica com todo mundo: é do módulo
+      // 'crm', como as quatro telas de trabalho.
+      '/monitor',
     ]);
     expect(screen.queryByText('Parceiros')).not.toBeInTheDocument();
   });

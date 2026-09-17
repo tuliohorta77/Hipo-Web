@@ -99,6 +99,28 @@ def requer_modulo(modulo: str):
     return _dep
 
 
+async def requer_gestao(user=Depends(usuario_atual)):
+    """
+    Dependency: 403 para quem nao e gestao (Franqueado ou ADM).
+
+    Existe para as escritas que NAO sao de um modulo e sim da operacao
+    inteira — as metas e os feriados do Monitor. O painel e de todo mundo
+    (fica numa TV); definir a meta que a equipe vai ser medida por nao e.
+
+    Nao virou modulo novo de proposito: modulo novo so reflete depois de
+    relogin, e um modulo cujo unico conteudo e "pode editar meta" seria
+    cargo escrito com outro nome.
+    """
+    cargo = user.get("cargo")
+    if cargo not in CARGOS_GESTAO:
+        raise HTTPException(
+            403,
+            f"Cargo '{cargo or 'sem cargo'}' nao pode alterar metas e feriados. "
+            f"Fale com a gestao.",
+        )
+    return user
+
+
 def requer_qualquer_modulo(modulos: Iterable[str]):
     """
     Dependency factory: libera se o usuário tem QUALQUER UM dos módulos.

@@ -13,6 +13,7 @@ import Oportunidades from './pages/crm/Oportunidades';
 import Parceiros from './pages/crm/Parceiros';
 import Tarefas from './pages/crm/Tarefas';
 import Agenda from './pages/crm/Agenda';
+import Monitor from './pages/Monitor';
 import { primeiraRotaAcessivel } from './api';
 
 function RedirectPrimeiraRota() {
@@ -38,6 +39,13 @@ export default function App() {
           <Route path="crm/tarefas" element={<Tarefas />} />
           <Route path="crm/agenda" element={<Agenda />} />
           <Route path="crm/contas" element={<Contas />} />
+          {/*
+            O Monitor fica fora de /crm no caminho porque não é uma tela de
+            trabalho: é o painel de parede da operação inteira, e mora na
+            raiz junto de Perfil. O módulo exigido pela API continua sendo
+            'crm', que todo cargo válido tem.
+          */}
+          <Route path="monitor" element={<Monitor />} />
           {/*
             A rota existe para todo mundo; quem barra é o guard do módulo na
             API, e a nav não mostra o item para quem não tem 'parceiros'.
