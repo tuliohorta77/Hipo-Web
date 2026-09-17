@@ -27,9 +27,19 @@
 // ── Meta e carinha vêm prontas do servidor ───────────────────────────
 // A régua (meta proporcional aos dias úteis corridos, descontando os
 // feriados da tabela) mora em services/monitor.py. A tela desenha.
+//
+// ── Tela cheia ───────────────────────────────────────────────────────
+// A TV não precisa da barra do navegador nem da nav do HIPO. O botão pede
+// tela cheia para o CONTAINER do painel (não para a página): assim os dez
+// quadros crescem para ocupar a tela inteira e a fonte sobe junto. O Esc
+// sai, e o estado é lido do evento `fullscreenchange` em vez de ser
+// adivinhado no clique — sair pelo Esc ou pelo F11 deixaria o botão
+// mentindo sobre o que ele faz.
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { RefreshCw, Settings, AlertTriangle } from 'lucide-react';
+import {
+  RefreshCw, Settings, AlertTriangle, Maximize2, Minimize2,
+} from 'lucide-react';
 
 import api, { getUser } from '../api';
 import Button from '../components/ui/Button';
@@ -49,6 +59,8 @@ export default function Monitor() {
   const [erro, setErro] = useState(null);
   const [buscando, setBuscando] = useState(false);
   const [config, setConfig] = useState(false);
+  const [cheia, setCheia] = useState(false);
+  const container = useRef(null);
   const usuario = getUser();
   const podeConfigurar = CARGOS_DE_GESTAO.includes(usuario?.cargo);
 
@@ -80,6 +92,37 @@ export default function Monitor() {
 
   useEffect(() => { carregar(); }, [carregar]);
 
+  // O navegador é a fonte da verdade do estado de tela cheia.
+  useEffect(() => {
+    function sincronizar() {
+      setCheia(Boolean(document.fullscreenElement));
+    }
+    document.addEventListener('fullscreenchange', sincronizar);
+    return () => document.removeEventListener('fullscreenchange', sincronizar);
+  }, []);
+
+  /*
+    Pedir tela cheia só funciona dentro de um gesto do usuário, e pode ser
+    recusado (política do navegador, iframe sem permissão). O `catch` existe
+    para a recusa não derrubar a tela: o painel continua onde está.
+  */
+  async function alternarTelaCheia() {
+    try {
+      if (document.fullscreenElement) {
+        await document.exitFullscreen?.();
+        return;
+      }
+      const alvo = container.current;
+      if (!alvo?.requestFullscreen) {
+        setErro('Este navegador não permite tela cheia nesta página.');
+        return;
+      }
+      await alvo.requestFullscreen();
+    } catch {
+      setErro('O navegador recusou a tela cheia.');
+    }
+  }
+
   /*
     O relógio da tela. `document.hidden` é consultado no disparo, e não só
     no agendamento: a aba pode ter ido para o fundo entre dois tiques.
@@ -106,7 +149,15 @@ export default function Monitor() {
   const hora = horaDaLeitura(painel?.atualizado_em);
 
   return (
-    <div className="h-full min-h-0 flex flex-col gap-2">
+    <div
+      ref={container}
+      className={
+        'h-full min-h-0 flex flex-col gap-2 '
+        // Em tela cheia o container passa a ser a tela: sem fundo e sem
+        // respiro próprios, os quadros ficariam colados na moldura preta.
+        + (cheia ? 'bg-hipo-bg p-4 overflow-hidden' : '')
+      }
+    >
 
       {/* ── Barra: o mês, o ritmo e a hora da leitura ── */}
       <div className="shrink-0 flex flex-wrap items-center gap-x-4 gap-y-2 px-1">
@@ -144,6 +195,13 @@ export default function Monitor() {
               {hora}
             </span>
           )}
+          <Button
+            size="sm" variant="ghost" icon={cheia ? Minimize2 : Maximize2}
+            aria-label={cheia ? 'Sair da tela cheia' : 'Tela cheia'}
+            onClick={alternarTelaCheia}
+          >
+            {cheia ? 'Sair' : 'Tela cheia'}
+          </Button>
           <Button
             size="sm" variant="ghost" icon={RefreshCw}
             loading={buscando}
@@ -190,7 +248,7 @@ export default function Monitor() {
         ) : (
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-2 auto-rows-fr h-full">
             {painel.indicadores.map((i) => (
-              <QuadroIndicador key={i.chave} indicador={i} />
+              <QuadroIndicador key={i.chave} indicador={i} grande={cheia} />
             ))}
           </div>
         )}

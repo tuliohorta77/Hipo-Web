@@ -1,7 +1,7 @@
 // web/src/tests/Monitor.test.jsx
 //
 // O painel de parede. Cinco promessas que os testes seguram:
-//   1. dez quadros, com carinha, resultado contra a meta do mês e a meta de hoje
+//   1. dez quadros, com carinha, resultado contra a meta DE HOJE e a do mês
 //   2. se atualiza sozinho, sem ninguém dar F5 — e para quando a aba esconde
 //   3. leitura que falha NÃO apaga o painel da parede: mostra o aviso e o
 //      último dado bom
@@ -127,7 +127,12 @@ describe('Monitor — os quadros', () => {
     expect(screen.getByText(/dia útil 13 de 22/)).toBeInTheDocument();
   });
 
-  it('mostra resultado, meta do mês, a barra e a meta de hoje', async () => {
+  it('o par grande e a barra são o RITMO: resultado contra a meta de hoje', async () => {
+    /*
+      Antes o par era contra a meta do mês, e a tela dizia duas coisas: "69
+      de 276" com carinha triste não se explica sozinho. O que se cobra hoje
+      são 163.
+    */
     responder(comLead({
       resultado: 69, meta: 276, meta_mtd: 163, carinha: 'triste',
       atingimento: 0.42, atingimento_mes: 0.25,
@@ -135,10 +140,11 @@ describe('Monitor — os quadros', () => {
     render(<Monitor />);
     const lead = await quadro('lead');
     expect(lead.getByText('69')).toBeInTheDocument();
-    expect(lead.getByText(/276/)).toBeInTheDocument();
-    expect(lead.getByText('25%')).toBeInTheDocument();
-    expect(lead.getByText('hoje: 163')).toBeInTheDocument();
-    expect(lead.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '25');
+    expect(lead.getByText(/163/)).toBeInTheDocument();
+    expect(lead.getByText('42%')).toBeInTheDocument();
+    expect(lead.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '42');
+    // A meta do mês não desaparece: vai para a linha pequena.
+    expect(lead.getByText('mês: 276')).toBeInTheDocument();
     // A carinha tem rótulo por extenso: cor e emoji sozinhos não são texto.
     expect(lead.getByRole('img', { name: 'abaixo da meta' })).toBeInTheDocument();
   });
@@ -159,8 +165,10 @@ describe('Monitor — os quadros', () => {
     responder(p);
     render(<Monitor />);
     const tm = await screen.findByRole('region', { name: 'ticket_medio' });
-    // O resultado é o travessão; a meta ao lado continua escrita.
-    expect(tm).toHaveTextContent('— / 450');
+    // O resultado é o travessão; a meta ao lado continua escrita. Em taxa,
+    // meta de hoje e meta do mês são a mesma.
+    expect(tm).toHaveTextContent('— / —');
+    expect(tm).toHaveTextContent('mês: 450');
   });
 
   it('dinheiro grande vira valor curto, legível de longe', async () => {
@@ -171,7 +179,7 @@ describe('Monitor — os quadros', () => {
     render(<Monitor />);
     const nmrr = await quadro('nmrr');
     expect(nmrr.getByText('39,3 K')).toBeInTheDocument();
-    expect(nmrr.getByText(/67,0 K/)).toBeInTheDocument();
+    expect(nmrr.getByText('mês: 67,0 K')).toBeInTheDocument();
   });
 
   it('no-show aparece em percentual', async () => {
@@ -184,7 +192,7 @@ describe('Monitor — os quadros', () => {
     const ns = await quadro('noshow');
     expect(ns.getByText('11%')).toBeInTheDocument();
     // Em taxa a meta de hoje É a do mês: repetir a linha gastaria espaço.
-    expect(ns.queryByText('hoje: 30%')).not.toBeInTheDocument();
+    expect(ns.queryByText('mês: 30%')).not.toBeInTheDocument();
   });
 });
 
@@ -307,5 +315,48 @@ describe('Monitor — metas e calendário', () => {
     render(<Monitor />);
     await screen.findByText('setembro de 2026');
     expect(screen.queryByText('Metas e calendário')).not.toBeInTheDocument();
+  });
+});
+
+describe('Monitor — tela cheia', () => {
+  it('pede tela cheia para o painel e o botão passa a oferecer a saída', async () => {
+    const pedir = vi.fn().mockImplementation(() => {
+      // O navegador é quem manda: o estado vem do evento, não do clique.
+      Object.defineProperty(document, 'fullscreenElement', {
+        value: {}, configurable: true,
+      });
+      document.dispatchEvent(new Event('fullscreenchange'));
+      return Promise.resolve();
+    });
+    const sair = vi.fn().mockImplementation(() => {
+      Object.defineProperty(document, 'fullscreenElement', {
+        value: null, configurable: true,
+      });
+      document.dispatchEvent(new Event('fullscreenchange'));
+      return Promise.resolve();
+    });
+    Element.prototype.requestFullscreen = pedir;
+    document.exitFullscreen = sair;
+
+    render(<Monitor />);
+    fireEvent.click(await screen.findByLabelText('Tela cheia'));
+    await waitFor(() => expect(pedir).toHaveBeenCalled());
+
+    fireEvent.click(await screen.findByLabelText('Sair da tela cheia'));
+    await waitFor(() => expect(sair).toHaveBeenCalled());
+    expect(await screen.findByLabelText('Tela cheia')).toBeInTheDocument();
+
+    delete Element.prototype.requestFullscreen;
+    delete document.exitFullscreen;
+  });
+
+  it('navegador que recusa não derruba o painel', async () => {
+    Element.prototype.requestFullscreen = vi.fn().mockRejectedValue(new Error('nope'));
+    render(<Monitor />);
+    fireEvent.click(await screen.findByLabelText('Tela cheia'));
+    expect(await screen.findByText(/recusou a tela cheia/)).toBeInTheDocument();
+    // Os quadros continuam na parede.
+    expect(screen.getByRole('region', { name: 'lead' })).toBeInTheDocument();
+    delete Element.prototype.requestFullscreen;
   });
 });
