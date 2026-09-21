@@ -446,3 +446,142 @@ describe('ContaDetalhe — nao prospectar', () => {
     expect(ultimoRegistro(registrarSalvar).sujo).toBe(false);
   });
 });
+
+// ── 014: o form precisa refletir o que o enriquecimento gravou ────────
+//
+// REGRESSÃO DE 21/09, e era destrutiva. O form só se recarregava quando
+// `conta.id` mudava. O enriquecimento por CNPJ grava CEP, cidade e CNAE, o
+// pai recarrega a conta — e o form continuava com os valores VAZIOS de
+// antes. A tela dizia "Alterações não salvas" e, se a pessoa clicasse em
+// Salvar, o PATCH mandava os campos vazios e APAGAVA o que a Receita tinha
+// acabado de trazer.
+
+describe('ContaDetalhe — recarga depois do enriquecimento', () => {
+  const VAZIA = {
+    ...CONTA,
+    cep: null, logradouro: null, bairro: null, cidade: null, uf: null,
+    atualizado_em: '2026-09-21T15:00:00Z',
+  };
+
+  const ENRIQUECIDA = {
+    ...VAZIA,
+    cep: '07190000', logradouro: 'Av das Industrias', bairro: 'Cumbica',
+    cidade: 'Guarulhos', uf: 'SP',
+    cnae_codigo: '2511000',
+    cnae_descricao: 'Fabricação de estruturas metálicas',
+    enriquecida_em: '2026-09-21T15:05:00Z',
+    // O backend mexe neste carimbo a cada escrita — é ele que diz ao form
+    // que o registro mudou.
+    atualizado_em: '2026-09-21T15:05:00Z',
+  };
+
+  it('o form pega os campos que o enriquecimento gravou', async () => {
+    const { rerender } = render(
+      <ContaDetalhe
+        conta={VAZIA}
+        verticais={VERTICAIS}
+        onCriarVertical={vi.fn()}
+        onSalvo={vi.fn()}
+        onRecarregar={vi.fn()}
+        registrarSalvar={vi.fn()}
+      />
+    );
+
+    fireEvent.click(screen.getByTestId('tab-endereco'));
+    expect(screen.getByLabelText('CEP').value).toBe('');
+
+    rerender(
+      <ContaDetalhe
+        conta={ENRIQUECIDA}
+        verticais={VERTICAIS}
+        onCriarVertical={vi.fn()}
+        onSalvo={vi.fn()}
+        onRecarregar={vi.fn()}
+        registrarSalvar={vi.fn()}
+      />
+    );
+
+    await waitFor(() =>
+      expect(screen.getByLabelText('CEP').value).toBe('07190000')
+    );
+    expect(screen.getByLabelText('Cidade').value).toBe('Guarulhos');
+  });
+
+  it('depois de recarregar, o form NÃO fica sujo', async () => {
+    // É o que impedia o Salvar destrutivo: sujo significava "tenho
+    // alterações", e as alterações eram os campos vazios antigos.
+    const registrarSalvar = vi.fn();
+    const { rerender } = render(
+      <ContaDetalhe
+        conta={VAZIA} verticais={VERTICAIS} onCriarVertical={vi.fn()}
+        onSalvo={vi.fn()} onRecarregar={vi.fn()}
+        registrarSalvar={registrarSalvar}
+      />
+    );
+    rerender(
+      <ContaDetalhe
+        conta={ENRIQUECIDA} verticais={VERTICAIS} onCriarVertical={vi.fn()}
+        onSalvo={vi.fn()} onRecarregar={vi.fn()}
+        registrarSalvar={registrarSalvar}
+      />
+    );
+
+    await waitFor(() =>
+      expect(ultimoRegistro(registrarSalvar).sujo).toBe(false)
+    );
+  });
+
+  it('NÃO descarta o que a pessoa está digitando', async () => {
+    // O outro lado da moeda: o pai recarrega a conta por causa de uma ação
+    // de contato, e quem estava editando não pode perder o texto.
+    const registrarSalvar = vi.fn();
+    const { rerender } = render(
+      <ContaDetalhe
+        conta={VAZIA} verticais={VERTICAIS} onCriarVertical={vi.fn()}
+        onSalvo={vi.fn()} onRecarregar={vi.fn()}
+        registrarSalvar={registrarSalvar}
+      />
+    );
+
+    fireEvent.change(screen.getByLabelText('Nome fantasia'), {
+      target: { value: 'Nome que eu digitei' },
+    });
+
+    rerender(
+      <ContaDetalhe
+        conta={ENRIQUECIDA} verticais={VERTICAIS} onCriarVertical={vi.fn()}
+        onSalvo={vi.fn()} onRecarregar={vi.fn()}
+        registrarSalvar={registrarSalvar}
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('Nome fantasia').value)
+        .toBe('Nome que eu digitei');
+    });
+  });
+
+  it('mostra o CNAE junto da vertical, com atalho para classificar', () => {
+    render(
+      <ContaDetalhe
+        conta={{ ...ENRIQUECIDA, cnae_vertical_id: null, vertical_id: null }}
+        verticais={VERTICAIS} onCriarVertical={vi.fn()}
+        onSalvo={vi.fn()} onRecarregar={vi.fn()} registrarSalvar={vi.fn()}
+      />
+    );
+    expect(screen.getByText('2511000')).toBeInTheDocument();
+    expect(screen.getByText('(classificar este CNAE)')).toBeInTheDocument();
+  });
+
+  it('CNAE já classificado não oferece o atalho', () => {
+    render(
+      <ContaDetalhe
+        conta={{ ...ENRIQUECIDA, cnae_vertical_id: 1 }}
+        verticais={VERTICAIS} onCriarVertical={vi.fn()}
+        onSalvo={vi.fn()} onRecarregar={vi.fn()} registrarSalvar={vi.fn()}
+      />
+    );
+    expect(screen.getByText('2511000')).toBeInTheDocument();
+    expect(screen.queryByText('(classificar este CNAE)')).not.toBeInTheDocument();
+  });
+});

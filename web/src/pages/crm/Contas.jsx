@@ -19,7 +19,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Building2, Search, Plus, Handshake, CircleSlash, Layers, X, ShieldBan,
-  Landmark,
+  Landmark, Tag,
 } from 'lucide-react';
 
 import api from '../../api';
@@ -34,6 +34,7 @@ import Badge from '../../components/ui/Badge';
 import Empty from '../../components/ui/Empty';
 import AlertMessage from '../../components/ui/AlertMessage';
 import ContaDetalhe from '../../components/crm/ContaDetalhe';
+import DeParaCnaes from '../../components/crm/DeParaCnaes';
 
 const POR_PAGINA = 50;
 
@@ -396,6 +397,8 @@ export default function Contas() {
   const [abrindo, setAbrindo] = useState(false);
   const [kpiAtivo, setKpiAtivo] = useState(null);
   const [acaoSalvar, setAcaoSalvar] = useState(null);
+  const [deParaAberto, setDeParaAberto] = useState(false);
+  const [resumoEnriq, setResumoEnriq] = useState(null);
   const debounce = useRef(null);
 
   // Busca com debounce: sem isso, cada tecla vira uma request.
@@ -431,14 +434,20 @@ export default function Contas() {
     setCarregando(true);
     setErro(null);
     try {
-      const [lista, kpis, verts] = await Promise.all([
+      const [lista, kpis, verts, enriq] = await Promise.all([
         api.get('/crm/contas', { params }),
         api.get('/crm/contas/resumo'),
         api.get('/crm/dominio/verticais'),
+        // O `.catch` não é preguiça: o enriquecimento é acessório, e uma
+        // falha nele (recurso desligado no .env, 500 da fonte) não pode
+        // derrubar a tela de Contas inteira pelo Promise.all. Mesma regra
+        // do S3, do SES e da chave da IA no backend.
+        api.get('/crm/enriquecimento/resumo').catch(() => ({ data: null })),
       ]);
       setDados(lista.data);
       setResumo(kpis.data);
       setVerticais(verts.data);
+      setResumoEnriq(enriq.data);
     } catch (err) {
       setErro(mensagemDeErro(err, 'Não foi possível carregar as contas.'));
     } finally {
@@ -536,7 +545,21 @@ export default function Contas() {
         title="Contas"
         subtitle="Empresas-cliente da operação"
         actions={
-          <Button icon={Plus} onClick={() => setNovaAberta(true)}>Nova conta</Button>
+          <div className="flex items-center gap-2">
+            {/* O número no botão é o chamado para a tarefa: sem ele, o
+                de-para seria uma tela que ninguém lembra de abrir. */}
+            <Button
+              variant="secondary"
+              icon={Tag}
+              onClick={() => setDeParaAberto(true)}
+            >
+              CNAEs
+              {resumoEnriq?.cnaes_a_mapear > 0 && (
+                <Badge tone="warning">{resumoEnriq.cnaes_a_mapear}</Badge>
+              )}
+            </Button>
+            <Button icon={Plus} onClick={() => setNovaAberta(true)}>Nova conta</Button>
+          </div>
         }
       />
 
@@ -752,6 +775,26 @@ export default function Contas() {
           </>
         )}
       </Card>
+
+      {/* O de-para abre a partir da PÁGINA, nunca de dentro do modal da
+          conta: modal sobre modal empilha z-index, rouba foco e faz o Esc
+          fechar os dois. */}
+      <Modal
+        aberto={deParaAberto}
+        onFechar={() => setDeParaAberto(false)}
+        titulo="CNAEs e verticais"
+        subtitulo="Classificar um CNAE vale para todas as contas que o usam"
+        size="full"
+        bodySemPadding
+      >
+        {deParaAberto && (
+          <DeParaCnaes
+            verticais={verticais}
+            onCriarVertical={criarVertical}
+            onMudou={carregar}
+          />
+        )}
+      </Modal>
 
       <FormNovaConta
         aberto={novaAberta}

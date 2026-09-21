@@ -281,20 +281,6 @@ export default function ContaDetalhe({
     []
   );
 
-  // Recarrega o form quando troca de conta. Comparar por id (e não pelo
-  // objeto) evita descartar o que o usuário digitou quando o pai recarrega
-  // a conta por causa de uma ação de contato.
-  useEffect(() => {
-    if (idCarregado.current === conta.id) return;
-    idCarregado.current = conta.id;
-    setForm(Object.fromEntries(CAMPOS.map((c) => [c, conta[c] ?? (c === 'eh_finder' || c === 'ativo' ? false : '')])));
-    setAba('oportunidades');
-    setErro(null);
-    setFormBloqueio(false);
-    setMotivoBloqueio('');
-    setAvisoBloqueio(null);
-  }, [conta]);
-
   const sujo = useMemo(
     () => CAMPOS.some((c) => {
       const atual = form[c];
@@ -303,6 +289,60 @@ export default function ContaDetalhe({
     }),
     [form, conta]
   );
+
+  // Recarrega o form quando troca de conta OU quando o registro mudou no
+  // servidor.
+  //
+  // O BUG QUE ISTO CORRIGE (21/09), e ele era perigoso: comparar só por
+  // `conta.id` fazia o form ignorar qualquer atualização vinda do banco. O
+  // enriquecimento por CNPJ grava CEP, cidade, CNAE e porte, o pai recarrega
+  // a conta — e o form continuava com os valores VAZIOS de antes. A tela
+  // dizia "Alterações não salvas" e, se a pessoa clicasse em Salvar, o PATCH
+  // mandava os campos vazios e APAGAVA o que a Receita tinha acabado de
+  // trazer.
+  //
+  // `atualizado_em` entra na chave porque é o carimbo que o backend mexe a
+  // cada escrita.
+  //
+  // E A COMPARAÇÃO É CONTRA A BASE, NÃO CONTRA `conta`. Essa distinção é a
+  // correção de verdade, e a primeira tentativa errou justamente aqui:
+  //
+  //   `sujo`  = form difere do que está NO SERVIDOR  -> habilita o Salvar
+  //   editado = form difere do que foi CARREGADO      -> a pessoa mexeu
+  //
+  // Quando o enriquecimento grava no banco, `sujo` fica true sozinho — o
+  // form velho passa a divergir do servidor sem ninguém ter digitado nada.
+  // Usar `sujo` para decidir a recarga bloqueava exatamente o caso que
+  // precisava ser recarregado. `baseRef` guarda a conta com que o form foi
+  // montado, e só uma diferença contra ELA significa trabalho humano a
+  // preservar.
+  const chaveCarregada = useRef(null);
+  const baseRef = useRef(null);
+  useEffect(() => {
+    const chave = `${conta.id}:${conta.atualizado_em || ''}`;
+    if (chaveCarregada.current === chave) return;
+
+    const trocouDeConta = idCarregado.current !== conta.id;
+    const base = baseRef.current;
+    const editadoPelaPessoa = Boolean(base) && CAMPOS.some((c) => {
+      const atual = form[c];
+      const original = base[c] ?? (typeof atual === 'boolean' ? false : '');
+      return String(atual ?? '') !== String(original ?? '');
+    });
+    if (!trocouDeConta && editadoPelaPessoa) return;
+
+    chaveCarregada.current = chave;
+    idCarregado.current = conta.id;
+    baseRef.current = conta;
+    setForm(Object.fromEntries(CAMPOS.map((c) => [c, conta[c] ?? (c === 'eh_finder' || c === 'ativo' ? false : '')])));
+    if (trocouDeConta) {
+      setAba('oportunidades');
+      setErro(null);
+      setFormBloqueio(false);
+      setMotivoBloqueio('');
+      setAvisoBloqueio(null);
+    }
+  }, [conta, form]);
 
   function set(campo, valor) {
     setForm((f) => ({ ...f, [campo]: valor }));
@@ -537,6 +577,26 @@ export default function ContaDetalhe({
                 aria-label="Adicionar vertical"
               />
             </div>
+
+            {/* O CNAE fica logo abaixo da Vertical porque é de onde ela
+                deveria vir. Sem isto, o usuário vê "sem vertical" e não
+                tem como saber que o sistema já conhece a atividade da
+                empresa — o dado existe e ficava escondido numa aba. */}
+            {conta.cnae_codigo && (
+              <p className="mt-1 text-xs text-hipo-slate">
+                <span className="font-mono">{conta.cnae_codigo}</span>
+                {conta.cnae_descricao && ` — ${conta.cnae_descricao}`}
+                {!conta.cnae_vertical_id && (
+                  <button
+                    type="button"
+                    onClick={() => setAba('dados-publicos')}
+                    className="ml-1 text-hipo-blue hover:underline"
+                  >
+                    (classificar este CNAE)
+                  </button>
+                )}
+              </p>
+            )}
           </Campo>
 
           <Campo className="md:col-span-2">

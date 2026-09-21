@@ -511,9 +511,22 @@ export default function AbaDadosPublicos({
         {socios === null ? (
           <p className="py-6 text-center text-sm text-hipo-slate">Carregando…</p>
         ) : socios.length === 0 ? (
+          // A mensagem muda conforme JÁ houve consulta ou não. Depois de
+          // consultar, "sem sócios" quase sempre significa empresário
+          // individual ou MEI — esses não têm quadro societário na Receita,
+          // e dizer só "sem sócios registrados" faria parecer defeito do
+          // sistema num dado que simplesmente não existe.
           <Empty
-            title="Sem sócios registrados"
-            description="O quadro societário vem junto com a consulta por CNPJ."
+            title={
+              conta.enriquecida_em
+                ? 'A Receita não tem quadro societário para este CNPJ'
+                : 'Sem sócios registrados'
+            }
+            description={
+              conta.enriquecida_em
+                ? 'É o caso de empresário individual e MEI: a empresa é a própria pessoa, então não há sociedade a publicar. Para os demais tipos, o quadro vem na consulta.'
+                : 'O quadro societário vem junto com a consulta por CNPJ.'
+            }
             icon={Users2}
           />
         ) : (

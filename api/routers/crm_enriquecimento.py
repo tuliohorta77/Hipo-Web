@@ -66,6 +66,13 @@ class CnaeOut(BaseModel):
     grau_risco: int | None = None
     mapeado_em: datetime | None = None
     qtd_contas: int | None = None
+    # Quantas contas com este CNAE estão sem vertical AGORA. É o número que
+    # dá sentido ao de-para: mapear este código preenche todas elas de uma
+    # vez. Sem ele, a tela mostraria "40 contas" sem dizer o que muda.
+    qtd_contas_sem_vertical: int | None = None
+    # Preenchido na resposta do PATCH quando o mapeamento foi aplicado
+    # retroativamente.
+    contas_atualizadas: int | None = None
 
 
 class ContaExistente(BaseModel):
@@ -145,6 +152,14 @@ class AplicarOut(BaseModel):
 class MapearCnaeIn(BaseModel):
     vertical_id: int | None = None
     grau_risco: int | None = Field(None, ge=1, le=4)
+    # Aplica a vertical nas contas que JÁ existem com este CNAE e estão sem
+    # vertical. É o que transforma o de-para numa ferramenta em vez de uma
+    # tabela: um clique classifica quarenta contas.
+    #
+    # Nunca toca em conta que já tem vertical — a regra de não sobrescrever
+    # trabalho humano vale aqui também, e é por isso que este parâmetro é
+    # seguro de deixar ligado por padrão na tela.
+    aplicar_em_contas: bool = False
 
 
 class EmpresaDoSocio(BaseModel):
@@ -190,7 +205,11 @@ async def _cnae_completo(conn, codigo: str | None) -> dict | None:
         SELECT c.codigo, c.descricao, c.vertical_id, v.nome AS vertical_nome,
                c.grau_risco, c.mapeado_em,
                (SELECT count(*) FROM contas ct WHERE ct.cnae_codigo = c.codigo)
-                   AS qtd_contas
+                   AS qtd_contas,
+               (SELECT count(*) FROM contas ct
+                 WHERE ct.cnae_codigo = c.codigo
+                   AND ct.vertical_id IS NULL AND ct.ativo)
+                   AS qtd_contas_sem_vertical
           FROM cnaes c
           LEFT JOIN verticais v ON v.id = c.vertical_id
          WHERE c.codigo = $1
@@ -380,7 +399,10 @@ async def listar_cnaes(
         """
         SELECT c.codigo, c.descricao, c.vertical_id, v.nome AS vertical_nome,
                c.grau_risco, c.mapeado_em,
-               count(ct.id) AS qtd_contas
+               count(ct.id) AS qtd_contas,
+               count(ct.id) FILTER (
+                   WHERE ct.vertical_id IS NULL AND ct.ativo
+               ) AS qtd_contas_sem_vertical
           FROM cnaes c
           LEFT JOIN verticais v ON v.id = c.vertical_id
           LEFT JOIN contas ct ON ct.cnae_codigo = c.codigo
@@ -389,7 +411,13 @@ async def listar_cnaes(
            AND ($2::text IS NULL OR c.descricao ILIKE $2 OR c.codigo LIKE $2)
          GROUP BY c.codigo, c.descricao, c.vertical_id, v.nome,
                   c.grau_risco, c.mapeado_em
-         ORDER BY count(ct.id) DESC, c.descricao
+         -- Ordem de TRABALHO, não alfabética: o CNAE que destrava mais
+         -- contas vem primeiro. Mapear o de 40 contas antes do que aparece
+         -- uma vez é o que faz a base se classificar sozinha.
+         ORDER BY count(ct.id) FILTER (
+                      WHERE ct.vertical_id IS NULL AND ct.ativo
+                  ) DESC,
+                  count(ct.id) DESC, c.descricao
          LIMIT $3
         """,
         apenas_nao_mapeados,
@@ -468,7 +496,32 @@ async def mapear_cnae(
         digitos, payload.vertical_id, payload.grau_risco, limpando,
         str(user["id"]),
     )
-    return await _cnae_completo(conn, row["codigo"])
+
+    # APLICAÇÃO RETROATIVA — o que torna o de-para útil.
+    #
+    # Sem isto, mapear um CNAE só valeria para consultas futuras, e as 40
+    # contas que já estão no banco com aquele código continuariam sem
+    # vertical até alguém reconsultar uma a uma.
+    #
+    # O `vertical_id IS NULL` no WHERE é a regra de sempre: conta que já tem
+    # vertical foi classificada por gente e não é tocada. Por isso a tela
+    # pode oferecer isto como padrão sem risco.
+    contas_atualizadas = 0
+    if payload.aplicar_em_contas and payload.vertical_id is not None:
+        resultado = await conn.execute(
+            """
+            UPDATE contas
+               SET vertical_id = $2, atualizado_em = NOW()
+             WHERE cnae_codigo = $1 AND vertical_id IS NULL AND ativo
+            """,
+            digitos, payload.vertical_id,
+        )
+        # "UPDATE 37" -> 37
+        partes = resultado.split()
+        contas_atualizadas = int(partes[-1]) if partes and partes[-1].isdigit() else 0
+
+    completo = await _cnae_completo(conn, row["codigo"])
+    return {**completo, "contas_atualizadas": contas_atualizadas}
 
 
 # ── Sócios ───────────────────────────────────────────────────────────────────

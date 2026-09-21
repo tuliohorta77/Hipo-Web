@@ -648,3 +648,172 @@ class TestPermissoes:
     async def test_sem_token_401(self, db_conn, client):
         resp = await client.get(f"/crm/enriquecimento/cnpj/{CNPJ_A}")
         assert resp.status_code == 401
+
+
+class TestDeParaRetroativo:
+    """
+    O que faz o de-para valer: classificar um CNAE preenche a vertical das
+    contas que JÁ existem com aquele código. Sem isso, mapear só valeria
+    para consultas futuras e as 1.751 contas ficariam esperando.
+    """
+
+    async def _mapear(self, client, headers, vertical_id, aplicar=True):
+        return await client.patch(
+            "/crm/enriquecimento/cnaes/2511000",
+            json={
+                "vertical_id": vertical_id,
+                "grau_risco": 3,
+                "aplicar_em_contas": aplicar,
+            },
+            headers=headers,
+        )
+
+    async def _duas_contas_com_cnae(self, db_conn, client, headers):
+        contas = []
+        for cnpj in (CNPJ_A, CNPJ_B):
+            conta = await criar_conta(client, headers, cnpj=cnpj)
+            await client.post(
+                f"/crm/enriquecimento/contas/{conta['id']}/aplicar",
+                json={}, headers=headers,
+            )
+            contas.append(conta)
+        return contas
+
+    async def test_mapear_classifica_as_contas_que_ja_existiam(
+        self, db_conn, client, usuario_adm, fonte_falsa
+    ):
+        contas = await self._duas_contas_com_cnae(
+            db_conn, client, usuario_adm["headers"]
+        )
+        vertical = await client.post(
+            "/crm/dominio/verticais", json={"nome": "Indústria"},
+            headers=usuario_adm["headers"],
+        )
+        vid = vertical.json()["id"]
+
+        resp = await self._mapear(client, usuario_adm["headers"], vid)
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["contas_atualizadas"] == 2
+
+        for conta in contas:
+            atual = await db_conn.fetchval(
+                "SELECT vertical_id FROM contas WHERE id = $1", conta["id"]
+            )
+            assert atual == vid
+
+    async def test_nao_toca_em_conta_que_ja_tem_vertical(
+        self, db_conn, client, usuario_adm, fonte_falsa
+    ):
+        """Mesma regra do enriquecimento: trabalho humano não é sobrescrito."""
+        outra = await client.post(
+            "/crm/dominio/verticais", json={"nome": "Serviços"},
+            headers=usuario_adm["headers"],
+        )
+        conta = await criar_conta(
+            client, usuario_adm["headers"], vertical_id=outra.json()["id"]
+        )
+        await client.post(
+            f"/crm/enriquecimento/contas/{conta['id']}/aplicar",
+            json={}, headers=usuario_adm["headers"],
+        )
+        vertical = await client.post(
+            "/crm/dominio/verticais", json={"nome": "Indústria"},
+            headers=usuario_adm["headers"],
+        )
+
+        resp = await self._mapear(
+            client, usuario_adm["headers"], vertical.json()["id"]
+        )
+        assert resp.json()["contas_atualizadas"] == 0
+
+        atual = await db_conn.fetchval(
+            "SELECT vertical_id FROM contas WHERE id = $1", conta["id"]
+        )
+        assert atual == outra.json()["id"]
+
+    async def test_sem_aplicar_em_contas_nao_mexe_em_nada(
+        self, db_conn, client, usuario_adm, fonte_falsa
+    ):
+        conta = await criar_conta(client, usuario_adm["headers"])
+        await client.post(
+            f"/crm/enriquecimento/contas/{conta['id']}/aplicar",
+            json={}, headers=usuario_adm["headers"],
+        )
+        vertical = await client.post(
+            "/crm/dominio/verticais", json={"nome": "Indústria"},
+            headers=usuario_adm["headers"],
+        )
+
+        resp = await self._mapear(
+            client, usuario_adm["headers"], vertical.json()["id"], aplicar=False
+        )
+        assert resp.json()["contas_atualizadas"] == 0
+        atual = await db_conn.fetchval(
+            "SELECT vertical_id FROM contas WHERE id = $1", conta["id"]
+        )
+        assert atual is None
+
+    async def test_lista_mostra_quantas_contas_esperam_vertical(
+        self, db_conn, client, usuario_adm, fonte_falsa
+    ):
+        await self._duas_contas_com_cnae(db_conn, client, usuario_adm["headers"])
+        resp = await client.get(
+            "/crm/enriquecimento/cnaes", headers=usuario_adm["headers"]
+        )
+        linha = [c for c in resp.json() if c["codigo"] == "2511000"][0]
+        assert linha["qtd_contas"] == 2
+        assert linha["qtd_contas_sem_vertical"] == 2
+
+    async def test_contador_zera_depois_de_mapear(
+        self, db_conn, client, usuario_adm, fonte_falsa
+    ):
+        await self._duas_contas_com_cnae(db_conn, client, usuario_adm["headers"])
+        vertical = await client.post(
+            "/crm/dominio/verticais", json={"nome": "Indústria"},
+            headers=usuario_adm["headers"],
+        )
+        await self._mapear(client, usuario_adm["headers"], vertical.json()["id"])
+
+        resp = await client.get(
+            "/crm/enriquecimento/cnaes", headers=usuario_adm["headers"]
+        )
+        linha = [c for c in resp.json() if c["codigo"] == "2511000"][0]
+        assert linha["qtd_contas_sem_vertical"] == 0
+
+        resumo = await client.get(
+            "/crm/enriquecimento/resumo", headers=usuario_adm["headers"]
+        )
+        assert resumo.json()["contas_em_cnae_nao_mapeado"] == 0
+
+
+class TestSemQuadroSocietario:
+    """
+    Empresário individual e MEI não têm QSA na Receita — a resposta vem com
+    `qsa` vazio, e isso não é falha de consulta.
+    """
+
+    @pytest.fixture
+    def fonte_sem_qsa(self, monkeypatch):
+        async def buscar(cnpj):
+            return {**PAYLOAD, "cnpj": cnpj, "qsa": []}, None
+
+        monkeypatch.setattr(settings, "ENRIQUECIMENTO_FONTES", "brasilapi")
+        monkeypatch.setitem(fontes.BUSCADORES, fontes.BRASILAPI, buscar)
+
+    async def test_enriquecimento_conclui_sem_socios(
+        self, db_conn, client, usuario_adm, fonte_sem_qsa
+    ):
+        conta = await criar_conta(client, usuario_adm["headers"])
+        resp = await client.post(
+            f"/crm/enriquecimento/contas/{conta['id']}/aplicar",
+            json={}, headers=usuario_adm["headers"],
+        )
+        assert resp.status_code == 200
+        assert resp.json()["socios_novos"] == 0
+        # O resto do cadastro entra normalmente: QSA vazio não invalida nada.
+        assert resp.json()["aplicados"]["cidade"] == "GUARULHOS"
+
+        enriquecida = await db_conn.fetchval(
+            "SELECT enriquecida_em FROM contas WHERE id = $1", conta["id"]
+        )
+        assert enriquecida is not None
