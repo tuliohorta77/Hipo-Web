@@ -25,7 +25,10 @@ vi.mock('../api', () => ({
 
 import AbaDadosPublicos from '../components/crm/AbaDadosPublicos';
 
-const VERTICAIS = [{ id: 1, nome: 'Indústria', slug: 'industria' }];
+const VERTICAIS = [
+  { id: 1, nome: 'Indústria', slug: 'industria' },
+  { id: 2, nome: 'Serviços', slug: 'servicos' },
+];
 
 const SOCIO = {
   id: 's1',
@@ -47,6 +50,9 @@ const CONTA_ENRIQUECIDA = {
   cnae_descricao: 'Fabricação de estruturas metálicas',
   cnae_grau_risco: 3,
   cnae_vertical_id: 1,
+  // 'humano': alguem decidiu. E o que tira o bloco de classificar da aba.
+  cnae_mapeamento_origem: 'humano',
+  cnae_vertical_nome: 'Indústria',
   porte: 'DEMAIS',
   situacao_cadastral: 'ATIVA',
   data_abertura: '2009-03-17',
@@ -115,6 +121,7 @@ describe('AbaDadosPublicos', () => {
   it('oferece mapear o CNAE quando ele não tem classificação', async () => {
     renderAba({
       ...CONTA_ENRIQUECIDA, cnae_vertical_id: null, cnae_grau_risco: null,
+      cnae_mapeamento_origem: null, cnae_vertical_nome: null,
     });
     await screen.findByText('JOSE DA SILVA');
 
@@ -127,16 +134,75 @@ describe('AbaDadosPublicos', () => {
     mockPatch.mockResolvedValueOnce({ data: { codigo: '2511000', grau_risco: 3 } });
     fireEvent.click(screen.getByText('Classificar CNAE'));
 
+    // `aplicar_em_contas` não é detalhe: o texto do bloco promete que
+    // classificar vale para todas as contas daquele código.
     await waitFor(() => expect(mockPatch).toHaveBeenCalledWith(
       '/crm/enriquecimento/cnaes/2511000',
-      { vertical_id: 1, grau_risco: 3 },
+      { vertical_id: 1, grau_risco: 3, aplicar_em_contas: true },
     ));
   });
 
-  it('não oferece mapeamento para CNAE já classificado', async () => {
+  it('não oferece mapeamento para CNAE decidido por gente', async () => {
     renderAba();
     await screen.findByText('JOSE DA SILVA');
     expect(screen.queryByText(/ainda não foi classificado/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Vertical sugerida/)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Vertical')).not.toBeInTheDocument();
+  });
+
+  // ── sugestão derivada (015) ──────────────────────────────────────────
+  //
+  // O bug que estes testes prendem: com `!cnae_vertical_id` como condição,
+  // o bloco sumia de TODAS as contas no dia em que a carga derivou as
+  // verticais — e a pessoa com a conta aberta ficava sem como discordar.
+
+  const CONTA_SUGERIDA = {
+    ...CONTA_ENRIQUECIDA,
+    cnae_vertical_id: 2,
+    cnae_vertical_nome: 'Serviços',
+    cnae_grau_risco: null,
+    cnae_mapeamento_origem: 'derivado',
+  };
+
+  it('CNAE com vertical apenas SUGERIDA continua oferecendo o bloco', async () => {
+    renderAba(CONTA_SUGERIDA);
+    await screen.findByText('JOSE DA SILVA');
+
+    expect(screen.getByText(/Vertical sugerida: Serviços/)).toBeInTheDocument();
+    expect(screen.getByText(/seção da CNAE 2.0/)).toBeInTheDocument();
+    // Já vem escolhida: quem concorda não digita nada, só confirma.
+    expect(screen.getByLabelText('Vertical')).toHaveValue('2');
+    expect(screen.getByText('Confirmar vertical')).toBeInTheDocument();
+  });
+
+  it('confirmar a sugestão grava sem mudar nada', async () => {
+    renderAba(CONTA_SUGERIDA);
+    await screen.findByText('JOSE DA SILVA');
+
+    mockPatch.mockResolvedValueOnce({ data: { codigo: '2511000' } });
+    fireEvent.click(screen.getByText('Confirmar vertical'));
+
+    await waitFor(() => expect(mockPatch).toHaveBeenCalledWith(
+      '/crm/enriquecimento/cnaes/2511000',
+      { vertical_id: 2, grau_risco: null, aplicar_em_contas: true },
+    ));
+  });
+
+  it('trocar a sugestão muda o rótulo do botão', async () => {
+    renderAba(CONTA_SUGERIDA);
+    await screen.findByText('JOSE DA SILVA');
+
+    fireEvent.change(screen.getByLabelText('Vertical'), { target: { value: '1' } });
+    expect(screen.getByText('Classificar CNAE')).toBeInTheDocument();
+    expect(screen.queryByText('Confirmar vertical')).not.toBeInTheDocument();
+
+    mockPatch.mockResolvedValueOnce({ data: { codigo: '2511000' } });
+    fireEvent.click(screen.getByText('Classificar CNAE'));
+
+    await waitFor(() => expect(mockPatch).toHaveBeenCalledWith(
+      '/crm/enriquecimento/cnaes/2511000',
+      { vertical_id: 1, grau_risco: null, aplicar_em_contas: true },
+    ));
   });
 
   it('avisa quando a empresa não está operando', async () => {

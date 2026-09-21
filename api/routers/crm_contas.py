@@ -241,6 +241,13 @@ class ContaDetalhe(ContaResumo):
     cnae_descricao: str | None = None
     cnae_grau_risco: int | None = None
     cnae_vertical_id: int | None = None
+    # 'derivado' (veio da seção da CNAE 2.0), 'humano' (alguém decidiu) ou
+    # nulo (nunca classificado). A aba precisa da diferença: a partir da
+    # 015 todo CNAE nasce com vertical, então "tem vertical" deixou de
+    # significar "já foi conferido" — e sem isto o bloco de classificar
+    # some de todas as contas no dia da carga.
+    cnae_mapeamento_origem: str | None = None
+    cnae_vertical_nome: str | None = None
     porte: str | None = None
     situacao_cadastral: str | None = None
     data_abertura: date | None = None
@@ -540,12 +547,18 @@ async def obter(conta_id: UUID, conn=Depends(get_conn), user=Depends(usuario_atu
         SELECT c.*, v.nome AS vertical_nome, ev.vendedores, ev.qtd_ativas,
                cn.descricao  AS cnae_descricao,
                cn.grau_risco AS cnae_grau_risco,
-               cn.vertical_id AS cnae_vertical_id
+               cn.vertical_id AS cnae_vertical_id,
+               cn.mapeamento_origem AS cnae_mapeamento_origem,
+               cv.nome AS cnae_vertical_nome
         FROM contas c
         LEFT JOIN verticais v ON v.id = c.vertical_id
         -- 014: a descrição e o grau de risco do CNAE vêm por join, e não
         -- por consulta à fonte. Abrir a conta não pode gastar crédito.
         LEFT JOIN cnaes cn ON cn.codigo = c.cnae_codigo
+        -- 015: a vertical DO CNAE, que não é necessariamente a da conta —
+        -- a conta pode ter sido classificada à mão antes, e a diferença
+        -- entre as duas é justamente o que a aba precisa mostrar.
+        LEFT JOIN verticais cv ON cv.id = cn.vertical_id
         {_LATERAL_EVS}
         WHERE c.id = $1
         """,

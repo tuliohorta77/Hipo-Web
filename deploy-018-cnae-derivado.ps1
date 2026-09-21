@@ -105,6 +105,7 @@ $esperados = @(
     "api\schema.sql",
     "api\tests\test_crm_enriquecimento.py",
     "infra\aplicar-015-cnae-derivado.sh",
+    "infra\carregar-verticais.sh",
     "web\src\components\crm\DeParaCnaes.jsx",
     "web\src\pages\crm\Cnaes.jsx",
     "web\src\tests\DeParaCnaes.test.jsx"
@@ -176,6 +177,7 @@ Titulo "3. Migration 015 no RDS"
 
 $sqlLocal     = Join-Path $Pasta "api\migrations\015_cnae_derivado.sql"
 $scriptLocal  = Join-Path $Pasta "infra\aplicar-015-cnae-derivado.sh"
+$cargaLocal   = Join-Path $Pasta "infra\carregar-verticais.sh"
 
 if ($Simular) {
     Aviso "simulacao: nao vou mandar nem aplicar nada"
@@ -187,7 +189,8 @@ else {
     Confirmar "Aplicar a migration 015 em PRODUCAO ($Servidor)?"
 
     Passo "enviando os arquivos..."
-    & scp -i $Chave -o StrictHostKeyChecking=accept-new $sqlLocal $scriptLocal "${alvo}:/tmp/"
+    & scp -i $Chave -o StrictHostKeyChecking=accept-new `
+        $sqlLocal $scriptLocal $cargaLocal "${alvo}:/tmp/"
     if ($LASTEXITCODE -ne 0) { Abortar "o scp falhou." }
     Bom "arquivos em /tmp/ no servidor"
 
@@ -326,9 +329,14 @@ else {
     Write-Host "  nem em conta que ja tem vertical." -ForegroundColor Gray
     Write-Host ""
 
-    # Mesmo script da etapa 3. A migration ja aplicada e idempotente, entao
-    # ele passa reto por ela e vai direto para a carga.
-    & ssh -t -i $Chave $alvo "bash /tmp/aplicar-015-cnae-derivado.sh"
+    # Script separado, so com a carga -- nao o da etapa 3. O da etapa 3
+    # perguntaria de novo sobre a migration (que ja foi, e e idempotente),
+    # e uma pergunta repetida e uma pergunta respondida no automatico.
+    #
+    # Ele descobre sozinho qual Python roda o app. Chutar `python` nao
+    # funciona: na Amazon Linux 2023 o binario e `python3`, e se o app
+    # estiver num venv o python3 do sistema nao tem asyncpg.
+    & ssh -t -i $Chave $alvo "bash /tmp/carregar-verticais.sh"
     if ($LASTEXITCODE -ne 0) { Abortar "a carga falhou no servidor (codigo $LASTEXITCODE)." }
     Bom "carga concluida"
 }

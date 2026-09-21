@@ -538,18 +538,40 @@ async def mapear_cnae(
     # contas que já estão no banco com aquele código continuariam sem
     # vertical até alguém reconsultar uma a uma.
     #
-    # O `vertical_id IS NULL` no WHERE é a regra de sempre: conta que já tem
-    # vertical foi classificada por gente e não é tocada. Por isso a tela
-    # pode oferecer isto como padrão sem risco.
+    # A regra de sempre é `vertical_id IS NULL`: conta que já tem vertical
+    # foi classificada por gente e não é tocada.
+    #
+    # A 015 abriu um segundo caso, e ignorá-lo deixaria a correção sem
+    # efeito nenhum. Quando a carga derivou a vertical, ela ESCREVEU nas
+    # contas — então, depois dela, nenhuma conta daquele CNAE está mais com
+    # `vertical_id IS NULL`, e corrigir a sugestão não alcançaria uma só.
+    # A pessoa trocaria o mapeamento, veria "0 contas atualizadas" e a base
+    # continuaria com a classificação que ela acabou de recusar.
+    #
+    # Então: quando o mapeamento ANTERIOR era 'derivado', a correção também
+    # alcança as contas que estão exatamente com aquela vertical derivada —
+    # são as que a máquina preencheu. Conta com qualquer outra vertical
+    # divergiu por decisão de alguém, e continua intocada.
+    origem_anterior = atual["mapeamento_origem"]
+    vertical_anterior = atual["vertical_id"]
+    corrigindo_derivado = (
+        origem_anterior == "derivado"
+        and vertical_anterior is not None
+        and vertical_anterior != payload.vertical_id
+    )
+
     contas_atualizadas = 0
     if payload.aplicar_em_contas and payload.vertical_id is not None:
         resultado = await conn.execute(
             """
             UPDATE contas
                SET vertical_id = $2, atualizado_em = NOW()
-             WHERE cnae_codigo = $1 AND vertical_id IS NULL AND ativo
+             WHERE cnae_codigo = $1 AND ativo
+               AND (vertical_id IS NULL
+                    OR ($3::boolean AND vertical_id = $4))
             """,
             digitos, payload.vertical_id,
+            corrigindo_derivado, vertical_anterior,
         )
         # "UPDATE 37" -> 37
         partes = resultado.split()

@@ -112,15 +112,39 @@ function Dado({ label, children, hint }) {
 
 // ── Mapeamento do CNAE ───────────────────────────────────────────────
 
+// Dois modos, e a diferença importa:
+//
+//   * SEM CLASSIFICAÇÃO — ninguém passou por este CNAE. O bloco pede a
+//     decisão, e o botão só habilita quando há o que gravar.
+//
+//   * SUGERIDO (015) — a vertical veio da seção da CNAE 2.0. O select já
+//     abre com ela escolhida, e confirmar sem mudar nada é ação válida:
+//     marca o CNAE como decidido por gente e tira ele da fila do de-para.
+//
+// Antes da 015 o bloco só aparecia quando `vertical_id` era nulo. Como
+// agora todo CNAE nasce com vertical, essa condição passou a ser sempre
+// falsa — e no dia da carga o bloco sumiu de todas as contas de uma vez.
+// É por isso que quem manda aqui é a PROCEDÊNCIA, não a presença.
 function MapearCnae({ conta, verticais, onCriarVertical, onMapeado }) {
-  const [verticalId, setVerticalId] = useState('');
-  const [grau, setGrau] = useState('');
+  const sugerido = conta.cnae_mapeamento_origem === 'derivado';
+  const sugestaoId = sugerido && conta.cnae_vertical_id
+    ? String(conta.cnae_vertical_id)
+    : '';
+
+  const [verticalId, setVerticalId] = useState(sugestaoId);
+  const [grau, setGrau] = useState(
+    conta.cnae_grau_risco ? String(conta.cnae_grau_risco) : ''
+  );
   const [novaVertical, setNovaVertical] = useState('');
   const [salvando, setSalvando] = useState(false);
   const [erro, setErro] = useState(null);
 
+  const mudou = verticalId !== sugestaoId
+    || grau !== (conta.cnae_grau_risco ? String(conta.cnae_grau_risco) : '')
+    || Boolean(novaVertical.trim());
+
   async function salvar() {
-    if (!verticalId && !grau) {
+    if (!verticalId && !grau && !novaVertical.trim()) {
       setErro('Escolha a vertical, o grau de risco, ou os dois.');
       return;
     }
@@ -135,7 +159,14 @@ function MapearCnae({ conta, verticais, onCriarVertical, onMapeado }) {
       }
       const { data } = await api.patch(
         `/crm/enriquecimento/cnaes/${conta.cnae_codigo}`,
-        { vertical_id: idVertical, grau_risco: grau ? Number(grau) : null },
+        {
+          vertical_id: idVertical,
+          grau_risco: grau ? Number(grau) : null,
+          // Sem isto, classificar aqui só valeria para consultas futuras —
+          // e o texto logo acima promete que vale para todas as contas do
+          // código. Promessa na tela e efeito no banco têm que bater.
+          aplicar_em_contas: true,
+        },
       );
       await onMapeado(data);
     } catch (err) {
@@ -146,16 +177,47 @@ function MapearCnae({ conta, verticais, onCriarVertical, onMapeado }) {
   }
 
   return (
-    <div className="rounded-lg border border-hipo-warningBorder bg-hipo-warningSoft p-4 space-y-3">
+    <div
+      className={
+        'rounded-lg border p-4 space-y-3 '
+        + (sugerido
+          ? 'border-hipo-blueSoft bg-hipo-blueSoft/40'
+          : 'border-hipo-warningBorder bg-hipo-warningSoft')
+      }
+    >
       <div className="flex items-start gap-2">
-        <Tag size={16} className="text-hipo-warning shrink-0 mt-0.5" />
+        <Tag
+          size={16}
+          className={
+            'shrink-0 mt-0.5 '
+            + (sugerido ? 'text-hipo-blue' : 'text-hipo-warning')
+          }
+        />
         <div className="text-sm text-hipo-ink">
-          <strong>Este CNAE ainda não foi classificado.</strong>
-          <p className="text-hipo-slate">
-            Classificar aqui vale para <em>todas</em> as contas com o CNAE{' '}
-            <span className="font-mono">{conta.cnae_codigo}</span> — inclusive
-            as que forem cadastradas depois.
-          </p>
+          {sugerido ? (
+            <>
+              <strong>
+                Vertical sugerida
+                {conta.cnae_vertical_nome ? `: ${conta.cnae_vertical_nome}` : ''}
+                .
+              </strong>
+              <p className="text-hipo-slate">
+                Veio da seção da CNAE 2.0, a classificação oficial do IBGE —
+                ninguém conferiu ainda. Confirmar ou trocar vale para{' '}
+                <em>todas</em> as contas com o CNAE{' '}
+                <span className="font-mono">{conta.cnae_codigo}</span>.
+              </p>
+            </>
+          ) : (
+            <>
+              <strong>Este CNAE ainda não foi classificado.</strong>
+              <p className="text-hipo-slate">
+                Classificar aqui vale para <em>todas</em> as contas com o CNAE{' '}
+                <span className="font-mono">{conta.cnae_codigo}</span> —
+                inclusive as que forem cadastradas depois.
+              </p>
+            </>
+          )}
         </div>
       </div>
 
@@ -190,7 +252,13 @@ function MapearCnae({ conta, verticais, onCriarVertical, onMapeado }) {
           <option value="3">3</option>
           <option value="4">4</option>
         </Select>
-        <Button onClick={salvar} loading={salvando}>Classificar CNAE</Button>
+        <Button
+          onClick={salvar}
+          loading={salvando}
+          variant={sugerido && !mudou ? 'secondary' : 'primary'}
+        >
+          {sugerido && !mudou ? 'Confirmar vertical' : 'Classificar CNAE'}
+        </Button>
       </div>
     </div>
   );
@@ -342,8 +410,17 @@ export default function AbaDadosPublicos({
   }
 
   const nuncaConsultada = !conta.enriquecida_em;
-  const cnaeSemClassificacao = Boolean(conta.cnae_codigo) && !conta.cnae_vertical_id
-    && (conta.cnae_grau_risco === null || conta.cnae_grau_risco === undefined);
+
+  // O bloco aparece enquanto NINGUÉM decidiu este CNAE — seja porque está
+  // vazio, seja porque a vertical é só uma sugestão da seção da CNAE 2.0.
+  // Decisão humana ('humano') tira o bloco daqui: remapear vale para a
+  // base inteira e é de gestão, na tela do de-para.
+  //
+  // Reparar que a condição olha a PROCEDÊNCIA e não a presença da
+  // vertical: depois da 015 todo CNAE nasce classificado, então
+  // `!vertical_id` seria sempre falso e o bloco nunca mais apareceria.
+  const cnaeAConferir = Boolean(conta.cnae_codigo)
+    && conta.cnae_mapeamento_origem !== 'humano';
 
   if (nuncaConsultada && socios !== null && socios.length === 0) {
     return (
@@ -491,8 +568,9 @@ export default function AbaDadosPublicos({
           </Dado>
         </div>
 
-        {cnaeSemClassificacao && (
+        {cnaeAConferir && (
           <MapearCnae
+            key={`${conta.cnae_codigo}:${conta.cnae_mapeamento_origem || ''}`}
             conta={conta}
             verticais={verticais}
             onCriarVertical={onCriarVertical}

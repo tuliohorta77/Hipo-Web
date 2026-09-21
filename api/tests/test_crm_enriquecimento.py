@@ -791,6 +791,126 @@ class TestDeParaRetroativo:
         )
         assert atual is None
 
+    async def test_corrigir_sugestao_alcanca_as_contas_que_a_derivacao_preencheu(
+        self, db_conn, client, usuario_adm, fonte_falsa
+    ):
+        """
+        O caso que a 015 criou e por pouco não ficou sem conserto.
+
+        Depois da carga, NENHUMA conta daquele CNAE está mais com
+        `vertical_id IS NULL` — a derivação preencheu todas. Se a aplicação
+        retroativa continuasse olhando só o nulo, discordar da sugestão não
+        alcançaria uma conta sequer: a pessoa trocaria o mapeamento, veria
+        "0 contas atualizadas" e a base ficaria com a classificação que ela
+        acabou de recusar.
+        """
+        conta = await criar_conta(client, usuario_adm["headers"])
+        await client.post(
+            f"/crm/enriquecimento/contas/{conta['id']}/aplicar",
+            json={}, headers=usuario_adm["headers"],
+        )
+
+        # Estado pós-carga: CNAE derivado e a conta já com essa vertical.
+        derivada = await db_conn.fetchrow(
+            """
+            SELECT vertical_id, mapeamento_origem
+              FROM cnaes WHERE codigo = '2511000'
+            """
+        )
+        assert derivada["mapeamento_origem"] == "derivado"
+        assert derivada["vertical_id"] is not None
+        await db_conn.execute(
+            "UPDATE contas SET vertical_id = $1 WHERE id = $2",
+            derivada["vertical_id"], conta["id"],
+        )
+
+        certa = await client.post(
+            "/crm/dominio/verticais", json={"nome": "Metalurgia pesada"},
+            headers=usuario_adm["headers"],
+        )
+        vid = certa.json()["id"]
+
+        resp = await self._mapear(client, usuario_adm["headers"], vid)
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["contas_atualizadas"] == 1
+
+        atual = await db_conn.fetchval(
+            "SELECT vertical_id FROM contas WHERE id = $1", conta["id"]
+        )
+        assert atual == vid
+
+    async def test_corrigir_sugestao_nao_toca_em_conta_que_divergiu(
+        self, db_conn, client, usuario_adm, fonte_falsa
+    ):
+        """
+        A abertura acima não pode virar uma licença para sobrescrever tudo.
+
+        Conta com uma vertical DIFERENTE da derivada só chegou lá porque
+        alguém a colocou. Essa continua intocada — é a mesma lei de sempre,
+        agora com um critério mais fino do que "o campo está vazio?".
+        """
+        conta = await criar_conta(client, usuario_adm["headers"])
+        await client.post(
+            f"/crm/enriquecimento/contas/{conta['id']}/aplicar",
+            json={}, headers=usuario_adm["headers"],
+        )
+        escolhida = await client.post(
+            "/crm/dominio/verticais", json={"nome": "Escolhida por gente"},
+            headers=usuario_adm["headers"],
+        )
+        await db_conn.execute(
+            "UPDATE contas SET vertical_id = $1 WHERE id = $2",
+            escolhida.json()["id"], conta["id"],
+        )
+
+        outra = await client.post(
+            "/crm/dominio/verticais", json={"nome": "Outra qualquer"},
+            headers=usuario_adm["headers"],
+        )
+        resp = await self._mapear(
+            client, usuario_adm["headers"], outra.json()["id"]
+        )
+        assert resp.json()["contas_atualizadas"] == 0
+
+        atual = await db_conn.fetchval(
+            "SELECT vertical_id FROM contas WHERE id = $1", conta["id"]
+        )
+        assert atual == escolhida.json()["id"]
+
+    async def test_detalhe_da_conta_diz_a_procedencia_do_cnae(
+        self, db_conn, client, usuario_adm, fonte_falsa
+    ):
+        """
+        Sem este campo a aba "Dados públicos" não tem como distinguir
+        sugestão de decisão — e, como desde a 015 todo CNAE nasce com
+        vertical, o bloco de classificar desaparece de todas as contas no
+        dia da carga. Foi exatamente o que aconteceu em produção.
+        """
+        conta = await criar_conta(client, usuario_adm["headers"])
+        await client.post(
+            f"/crm/enriquecimento/contas/{conta['id']}/aplicar",
+            json={}, headers=usuario_adm["headers"],
+        )
+
+        resp = await client.get(
+            f"/crm/contas/{conta['id']}", headers=usuario_adm["headers"]
+        )
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["cnae_mapeamento_origem"] == "derivado"
+        assert body["cnae_vertical_id"] is not None
+        assert body["cnae_vertical_nome"]
+
+        # Depois de alguém confirmar, a procedência vira 'humano' e o bloco
+        # sai da aba — remapear passa a ser assunto do de-para.
+        await self._mapear(
+            client, usuario_adm["headers"], body["cnae_vertical_id"]
+        )
+        depois = await client.get(
+            f"/crm/contas/{conta['id']}", headers=usuario_adm["headers"]
+        )
+        assert depois.json()["cnae_mapeamento_origem"] == "humano"
+
     async def test_lista_mostra_quantas_contas_esperam_vertical(
         self, db_conn, client, usuario_adm, fonte_falsa
     ):

@@ -157,44 +157,33 @@ echo "============================================================"
 echo " Migration 015 aplicada."
 echo "============================================================"
 
-# ── Parte 2: a carga das verticais ────────────────────────────────────
+# ── Parte 2: a carga das verticais ────────────────────────────
+#
+# Nao acontece aqui, de proposito: a carga precisa do codigo novo, que so
+# chega no servidor depois do push. E ela tem suas proprias armadilhas
+# (achar o Python certo, carregar o .env no ambiente), que moram num script
+# so delas.
 
 echo
-if [ ! -f "$APP_DIR/services/enriquecimento/cnae_estrutura.py" ]; then
-    echo "O codigo novo ainda NAO esta no servidor."
+if [ -f "$APP_DIR/services/enriquecimento/cnae_estrutura.py" ]; then
+    echo " O codigo novo ja esta no servidor. Rode agora a carga:"
+    echo
+    echo "   bash /tmp/carregar-verticais.sh"
+else
+    echo " O codigo novo ainda NAO esta no servidor."
     echo
     echo " Ordem daqui pra frente:"
     echo "   1. git push (o CI faz rsync e reinicia o servico)"
-    echo "   2. rode ESTE MESMO SCRIPT de novo -- ele pula a migration"
-    echo "      (ja aplicada, e idempotente) e faz a carga das verticais."
-    echo
-    echo " Ou, se preferir na mao, depois do push:"
-    echo "   sudo -iu hipo"
-    echo "   cd $APP_DIR"
-    echo "   python -m scripts.semear_cnae_verticais --simular"
-    echo "   python -m scripts.semear_cnae_verticais"
-    exit 0
+    echo "   2. bash /tmp/carregar-verticais.sh"
 fi
-
-echo "== simulando a carga das verticais (nada sera gravado) =="
 echo
-sudo -iu hipo bash -lc "cd '$APP_DIR' && python -m scripts.semear_cnae_verticais --simular"
-
-echo
-if perguntar "Gravar essa classificacao para valer?"; then
-    echo
-    echo "== gravando =="
-    sudo -iu hipo bash -lc "cd '$APP_DIR' && python -m scripts.semear_cnae_verticais"
-else
-    echo "Carga nao executada. O banco ficou como estava."
-    echo "Para rodar depois:"
-    echo "  sudo -iu hipo"
-    echo "  cd $APP_DIR && python -m scripts.semear_cnae_verticais"
-fi
-
+echo " A carga deriva a vertical dos CNAEs antigos pela secao da CNAE 2.0"
+echo " e preenche as contas que estao sem vertical. Ela simula primeiro e"
+echo " so grava depois que voce confirmar."
 echo
 echo "============================================================"
 echo " FALTA AINDA:"
+echo "   * A carga (acima)."
 echo "   * Logout/login na tela. O front le os modulos do"
 echo "     localStorage, gravado no login -- Ctrl+Shift+R nao zera."
 echo "   * Conferir as sugestoes em CRM > CNAEs. A lista chega"
