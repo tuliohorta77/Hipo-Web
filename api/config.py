@@ -85,6 +85,37 @@ class Settings(BaseSettings):
     TELEMETRIA_RETENCAO_DIAS: int = 90
     TELEMETRIA_ATIVA: bool = True
 
+    # ── Enriquecimento cadastral por CNPJ (014) ─────────────────────
+    # Lista separada por virgula, NA ORDEM DE PRECEDENCIA: a primeira
+    # fonte que trouxer um campo vence e as seguintes so completam o que
+    # faltou. Com "leadcnpj,brasilapi", a paga responde primeiro (e a
+    # unica com numero de funcionarios) e a gratuita preenche o resto.
+    # Vazio = recurso desligado e a API sobe igual -- mesma regra do S3,
+    # do SES e da chave da IA acima.
+    ENRIQUECIMENTO_FONTES: str = "brasilapi"
+    # Dias que uma consulta bem-sucedida vale antes de ir de novo a fonte.
+    # 0 desliga o cache. Em fonte paga isto e dinheiro: reabrir a mesma
+    # conta cinco vezes na semana custaria cinco consultas.
+    ENRIQUECIMENTO_TTL_DIAS: int = 90
+
+    BRASILAPI_URL: str = "https://brasilapi.com.br/api/cnpj/v1"
+
+    # LeadCNPJ. Sem a chave, a fonte nao entra na lista de habilitadas.
+    LEADCNPJ_API_KEY: str = ""
+    LEADCNPJ_URL: str = "https://leadcnpj.com.br/api"
+    # Header e caminho sao configuraveis de proposito: a documentacao da
+    # LeadCNPJ exige login, entao o que esta aqui e o padrao de mercado.
+    # Se a API real divergir, o ajuste e uma linha no .env e um restart --
+    # nao um deploy. O que NAO se ajusta aqui e a LEITURA do payload: isso
+    # e services/enriquecimento/modelo.normalizar_leadcnpj.
+    LEADCNPJ_HEADER: str = "Authorization"
+    LEADCNPJ_PREFIXO_HEADER: str = "Bearer"
+    LEADCNPJ_CAMINHO_CNPJ: str = "empresas/{cnpj}"
+    # Busca reversa de socio (outras empresas em que ele participa).
+    # Vazio = desligado, e a tela mostra so a busca DENTRO da base do
+    # HIPO, dizendo em voz alta que nao procurou fora.
+    LEADCNPJ_CAMINHO_SOCIO: str = ""
+
     class Config:
         env_file = _ENV_FILE
 

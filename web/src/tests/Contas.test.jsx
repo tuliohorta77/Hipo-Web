@@ -431,3 +431,137 @@ describe('Contas — nao prospectar', () => {
     expect(screen.getByText('Ativa')).toBeInTheDocument();
   });
 });
+
+// ── 014: busca na Receita dentro do formulário de criação ────────────
+//
+// O que estes testes protegem: a consulta custa crédito em fonte paga, e o
+// que a fonte devolve nunca pode apagar o que o usuário já digitou.
+
+describe('Contas — buscar dados públicos no cadastro', () => {
+  const SUGESTAO = {
+    cnpj: '11222333000181',
+    cnpj_formatado: '11.222.333/0001-81',
+    encontrado: true,
+    operando: true,
+    fonte: 'brasilapi',
+    avisos: [],
+    razao_social: 'METALURGICA ALFA LTDA',
+    nome_fantasia: 'Alfa Metais',
+    cnae_codigo: '2511000',
+    cnae_descricao: 'Fabricação de estruturas metálicas',
+    situacao_cadastral: 'ATIVA',
+    porte: 'DEMAIS',
+    cidade: 'GUARULHOS',
+    uf: 'SP',
+    num_funcionarios: null,
+    num_funcionarios_origem: null,
+    vertical_id: null,
+    conta_existente: null,
+    socios: [],
+  };
+
+  async function abrirForm() {
+    renderContas();
+    await screen.findByText('Metalurgica Alfa LTDA');
+    fireEvent.click(screen.getAllByText('Nova conta')[0]);
+    return screen.findByLabelText('CNPJ *');
+  }
+
+  it('o botão só habilita com o DV fechado', async () => {
+    const campo = await abrirForm();
+    expect(screen.getByText('Buscar na Receita').closest('button')).toBeDisabled();
+
+    fireEvent.change(campo, { target: { value: '11222333000182' } });
+    expect(screen.getByText('Buscar na Receita').closest('button')).toBeDisabled();
+
+    fireEvent.change(campo, { target: { value: '11222333000181' } });
+    expect(screen.getByText('Buscar na Receita').closest('button')).not.toBeDisabled();
+  });
+
+  it('preenche os campos vazios com o que a fonte devolveu', async () => {
+    const campo = await abrirForm();
+    fireEvent.change(campo, { target: { value: '11222333000181' } });
+    mockGet.mockImplementationOnce(() => Promise.resolve({ data: SUGESTAO }));
+    fireEvent.click(screen.getByText('Buscar na Receita'));
+
+    await waitFor(() => expect(
+      screen.getByLabelText('Razão social *').value
+    ).toBe('METALURGICA ALFA LTDA'));
+    expect(screen.getByLabelText('Nome fantasia').value).toBe('Alfa Metais');
+    expect(screen.getByText(/GUARULHOS\/SP/)).toBeInTheDocument();
+  });
+
+  it('não sobrescreve o que o usuário já tinha digitado', async () => {
+    const campo = await abrirForm();
+    fireEvent.change(screen.getByLabelText('Razão social *'), {
+      target: { value: "ORACULU'S CONTABIL LTDA" },
+    });
+    fireEvent.change(campo, { target: { value: '11222333000181' } });
+    mockGet.mockImplementationOnce(() => Promise.resolve({ data: SUGESTAO }));
+    fireEvent.click(screen.getByText('Buscar na Receita'));
+
+    await screen.findByText(/GUARULHOS\/SP/);
+    expect(screen.getByLabelText('Razão social *').value)
+      .toBe("ORACULU'S CONTABIL LTDA");
+  });
+
+  it('CNPJ já cadastrado oferece abrir a conta existente', async () => {
+    const campo = await abrirForm();
+    fireEvent.change(campo, { target: { value: '11222333000181' } });
+    mockGet.mockImplementationOnce(() => Promise.resolve({
+      data: {
+        ...SUGESTAO,
+        conta_existente: {
+          conta_id: 'c1', razao_social: 'Metalurgica Alfa LTDA',
+          ativo: true, nao_prospectar: false,
+        },
+      },
+    }));
+    fireEvent.click(screen.getByText('Buscar na Receita'));
+
+    expect(await screen.findByText('Abrir a conta existente')).toBeInTheDocument();
+  });
+
+  it('avisa quando a empresa não está operando', async () => {
+    const campo = await abrirForm();
+    fireEvent.change(campo, { target: { value: '11222333000181' } });
+    mockGet.mockImplementationOnce(() => Promise.resolve({
+      data: { ...SUGESTAO, operando: false, situacao_cadastral: 'BAIXADA' },
+    }));
+    fireEvent.click(screen.getByText('Buscar na Receita'));
+
+    expect(await screen.findByText(/fora de operação/)).toBeInTheDocument();
+  });
+
+  it('criar depois de buscar aplica o resto do cadastro na conta nova', async () => {
+    const campo = await abrirForm();
+    fireEvent.change(campo, { target: { value: '11222333000181' } });
+    mockGet.mockImplementationOnce(() => Promise.resolve({ data: SUGESTAO }));
+    fireEvent.click(screen.getByText('Buscar na Receita'));
+    await screen.findByText(/GUARULHOS\/SP/);
+
+    mockPost.mockResolvedValueOnce({ data: { ...DETALHE, id: 'c9' } });
+    mockPost.mockResolvedValueOnce({ data: { aplicados: {}, mantidos: [] } });
+    fireEvent.click(screen.getByText('Criar conta'));
+
+    await waitFor(() => expect(mockPost).toHaveBeenCalledTimes(2));
+    expect(mockPost.mock.calls[1][0])
+      .toBe('/crm/enriquecimento/contas/c9/aplicar');
+  });
+
+  it('falha do enriquecimento não impede a conta de nascer', async () => {
+    const campo = await abrirForm();
+    fireEvent.change(campo, { target: { value: '11222333000181' } });
+    mockGet.mockImplementationOnce(() => Promise.resolve({ data: SUGESTAO }));
+    fireEvent.click(screen.getByText('Buscar na Receita'));
+    await screen.findByText(/GUARULHOS\/SP/);
+
+    mockPost.mockResolvedValueOnce({ data: { ...DETALHE, id: 'c9' } });
+    mockPost.mockRejectedValueOnce(new Error('fonte fora do ar'));
+    fireEvent.click(screen.getByText('Criar conta'));
+
+    // A visão 360 abre: a conta existe, apesar do erro no passo seguinte.
+    await waitFor(() => expect(mockPost).toHaveBeenCalledTimes(2));
+    expect(await screen.findByText('Tudo salvo')).toBeInTheDocument();
+  });
+});

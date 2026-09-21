@@ -22,7 +22,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Briefcase, Users, MapPin, Phone, FileText, History,
-  Plus, UserCircle, TrendingUp, ShieldBan,
+  Plus, UserCircle, TrendingUp, ShieldBan, Landmark,
 } from 'lucide-react';
 
 import api, { getUser } from '../../api';
@@ -34,6 +34,7 @@ import Empty from '../ui/Empty';
 import AlertMessage from '../ui/AlertMessage';
 import Table, { Th, Tr, Td } from '../ui/Table';
 import ContatosDaConta from './ContatosDaConta';
+import AbaDadosPublicos from './AbaDadosPublicos';
 
 const UFS = [
   'AC', 'AL', 'AM', 'AP', 'BA', 'CE', 'DF', 'ES', 'GO', 'MA', 'MG', 'MS',
@@ -402,13 +403,19 @@ export default function ContaDetalhe({
     { key: 'contatos', label: 'Contatos', badge: conta.contatos?.length || undefined },
     { key: 'endereco', label: 'Endereço' },
     { key: 'telefones', label: 'Telefones e e-mail' },
+    // Fica FORA do form pelo mesmo motivo de Contatos e Histórico: consultar
+    // a Receita e mapear um CNAE são ações imediatas, não campos em edição.
+    // Se sujassem o form, o usuário precisaria salvar a conta depois de uma
+    // ação que já gravou sozinha.
+    { key: 'dados-publicos', label: 'Dados públicos' },
     { key: 'observacoes', label: 'Observações' },
     { key: 'historico', label: 'Histórico' },
   ];
 
   const ICONE_ABA = {
     oportunidades: Briefcase, contatos: Users, endereco: MapPin,
-    telefones: Phone, observacoes: FileText, historico: History,
+    telefones: Phone, 'dados-publicos': Landmark, observacoes: FileText,
+    historico: History,
   };
 
   return (
@@ -682,6 +689,15 @@ export default function ContaDetalhe({
               onChange={(e) => set('email', e.target.value)}
             />
           </div>
+        )}
+
+        {aba === 'dados-publicos' && (
+          <AbaDadosPublicos
+            conta={conta}
+            verticais={verticais}
+            onCriarVertical={onCriarVertical}
+            onRecarregar={onRecarregar}
+          />
         )}
 
         {aba === 'observacoes' && (

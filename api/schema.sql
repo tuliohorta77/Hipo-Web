@@ -13,6 +13,9 @@
 --   010_nao_prospectar.sql  marca de empresa que ja e cliente da MedSeg
 --   011_agenda.sql       agenda de reunioes presa a tarefa + Google Calendar
 --   012_agenda_desfecho.sql  quem agendou + o que aconteceu com a reuniao
+--   014_enriquecimento.sql  CNAE com vertical e grau de risco, QSA, cache
+--                           das consultas de CNPJ e procedencia do numero
+--                           de funcionarios
 --
 -- Este arquivo e a fonte usada para criar o banco de teste no CI e deve
 -- refletir o estado acumulado das migrations.
@@ -119,6 +122,44 @@ CREATE TABLE IF NOT EXISTS motivos_desfecho (
 
 
 -- ---------------------------------------------------------------------------
+-- cnaes  (014 -- enriquecimento)
+-- ---------------------------------------------------------------------------
+-- Vem ANTES de contas porque contas.cnae_codigo referencia esta tabela.
+--
+-- O CNAE deixa de ser texto solto e vira registro com mapeamento proprio:
+-- qual vertical comercial ele representa e qual o grau de risco (Quadro I
+-- da NR-4, 1 a 4). Com o grau de risco ao lado da vertical, o CNPJ passa a
+-- preencher tres coisas de uma vez -- classificacao comercial, leitura de
+-- risco e, junto com o numero de vidas, estimativa de ticket.
+--
+-- NASCE VAZIO DE PROPOSITO. Nenhum CNAE chega mapeado: mapa chutado e pior
+-- que mapa ausente, porque ninguem confere o que ja veio preenchido. Quem
+-- mapeia e a operacao, na primeira vez que o CNAE aparece numa conta.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS cnaes (
+    codigo       CHAR(7) PRIMARY KEY,
+    descricao    VARCHAR(300) NOT NULL,
+    vertical_id  INTEGER REFERENCES verticais(id) ON DELETE SET NULL,
+    grau_risco   SMALLINT,
+    mapeado_por  UUID REFERENCES usuarios(id) ON DELETE SET NULL,
+    mapeado_em   TIMESTAMPTZ,
+    criado_em    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT ck_cnaes_codigo    CHECK (codigo ~ '^[0-9]{7}$'),
+    CONSTRAINT ck_cnaes_descricao CHECK (length(btrim(descricao)) > 0),
+    CONSTRAINT ck_cnaes_grau      CHECK (grau_risco IS NULL OR grau_risco BETWEEN 1 AND 4),
+    -- Mapeamento sem autoria vira misterio -- mesmo raciocinio do
+    -- nao_prospectar_motivo.
+    CONSTRAINT ck_cnaes_mapeado CHECK (
+        (vertical_id IS NULL AND grau_risco IS NULL) OR mapeado_em IS NOT NULL
+    )
+);
+
+CREATE INDEX IF NOT EXISTS idx_cnaes_vertical ON cnaes (vertical_id);
+CREATE INDEX IF NOT EXISTS idx_cnaes_nao_mapeados
+    ON cnaes (codigo) WHERE vertical_id IS NULL AND grau_risco IS NULL;
+
+
+-- ---------------------------------------------------------------------------
 -- contas  (empresa-cliente)
 -- ---------------------------------------------------------------------------
 -- CNPJ e armazenado so com digitos (CHAR(14)) e e UNIQUE. A validacao de
@@ -171,6 +212,26 @@ CREATE TABLE IF NOT EXISTS contas (
     nao_prospectar_em     TIMESTAMPTZ,
     nao_prospectar_por    UUID REFERENCES usuarios(id) ON DELETE SET NULL,
 
+    -- Enriquecimento cadastral (014). Tudo aqui e preenchivel pela consulta
+    -- ao CNPJ, e nada disso sobrescreve o que uma pessoa ja digitou.
+    --
+    -- num_funcionarios_origem e a coluna que protege a proposta comercial:
+    -- 'declarado' e o numero de vidas que o cliente informou, 'estimado' e
+    -- o palpite da fonte paga (base RAIS/CAGED, defasada em meses). Os dois
+    -- cabem em num_funcionarios e valem coisas diferentes -- estimativa
+    -- serve para priorizar prospeccao, vida declarada serve para precificar.
+    -- ESTIMADO NUNCA SOBRESCREVE DECLARADO, e a regra mora em
+    -- services/enriquecimento/persistencia.py.
+    cnae_codigo             CHAR(7),
+    porte                   VARCHAR(40),
+    situacao_cadastral      VARCHAR(40),
+    data_abertura           DATE,
+    capital_social          NUMERIC(15,2),
+    num_funcionarios_origem VARCHAR(12),
+    num_funcionarios_em     TIMESTAMPTZ,
+    enriquecida_em          TIMESTAMPTZ,
+    enriquecida_fonte       VARCHAR(30),
+
     observacoes       TEXT,
     ativo             BOOLEAN NOT NULL DEFAULT TRUE,
     criado_por        UUID REFERENCES usuarios(id) ON DELETE SET NULL,
@@ -180,6 +241,17 @@ CREATE TABLE IF NOT EXISTS contas (
     CONSTRAINT ck_contas_cep        CHECK (cep IS NULL OR cep ~ '^[0-9]{8}$'),
     CONSTRAINT ck_contas_uf         CHECK (uf IS NULL OR uf ~ '^[A-Z]{2}$'),
     CONSTRAINT ck_contas_num_func   CHECK (num_funcionarios IS NULL OR num_funcionarios >= 0),
+    CONSTRAINT ck_contas_num_func_origem CHECK (
+        num_funcionarios_origem IS NULL
+        OR num_funcionarios_origem IN ('declarado', 'estimado')
+    ),
+    CONSTRAINT ck_contas_capital    CHECK (capital_social IS NULL OR capital_social >= 0),
+    -- Nomeada a mao para bater com a da migration 014. A conferencia de
+    -- 09/09 comparou contas CHECK a CHECK entre o banco das migrations e o
+    -- do schema.sql; FK com nome automatico aqui apareceria como
+    -- divergencia numa comparacao que so olha nomes.
+    CONSTRAINT fk_contas_cnae FOREIGN KEY (cnae_codigo)
+        REFERENCES cnaes(codigo) ON DELETE SET NULL,
     CONSTRAINT ck_contas_razao      CHECK (length(btrim(razao_social)) > 0),
     CONSTRAINT ck_contas_ec_so_parceiro CHECK (ec_responsavel_id IS NULL OR eh_finder),
     CONSTRAINT ck_contas_nao_prospectar CHECK (
@@ -209,6 +281,107 @@ CREATE INDEX IF NOT EXISTS idx_contas_ec_responsavel
 -- Parcial pelo mesmo motivo: a pergunta e sempre "quais estao bloqueadas".
 CREATE INDEX IF NOT EXISTS idx_contas_nao_prospectar
     ON contas (id) WHERE nao_prospectar;
+
+CREATE INDEX IF NOT EXISTS idx_contas_cnae ON contas (cnae_codigo);
+
+-- Parcial: a fila de trabalho do enriquecimento e "quais ainda nao foram".
+CREATE INDEX IF NOT EXISTS idx_contas_sem_enriquecimento
+    ON contas (id) WHERE enriquecida_em IS NULL AND ativo;
+
+
+-- ---------------------------------------------------------------------------
+-- conta_cnaes_secundarios  (014)
+-- ---------------------------------------------------------------------------
+-- N:N. Existe porque medicina ocupacional nao e comprada pelo CNAE
+-- principal: uma industria com CNAE fiscal de holding e CNAE secundario de
+-- metalurgia tem o risco da metalurgia. O principal decide a vertical; os
+-- secundarios entram na leitura de risco.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS conta_cnaes_secundarios (
+    conta_id    UUID    NOT NULL REFERENCES contas(id) ON DELETE CASCADE,
+    cnae_codigo CHAR(7) NOT NULL REFERENCES cnaes(codigo) ON DELETE CASCADE,
+    PRIMARY KEY (conta_id, cnae_codigo)
+);
+
+CREATE INDEX IF NOT EXISTS idx_conta_cnaes_sec_cnae
+    ON conta_cnaes_secundarios (cnae_codigo);
+
+
+-- ---------------------------------------------------------------------------
+-- conta_socios  (014 -- quadro societario)
+-- ---------------------------------------------------------------------------
+-- DOCUMENTO SEMPRE MASCARADO. A Receita entrega `***123456**` nos dados
+-- abertos e e assim que fica guardado; se uma fonte paga devolver o CPF
+-- inteiro, services/enriquecimento/modelo.mascarar_documento() corta antes.
+-- O CHECK abaixo e a segunda barreira: 11 digitos seguidos nao entram.
+--
+-- Socio que sai do QSA NAO e apagado numa reconsulta: a informacao de que
+-- alguem esteve na empresa e justamente o que interessa numa conversa
+-- comercial. A tela ordena por captura e mostra a data.
+--
+-- criado_por nao e decorativo: e a FK para usuarios que faz o
+-- TRUNCATE usuarios CASCADE do conftest alcancar esta tabela.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS conta_socios (
+    id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    conta_id            UUID NOT NULL REFERENCES contas(id) ON DELETE CASCADE,
+    nome                VARCHAR(200) NOT NULL,
+    -- Chave de casamento da busca reversa: sem acento, maiusculo, espaco
+    -- colapsado. Coluna materializada, e nao funcao no WHERE, para o
+    -- indice poder ser usado.
+    nome_normalizado    VARCHAR(200) NOT NULL,
+    documento_mascarado VARCHAR(20),
+    qualificacao        VARCHAR(150),
+    faixa_etaria        VARCHAR(40),
+    entrada_em          DATE,
+    eh_pj               BOOLEAN NOT NULL DEFAULT FALSE,
+    fonte               VARCHAR(30) NOT NULL,
+    capturado_em        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    criado_por          UUID REFERENCES usuarios(id) ON DELETE SET NULL,
+    CONSTRAINT ck_socios_nome CHECK (length(btrim(nome)) > 0),
+    CONSTRAINT ck_socios_doc_mascarado CHECK (
+        documento_mascarado IS NULL OR documento_mascarado !~ '[0-9]{11}'
+    )
+);
+
+-- COALESCE na chave: em indice unico NULL nunca e igual a NULL, entao socio
+-- sem documento (QSA antigo) entraria de novo a cada reconsulta.
+CREATE UNIQUE INDEX IF NOT EXISTS uq_conta_socios
+    ON conta_socios (conta_id, nome_normalizado, COALESCE(documento_mascarado, ''));
+
+CREATE INDEX IF NOT EXISTS idx_socios_nome_norm ON conta_socios (nome_normalizado);
+CREATE INDEX IF NOT EXISTS idx_socios_documento
+    ON conta_socios (documento_mascarado) WHERE documento_mascarado IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_socios_conta ON conta_socios (conta_id);
+
+
+-- ---------------------------------------------------------------------------
+-- conta_enriquecimentos  (014 -- cache e trilha)
+-- ---------------------------------------------------------------------------
+-- Guarda o payload CRU de toda consulta, inclusive das que falharam. Duas
+-- razoes: responder "de onde veio esse dado" seis meses depois, e nao pagar
+-- duas vezes pela mesma pergunta dentro do TTL.
+--
+-- conta_id e NULL nas consultas feitas ANTES de a conta existir -- que e o
+-- caso mais comum, porque a consulta acontece no formulario de cadastro. O
+-- CNPJ e a chave real.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS conta_enriquecimentos (
+    id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    cnpj           CHAR(14) NOT NULL,
+    conta_id       UUID REFERENCES contas(id) ON DELETE SET NULL,
+    fonte          VARCHAR(30) NOT NULL,
+    sucesso        BOOLEAN NOT NULL,
+    erro           TEXT,
+    payload        JSONB,
+    consultado_em  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    consultado_por UUID REFERENCES usuarios(id) ON DELETE SET NULL,
+    CONSTRAINT ck_enriq_cnpj CHECK (cnpj ~ '^[0-9]{14}$')
+);
+
+CREATE INDEX IF NOT EXISTS idx_enriq_cache
+    ON conta_enriquecimentos (cnpj, fonte, consultado_em DESC) WHERE sucesso;
+CREATE INDEX IF NOT EXISTS idx_enriq_conta ON conta_enriquecimentos (conta_id);
 
 
 -- ---------------------------------------------------------------------------

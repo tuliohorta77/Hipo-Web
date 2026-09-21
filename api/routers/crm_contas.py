@@ -232,6 +232,26 @@ class ContaDetalhe(ContaResumo):
     observacoes: str | None
     nao_prospectar_em: datetime | None
     atualizado_em: datetime
+
+    # Enriquecimento (014). Vêm do `SELECT c.*` que já existia; entram no
+    # schema para a aba "Dados públicos" poder desenhar sem uma segunda
+    # chamada — e, mais importante, SEM disparar consulta à fonte só porque
+    # alguém abriu a aba. Em fonte paga, abrir aba não pode custar crédito.
+    cnae_codigo: str | None = None
+    cnae_descricao: str | None = None
+    cnae_grau_risco: int | None = None
+    cnae_vertical_id: int | None = None
+    porte: str | None = None
+    situacao_cadastral: str | None = None
+    data_abertura: date | None = None
+    capital_social: float | None = None
+    # 'declarado' (o cliente informou) ou 'estimado' (fonte paga). A tela
+    # mostra a diferença: um número serve para precificar, o outro não.
+    num_funcionarios_origem: str | None = None
+    num_funcionarios_em: datetime | None = None
+    enriquecida_em: datetime | None = None
+    enriquecida_fonte: str | None = None
+
     contatos: list[ContatoDaConta]
     oportunidades: list[OportunidadeDaConta]
 
@@ -517,9 +537,15 @@ async def obter(conta_id: UUID, conn=Depends(get_conn), user=Depends(usuario_atu
     """Conta com contatos e oportunidades embutidos — base da tela 360."""
     row = await conn.fetchrow(
         f"""
-        SELECT c.*, v.nome AS vertical_nome, ev.vendedores, ev.qtd_ativas
+        SELECT c.*, v.nome AS vertical_nome, ev.vendedores, ev.qtd_ativas,
+               cn.descricao  AS cnae_descricao,
+               cn.grau_risco AS cnae_grau_risco,
+               cn.vertical_id AS cnae_vertical_id
         FROM contas c
         LEFT JOIN verticais v ON v.id = c.vertical_id
+        -- 014: a descrição e o grau de risco do CNAE vêm por join, e não
+        -- por consulta à fonte. Abrir a conta não pode gastar crédito.
+        LEFT JOIN cnaes cn ON cn.codigo = c.cnae_codigo
         {_LATERAL_EVS}
         WHERE c.id = $1
         """,

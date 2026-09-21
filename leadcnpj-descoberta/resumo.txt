@@ -1,0 +1,53 @@
+﻿============================================================
+ HIPO - descoberta da API LeadCNPJ
+ 21/09/2026 12:07:28
+ Base: https://leadcnpj.com.br/api
+ CNPJ de teste: 33000167000101
+============================================================
+
+PASSO 1 - procurando a especificacao OpenAPI
+
+  --    0  https://leadcnpj.com.br/api/openapi.json
+  --    0  https://leadcnpj.com.br/api/docs/openapi.json
+  --    0  https://leadcnpj.com.br/api/swagger.json
+  --    0  https://leadcnpj.com.br/api/v1/openapi.json
+  --    0  https://leadcnpj.com.br/openapi.json
+
+  Nenhuma spec publica. Seguimos para a consulta direta.
+
+PASSO 2 - consulta de CNPJ (a primeira que responder 200 gasta credito)
+
+    0  https://leadcnpj.com.br/api/empresas/33000167000101   [Authorization: Bearer <chave>]
+    0  https://leadcnpj.com.br/api/empresas/33000167000101   [X-API-Key: <chave>]
+    0  https://leadcnpj.com.br/api/empresas/33000167000101   [api-key: <chave>]
+    0  https://leadcnpj.com.br/api/empresas/33000167000101   [Authorization: <chave>]
+    0  https://leadcnpj.com.br/api/empresa/33000167000101   [Authorization: Bearer <chave>]
+    0  https://leadcnpj.com.br/api/empresa/33000167000101   [X-API-Key: <chave>]
+    0  https://leadcnpj.com.br/api/empresa/33000167000101   [api-key: <chave>]
+    0  https://leadcnpj.com.br/api/empresa/33000167000101   [Authorization: <chave>]
+    0  https://leadcnpj.com.br/api/cnpj/33000167000101   [Authorization: Bearer <chave>]
+    0  https://leadcnpj.com.br/api/cnpj/33000167000101   [X-API-Key: <chave>]
+    0  https://leadcnpj.com.br/api/cnpj/33000167000101   [api-key: <chave>]
+    0  https://leadcnpj.com.br/api/cnpj/33000167000101   [Authorization: <chave>]
+    0  https://leadcnpj.com.br/api/v1/empresas/33000167000101   [Authorization: Bearer <chave>]
+    0  https://leadcnpj.com.br/api/v1/empresas/33000167000101   [X-API-Key: <chave>]
+    0  https://leadcnpj.com.br/api/v1/empresas/33000167000101   [api-key: <chave>]
+    0  https://leadcnpj.com.br/api/v1/empresas/33000167000101   [Authorization: <chave>]
+    0  https://leadcnpj.com.br/api/consulta/33000167000101   [Authorization: Bearer <chave>]
+    0  https://leadcnpj.com.br/api/consulta/33000167000101   [X-API-Key: <chave>]
+    0  https://leadcnpj.com.br/api/consulta/33000167000101   [api-key: <chave>]
+    0  https://leadcnpj.com.br/api/consulta/33000167000101   [Authorization: <chave>]
+
+  Nenhuma combinacao respondeu 200.
+  Os status acima ja dizem muito:
+    401/403 em todos -> o caminho existe, o header e outro
+    404 em todos     -> o caminho e outro (veja a spec ou o painel)
+    000              -> nem conectou (rede, proxy, TLS)
+
+  Se tiver o painel aberto, a pagina /api/docs/ mostra o caminho
+  exato - e so rodar de novo com -BaseUrl apontando para ele.
+
+============================================================
+ Arquivos gerados em: C:\Users\tulio\Documents\APP - hipo\Hipo - v1.4.0\leadcnpj-descoberta
+ A chave NAO esta em nenhum deles.
+============================================================

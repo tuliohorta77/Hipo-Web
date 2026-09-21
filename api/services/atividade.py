@@ -105,6 +105,14 @@ CATALOGO: dict[tuple[str, str], Tipo] = {
     ("PATCH", "/crm/contatos/{contato_id}/vinculos/{conta_id}"): _t("Contas e contatos", "Vínculo de contato editado", 58),
     ("DELETE", "/crm/contatos/{contato_id}/vinculos/{conta_id}"): _t("Contas e contatos", "Contato desvinculado de conta", 59),
 
+    # Enriquecimento cadastral (014). Aplicar o dado da Receita numa conta é
+    # atividade de cadastro como outra qualquer: mudou o registro, e quem
+    # apertou o botão assinou a mudança. A CONSULTA não entra — é GET, não
+    # grava nada, e contá-la repetiria a armadilha que o `uso_eventos` já
+    # tinha: medir quem navega em vez de quem produz.
+    ("POST", "/crm/enriquecimento/contas/{conta_id}/aplicar"):
+        _t("Contas e contatos", "Conta enriquecida pelo CNPJ", 90),
+
     # Parceiros
     ("PATCH", "/crm/parceiros/{conta_id}"): _t("Parceiros", "Parceiro editado", 60),
     ("POST", "/crm/parceiros/carteira/transferir"): _t("Parceiros", "Carteira transferida", 61),
@@ -124,6 +132,11 @@ CATALOGO: dict[tuple[str, str], Tipo] = {
     ("POST", "/crm/dominio/{tabela}"): _t("Cadastros", "Item de cadastro criado", 80),
     ("POST", "/crm/dominio/motivos/{tipo}"): _t("Cadastros", "Motivo criado", 81),
     ("POST", "/crm/agenda/tipos"): _t("Cadastros", "Tipo de reunião criado", 82),
+    # Mapear um CNAE classifica TODAS as contas futuras com aquele código —
+    # é cadastro de apoio com alcance largo, e por isso aparece nominalmente
+    # no fechamento em vez de virar "outras alterações".
+    ("PATCH", "/crm/enriquecimento/cnaes/{codigo}"):
+        _t("Cadastros", "CNAE mapeado (vertical e grau de risco)", 88),
 }
 
 # Escritas que NAO sao atividade no CRM. Entrar no sistema, trocar a

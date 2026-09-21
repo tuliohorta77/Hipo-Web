@@ -19,6 +19,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Building2, Search, Plus, Handshake, CircleSlash, Layers, X, ShieldBan,
+  Landmark,
 } from 'lucide-react';
 
 import api from '../../api';
@@ -123,6 +124,8 @@ function FormNovaConta({ aberto, onFechar, onCriada, onAbrirExistente, verticais
   const [erroGeral, setErroGeral] = useState(null);
   const [conflito, setConflito] = useState(null);
   const [salvando, setSalvando] = useState(false);
+  const [buscando, setBuscando] = useState(false);
+  const [sugestao, setSugestao] = useState(null);
 
   useEffect(() => {
     if (!aberto) return;
@@ -130,11 +133,70 @@ function FormNovaConta({ aberto, onFechar, onCriada, onAbrirExistente, verticais
     setErros({});
     setErroGeral(null);
     setConflito(null);
+    setSugestao(null);
   }, [aberto]);
 
   function set(campo, valor) {
     setForm((f) => ({ ...f, [campo]: valor }));
     setErros((e) => ({ ...e, [campo]: undefined }));
+  }
+
+  // Busca na Receita ANTES de o usuário digitar o resto.
+  //
+  // O DV é conferido aqui, no cliente, e não só no servidor: numa fonte
+  // paga a consulta custa crédito, e os sete CNPJs com dígito errado da
+  // carga da Oraculus teriam virado sete consultas jogadas fora.
+  //
+  // O que é preenchido: só o que está VAZIO no formulário. Quem já digitou
+  // a razão social não a perde porque resolveu buscar o CNPJ depois.
+  async function buscarNaReceita() {
+    const digitos = form.cnpj.replace(/\D/g, '');
+    if (!cnpjValido(digitos)) {
+      setErros((e) => ({ ...e, cnpj: 'CNPJ inválido.' }));
+      return;
+    }
+    setBuscando(true);
+    setErroGeral(null);
+    setConflito(null);
+    try {
+      const { data } = await api.get(`/crm/enriquecimento/cnpj/${digitos}`);
+
+      // CNPJ já cadastrado: mesmo serviço que o 409 do POST presta, só que
+      // oferecido antes de preencher o formulário inteiro.
+      if (data.conta_existente) {
+        setConflito({
+          mensagem: `O CNPJ ${data.cnpj_formatado} já está cadastrado.`,
+          conta_id: data.conta_existente.conta_id,
+          razao_social: data.conta_existente.razao_social,
+          ativo: data.conta_existente.ativo,
+        });
+        return;
+      }
+
+      if (!data.encontrado) {
+        setErroGeral(
+          data.avisos?.[0]
+          || 'Não encontrei esse CNPJ. Dá para cadastrar à mão do mesmo jeito.'
+        );
+        return;
+      }
+
+      setSugestao(data);
+      setForm((f) => ({
+        ...f,
+        razao_social: f.razao_social || data.razao_social || '',
+        nome_fantasia: f.nome_fantasia || data.nome_fantasia || '',
+        vertical_id: f.vertical_id || (data.vertical_id ? String(data.vertical_id) : ''),
+        num_funcionarios:
+          f.num_funcionarios !== ''
+            ? f.num_funcionarios
+            : (data.num_funcionarios ?? ''),
+      }));
+    } catch (err) {
+      setErroGeral(mensagemDeErro(err, 'Não foi possível consultar o CNPJ.'));
+    } finally {
+      setBuscando(false);
+    }
   }
 
   async function salvar() {
@@ -155,6 +217,25 @@ function FormNovaConta({ aberto, onFechar, onCriada, onAbrirExistente, verticais
         vertical_id: form.vertical_id ? Number(form.vertical_id) : null,
         num_funcionarios: form.num_funcionarios === '' ? null : Number(form.num_funcionarios),
       });
+
+      // Endereço, CNAE, porte e quadro societário entram aqui, e não no
+      // POST acima: o formulário de criação continua com quatro campos (a
+      // decisão original desta tela), e o resto do cadastro chega sozinho.
+      //
+      // Não custa consulta nova — a busca de segundos atrás está no cache
+      // por (cnpj, fonte). E não sobrescreve nada do que foi digitado: a
+      // regra de precedência mora no backend.
+      //
+      // A falha aqui é silenciosa de propósito: a conta FOI criada, e
+      // devolver erro nesse ponto faria o usuário achar que não.
+      if (sugestao?.encontrado) {
+        try {
+          await api.post(`/crm/enriquecimento/contas/${data.id}/aplicar`, {});
+        } catch {
+          /* conta criada; o enriquecimento pode ser refeito na aba. */
+        }
+      }
+
       onCriada(data);
     } catch (err) {
       const d = err?.response?.data?.detail;
@@ -208,13 +289,70 @@ function FormNovaConta({ aberto, onFechar, onCriada, onAbrirExistente, verticais
           error={erros.razao_social}
           onChange={(e) => set('razao_social', e.target.value)}
         />
-        <Input
-          label="CNPJ *"
-          value={form.cnpj}
-          error={erros.cnpj}
-          placeholder="00.000.000/0000-00"
-          onChange={(e) => set('cnpj', mascararCnpj(e.target.value))}
-        />
+        <div className="flex gap-2 items-start">
+          <Input
+            label="CNPJ *"
+            className="flex-1"
+            value={form.cnpj}
+            error={erros.cnpj}
+            placeholder="00.000.000/0000-00"
+            onChange={(e) => set('cnpj', mascararCnpj(e.target.value))}
+          />
+          {/* O botão fica desabilitado até o DV fechar: consulta com CNPJ
+              errado gasta crédito e volta 404. */}
+          <div className="pt-[26px]">
+            <Button
+              variant="secondary"
+              icon={Landmark}
+              loading={buscando}
+              disabled={!cnpjValido(form.cnpj)}
+              onClick={buscarNaReceita}
+            >
+              {/* "Buscar na Receita" e não "Buscar": o filtro da lista atrás
+                  do modal já tem um campo chamado Buscar, e dois controles
+                  com o mesmo nome na mesma tela confundem tanto o usuário
+                  quanto o leitor de tela. */}
+              Buscar na Receita
+            </Button>
+          </div>
+        </div>
+
+        {sugestao && (
+          <AlertMessage tipo={sugestao.operando ? 'ok' : 'aviso'}>
+            <div className="space-y-1">
+              <p>
+                {sugestao.situacao_cadastral && (
+                  <strong>{sugestao.situacao_cadastral}. </strong>
+                )}
+                {[sugestao.cidade, sugestao.uf].filter(Boolean).join('/')}
+                {sugestao.porte && ` · porte ${sugestao.porte}`}
+              </p>
+              {sugestao.cnae_descricao && (
+                <p className="text-xs">
+                  CNAE {sugestao.cnae_codigo} — {sugestao.cnae_descricao}
+                  {!sugestao.vertical_id && (
+                    <span className="text-hipo-muted">
+                      {' '}(sem vertical mapeada — dá para classificar na aba
+                      Dados públicos depois de criar)
+                    </span>
+                  )}
+                </p>
+              )}
+              {sugestao.num_funcionarios_origem === 'estimado' && (
+                <p className="text-xs">
+                  Nº de funcionários é <strong>estimativa</strong> da fonte —
+                  confirme com o cliente antes de usar numa proposta.
+                </p>
+              )}
+              {!sugestao.operando && (
+                <p className="text-xs">
+                  Empresa fora de operação segundo a Receita.
+                </p>
+              )}
+            </div>
+          </AlertMessage>
+        )}
+
         <Input
           label="Nome fantasia"
           value={form.nome_fantasia}

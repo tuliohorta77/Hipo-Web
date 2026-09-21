@@ -21,6 +21,7 @@ from routers import (
     crm_contas,
     crm_contatos,
     crm_dominio,
+    crm_enriquecimento,
     crm_oportunidades,
     crm_parceiros,
     crm_propostas,
@@ -179,6 +180,22 @@ app.include_router(
 app.include_router(
     crm_dominio.router,
     prefix="/crm/dominio", tags=["CRM - Domínio"],
+    dependencies=[Depends(requer_modulo("crm"))],
+)
+
+
+# Enriquecimento cadastral por CNPJ. Módulo 'crm' e não um módulo próprio:
+# quem cadastra conta é quem usa o botão de buscar na Receita, e são os
+# mesmos cargos que já veem contas. Módulo novo só refletiria depois de
+# todo mundo relogar, em troca de nenhuma separação real.
+#
+# Prefixo próprio, e não aninhado em /crm/contas, porque a consulta por
+# CNPJ acontece ANTES de a conta existir — no formulário de cadastro, não
+# em cima de um registro. Mesma escolha que tirou /crm/tarefas de dentro
+# de /crm/oportunidades.
+app.include_router(
+    crm_enriquecimento.router,
+    prefix="/crm/enriquecimento", tags=["CRM - Enriquecimento"],
     dependencies=[Depends(requer_modulo("crm"))],
 )
 
