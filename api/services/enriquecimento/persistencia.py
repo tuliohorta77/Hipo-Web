@@ -95,7 +95,14 @@ def _chave_texto(valor) -> str:
     return re.sub(r"\s+", " ", texto).casefold()
 
 
-def _mesmo_valor(atual, sugerido) -> bool:
+# Campos em que SÓ OS DÍGITOS importam: a máscara é escolha de quem
+# digitou, não informação. `(11) 6860-7201` no cadastro e `1168607201` na
+# fonte são o mesmo telefone, e oferecer a troca só tiraria a formatação
+# que a pessoa pôs.
+CAMPOS_SO_DIGITOS = {"telefone", "telefone_2", "cep"}
+
+
+def _mesmo_valor(campo: str, atual, sugerido) -> bool:
     """
     O cadastro e a fonte dizem a mesma coisa?
 
@@ -106,10 +113,14 @@ def _mesmo_valor(atual, sugerido) -> bool:
     valores iguais, em toda conta consultada.
 
     Número compara por VALOR. Texto compara sem acento e sem caixa, porque
-    trocar `ARUJÁ` por `ARUJA` só pioraria o cadastro.
+    trocar `ARUJÁ` por `ARUJA` só pioraria o cadastro. Telefone e CEP
+    comparam só os dígitos: a máscara é formatação, não conteúdo.
     """
     if atual is None or sugerido is None:
         return atual is sugerido
+    if campo in CAMPOS_SO_DIGITOS:
+        so = lambda v: re.sub(r"\D", "", str(v))  # noqa: E731
+        return so(atual) == so(sugerido)
     numero = (int, float, Decimal)
     if isinstance(atual, numero) and isinstance(sugerido, numero) \
             and not isinstance(atual, bool) and not isinstance(sugerido, bool):
@@ -434,7 +445,7 @@ async def aplicar(
                 continue
 
         if not _vazio(valor_atual) and not sobrescrever:
-            if not _mesmo_valor(valor_atual, sugerido):
+            if not _mesmo_valor(campo, valor_atual, sugerido):
                 mantidos.append({
                     "campo": campo,
                     "atual": valor_atual,

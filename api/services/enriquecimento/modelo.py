@@ -52,13 +52,70 @@ ESTIMADO = "estimado"
 
 # ── Helpers puros ────────────────────────────────────────────────────────────
 
+# NOMES sob os quais um objeto {codigo, descricao} guarda cada metade.
+# A LeadCNPJ devolve porte, situacao cadastral, CNAE, qualificacao de
+# socio e faixa etaria assim -- todos como objeto, nunca como texto.
+_ROTULOS = ("descricao", "description", "nome", "name", "texto", "text",
+            "label", "valor", "value")
+_CODIGOS = ("codigo", "code", "id", "valor", "value", "numero", "number")
+
+
+def desembrulhar(valor, prefere: str = "rotulo"):
+    """
+    Tira o texto (ou o código) de um objeto `{codigo, descricao}`.
+
+    POR QUE ISTO EXISTE
+
+    A BrasilAPI devolve `descricao_situacao_cadastral: "ATIVA"`. A LeadCNPJ
+    devolve `situacao_cadastral: {"codigo": "02", "descricao": "Ativa"}`. O
+    mesmo vale para porte, CNAE, qualificação de sócio e faixa etária.
+
+    Sem desembrulhar, o `str()` do dicionário inteiro ia para o banco e
+    aparecia na tela como `{'codigo': '02', 'descricao': 'Ativa', '` —
+    cortado no limite da coluna. Pior: a regra que avisa "empresa fora de
+    operação" compara com "ATIVA", não casava, e toda empresa ativa saía
+    marcada como baixada.
+
+    `prefere="rotulo"` devolve o texto legível; `prefere="codigo"`, o
+    código. Quem chama sabe qual quer: `limpar_texto` quer o rótulo,
+    `codigo_cnae` quer o código.
+
+    Valor que não é dicionário volta intacto — a função é transparente
+    para todo o resto.
+
+    >>> desembrulhar({"codigo": "02", "descricao": "Ativa"})
+    'Ativa'
+    >>> desembrulhar({"codigo": "4713002", "descricao": "Lojas"}, "codigo")
+    '4713002'
+    >>> desembrulhar("ATIVA")
+    'ATIVA'
+    >>> desembrulhar(42)
+    42
+    >>> desembrulhar({"foo": "bar"})
+    {'foo': 'bar'}
+    """
+    if not isinstance(valor, dict):
+        return valor
+    ordem = _CODIGOS + _ROTULOS if prefere == "codigo" else _ROTULOS + _CODIGOS
+    for chave in ordem:
+        interno = valor.get(chave)
+        if interno not in (None, "", [], {}) and not isinstance(interno, (dict, list)):
+            return interno
+    # Objeto que não é um par {codigo, descricao}: devolver intacto é mais
+    # honesto que devolver a primeira chave qualquer. O chamador decide.
+    return valor
+
+
 def so_digitos(valor) -> str:
     """
     >>> so_digitos("12.345.678/0001-95")
     '12345678000195'
     >>> so_digitos(None)
     ''
+    >>> so_digitos({"codigo": "4713002", "descricao": "Lojas"})
+    '4713002'
     """
+    valor = desembrulhar(valor, "codigo")
     if valor is None:
         return ""
     return _SO_DIGITOS.sub("", str(valor))
@@ -140,7 +197,10 @@ def para_data(valor) -> date | None:
     datetime.date(2019, 4, 16)
     >>> para_data("data ruim")
     >>> para_data(0)
+    >>> para_data({"valor": "2019-04-16"})
+    datetime.date(2019, 4, 16)
     """
+    valor = desembrulhar(valor, "codigo")
     if valor is None:
         return None
     if isinstance(valor, datetime):
@@ -189,7 +249,12 @@ def para_inteiro(valor) -> int | None:
     11
     >>> para_inteiro("")
     >>> para_inteiro("sem informação")
+    >>> para_inteiro({"codigo": 5, "descricao": "41-50 anos"})
+    5
     """
+    # Aqui o CÓDIGO é o que vale: numa faixa `{"codigo": 5, "descricao":
+    # "41-50 anos"}` a descrição viraria 41, que é outra coisa.
+    valor = desembrulhar(valor, "codigo")
     if valor is None or isinstance(valor, bool):
         return None
     if isinstance(valor, int):
@@ -217,6 +282,7 @@ def para_decimal(valor) -> float | None:
     50000.0
     >>> para_decimal("nada")
     """
+    valor = desembrulhar(valor, "codigo")
     if valor is None or isinstance(valor, bool):
         return None
     if isinstance(valor, (int, float)):
@@ -241,7 +307,10 @@ def limpar_texto(valor, limite: int = 200) -> str | None:
     >>> limpar_texto("  ACME   LTDA ")
     'ACME LTDA'
     >>> limpar_texto("   ")
+    >>> limpar_texto({"codigo": "02", "descricao": "Ativa"})
+    'Ativa'
     """
+    valor = desembrulhar(valor)
     if valor is None:
         return None
     texto = _ESPACOS.sub(" ", str(valor)).strip()
@@ -653,7 +722,14 @@ def normalizar_leadcnpj(payload: dict) -> DadosEmpresa:
         )),
         cnae_descricao=limpar_texto(_primeiro(
             payload, "cnae_fiscal_descricao", "cnae_descricao",
-            "atividade_principal.descricao", "cnae_principal.descricao",
+            # A LeadCNPJ põe código e descrição no MESMO objeto
+            # `cnae_fiscal`. O código sai dele por `desembrulhar`, mas a
+            # descrição precisa do caminho explícito — senão `limpar_texto`
+            # recebe o objeto e devolve a descrição... do objeto certo por
+            # acaso. Ser explícito aqui é o que torna o comportamento
+            # previsível quando a fonte mudar.
+            "cnae_fiscal.descricao", "cnae_principal.descricao",
+            "cnae.descricao", "atividade_principal.descricao",
             "primary_activity.description",
         ), 300),
         cnaes_secundarios=tuple(secundarios),

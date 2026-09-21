@@ -411,6 +411,17 @@ export default function AbaDadosPublicos({
 
   const nuncaConsultada = !conta.enriquecida_em;
 
+  // A Receita escreve "ATIVA"; a LeadCNPJ escreve "Ativa". Comparar com
+  // uma lista de grafias exatas fazia TODA empresa ativa sair marcada
+  // como fora de operação assim que a fonte paga entrou. Normalizar é
+  // mais barato que manter a lista.
+  //
+  // Situação vazia NÃO é alerta: conta nunca consultada não tem situação,
+  // e um aviso vermelho ali diria que a empresa está baixada sem ninguém
+  // ter perguntado à Receita.
+  const situacaoAtiva = !conta.situacao_cadastral
+    || String(conta.situacao_cadastral).trim().toUpperCase().startsWith('ATIVA');
+
   // O bloco aparece enquanto NINGUÉM decidiu este CNAE — seja porque está
   // vazio, seja porque a vertical é só uma sugestão da seção da CNAE 2.0.
   // Decisão humana ('humano') tira o bloco daqui: remapear vale para a
@@ -467,8 +478,7 @@ export default function AbaDadosPublicos({
         </Button>
       </div>
 
-      {conta.situacao_cadastral
-        && !['ATIVA', 'Ativa'].includes(conta.situacao_cadastral) && (
+      {!situacaoAtiva && (
         <AlertMessage tipo="aviso">
           <strong>Situação cadastral: {conta.situacao_cadastral}.</strong>{' '}
           Empresa fora de operação segundo a Receita — confira antes de

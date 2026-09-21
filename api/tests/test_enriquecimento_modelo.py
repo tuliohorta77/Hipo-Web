@@ -364,9 +364,10 @@ class TestMesmoValor:
     clica igual.
     """
 
-    def _f(self):
+    def _f(self, campo="razao_social"):
+        """O campo entra na comparação: telefone e CEP têm regra própria."""
         from services.enriquecimento.persistencia import _mesmo_valor
-        return _mesmo_valor
+        return lambda a, b: _mesmo_valor(campo, a, b)
 
     def test_decimal_do_banco_contra_float_da_fonte(self):
         """
@@ -378,21 +379,22 @@ class TestMesmoValor:
         entre R$ 200.000,00 e R$ 200.000,00.
         """
         from decimal import Decimal
-        assert self._f()(Decimal("200000.00"), 200000.0)
-        assert self._f()(Decimal("0.00"), 0)
-        assert self._f()(Decimal("1000.5"), 1000.50)
+        f = self._f("capital_social")
+        assert f(Decimal("200000.00"), 200000.0)
+        assert f(Decimal("0.00"), 0)
+        assert f(Decimal("1000.5"), 1000.50)
 
     def test_numero_diferente_continua_divergencia(self):
         from decimal import Decimal
-        assert not self._f()(Decimal("200000.00"), 250000.0)
+        assert not self._f("capital_social")(Decimal("200000.00"), 250000.0)
 
     def test_acento_e_caixa_nao_sao_divergencia(self):
         """
         `ARUJÁ` no cadastro contra `ARUJA` na Receita. Oferecer a troca
         pioraria o dado: a grafia com acento é a correta.
         """
-        assert self._f()("ARUJÁ", "ARUJA")
-        assert self._f()("São Paulo", "SAO PAULO")
+        assert self._f("cidade")("ARUJÁ", "ARUJA")
+        assert self._f("cidade")("São Paulo", "SAO PAULO")
         assert self._f()("  METALURGICA   ALFA ", "Metalurgica Alfa")
 
     def test_espaco_interno_continua_divergencia(self):
@@ -412,6 +414,27 @@ class TestMesmoValor:
     def test_bool_nao_e_tratado_como_numero(self):
         """True == 1 em Python. Aqui não: campo booleano compara como texto."""
         assert not self._f()(True, 1)
+
+    def test_telefone_compara_so_os_digitos(self):
+        """
+        `(11) 6860-7201` no cadastro contra `1168607201` na fonte: mesmo
+        telefone. A máscara é escolha de quem digitou, e aceitar a troca
+        só tiraria a formatação sem ganhar informação.
+        """
+        f = self._f("telefone")
+        assert f("(11) 6860-7201", "1168607201")
+        assert f("11 6860-7201", "1168607201")
+        assert not f("(11) 6860-7201", "1199998888")
+
+    def test_cep_tambem(self):
+        assert self._f("cep")("07400-000", "07400000")
+
+    def test_a_regra_dos_digitos_nao_vaza_para_outros_campos(self):
+        """
+        Razão social não pode comparar por dígito: `LOJA 2 LTDA` e
+        `LOJA 2 SA` virariam o mesmo `2` e a divergência sumiria.
+        """
+        assert not self._f("razao_social")("LOJA 2 LTDA", "LOJA 2 SA")
 
 
 class TestEnderecoDaLeadcnpj:
@@ -459,3 +482,82 @@ class TestEnderecoDaLeadcnpj:
         monkeypatch.setattr(settings, "LEADCNPJ_API_KEY", "leadcnpj_live_xyz")
         cabecalhos = fontes._cabecalhos_leadcnpj()
         assert cabecalhos["Authorization"] == "Bearer leadcnpj_live_xyz"
+
+
+class TestLeadcnpjObjetoCodigoDescricao:
+    """
+    O formato REAL da LeadCNPJ, conferido contra uma resposta de produção
+    em 21/09/2026.
+
+    Onde a BrasilAPI manda texto (`descricao_situacao_cadastral: "ATIVA"`),
+    a LeadCNPJ manda objeto (`situacao_cadastral: {"codigo": "02",
+    "descricao": "Ativa"}`). Sem desembrulhar, o `str()` do dicionário
+    inteiro ia para o banco e a tela mostrava
+    `{'codigo': '02', 'descricao': 'Ativa', '` — cortado no limite da
+    coluna. E a regra de "empresa fora de operação" comparava com "ATIVA",
+    não casava, e marcava TODA empresa ativa como baixada.
+    """
+
+    PAYLOAD = {
+        "cnpj": "11222333000181",
+        "razao_social": "LOJA DE VARIEDADES LTDA",
+        "cnae_fiscal": {
+            "codigo": "4713002",
+            "descricao": "Lojas de variedades, exceto lojas de departamentos",
+        },
+        "porte": {"codigo": "03", "descricao": "Empresa de Pequeno Porte"},
+        "situacao_cadastral": {
+            "codigo": "02", "descricao": "Ativa", "data": "2025-05-26",
+        },
+        "data_inicio_atividade": "2025-05-26",
+        "capital_social": 1000000,
+        "municipio": {"codigo": "3550308", "descricao": "SAO PAULO"},
+        "uf": "SP",
+        "ddd_telefone_1": "1168607201",
+        "qsa": [{
+            "nome": "Hussein Deeb Tiba",
+            "cpf": "***778168**",
+            "qualificacao": {"codigo": "49", "descricao": "Sócio-Administrador"},
+            "faixa_etaria": {"codigo": 5, "descricao": "41-50 anos"},
+            "data_entrada_sociedade": "2025-05-26",
+        }],
+    }
+
+    def _d(self):
+        return m.normalizar_leadcnpj(self.PAYLOAD)
+
+    def test_situacao_vira_o_texto_e_nao_o_dicionario(self):
+        assert self._d().situacao_cadastral == "Ativa"
+
+    def test_porte_vira_o_texto(self):
+        assert self._d().porte == "Empresa de Pequeno Porte"
+
+    def test_cnae_pega_o_codigo_e_a_descricao_de_lugares_diferentes(self):
+        """
+        O mesmo objeto serve os dois campos: o código vem de `codigo`, a
+        atividade vem de `descricao`. É por isso que desembrulhar precisa
+        saber qual metade quem chama quer.
+        """
+        dados = self._d()
+        assert dados.cnae_codigo == "4713002"
+        assert dados.cnae_descricao.startswith("Lojas de variedades")
+
+    def test_cidade_vira_o_nome(self):
+        assert self._d().cidade == "SAO PAULO"
+
+    def test_socio_tambem_desembrulha(self):
+        socio = self._d().socios[0]
+        assert socio.qualificacao == "Sócio-Administrador"
+        assert socio.faixa_etaria == "41-50 anos"
+        assert "{" not in (socio.qualificacao or "")
+
+    def test_nenhum_campo_carrega_chave_de_dicionario(self):
+        """
+        A trava larga: se QUALQUER campo de texto voltar com `{'codigo'`
+        dentro, algum lugar deixou de desembrulhar. Vale mais que um teste
+        por campo, porque pega o campo que ninguém lembrou de cobrir.
+        """
+        import dataclasses
+        for campo, valor in dataclasses.asdict(self._d()).items():
+            if isinstance(valor, str):
+                assert "'codigo'" not in valor and "{" not in valor, campo
