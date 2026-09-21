@@ -103,17 +103,32 @@ class Settings(BaseSettings):
     # LeadCNPJ. Sem a chave, a fonte nao entra na lista de habilitadas.
     LEADCNPJ_API_KEY: str = ""
     LEADCNPJ_URL: str = "https://leadcnpj.com.br/api"
-    # Header e caminho sao configuraveis de proposito: a documentacao da
-    # LeadCNPJ exige login, entao o que esta aqui e o padrao de mercado.
-    # Se a API real divergir, o ajuste e uma linha no .env e um restart --
-    # nao um deploy. O que NAO se ajusta aqui e a LEITURA do payload: isso
-    # e services/enriquecimento/modelo.normalizar_leadcnpj.
+    # Header e caminho seguem configuraveis, mas os valores abaixo agora
+    # vem da pagina publica leadcnpj.com.br/api-empresas, e nao de palpite:
+    #
+    #   curl -H "Authorization: Bearer leadcnpj_live_..." \
+    #        "https://leadcnpj.com.br/api/v1/empresa/12345678000190?enriquecer=true"
+    #
+    # O padrao anterior era `empresas/{cnpj}` -- plural e sem o /v1 -- e
+    # respondia 400 em toda consulta. Se a API mudar, o ajuste continua
+    # sendo uma linha no .env e um restart, nao um deploy. O que NAO se
+    # ajusta aqui e a LEITURA do payload: isso e
+    # services/enriquecimento/modelo.normalizar_leadcnpj.
     LEADCNPJ_HEADER: str = "Authorization"
     LEADCNPJ_PREFIXO_HEADER: str = "Bearer"
-    LEADCNPJ_CAMINHO_CNPJ: str = "empresas/{cnpj}"
+    # `enriquecer=true` e o que dispara o enriquecimento ativo -- sem ele a
+    # resposta e so o espelho da Receita, que a BrasilAPI ja da de graca.
+    # E tambem onde mora o numero de funcionarios, o unico motivo de a
+    # fonte paga existir aqui.
+    LEADCNPJ_CAMINHO_CNPJ: str = "v1/empresa/{cnpj}?enriquecer=true"
     # Busca reversa de socio (outras empresas em que ele participa).
-    # Vazio = desligado, e a tela mostra so a busca DENTRO da base do
-    # HIPO, dizendo em voz alta que nao procurou fora.
+    #
+    # Fica VAZIO porque a LeadCNPJ nao tem esse endpoint: a API publica
+    # deles expoe consulta por CNPJ, busca por filtros firmograficos
+    # (UF, CNAE, porte, capital...) e enriquecimento em lote. Nenhuma
+    # dessas responde "em que outras empresas este CPF aparece". A tela
+    # segue mostrando so a busca DENTRO da base do HIPO, dizendo em voz
+    # alta que nao procurou fora.
     LEADCNPJ_CAMINHO_SOCIO: str = ""
 
     class Config:

@@ -26,6 +26,8 @@ from __future__ import annotations
 import dataclasses
 import json
 import logging
+import re
+import unicodedata
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
@@ -77,6 +79,45 @@ def _para_banco(campo: str, valor):
     if campo in CAMPOS_NUMERICOS and valor is not None:
         return Decimal(str(valor))
     return valor
+
+
+def _chave_texto(valor) -> str:
+    """
+    Forma comparável de um texto: sem acento, sem caixa, sem espaço sobrando.
+
+    NÃO remove espaços internos, só colapsa repetição. A diferença importa:
+    `ARUJÁ` e `ARUJA` são a mesma cidade escrita com e sem acento, mas
+    `A COSTA IMOVEIS` e `ACOSTA IMOVEIS` são duas grafias diferentes da
+    razão social, e essa o usuário precisa ver para decidir.
+    """
+    texto = unicodedata.normalize("NFKD", str(valor).strip())
+    texto = "".join(c for c in texto if not unicodedata.combining(c))
+    return re.sub(r"\s+", " ", texto).casefold()
+
+
+def _mesmo_valor(atual, sugerido) -> bool:
+    """
+    O cadastro e a fonte dizem a mesma coisa?
+
+    Comparar com `str()` puro produzia divergência onde não há nenhuma. O
+    capital social é `NUMERIC` no banco e volta do asyncpg como
+    `Decimal('200000.00')`; a Receita manda `200000.0`. Texto diferente,
+    número idêntico — e a tela pedia ao usuário que escolhesse entre dois
+    valores iguais, em toda conta consultada.
+
+    Número compara por VALOR. Texto compara sem acento e sem caixa, porque
+    trocar `ARUJÁ` por `ARUJA` só pioraria o cadastro.
+    """
+    if atual is None or sugerido is None:
+        return atual is sugerido
+    numero = (int, float, Decimal)
+    if isinstance(atual, numero) and isinstance(sugerido, numero) \
+            and not isinstance(atual, bool) and not isinstance(sugerido, bool):
+        try:
+            return Decimal(str(atual)) == Decimal(str(sugerido))
+        except (ArithmeticError, ValueError):
+            return False
+    return _chave_texto(atual) == _chave_texto(sugerido)
 
 
 # ── Consulta com cache ───────────────────────────────────────────────────────
@@ -393,7 +434,7 @@ async def aplicar(
                 continue
 
         if not _vazio(valor_atual) and not sobrescrever:
-            if str(valor_atual) != str(sugerido):
+            if not _mesmo_valor(valor_atual, sugerido):
                 mantidos.append({
                     "campo": campo,
                     "atual": valor_atual,

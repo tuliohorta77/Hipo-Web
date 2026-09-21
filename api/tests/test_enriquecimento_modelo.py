@@ -352,3 +352,110 @@ class TestEstruturaCnae:
         assert ce.secao_de("0000000") is None
         assert ce.secao_de("123") is None
         assert ce.secao_de(None) is None
+
+
+class TestMesmoValor:
+    """
+    A comparação que decide se a tela pede uma decisão ao usuário.
+
+    Cada caso aqui apareceu numa conta real. Divergência falsa custa mais
+    que divergência escondida: o usuário aprende a clicar em "usar os dados
+    da fonte" sem ler, e no dia em que a divergência for de verdade ele
+    clica igual.
+    """
+
+    def _f(self):
+        from services.enriquecimento.persistencia import _mesmo_valor
+        return _mesmo_valor
+
+    def test_decimal_do_banco_contra_float_da_fonte(self):
+        """
+        O caso que apareceu em TODA conta consultada.
+
+        `capital_social` é NUMERIC; o asyncpg devolve Decimal('200000.00') e
+        a Receita manda 200000.0. Com `str()` puro, dois textos diferentes
+        para o mesmo número — e a tela pedindo ao usuário que escolhesse
+        entre R$ 200.000,00 e R$ 200.000,00.
+        """
+        from decimal import Decimal
+        assert self._f()(Decimal("200000.00"), 200000.0)
+        assert self._f()(Decimal("0.00"), 0)
+        assert self._f()(Decimal("1000.5"), 1000.50)
+
+    def test_numero_diferente_continua_divergencia(self):
+        from decimal import Decimal
+        assert not self._f()(Decimal("200000.00"), 250000.0)
+
+    def test_acento_e_caixa_nao_sao_divergencia(self):
+        """
+        `ARUJÁ` no cadastro contra `ARUJA` na Receita. Oferecer a troca
+        pioraria o dado: a grafia com acento é a correta.
+        """
+        assert self._f()("ARUJÁ", "ARUJA")
+        assert self._f()("São Paulo", "SAO PAULO")
+        assert self._f()("  METALURGICA   ALFA ", "Metalurgica Alfa")
+
+    def test_espaco_interno_continua_divergencia(self):
+        """
+        `A COSTA IMOVEIS` contra `ACOSTA IMOVEIS` são duas grafias da razão
+        social, e qual vale é decisão de quem está olhando — não do código.
+        Por isso o normalizador colapsa repetição de espaço, mas nunca
+        remove o espaço.
+        """
+        assert not self._f()("A COSTA IMOVEIS LTDA", "ACOSTA IMOVEIS LTDA")
+
+    def test_nulo_nao_casa_com_valor(self):
+        assert self._f()(None, None)
+        assert not self._f()(None, "algo")
+        assert not self._f()("algo", None)
+
+    def test_bool_nao_e_tratado_como_numero(self):
+        """True == 1 em Python. Aqui não: campo booleano compara como texto."""
+        assert not self._f()(True, 1)
+
+
+class TestEnderecoDaLeadcnpj:
+    """
+    A URL que a fonte paga recebe.
+
+    Isto não é teste de integração: é uma trava sobre um valor que já
+    esteve errado por palpite e custou toda consulta paga com HTTP 400.
+    O endereço correto está na página pública leadcnpj.com.br/api-empresas:
+
+        curl -H "Authorization: Bearer leadcnpj_live_..." \\
+             "https://leadcnpj.com.br/api/v1/empresa/{cnpj}?enriquecer=true"
+    """
+
+    def test_caminho_e_o_documentado(self):
+        from config import settings
+
+        molde = settings.LEADCNPJ_CAMINHO_CNPJ
+        assert molde.startswith("v1/empresa/"), (
+            "o caminho é /v1/empresa/{cnpj} — singular e com o /v1. "
+            "O plural sem versão respondia 400 em toda consulta."
+        )
+        montado = molde.format(cnpj="11222333000181")
+        assert montado.startswith("v1/empresa/11222333000181")
+        # Sem `enriquecer=true` a resposta é só o espelho da Receita, que a
+        # BrasilAPI já dá de graça — e some o nº de funcionários, que é o
+        # único motivo de a fonte paga existir aqui.
+        assert "enriquecer=true" in montado
+
+    def test_url_montada_bate_com_o_curl_da_documentacao(self):
+        from config import settings
+        from services.enriquecimento import fontes
+
+        base = fontes._url_base(settings.LEADCNPJ_URL, "")
+        caminho = settings.LEADCNPJ_CAMINHO_CNPJ.format(cnpj="12345678000190")
+        assert f"{base}/{caminho}" == (
+            "https://leadcnpj.com.br/api/v1/empresa/12345678000190"
+            "?enriquecer=true"
+        )
+
+    def test_credencial_vai_como_bearer(self, monkeypatch):
+        from config import settings
+        from services.enriquecimento import fontes
+
+        monkeypatch.setattr(settings, "LEADCNPJ_API_KEY", "leadcnpj_live_xyz")
+        cabecalhos = fontes._cabecalhos_leadcnpj()
+        assert cabecalhos["Authorization"] == "Bearer leadcnpj_live_xyz"
