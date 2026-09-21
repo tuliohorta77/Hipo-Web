@@ -9,6 +9,8 @@ leitura de payload de terceiro. Fonte que renomeia campo, devolve faixa em
 vez de número, manda data em outro formato ou solta um CPF inteiro no QSA —
 cada um desses tem um teste, porque nenhum deles daria erro visível.
 """
+import json
+
 import pytest
 
 from services.enriquecimento import modelo as m
@@ -561,3 +563,172 @@ class TestLeadcnpjObjetoCodigoDescricao:
         for campo, valor in dataclasses.asdict(self._d()).items():
             if isinstance(valor, str):
                 assert "'codigo'" not in valor and "{" not in valor, campo
+
+
+# Resposta REAL da LeadCNPJ, capturada em produção em 21/09/2026 e
+# recortada: documentos e e-mails fora, lista de 47 CNAEs secundários
+# reduzida a três. Os NOMES e a ESTRUTURA dos campos estão intactos, que é
+# o que estes testes protegem.
+#
+# Ela não parece com a da BrasilAPI em quase nada: "cnae_secundario" no
+# singular, "data_inicio_atividades" no plural, contato e endereço em
+# objetos próprios, regime tributário aninhado, tipo do logradouro
+# separado do nome. Cada uma dessas diferenças apagava um campo em
+# silêncio -- o enriquecimento "funcionava" e entregava menos.
+PAYLOAD_LEADCNPJ_REAL = {
+    "cnpj": "15436940000103",
+    "cnpj_basico": "15436940",
+    "cnpj_formatado": "15.436.940/0001-03",
+    "razao_social": "Amazon Servicos de Varejo do Brasil LTDA.",
+    "nome_empresa": "Amazon Servicos de Varejo do Brasil LTDA.",
+    "nome_fantasia": "Amazon.com.br",
+    "matriz_filial": "matriz",
+    "capital_social": 32090416622,
+    "data_inicio_atividades": "2012-04-02",
+    "situacao": {"codigo": "02", "descricao": "Ativa", "data": "2012-04-02"},
+    "porte_empresa": {"codigo": "05", "descricao": "Demais"},
+    "natureza_juridica": {
+        "codigo": "2062", "descricao": "Sociedade Empresária Limitada",
+    },
+    "regime_tributario": {"mei": False, "simples_nacional": False},
+    "cnae_principal": {
+        "codigo": "4761001", "descricao": "Comércio varejista de livros",
+    },
+    "cnae_secundario": [
+        {"codigo": "4530703", "descricao": "Peças para veículos"},
+        {"codigo": "5811500", "descricao": "Edição de livros"},
+        {"codigo": "6204000", "descricao": "Consultoria em TI"},
+    ],
+    "contato": {
+        "email": "contato@exemplo.com.br",
+        "telefone_principal": "(11) 4130-2000",
+        "telefone_secundario": None,
+    },
+    "endereco": {
+        "uf": "SP",
+        "cep": "04543011",
+        "cep_formatado": "04543-011",
+        "bairro": "Vila Nova Conceicao",
+        "numero": "2041",
+        "municipio": "Sao Paulo",
+        "logradouro": "Pres Juscelino Kubitschek",
+        "tipo_logradouro": "Avenida",
+        "complemento": "Andar 17 Parte",
+    },
+    "qsa": [
+        {
+            "nome": "Juliana Soibelmann Sztrajtman",
+            "tipo": "pessoa_fisica",
+            "documento": "***123456**",
+            "data_entrada": "2025-02-12",
+            "faixa_etaria": {"codigo": 5, "descricao": "41-50 anos"},
+            "qualificacao": {"codigo": "05", "descricao": "Administrador"},
+        },
+        {
+            "nome": "Rainforest Holdco 1 Llc",
+            "tipo": "pessoa_juridica",
+            "documento": None,
+            "data_entrada": "2017-11-30",
+            "faixa_etaria": None,
+            "qualificacao": {
+                "codigo": "37",
+                "descricao": "Sócio Pessoa Jurídica Domiciliado no Exterior",
+            },
+        },
+    ],
+    "enriquecimento": {
+        "score_completude": 48,
+        "google": {"telefone": "+55 800 038 0541", "rating": 3.9},
+        "website": {"url": "https://aboutamazon.com.br"},
+        "decisores": [],
+    },
+}
+
+
+class TestPayloadRealDaLeadcnpj:
+    """Os nomes de campo que a fonte usa de verdade."""
+
+    def _d(self):
+        return m.normalizar_leadcnpj(PAYLOAD_LEADCNPJ_REAL)
+
+    def test_cnaes_secundarios_no_singular(self):
+        """47 CNAEs sumiam porque a chave é `cnae_secundario`, sem o `s`."""
+        codigos = [c for c, _ in self._d().cnaes_secundarios]
+        assert codigos == ["4530703", "5811500", "6204000"]
+
+    def test_data_de_abertura_no_plural(self):
+        from datetime import date
+        assert self._d().data_abertura == date(2012, 4, 2)
+
+    def test_contato_vem_do_objeto_proprio(self):
+        dados = self._d()
+        assert dados.telefone == "1141302000"
+        assert dados.email == "contato@exemplo.com.br"
+        assert dados.telefone_2 is None
+
+    def test_endereco_junta_tipo_e_nome_do_logradouro(self):
+        """
+        A fonte separa "Avenida" de "Pres Juscelino Kubitschek". O cadastro
+        guarda junto — separado, toda conta acusaria divergência de
+        endereço contra a BrasilAPI.
+        """
+        dados = self._d()
+        assert dados.logradouro == "Avenida Pres Juscelino Kubitschek"
+        assert dados.numero == "2041"
+        assert dados.bairro == "Vila Nova Conceicao"
+        assert dados.cidade == "Sao Paulo"
+        assert dados.cep == "04543011"
+        assert dados.uf == "SP"
+
+    def test_nao_duplica_o_tipo_do_logradouro(self):
+        payload = dict(PAYLOAD_LEADCNPJ_REAL)
+        payload["endereco"] = dict(payload["endereco"])
+        payload["endereco"]["logradouro"] = "Avenida Brasil"
+        assert m.normalizar_leadcnpj(payload).logradouro == "Avenida Brasil"
+
+    def test_regime_tributario_aninhado(self):
+        assert self._d().simples is False
+
+    def test_socio_pj_pelo_tipo_declarado(self):
+        """
+        Contar dígitos não serve: CPF no QSA vem mascarado pela Receita, e
+        a máscara não diz o que esconde. Quando a fonte declara o tipo, é
+        ele que vale.
+        """
+        socios = self._d().socios
+        assert socios[0].eh_pj is False
+        assert socios[1].eh_pj is True
+        assert socios[1].documento_mascarado is None
+
+    def test_o_resto_continua_desembrulhado(self):
+        dados = self._d()
+        assert dados.situacao_cadastral == "Ativa"
+        assert dados.porte == "Demais"
+        assert dados.cnae_codigo == "4761001"
+        assert dados.cnae_descricao == "Comércio varejista de livros"
+        assert dados.natureza_juridica == "Sociedade Empresária Limitada"
+        assert dados.capital_social == 32090416622.0
+
+    def test_quadro_de_pessoal_NAO_VEM(self):
+        """
+        O achado que decide se o plano vale a pena.
+
+        A resposta real não tem NENHUM campo de quantidade de
+        funcionários. O único parecido é `porte_empresa`, que é faixa de
+        FATURAMENTO — converter um no outro seria inventar o número que
+        entra na proposta.
+
+        Este teste existe para que a ausência seja uma decisão registrada,
+        e não uma suspeita que volta toda vez que alguém olhar a tela e
+        achar que é bug. Se um dia o plano passar a incluir o dado, ele
+        quebra e avisa que dá para ligar o campo.
+        """
+        assert self._d().num_funcionarios is None
+        assert self._d().num_funcionarios_origem is None
+
+        achatado = json.dumps(PAYLOAD_LEADCNPJ_REAL).lower()
+        for palavra in ("funcionario", "employee", "colaborador", "headcount"):
+            assert palavra not in achatado, (
+                f"'{palavra}' apareceu no payload: reveja "
+                "`funcionarios` em normalizar_leadcnpj"
+            )

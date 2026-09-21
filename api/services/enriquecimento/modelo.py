@@ -409,12 +409,29 @@ class Socio:
         qualificacao=None,
         faixa_etaria=None,
         entrada_em=None,
+        tipo=None,
     ) -> "Socio | None":
         """Construtor que normaliza tudo. None se não houver nome."""
         limpo = limpar_texto(nome, 200)
         if not limpo:
             return None
         doc = mascarar_documento(documento)
+
+        # Sócio PJ. Duas evidências, e a declarada ganha:
+        #
+        #   * `tipo` — a LeadCNPJ diz "pessoa_juridica" em letras.
+        #   * documento com 14 dígitos — o CNPJ, quando ele vem inteiro.
+        #
+        # A segunda sozinha não basta: CPF no QSA vem MASCARADO pela
+        # Receita (`***123456**`), e contar os dígitos de uma máscara não
+        # diz nada sobre o que ela esconde. Quando a fonte declara o tipo,
+        # é ele que vale.
+        texto_tipo = (limpar_texto(tipo, 40) or "").lower()
+        if texto_tipo:
+            pj = "juridica" in texto_tipo or "jurídica" in texto_tipo
+        else:
+            pj = bool(doc and len(so_digitos(doc)) == 14)
+
         return cls(
             nome=limpo,
             nome_normalizado=normalizar_nome(limpo),
@@ -422,8 +439,7 @@ class Socio:
             qualificacao=limpar_texto(qualificacao, 150),
             faixa_etaria=limpar_texto(faixa_etaria, 40),
             entrada_em=para_data(entrada_em),
-            # Sócio PJ: documento com 14 dígitos é CNPJ.
-            eh_pj=bool(doc and len(so_digitos(doc)) == 14),
+            eh_pj=pj,
         )
 
 
@@ -660,7 +676,11 @@ def normalizar_leadcnpj(payload: dict) -> DadosEmpresa:
     secundarios: list[tuple[str, str]] = []
     for item in _lista(
         payload, "cnaes_secundarios", "atividades_secundarias",
-        "cnae_secundarios", "secondary_activities",
+        # "cnae_secundario", no SINGULAR, é como a LeadCNPJ chama a lista
+        # de 47 itens. Sem este nome, os secundários sumiam inteiros e
+        # ninguém notava: a tela mostra o principal, e a ausência de uma
+        # lista não parece defeito.
+        "cnae_secundario", "cnae_secundarios", "secondary_activities",
     ):
         if isinstance(item, dict):
             codigo = codigo_cnae(
@@ -692,6 +712,7 @@ def normalizar_leadcnpj(payload: dict) -> DadosEmpresa:
                 item, "data_entrada_sociedade", "data_entrada", "entrada",
                 "since",
             ),
+            tipo=_primeiro(item, "tipo", "tipo_socio", "type"),
         )
         if socio:
             socios.append(socio)
@@ -703,6 +724,24 @@ def normalizar_leadcnpj(payload: dict) -> DadosEmpresa:
         "employees", "employee_count", "employee_range",
         "empresa.quantidade_funcionarios", "dados.quantidade_funcionarios",
     ))
+
+    # A LeadCNPJ separa o tipo do logradouro do nome: "Avenida" +
+    # "Pres Juscelino Kubitschek". A BrasilAPI e o cadastro do HIPO
+    # guardam tudo junto, então juntar aqui é o que faz os dois
+    # comparáveis -- senão toda conta consultada pelas duas fontes
+    # acusaria divergência de endereço.
+    logradouro = limpar_texto(_primeiro(
+        payload, "logradouro", "endereco.logradouro", "address.street"
+    ), 200)
+    tipo_log = limpar_texto(_primeiro(
+        payload, "tipo_logradouro", "endereco.tipo_logradouro"
+    ), 30)
+    if logradouro and tipo_log:
+        # Só prefixa se ainda não estiver lá: fonte que já manda
+        # "Avenida Brasil" no logradouro não pode virar
+        # "Avenida Avenida Brasil".
+        if not logradouro.lower().startswith(tipo_log.lower()):
+            logradouro = limpar_texto(f"{tipo_log} {logradouro}", 200)
 
     return DadosEmpresa(
         cnpj=cnpj,
@@ -742,8 +781,10 @@ def normalizar_leadcnpj(payload: dict) -> DadosEmpresa:
                       "situacao_cadastral", "situacao", "status"), 40
         ),
         data_abertura=para_data(_primeiro(
-            payload, "data_inicio_atividade", "data_abertura", "abertura",
-            "founded_at",
+            # "atividades" no plural é a grafia da LeadCNPJ. Uma letra de
+            # diferença e a data de abertura vinha vazia.
+            payload, "data_inicio_atividades", "data_inicio_atividade",
+            "data_abertura", "abertura", "founded_at",
         )),
         capital_social=para_decimal(_primeiro(
             payload, "capital_social", "capital", "share_capital"
@@ -752,14 +793,14 @@ def normalizar_leadcnpj(payload: dict) -> DadosEmpresa:
             payload, "natureza_juridica", "descricao_natureza_juridica",
             "legal_nature",
         ), 200),
-        simples=_primeiro(payload, "simples_nacional", "opcao_pelo_simples",
-                          "simples") in (True, "S", "SIM", "Sim", "true"),
+        simples=_primeiro(
+            payload, "regime_tributario.simples_nacional", "simples_nacional",
+            "opcao_pelo_simples", "simples",
+        ) in (True, "S", "SIM", "Sim", "true"),
         cep=(so_digitos(_primeiro(
             payload, "cep", "endereco.cep", "address.zip"
         )) or None),
-        logradouro=limpar_texto(_primeiro(
-            payload, "logradouro", "endereco.logradouro", "address.street"
-        ), 200),
+        logradouro=logradouro,
         numero=limpar_texto(_primeiro(
             payload, "numero", "endereco.numero", "address.number"
         ), 20),
@@ -776,16 +817,22 @@ def normalizar_leadcnpj(payload: dict) -> DadosEmpresa:
         uf=((limpar_texto(_primeiro(
             payload, "uf", "estado", "endereco.uf", "address.state"
         ), 2) or "").upper() or None),
+        # A LeadCNPJ agrupa contato num objeto próprio. O enriquecimento
+        # dela traz ainda telefone do Google e redes sociais em
+        # `enriquecimento.*` -- material de prospecção que o HIPO ainda
+        # não tem onde guardar, e que fica de fora de propósito em vez de
+        # ser espremido num campo que não é dele.
         telefone=(so_digitos(_primeiro(
-            payload, "ddd_telefone_1", "telefone", "telefone_1", "phone",
-            "telefones.0",
+            payload, "contato.telefone_principal", "ddd_telefone_1",
+            "telefone", "telefone_1", "phone", "telefones.0",
         ))[:20] or None),
         telefone_2=(so_digitos(_primeiro(
-            payload, "ddd_telefone_2", "telefone_2", "phone_2"
+            payload, "contato.telefone_secundario", "ddd_telefone_2",
+            "telefone_2", "phone_2",
         ))[:20] or None),
-        email=limpar_texto(
-            _primeiro(payload, "email", "e_mail", "emails.0"), 150
-        ),
+        email=limpar_texto(_primeiro(
+            payload, "contato.email", "email", "e_mail", "emails.0"
+        ), 150),
         num_funcionarios=funcionarios,
         num_funcionarios_origem=ESTIMADO if funcionarios is not None else None,
         socios=tuple(socios),
