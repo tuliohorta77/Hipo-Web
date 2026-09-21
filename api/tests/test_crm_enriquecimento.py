@@ -117,15 +117,21 @@ class TestConsultarCnpj:
         assert resp.status_code == 422
         assert fonte_falsa == []
 
-    async def test_registra_o_cnae_como_nao_mapeado(
+    async def test_registra_o_cnae_com_vertical_derivada(
         self, db_conn, client, usuario_adm, fonte_falsa
     ):
+        """
+        015: o CNAE nasce classificado pela seção da CNAE 2.0 — mas como
+        SUGESTÃO, e sem grau de risco (que vale por subclasse na NR-4).
+        """
         await client.get(
             f"/crm/enriquecimento/cnpj/{CNPJ_A}", headers=usuario_adm["headers"]
         )
         row = await db_conn.fetchrow("SELECT * FROM cnaes WHERE codigo = '2511000'")
         assert row is not None
-        assert row["vertical_id"] is None
+        assert row["vertical_id"] is not None
+        assert row["mapeamento_origem"] == "derivado"
+        assert row["mapeado_por"] is None, "derivação não tem autor humano"
         assert row["grau_risco"] is None
 
     async def test_segunda_consulta_vem_do_cache(
@@ -629,8 +635,10 @@ class TestResumo:
         )
         corpo = resp.json()
         assert corpo["contas_enriquecidas"] == 1
-        assert corpo["cnaes_a_mapear"] >= 1
-        assert corpo["contas_em_cnae_nao_mapeado"] == 1
+        # O CNAE tem vertical (derivada) mas ainda não passou por gente.
+        assert corpo["cnaes_a_confirmar"] >= 1
+        assert corpo["contas_com_vertical_sugerida"] == 1
+        assert corpo["contas_sem_vertical"] == 0
         assert corpo["fontes"] == ["brasilapi"]
 
 
@@ -669,6 +677,14 @@ class TestDeParaRetroativo:
         )
 
     async def _duas_contas_com_cnae(self, db_conn, client, headers):
+        """
+        Reproduz a BASE LEGADA: contas com CNAE e sem vertical.
+
+        Depois da 015 isso não acontece mais sozinho — o CNAE nasce
+        derivado e a conta já sai classificada. O de-para retroativo existe
+        justamente para o que entrou ANTES, então o cenário é montado à mão
+        limpando a vertical dos dois lados.
+        """
         contas = []
         for cnpj in (CNPJ_A, CNPJ_B):
             conta = await criar_conta(client, headers, cnpj=cnpj)
@@ -677,6 +693,17 @@ class TestDeParaRetroativo:
                 json={}, headers=headers,
             )
             contas.append(conta)
+        await db_conn.execute(
+            "UPDATE contas SET vertical_id = NULL WHERE cnae_codigo = '2511000'"
+        )
+        await db_conn.execute(
+            """
+            UPDATE cnaes
+               SET vertical_id = NULL, mapeado_em = NULL,
+                   mapeamento_origem = NULL
+             WHERE codigo = '2511000'
+            """
+        )
         return contas
 
     async def test_mapear_classifica_as_contas_que_ja_existiam(
@@ -717,7 +744,7 @@ class TestDeParaRetroativo:
             json={}, headers=usuario_adm["headers"],
         )
         vertical = await client.post(
-            "/crm/dominio/verticais", json={"nome": "Indústria"},
+            "/crm/dominio/verticais", json={"nome": "Metalurgia"},
             headers=usuario_adm["headers"],
         )
 
@@ -738,6 +765,17 @@ class TestDeParaRetroativo:
         await client.post(
             f"/crm/enriquecimento/contas/{conta['id']}/aplicar",
             json={}, headers=usuario_adm["headers"],
+        )
+        # Base legada: sem vertical dos dois lados.
+        await db_conn.execute(
+            "UPDATE contas SET vertical_id = NULL WHERE id = $1", conta["id"]
+        )
+        await db_conn.execute(
+            """
+            UPDATE cnaes SET vertical_id = NULL, mapeado_em = NULL,
+                             mapeamento_origem = NULL
+             WHERE codigo = '2511000'
+            """
         )
         vertical = await client.post(
             "/crm/dominio/verticais", json={"nome": "Indústria"},
@@ -783,7 +821,7 @@ class TestDeParaRetroativo:
         resumo = await client.get(
             "/crm/enriquecimento/resumo", headers=usuario_adm["headers"]
         )
-        assert resumo.json()["contas_em_cnae_nao_mapeado"] == 0
+        assert resumo.json()["contas_sem_vertical"] == 0
 
 
 class TestSemQuadroSocietario:
@@ -817,3 +855,165 @@ class TestSemQuadroSocietario:
             "SELECT enriquecida_em FROM contas WHERE id = $1", conta["id"]
         )
         assert enriquecida is not None
+
+
+class TestVerticalDerivada:
+    """
+    015: o CNAE nasce classificado pela seção da CNAE 2.0, em vez de
+    esperar alguém preencher um a um.
+    """
+
+    async def test_consulta_ja_deixa_o_cnae_com_vertical(
+        self, db_conn, client, usuario_adm, fonte_falsa
+    ):
+        await client.get(
+            f"/crm/enriquecimento/cnpj/{CNPJ_A}", headers=usuario_adm["headers"]
+        )
+        row = await db_conn.fetchrow(
+            """
+            SELECT c.vertical_id, c.mapeamento_origem, v.nome, v.slug
+              FROM cnaes c JOIN verticais v ON v.id = c.vertical_id
+             WHERE c.codigo = '2511000'
+            """
+        )
+        # 25 = divisão da seção C (indústria de transformação).
+        assert row is not None, "o CNAE devia nascer com vertical derivada"
+        assert row["slug"] == "industria"
+        assert row["mapeamento_origem"] == "derivado"
+
+    async def test_conta_nasce_com_a_vertical_da_secao(
+        self, db_conn, client, usuario_adm, fonte_falsa
+    ):
+        conta = await criar_conta(client, usuario_adm["headers"])
+        resp = await client.post(
+            f"/crm/enriquecimento/contas/{conta['id']}/aplicar",
+            json={}, headers=usuario_adm["headers"],
+        )
+        assert "vertical_id" in resp.json()["aplicados"]
+
+        nome = await db_conn.fetchval(
+            """
+            SELECT v.nome FROM contas c JOIN verticais v ON v.id = c.vertical_id
+             WHERE c.id = $1
+            """,
+            conta["id"],
+        )
+        assert nome == "Indústria"
+
+    async def test_nao_duplica_vertical_que_ja_existe(
+        self, db_conn, client, usuario_adm, fonte_falsa
+    ):
+        """O casamento é por slug — 'Indústria' criada à mão é reaproveitada."""
+        criada = await client.post(
+            "/crm/dominio/verticais", json={"nome": "Indústria"},
+            headers=usuario_adm["headers"],
+        )
+        await client.get(
+            f"/crm/enriquecimento/cnpj/{CNPJ_A}", headers=usuario_adm["headers"]
+        )
+        total = await db_conn.fetchval(
+            "SELECT count(*) FROM verticais WHERE slug = 'industria'"
+        )
+        assert total == 1
+        vertical_do_cnae = await db_conn.fetchval(
+            "SELECT vertical_id FROM cnaes WHERE codigo = '2511000'"
+        )
+        assert vertical_do_cnae == criada.json()["id"]
+
+    async def test_operacional_pode_corrigir_uma_sugestao(
+        self, db_conn, client, usuario_adm, fonte_falsa
+    ):
+        """
+        A trava de gestão é sobre DECISÃO HUMANA. Corrigir o que a regra
+        sugeriu é trabalho de quem está com a conta na frente.
+        """
+        sdr = await criar_usuario(db_conn, client, "SDR")
+        await client.get(
+            f"/crm/enriquecimento/cnpj/{CNPJ_A}", headers=sdr["headers"]
+        )
+        outra = await client.post(
+            "/crm/dominio/verticais", json={"nome": "Metalurgia pesada"},
+            headers=sdr["headers"],
+        )
+        resp = await client.patch(
+            "/crm/enriquecimento/cnaes/2511000",
+            json={"vertical_id": outra.json()["id"], "grau_risco": 3},
+            headers=sdr["headers"],
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["mapeamento_origem"] == "humano"
+
+    async def test_operacional_nao_troca_o_que_gente_decidiu(
+        self, db_conn, client, usuario_adm, fonte_falsa
+    ):
+        await client.get(
+            f"/crm/enriquecimento/cnpj/{CNPJ_A}", headers=usuario_adm["headers"]
+        )
+        v1 = await client.post(
+            "/crm/dominio/verticais", json={"nome": "Decidida"},
+            headers=usuario_adm["headers"],
+        )
+        await client.patch(
+            "/crm/enriquecimento/cnaes/2511000",
+            json={"vertical_id": v1.json()["id"]},
+            headers=usuario_adm["headers"],
+        )
+
+        sdr = await criar_usuario(db_conn, client, "SDR")
+        v2 = await client.post(
+            "/crm/dominio/verticais", json={"nome": "Outra"},
+            headers=sdr["headers"],
+        )
+        resp = await client.patch(
+            "/crm/enriquecimento/cnaes/2511000",
+            json={"vertical_id": v2.json()["id"]}, headers=sdr["headers"],
+        )
+        assert resp.status_code == 403
+
+    async def test_grau_de_risco_nao_e_derivado(
+        self, db_conn, client, usuario_adm, fonte_falsa
+    ):
+        """
+        Grau de risco vale por subclasse no Anexo I da NR-4. Derivar por
+        seção seria inventar o número que dimensiona SESMT.
+        """
+        await client.get(
+            f"/crm/enriquecimento/cnpj/{CNPJ_A}", headers=usuario_adm["headers"]
+        )
+        grau = await db_conn.fetchval(
+            "SELECT grau_risco FROM cnaes WHERE codigo = '2511000'"
+        )
+        assert grau is None
+
+    async def test_sugestao_continua_na_fila_de_confirmacao(
+        self, db_conn, client, usuario_adm, fonte_falsa
+    ):
+        """
+        Derivado não é resolvido: a sugestão fica na lista para alguém
+        confirmar ou corrigir.
+        """
+        await client.get(
+            f"/crm/enriquecimento/cnpj/{CNPJ_A}", headers=usuario_adm["headers"]
+        )
+        resp = await client.get(
+            "/crm/enriquecimento/cnaes?apenas_nao_mapeados=true",
+            headers=usuario_adm["headers"],
+        )
+        codigos = [c["codigo"] for c in resp.json()]
+        assert "2511000" in codigos
+
+        # Depois de confirmada por gente, sai da fila.
+        vertical = await client.post(
+            "/crm/dominio/verticais", json={"nome": "Indústria"},
+            headers=usuario_adm["headers"],
+        )
+        await client.patch(
+            "/crm/enriquecimento/cnaes/2511000",
+            json={"vertical_id": vertical.json()["id"]},
+            headers=usuario_adm["headers"],
+        )
+        resp = await client.get(
+            "/crm/enriquecimento/cnaes?apenas_nao_mapeados=true",
+            headers=usuario_adm["headers"],
+        )
+        assert "2511000" not in [c["codigo"] for c in resp.json()]

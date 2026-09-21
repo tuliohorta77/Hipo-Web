@@ -22,6 +22,7 @@ Vazio = recurso desligado, e a API sobe igual — mesma regra do S3, do SES e
 da chave da IA. Sem chave da LeadCNPJ, só a BrasilAPI responde: some o nº de
 funcionários estimado, continua tudo o mais.
 """
+from . import cnae_estrutura  # noqa: F401
 from .fontes import (  # noqa: F401
     BRASILAPI,
     LEADCNPJ,
@@ -46,4 +47,5 @@ from .persistencia import (  # noqa: F401
     aplicar,
     consultar,
     garantir_cnae,
+    vertical_por_slug,
 )

@@ -554,8 +554,8 @@ export default function Contas() {
               onClick={() => setDeParaAberto(true)}
             >
               CNAEs
-              {resumoEnriq?.cnaes_a_mapear > 0 && (
-                <Badge tone="warning">{resumoEnriq.cnaes_a_mapear}</Badge>
+              {resumoEnriq?.cnaes_a_confirmar > 0 && (
+                <Badge tone="warning">{resumoEnriq.cnaes_a_confirmar}</Badge>
               )}
             </Button>
             <Button icon={Plus} onClick={() => setNovaAberta(true)}>Nova conta</Button>

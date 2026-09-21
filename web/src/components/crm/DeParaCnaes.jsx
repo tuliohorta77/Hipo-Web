@@ -11,6 +11,11 @@
 //
 // Decisões desta tela:
 //
+//   * A LISTA JÁ VEM CLASSIFICADA (015). Todo CNAE nasce com a vertical
+//     derivada da seção da CNAE 2.0 — a hierarquia oficial do IBGE. O
+//     trabalho aqui deixou de ser "preencher do zero" e passou a ser
+//     CONFERIR: a linha mostra a sugestão, e quem discorda troca.
+//
 //   * ORDENADA POR TRABALHO, não por código. O primeiro da lista é o CNAE
 //     com mais contas ESPERANDO vertical. Ordem alfabética aqui seria uma
 //     tabela; ordem por impacto é uma fila.
@@ -71,8 +76,12 @@ function LinhaCnae({ cnae, verticais, ehGestao, onSalvo, onCriarVertical }) {
   const [salvando, setSalvando] = useState(false);
   const [erro, setErro] = useState(null);
 
-  const jaMapeado = Boolean(cnae.vertical_id || cnae.grau_risco);
-  const bloqueado = jaMapeado && !ehGestao;
+  // 'humano' = alguém decidiu; 'derivado' = veio da seção da CNAE 2.0.
+  // Só o primeiro é de gestão: corrigir uma sugestão é trabalho de quem
+  // está com a conta na frente.
+  const decididoPorGente = cnae.mapeamento_origem === 'humano';
+  const sugerido = cnae.mapeamento_origem === 'derivado';
+  const bloqueado = decididoPorGente && !ehGestao;
 
   const mudou =
     verticalId !== (cnae.vertical_id ? String(cnae.vertical_id) : '')
@@ -108,11 +117,12 @@ function LinhaCnae({ cnae, verticais, ehGestao, onSalvo, onCriarVertical }) {
         <Td className="font-mono text-sm align-top">{cnae.codigo}</Td>
         <Td className="align-top">
           <div className="text-hipo-ink">{cnae.descricao}</div>
-          {jaMapeado && (
+          {(decididoPorGente || sugerido) && (
             <div className="mt-1 flex flex-wrap items-center gap-1.5">
-              <Badge tone="success">
-                <Check size={12} />
+              <Badge tone={sugerido ? 'info' : 'success'}>
+                {sugerido ? <Tag size={12} /> : <Check size={12} />}
                 {cnae.vertical_nome || 'sem vertical'}
+                {sugerido && ' (sugerido)'}
               </Badge>
               {cnae.grau_risco && (
                 <Badge tone={TOM_RISCO[cnae.grau_risco] || 'neutral'}>
@@ -134,7 +144,7 @@ function LinhaCnae({ cnae, verticais, ehGestao, onSalvo, onCriarVertical }) {
         <Td className="align-top">
           {bloqueado ? (
             <span className="text-xs text-hipo-muted">
-              já classificado — só gestão altera
+              definido por alguém — só gestão altera
             </span>
           ) : (
             <Select
@@ -171,11 +181,19 @@ function LinhaCnae({ cnae, verticais, ehGestao, onSalvo, onCriarVertical }) {
             <Button
               size="sm"
               variant={mudou ? 'primary' : 'secondary'}
-              disabled={!mudou}
+              // Confirmar uma sugestão sem mudar nada é uma ação de
+              // verdade: marca o CNAE como decidido por gente e tira ele
+              // da fila. Por isso o botão não exige alteração quando a
+              // linha é apenas sugerida.
+              disabled={!mudou && !sugerido}
               loading={salvando}
               onClick={salvar}
             >
-              Aplicar
+              {/* "Confirmar" só faz sentido quando existe uma sugestão na
+                  frente para concordar. CNAE sem nada sugerido — o caso
+                  legado, anterior à 015 — continua sendo "Aplicar", que é
+                  o que o botão realmente faz ali. */}
+              {sugerido && !mudou ? 'Confirmar' : 'Aplicar'}
             </Button>
           )}
         </Td>
@@ -271,19 +289,28 @@ export default function DeParaCnaes({ verticais, onCriarVertical, onMudou }) {
 
         <div className="flex flex-wrap gap-8">
           <Numero label="CNAEs conhecidos" valor={resumo?.cnaes_conhecidos} />
-          <Numero label="A classificar" valor={resumo?.cnaes_a_mapear} tom="alerta" />
           <Numero
-            label="Contas esperando vertical"
-            valor={resumo?.contas_em_cnae_nao_mapeado}
+            label="A conferir"
+            valor={resumo?.cnaes_a_confirmar}
             tom="alerta"
           />
-          <Numero label="Contas enriquecidas" valor={resumo?.contas_enriquecidas} />
+          <Numero
+            label="Contas com vertical sugerida"
+            valor={resumo?.contas_com_vertical_sugerida}
+          />
+          <Numero
+            label="Contas sem vertical"
+            valor={resumo?.contas_sem_vertical}
+            tom="alerta"
+          />
         </div>
 
         <p className="text-sm text-hipo-slate">
-          Classificar um CNAE aqui vale para <strong>todas</strong> as contas
-          que o usam — as que já existem e as que vierem depois. Conta que já
-          tem vertical não é alterada.
+          A vertical já vem preenchida a partir da <strong>seção da CNAE
+          2.0</strong>, a classificação oficial do IBGE. O que está aqui é
+          sugestão: conferir ou trocar vale para <strong>todas</strong> as
+          contas daquele código — as que já existem e as que vierem depois.
+          Conta com vertical definida por alguém nunca é alterada.
         </p>
 
         <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
@@ -305,7 +332,7 @@ export default function DeParaCnaes({ verticais, onCriarVertical, onMudou }) {
                 onChange={(e) => setSoNaoMapeados(e.target.checked)}
                 className="rounded border-hipo-border"
               />
-              Só os não classificados
+              Só os que faltam conferir
             </label>
           </div>
           <div className="md:col-span-3">
@@ -337,12 +364,12 @@ export default function DeParaCnaes({ verticais, onCriarVertical, onMudou }) {
           <Empty
             title={
               soNaoMapeados
-                ? 'Nenhum CNAE esperando classificação'
+                ? 'Nenhum CNAE esperando conferência'
                 : 'Nenhum CNAE encontrado'
             }
             description={
               soNaoMapeados
-                ? 'Todos os CNAEs conhecidos já têm vertical ou grau de risco.'
+                ? 'Todos os CNAEs conhecidos já passaram por alguém.'
                 : 'Os CNAEs aparecem aqui conforme as contas são consultadas por CNPJ.'
             }
             icon={Tag}

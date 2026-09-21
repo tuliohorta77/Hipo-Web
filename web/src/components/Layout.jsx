@@ -54,6 +54,13 @@ const NAV_ITEMS = [
   { to: '/crm/tarefas', label: 'Tarefas', modulo: 'crm' },
   { to: '/crm/agenda', label: 'Agenda', modulo: 'crm' },
   { to: '/crm/contas', label: 'Contas', modulo: 'crm' },
+  // CNAEs e o de-para que decide a vertical de TODAS as contas de um
+  // codigo. Modulo 'crm' (nao vale criar modulo novo, que so refletiria
+  // depois de cada um relogar) + restricao por CARGO: classificar a base
+  // inteira e decisao comercial, como liberar prospeccao. Quem e
+  // operacional continua classificando o CNAE da conta que estiver
+  // abrindo, pela aba Dados publicos.
+  { to: '/crm/cnaes', label: 'CNAEs', modulo: 'crm', cargos: ['Franqueado', 'ADM'] },
   { to: '/crm/parceiros', label: 'Parceiros', modulo: 'parceiros' },
   { to: '/monitor', label: 'Monitor', modulo: 'crm' },
 ];

@@ -67,7 +67,9 @@ describe('Layout — nav com o módulo crm', () => {
     const hrefs = [...nav.querySelectorAll('a')].map((a) => a.getAttribute('href'));
     expect(hrefs).toEqual([
       '/crm/oportunidades', '/crm/tarefas', '/crm/agenda',
-      '/crm/contas', '/crm/parceiros', '/monitor',
+      // CNAEs vem logo depois de Contas porque é cadastro de apoio DELAS —
+      // e só aparece para gestão, que é o cargo deste teste.
+      '/crm/contas', '/crm/cnaes', '/crm/parceiros', '/monitor',
     ]);
   });
 
@@ -96,6 +98,10 @@ describe('Layout — nav com o módulo crm', () => {
     const hrefs = [...nav.querySelectorAll('a')].map((a) => a.getAttribute('href'));
     expect(hrefs).toEqual([
       '/crm/oportunidades', '/crm/tarefas', '/crm/agenda', '/crm/contas',
+      // CNAEs entra aqui porque o usuário deste teste é Franqueado. O item
+      // é do módulo 'crm' mas restrito a gestão por CARGO — ver o teste
+      // logo abaixo, que cobre o operacional.
+      '/crm/cnaes',
       // O Monitor é o painel de parede e fica com todo mundo: é do módulo
       // 'crm', como as quatro telas de trabalho.
       '/monitor',
@@ -175,5 +181,35 @@ describe('Layout — dropdown do usuário', () => {
     mockGetModulos.mockReturnValue([]);
     renderLayout();
     expect(screen.queryByLabelText('Menu do usuário')).not.toBeInTheDocument();
+  });
+});
+
+// ── 014: o de-para de CNAEs é de gestão ───────────────────────────────
+
+describe('Layout — CNAEs só para gestão', () => {
+  it('esconde CNAEs de cargo operacional', () => {
+    /*
+      Classificar um CNAE decide a vertical de TODAS as contas que o usam.
+      Para SDR, EV, EP e EC a barra não muda — eles classificam o CNAE da
+      conta que estiverem abrindo, pela aba Dados públicos, onde o alcance
+      é aquela empresa.
+    */
+    mockGetUser.mockReturnValue({
+      nome: 'Kethlleen', email: 'k@teste.com', cargo: 'SDR',
+    });
+    mockGetModulos.mockReturnValue(['perfil', 'crm']);
+    renderLayout();
+
+    const nav = screen.getByLabelText('Navegação principal');
+    const hrefs = [...nav.querySelectorAll('a')].map((a) => a.getAttribute('href'));
+    expect(hrefs).not.toContain('/crm/cnaes');
+    expect(screen.queryByText('CNAEs')).not.toBeInTheDocument();
+  });
+
+  it('mostra CNAEs para gestão', () => {
+    renderLayout();
+    const nav = screen.getByLabelText('Navegação principal');
+    const hrefs = [...nav.querySelectorAll('a')].map((a) => a.getAttribute('href'));
+    expect(hrefs).toContain('/crm/cnaes');
   });
 });

@@ -31,6 +31,7 @@ from decimal import Decimal
 
 from config import settings
 
+from . import cnae_estrutura
 from . import fontes as fontes_mod
 from .modelo import (
     DECLARADO,
@@ -184,15 +185,47 @@ async def consultar(
 
 # ── CNAEs ────────────────────────────────────────────────────────────────────
 
-async def garantir_cnae(conn, codigo: str | None, descricao: str | None) -> dict | None:
+async def vertical_por_slug(conn, slug: str, nome: str) -> int | None:
+    """
+    Id da vertical com este slug, criando-a se ainda não existir.
+
+    O slug é a chave real das listas de domínio (é ele que tem UNIQUE), e é
+    por isso que a derivação nunca duplica nem renomeia: se a operação já
+    tem uma vertical "Saúde", a derivação reaproveita aquele id em vez de
+    criar outra.
+    """
+    return await conn.fetchval(
+        """
+        INSERT INTO verticais (nome, slug)
+        VALUES ($2, $1)
+        ON CONFLICT (slug) DO UPDATE SET nome = verticais.nome
+     RETURNING id
+        """,
+        slug, nome,
+    )
+
+
+async def garantir_cnae(
+    conn, codigo: str | None, descricao: str | None, derivar: bool = True,
+) -> dict | None:
     """
     Cria o CNAE se ainda não existir e devolve o registro com o mapeamento.
 
-    NASCE NÃO MAPEADO. `vertical_id` e `grau_risco` ficam nulos, e é a tela
-    que cobra o preenchimento quando o CNAE aparece pela primeira vez. Um
-    mapa automático de CNAE para vertical seria chute com cara de dado: a
-    mesma atividade econômica vira verticais diferentes conforme o que a
-    operação vende.
+    NASCE COM A VERTICAL DERIVADA DA SEÇÃO DA CNAE 2.0 (015).
+
+    Antes nascia vazio, esperando alguém classificar um a um — e com
+    centenas de códigos na base isso é trabalho que não termina. A derivação
+    não é chute: a CNAE é uma hierarquia oficial do IBGE, e a seção de um
+    código é um fato da classificação, não uma opinião. Ver
+    `cnae_estrutura.py`.
+
+    A marca `mapeamento_origem='derivado'` é o que mantém a honestidade: a
+    tela mostra como sugestão, e corrigir uma sugestão continua sendo
+    trabalho operacional. O que uma pessoa decidiu fica 'humano' e a
+    derivação nunca encosta.
+
+    O GRAU DE RISCO CONTINUA NULO — ele vale por subclasse no Anexo I da
+    NR-4, não por seção.
 
     A descrição é atualizada quando chega uma não vazia e a guardada é o
     placeholder — a Receita às vezes devolve o CNAE sem texto.
@@ -200,20 +233,39 @@ async def garantir_cnae(conn, codigo: str | None, descricao: str | None) -> dict
     if not codigo:
         return None
     texto = (descricao or "").strip() or "CNAE sem descrição"
+
+    vertical_id = None
+    if derivar:
+        secao = cnae_estrutura.secao_de(codigo)
+        if secao:
+            _, slug, nome = secao
+            vertical_id = await vertical_por_slug(conn, slug, nome)
+
+    # O DO UPDATE só preenche o que está VAZIO: um CNAE já classificado (por
+    # gente ou por derivação anterior) não é tocado por uma nova consulta.
     row = await conn.fetchrow(
         """
-        INSERT INTO cnaes (codigo, descricao)
-        VALUES ($1, $2)
+        INSERT INTO cnaes (codigo, descricao, vertical_id, mapeado_em,
+                           mapeamento_origem)
+        VALUES ($1, $2, $3,
+                CASE WHEN $3::int IS NULL THEN NULL ELSE NOW() END,
+                CASE WHEN $3::int IS NULL THEN NULL ELSE 'derivado' END)
         ON CONFLICT (codigo) DO UPDATE
            SET descricao = CASE
                    WHEN cnaes.descricao = 'CNAE sem descrição'
                     AND EXCLUDED.descricao <> 'CNAE sem descrição'
                    THEN EXCLUDED.descricao
                    ELSE cnaes.descricao
-               END
-     RETURNING codigo, descricao, vertical_id, grau_risco, mapeado_em
+               END,
+               vertical_id = COALESCE(cnaes.vertical_id, EXCLUDED.vertical_id),
+               mapeado_em = COALESCE(cnaes.mapeado_em, EXCLUDED.mapeado_em),
+               mapeamento_origem = COALESCE(
+                   cnaes.mapeamento_origem, EXCLUDED.mapeamento_origem
+               )
+     RETURNING codigo, descricao, vertical_id, grau_risco, mapeado_em,
+               mapeamento_origem
         """,
-        codigo, texto,
+        codigo, texto, vertical_id,
     )
     return dict(row) if row else None
 

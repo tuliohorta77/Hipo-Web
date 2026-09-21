@@ -304,3 +304,51 @@ class TestCamposDeConta:
         dados = m.normalizar_brasilapi(PAYLOAD_BRASILAPI)
         assert "socios" not in dados.campos_de_conta()
         assert "cnaes_secundarios" not in dados.campos_de_conta()
+
+
+class TestEstruturaCnae:
+    """
+    A derivação da vertical não é chute: a CNAE é uma hierarquia oficial do
+    IBGE, e a seção de um código é um fato da classificação.
+    """
+
+    def test_secao_pela_divisao(self):
+        from services.enriquecimento import cnae_estrutura as ce
+
+        assert ce.secao_de("6204000")[0] == "J"   # tecnologia
+        assert ce.secao_de("8610101")[0] == "Q"   # saúde
+        assert ce.secao_de("4663000")[0] == "G"   # comércio
+        assert ce.secao_de("2511000")[0] == "C"   # indústria
+        assert ce.secao_de("4120400")[0] == "F"   # construção
+        assert ce.secao_de("0111301")[0] == "A"   # agro
+
+    def test_toda_divisao_existente_tem_secao(self):
+        """
+        Se uma faixa ficar de fora, um pedaço inteiro da economia deixa de
+        ser classificado em silêncio.
+        """
+        from services.enriquecimento import cnae_estrutura as ce
+
+        # Buracos reais na numeração da CNAE 2.0.
+        inexistentes = {4, 34, 40, 44, 48, 54, 57, 67, 76, 83, 89, 98}
+        for div in range(1, 100):
+            codigo = f"{div:02d}00000"
+            tem = ce.secao_de(codigo) is not None
+            if div in inexistentes:
+                assert not tem, f"divisão {div} não existe mas foi classificada"
+            else:
+                assert tem, f"divisão {div} ficou sem seção"
+
+    def test_sao_21_secoes(self):
+        from services.enriquecimento import cnae_estrutura as ce
+
+        assert len(ce.verticais_derivadas()) == 21
+        slugs = [s for s, _ in ce.verticais_derivadas()]
+        assert len(set(slugs)) == 21, "slug repetido criaria vertical duplicada"
+
+    def test_codigo_invalido_nao_vira_vertical(self):
+        from services.enriquecimento import cnae_estrutura as ce
+
+        assert ce.secao_de("0000000") is None
+        assert ce.secao_de("123") is None
+        assert ce.secao_de(None) is None

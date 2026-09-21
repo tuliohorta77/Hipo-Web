@@ -65,6 +65,10 @@ class CnaeOut(BaseModel):
     vertical_nome: str | None = None
     grau_risco: int | None = None
     mapeado_em: datetime | None = None
+    # 'derivado' (veio da seção da CNAE 2.0) ou 'humano' (alguém decidiu).
+    # A tela mostra sugestão em vez de afirmar, e a permissão de alteração
+    # depende disto — ver o cabeçalho da migration 015.
+    mapeamento_origem: str | None = None
     qtd_contas: int | None = None
     # Quantas contas com este CNAE estão sem vertical AGORA. É o número que
     # dá sentido ao de-para: mapear este código preenche todas elas de uma
@@ -179,13 +183,27 @@ class EmpresasDoSocioOut(BaseModel):
 
 
 class ResumoEnriquecimento(BaseModel):
+    """
+    Os números do de-para.
+
+    Depois da 015 os nomes mudaram junto com o significado: como o CNAE
+    nasce classificado pela seção da CNAE 2.0, "contas esperando vertical"
+    virou quase sempre zero e deixou de dizer alguma coisa. O que importa
+    agora é outra pergunta — quanto da base está apoiado em SUGESTÃO e
+    ainda não passou por gente.
+    """
     fontes: list[str]
     contas_ativas: int
     contas_enriquecidas: int
     contas_sem_cnae: int
     cnaes_conhecidos: int
-    cnaes_a_mapear: int
-    contas_em_cnae_nao_mapeado: int
+    # CNAEs sem decisão humana: inclui os que já têm vertical derivada.
+    cnaes_a_confirmar: int
+    # Contas cuja vertical veio de sugestão automática.
+    contas_com_vertical_sugerida: int
+    # Contas que continuam sem vertical nenhuma (CNAE fora da estrutura da
+    # CNAE 2.0, ou conta que nunca foi consultada).
+    contas_sem_vertical: int
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -203,7 +221,7 @@ async def _cnae_completo(conn, codigo: str | None) -> dict | None:
     row = await conn.fetchrow(
         """
         SELECT c.codigo, c.descricao, c.vertical_id, v.nome AS vertical_nome,
-               c.grau_risco, c.mapeado_em,
+               c.grau_risco, c.mapeado_em, c.mapeamento_origem,
                (SELECT count(*) FROM contas ct WHERE ct.cnae_codigo = c.codigo)
                    AS qtd_contas,
                (SELECT count(*) FROM contas ct
@@ -398,7 +416,7 @@ async def listar_cnaes(
     rows = await conn.fetch(
         """
         SELECT c.codigo, c.descricao, c.vertical_id, v.nome AS vertical_nome,
-               c.grau_risco, c.mapeado_em,
+               c.grau_risco, c.mapeado_em, c.mapeamento_origem,
                count(ct.id) AS qtd_contas,
                count(ct.id) FILTER (
                    WHERE ct.vertical_id IS NULL AND ct.ativo
@@ -406,11 +424,14 @@ async def listar_cnaes(
           FROM cnaes c
           LEFT JOIN verticais v ON v.id = c.vertical_id
           LEFT JOIN contas ct ON ct.cnae_codigo = c.codigo
+         -- "não mapeados" = sem DECISÃO HUMANA. Um CNAE com vertical
+         -- derivada continua na fila: a sugestão está lá para ser
+         -- confirmada ou corrigida, não para ser dada como resolvida.
          WHERE ($1::bool IS NOT TRUE
-                OR (c.vertical_id IS NULL AND c.grau_risco IS NULL))
+                OR c.mapeamento_origem IS DISTINCT FROM 'humano')
            AND ($2::text IS NULL OR c.descricao ILIKE $2 OR c.codigo LIKE $2)
          GROUP BY c.codigo, c.descricao, c.vertical_id, v.nome,
-                  c.grau_risco, c.mapeado_em
+                  c.grau_risco, c.mapeado_em, c.mapeamento_origem
          -- Ordem de TRABALHO, não alfabética: o CNAE que destrava mais
          -- contas vem primeiro. Mapear o de 40 contas antes do que aparece
          -- uma vez é o que faz a base se classificar sozinha.
@@ -449,7 +470,10 @@ async def mapear_cnae(
         raise HTTPException(422, "Código de CNAE deve ter 7 dígitos.")
 
     atual = await conn.fetchrow(
-        "SELECT codigo, vertical_id, grau_risco FROM cnaes WHERE codigo = $1",
+        """
+        SELECT codigo, vertical_id, grau_risco, mapeamento_origem
+          FROM cnaes WHERE codigo = $1
+        """,
         digitos,
     )
     if atual is None:
@@ -459,12 +483,20 @@ async def mapear_cnae(
             "CNPJ que o utilize.",
         )
 
-    ja_mapeado = atual["vertical_id"] is not None or atual["grau_risco"] is not None
-    if ja_mapeado and user.get("cargo") not in CARGOS_GESTAO:
+    # A trava é sobre DECISÃO HUMANA, não sobre o campo estar preenchido.
+    #
+    # Desde a 015 o CNAE nasce com a vertical derivada da seção da CNAE 2.0.
+    # Se a regra olhasse só "tem vertical?", ninguém além da gestão poderia
+    # corrigir uma SUGESTÃO automática — e corrigir sugestão é exatamente o
+    # trabalho que se espera de quem está com a conta aberta na frente.
+    #
+    # O que continua sendo de gestão: trocar o que outra pessoa decidiu.
+    decidido_por_gente = atual["mapeamento_origem"] == "humano"
+    if decidido_por_gente and user.get("cargo") not in CARGOS_GESTAO:
         raise HTTPException(
             403,
-            "Este CNAE já está classificado. Só gestão pode alterar o "
-            "mapeamento, porque ele vale para todas as contas.",
+            "Este CNAE já foi classificado por alguém. Só gestão pode alterar "
+            "o mapeamento, porque ele vale para todas as contas.",
         )
 
     if payload.vertical_id is not None:
@@ -489,7 +521,10 @@ async def mapear_cnae(
            SET vertical_id = $2,
                grau_risco  = $3,
                mapeado_por = CASE WHEN $4 THEN NULL ELSE $5::uuid END,
-               mapeado_em  = CASE WHEN $4 THEN NULL ELSE NOW() END
+               mapeado_em  = CASE WHEN $4 THEN NULL ELSE NOW() END,
+               -- Veio pelo PATCH: é gente decidindo, e a derivação nunca
+               -- mais encosta neste código.
+               mapeamento_origem = CASE WHEN $4 THEN NULL ELSE 'humano' END
          WHERE codigo = $1
      RETURNING codigo, descricao, vertical_id, grau_risco, mapeado_em
         """,
@@ -663,13 +698,19 @@ async def resumo(conn=Depends(get_conn), user=Depends(usuario_atual)):
             (SELECT count(*) FROM contas WHERE ativo AND cnae_codigo IS NULL)
                 AS contas_sem_cnae,
             (SELECT count(*) FROM cnaes) AS cnaes_conhecidos,
+            -- Sem decisão humana: inclui as sugestões derivadas, que estão
+            -- lá para ser confirmadas ou corrigidas.
             (SELECT count(*) FROM cnaes
-              WHERE vertical_id IS NULL AND grau_risco IS NULL)
-                AS cnaes_a_mapear,
+              WHERE mapeamento_origem IS DISTINCT FROM 'humano')
+                AS cnaes_a_confirmar,
             (SELECT count(*) FROM contas ct
                JOIN cnaes c ON c.codigo = ct.cnae_codigo
-              WHERE ct.ativo AND c.vertical_id IS NULL)
-                AS contas_em_cnae_nao_mapeado
+              WHERE ct.ativo AND ct.vertical_id IS NOT NULL
+                AND c.mapeamento_origem = 'derivado')
+                AS contas_com_vertical_sugerida,
+            (SELECT count(*) FROM contas
+              WHERE ativo AND vertical_id IS NULL)
+                AS contas_sem_vertical
         """
     )
     return {**dict(row), "fontes": enriq.fontes_habilitadas()}

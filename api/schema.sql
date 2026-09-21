@@ -13,6 +13,8 @@
 --   010_nao_prospectar.sql  marca de empresa que ja e cliente da MedSeg
 --   011_agenda.sql       agenda de reunioes presa a tarefa + Google Calendar
 --   012_agenda_desfecho.sql  quem agendou + o que aconteceu com a reuniao
+--   015_cnae_derivado.sql  procedencia do mapeamento: derivado da secao
+--                          da CNAE 2.0 ou decidido por gente
 --   014_enriquecimento.sql  CNAE com vertical e grau de risco, QSA, cache
 --                           das consultas de CNPJ e procedencia do numero
 --                           de funcionarios
@@ -143,6 +145,11 @@ CREATE TABLE IF NOT EXISTS cnaes (
     grau_risco   SMALLINT,
     mapeado_por  UUID REFERENCES usuarios(id) ON DELETE SET NULL,
     mapeado_em   TIMESTAMPTZ,
+    -- 015: 'derivado' (veio da secao da CNAE 2.0, automaticamente) ou
+    -- 'humano' (alguem decidiu). A distincao decide o que a tela AFIRMA e
+    -- quem pode alterar: corrigir sugestao e trabalho operacional, trocar
+    -- o que outra pessoa decidiu e de gestao.
+    mapeamento_origem VARCHAR(12),
     criado_em    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     CONSTRAINT ck_cnaes_codigo    CHECK (codigo ~ '^[0-9]{7}$'),
     CONSTRAINT ck_cnaes_descricao CHECK (length(btrim(descricao)) > 0),
@@ -151,12 +158,18 @@ CREATE TABLE IF NOT EXISTS cnaes (
     -- nao_prospectar_motivo.
     CONSTRAINT ck_cnaes_mapeado CHECK (
         (vertical_id IS NULL AND grau_risco IS NULL) OR mapeado_em IS NOT NULL
+    ),
+    CONSTRAINT ck_cnaes_origem CHECK (
+        mapeamento_origem IS NULL
+        OR mapeamento_origem IN ('derivado', 'humano')
     )
 );
 
 CREATE INDEX IF NOT EXISTS idx_cnaes_vertical ON cnaes (vertical_id);
 CREATE INDEX IF NOT EXISTS idx_cnaes_nao_mapeados
     ON cnaes (codigo) WHERE vertical_id IS NULL AND grau_risco IS NULL;
+CREATE INDEX IF NOT EXISTS idx_cnaes_origem
+    ON cnaes (mapeamento_origem) WHERE mapeamento_origem IS NOT NULL;
 
 
 -- ---------------------------------------------------------------------------

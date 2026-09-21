@@ -9,6 +9,7 @@ import ProtectedRoute from './components/ProtectedRoute';
 import Login from './pages/Login';
 import Perfil from './pages/Perfil';
 import Contas from './pages/crm/Contas';
+import Cnaes from './pages/crm/Cnaes';
 import Oportunidades from './pages/crm/Oportunidades';
 import Parceiros from './pages/crm/Parceiros';
 import Tarefas from './pages/crm/Tarefas';
@@ -39,6 +40,12 @@ export default function App() {
           <Route path="crm/tarefas" element={<Tarefas />} />
           <Route path="crm/agenda" element={<Agenda />} />
           <Route path="crm/contas" element={<Contas />} />
+          {/*
+            De-para CNAE -> vertical. A rota existe para todo mundo; quem
+            barra o remapeamento e a API, e a nav so mostra o item para
+            gestao. Mesmo arranjo de Parceiros.
+          */}
+          <Route path="crm/cnaes" element={<Cnaes />} />
           {/*
             O Monitor fica fora de /crm no caminho porque não é uma tela de
             trabalho: é o painel de parede da operação inteira, e mora na
