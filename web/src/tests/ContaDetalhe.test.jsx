@@ -116,11 +116,15 @@ describe('ContaDetalhe — estrutura', () => {
     expect(screen.getByText('OPP-2026-00001')).toBeInTheDocument();
   });
 
-  it('mostra as seis abas na ordem definida', () => {
+  it('mostra as abas na ordem definida', () => {
     montar();
+    // Dados cadastrais vem ANTES de Dados publicos, e Socios depois: a
+    // ordem conta a historia do dado — o que a empresa e, de onde veio, e
+    // quem esta por tras dela.
     const esperado = [
       'tab-oportunidades', 'tab-contatos', 'tab-endereco',
-      'tab-telefones', 'tab-observacoes', 'tab-historico',
+      'tab-telefones', 'tab-cadastrais', 'tab-dados-publicos',
+      'tab-socios', 'tab-observacoes', 'tab-historico',
     ];
     const abas = esperado.map((id) => screen.getByTestId(id));
     abas.forEach((el) => expect(el).toBeInTheDocument());
@@ -229,6 +233,46 @@ describe('ContaDetalhe — form único', () => {
     await ultimoRegistro(registrarSalvar).salvar();
 
     expect(mockPatch.mock.calls[0][1].bairro).toBeNull();
+  });
+
+  it('dados cadastrais entram no mesmo PATCH do resto', async () => {
+    mockPatch.mockResolvedValue({ data: CONTA });
+    const { registrarSalvar } = montar();
+
+    fireEvent.click(screen.getByTestId('tab-cadastrais'));
+    fireEvent.change(screen.getByLabelText('Porte'), {
+      target: { value: 'MICRO EMPRESA' },
+    });
+    fireEvent.change(screen.getByLabelText('Situação cadastral'), {
+      target: { value: 'ATIVA' },
+    });
+    fireEvent.change(screen.getByLabelText('Data de abertura'), {
+      target: { value: '2019-04-16' },
+    });
+    fireEvent.change(screen.getByLabelText('Capital social (R$)'), {
+      target: { value: '250000' },
+    });
+
+    await waitFor(() => expect(ultimoRegistro(registrarSalvar).sujo).toBe(true));
+    await ultimoRegistro(registrarSalvar).salvar();
+
+    const corpo = mockPatch.mock.calls[0][1];
+    expect(corpo.porte).toBe('MICRO EMPRESA');
+    expect(corpo.situacao_cadastral).toBe('ATIVA');
+    expect(corpo.data_abertura).toBe('2019-04-16');
+    expect(corpo.capital_social).toBe('250000');
+  });
+
+  it('o CNAE não é editável na aba de dados cadastrais', async () => {
+    montar();
+    fireEvent.click(screen.getByTestId('tab-cadastrais'));
+
+    // Trocar o CNAE à mão numa conta esconderia o problema: ele comanda a
+    // vertical de TODAS as contas com aquele código. O lugar de mexer é o
+    // de-para, na aba Dados públicos.
+    expect(screen.queryByLabelText('CNAE principal')).not.toBeInTheDocument();
+    expect(screen.getByText(/Classificar o CNAE é na aba Dados públicos/))
+      .toBeInTheDocument();
   });
 
   it('mostra erro quando o PATCH falha', async () => {

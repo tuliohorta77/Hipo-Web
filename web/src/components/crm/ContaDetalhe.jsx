@@ -23,6 +23,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Briefcase, Users, MapPin, Phone, FileText, History,
   Plus, UserCircle, TrendingUp, ShieldBan, Landmark,
+  Building2, Users2,
 } from 'lucide-react';
 
 import api, { getUser } from '../../api';
@@ -35,6 +36,7 @@ import AlertMessage from '../ui/AlertMessage';
 import Table, { Th, Tr, Td } from '../ui/Table';
 import ContatosDaConta from './ContatosDaConta';
 import AbaDadosPublicos from './AbaDadosPublicos';
+import AbaSocios from './AbaSocios';
 
 const UFS = [
   'AC', 'AL', 'AM', 'AP', 'BA', 'CE', 'DF', 'ES', 'GO', 'MA', 'MG', 'MS',
@@ -52,6 +54,21 @@ const CAMPOS = [
   'razao_social', 'nome_fantasia', 'vertical_id', 'num_funcionarios',
   'cep', 'logradouro', 'numero', 'complemento', 'bairro', 'cidade', 'uf',
   'telefone', 'telefone_2', 'email', 'observacoes', 'eh_finder', 'ativo',
+  // Dados cadastrais: chegam pelo enriquecimento, mas são editáveis. A
+  // Receita erra e demora — empresa que mudou de porte ou foi reativada
+  // aparece desatualizada por meses, e quem está com o cliente na frente
+  // sabe antes.
+  'porte', 'situacao_cadastral', 'data_abertura', 'capital_social',
+];
+
+// As duas primeiras não são listas fechadas na Receita, mas os valores
+// que aparecem são sempre os mesmos. Datalist em vez de select: sugere o
+// comum sem impedir o que a fonte trouxer de diferente.
+const PORTES = [
+  'MICRO EMPRESA', 'EMPRESA DE PEQUENO PORTE', 'DEMAIS',
+];
+const SITUACOES = [
+  'ATIVA', 'SUSPENSA', 'INAPTA', 'BAIXADA', 'NULA',
 ];
 
 const FASES = {
@@ -447,15 +464,17 @@ export default function ContaDetalhe({
     // a Receita e mapear um CNAE são ações imediatas, não campos em edição.
     // Se sujassem o form, o usuário precisaria salvar a conta depois de uma
     // ação que já gravou sozinha.
+    { key: 'cadastrais', label: 'Dados cadastrais' },
     { key: 'dados-publicos', label: 'Dados públicos' },
+    { key: 'socios', label: 'Sócios' },
     { key: 'observacoes', label: 'Observações' },
     { key: 'historico', label: 'Histórico' },
   ];
 
   const ICONE_ABA = {
     oportunidades: Briefcase, contatos: Users, endereco: MapPin,
-    telefones: Phone, 'dados-publicos': Landmark, observacoes: FileText,
-    historico: History,
+    telefones: Phone, cadastrais: Building2, 'dados-publicos': Landmark,
+    socios: Users2, observacoes: FileText, historico: History,
   };
 
   return (
@@ -751,6 +770,76 @@ export default function ContaDetalhe({
           </div>
         )}
 
+        {aba === 'cadastrais' && (
+          <div className="max-w-3xl space-y-4">
+            <p className="text-sm text-hipo-slate">
+              Vêm da Receita pela aba <strong>Dados públicos</strong>, e ficam
+              editáveis aqui: a Receita erra e demora, e a consulta{' '}
+              <strong>nunca sobrescreve</strong> o que alguém digitou — o que
+              ela encontrar de diferente aparece como divergência, para você
+              decidir.
+            </p>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <Input
+                label="Porte"
+                list="lista-portes"
+                value={form.porte || ''}
+                onChange={(e) => set('porte', e.target.value)}
+              />
+              <datalist id="lista-portes">
+                {PORTES.map((p) => <option key={p} value={p} />)}
+              </datalist>
+
+              <Input
+                label="Situação cadastral"
+                list="lista-situacoes"
+                value={form.situacao_cadastral || ''}
+                onChange={(e) => set('situacao_cadastral', e.target.value)}
+              />
+              <datalist id="lista-situacoes">
+                {SITUACOES.map((s) => <option key={s} value={s} />)}
+              </datalist>
+
+              <Input
+                label="Data de abertura"
+                type="date"
+                value={(form.data_abertura || '').slice(0, 10)}
+                onChange={(e) => set('data_abertura', e.target.value)}
+              />
+              <Input
+                label="Capital social (R$)"
+                type="number"
+                min="0"
+                step="0.01"
+                value={form.capital_social ?? ''}
+                onChange={(e) => set('capital_social', e.target.value)}
+              />
+            </div>
+
+            {/* O CNAE não é editável aqui de propósito: ele identifica a
+                atividade e comanda a vertical de TODAS as contas com aquele
+                código. Trocar à mão numa conta só esconderia o problema —
+                o lugar de mexer é a aba Dados públicos, que aplica na base
+                inteira. */}
+            <div className="rounded-lg border border-hipo-border p-4">
+              <p className="text-xs text-hipo-slate">CNAE principal</p>
+              <p className="text-sm text-hipo-ink font-medium">
+                {conta.cnae_codigo
+                  ? <>
+                    <span className="font-mono">{conta.cnae_codigo}</span>
+                    {conta.cnae_descricao ? ` — ${conta.cnae_descricao}` : ''}
+                  </>
+                  : 'Ainda não consultado.'}
+              </p>
+              <p className="text-xs text-hipo-muted mt-1">
+                Classificar o CNAE é na aba Dados públicos: vale para todas as
+                contas com o mesmo código, não só para esta.
+              </p>
+            </div>
+          </div>
+        )}
+
         {aba === 'dados-publicos' && (
           <AbaDadosPublicos
             conta={conta}
@@ -758,6 +847,10 @@ export default function ContaDetalhe({
             onCriarVertical={onCriarVertical}
             onRecarregar={onRecarregar}
           />
+        )}
+
+        {aba === 'socios' && (
+          <AbaSocios conta={conta} />
         )}
 
         {aba === 'observacoes' && (

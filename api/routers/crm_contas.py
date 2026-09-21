@@ -53,6 +53,20 @@ CAMPOS_EDITAVEIS = {
     "razao_social", "nome_fantasia", "vertical_id", "num_funcionarios",
     "cep", "logradouro", "numero", "complemento", "bairro", "cidade", "uf",
     "telefone", "telefone_2", "email", "observacoes", "eh_finder", "ativo",
+    # Dados cadastrais (015). Chegam pelo enriquecimento, mas precisam ser
+    # editáveis por dois motivos:
+    #
+    #   1. A regra "enriquecimento não sobrescreve trabalho humano" só tem
+    #      efeito onde existe trabalho humano possível. Enquanto o único
+    #      jeito de preencher era a consulta, a regra não valia para eles.
+    #   2. A Receita erra e demora. Empresa que mudou de porte ou foi
+    #      reativada aparece desatualizada por meses, e quem está com o
+    #      cliente na frente sabe antes.
+    #
+    # `natureza_juridica` fica de FORA: a fonte devolve, mas `contas` não
+    # tem a coluna. Entrar aqui exigiria migration, e ninguém pediu o
+    # campo — melhor ausente que meio implementado.
+    "porte", "situacao_cadastral", "data_abertura", "capital_social",
 }
 
 ORDENACOES = {
@@ -155,6 +169,12 @@ class ContaEditar(BaseModel):
     observacoes: str | None = None
     eh_finder: bool | None = None
     ativo: bool | None = None
+    porte: str | None = Field(None, max_length=40)
+    situacao_cadastral: str | None = Field(None, max_length=40)
+    data_abertura: date | None = None
+    # `ge=0` e nada de máximo: capital social de holding passa de bilhão, e
+    # um teto arbitrário viraria erro de validação numa conta legítima.
+    capital_social: float | None = Field(None, ge=0)
 
     @field_validator("razao_social")
     @classmethod
@@ -166,9 +186,10 @@ class ContaEditar(BaseModel):
             raise ValueError("Razão social não pode ser vazia.")
         return limpo
 
-    _limpar = field_validator("nome_fantasia", "logradouro", "bairro", "cidade")(
-        ContaBase._limpar.__func__
-    )
+    _limpar = field_validator(
+        "nome_fantasia", "logradouro", "bairro", "cidade",
+        "porte", "situacao_cadastral",
+    )(ContaBase._limpar.__func__)
     _cep = field_validator("cep")(ContaBase._cep.__func__)
     _uf = field_validator("uf")(ContaBase._uf.__func__)
 

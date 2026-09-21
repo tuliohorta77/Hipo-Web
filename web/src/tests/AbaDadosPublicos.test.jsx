@@ -30,18 +30,6 @@ const VERTICAIS = [
   { id: 2, nome: 'Serviços', slug: 'servicos' },
 ];
 
-const SOCIO = {
-  id: 's1',
-  nome: 'JOSE DA SILVA',
-  documento_mascarado: '***456789**',
-  qualificacao: '49-Sócio-Administrador',
-  faixa_etaria: 'Entre 41 a 50 anos',
-  entrada_em: '2009-03-17',
-  eh_pj: false,
-  fonte: 'brasilapi',
-  capturado_em: '2026-09-20T12:00:00Z',
-};
-
 const CONTA_ENRIQUECIDA = {
   id: 'c1',
   razao_social: 'Metalurgica Alfa LTDA',
@@ -79,7 +67,6 @@ beforeEach(() => {
   mockPost.mockReset();
   mockPatch.mockReset();
   mockGet.mockImplementation((url) => {
-    if (url.endsWith('/socios')) return Promise.resolve({ data: [SOCIO] });
     return Promise.resolve({ data: { empresas: [], avisos: [] } });
   });
 });
@@ -89,20 +76,20 @@ afterEach(cleanup);
 describe('AbaDadosPublicos', () => {
   it('não consulta a fonte externa ao abrir', async () => {
     renderAba();
-    await screen.findByText('JOSE DA SILVA');
+    await screen.findByText('Fabricação de estruturas metálicas');
 
-    // Uma leitura local dos sócios, e nada de POST — POST é o que vai à
-    // fonte e gasta crédito.
-    expect(mockGet).toHaveBeenCalledTimes(1);
-    expect(mockGet.mock.calls[0][0]).toBe('/crm/enriquecimento/contas/c1/socios');
+    // Depois que os sócios viraram aba própria, esta aba não faz NENHUMA
+    // chamada ao abrir: tudo que ela desenha veio junto com a conta. POST
+    // é o que vai à fonte e gasta crédito.
+    expect(mockGet).not.toHaveBeenCalled();
     expect(mockPost).not.toHaveBeenCalled();
   });
 
   it('mostra os dados do cadastro público', async () => {
     renderAba();
-    await screen.findByText('JOSE DA SILVA');
+    await screen.findByText('Fabricação de estruturas metálicas');
 
-    expect(screen.getByText('2511000')).toBeInTheDocument();
+    expect(screen.getAllByText('2511000').length).toBeGreaterThan(0);
     expect(screen.getByText('Fabricação de estruturas metálicas')).toBeInTheDocument();
     expect(screen.getByText(/grau 3/)).toBeInTheDocument();
     expect(screen.getByText('DEMAIS')).toBeInTheDocument();
@@ -110,7 +97,7 @@ describe('AbaDadosPublicos', () => {
 
   it('marca o número de funcionários como estimado', async () => {
     renderAba();
-    await screen.findByText('JOSE DA SILVA');
+    await screen.findByText('Fabricação de estruturas metálicas');
 
     expect(screen.getByText('estimado')).toBeInTheDocument();
     expect(
@@ -123,7 +110,7 @@ describe('AbaDadosPublicos', () => {
       ...CONTA_ENRIQUECIDA, cnae_vertical_id: null, cnae_grau_risco: null,
       cnae_mapeamento_origem: null, cnae_vertical_nome: null,
     });
-    await screen.findByText('JOSE DA SILVA');
+    await screen.findByText('Fabricação de estruturas metálicas');
 
     expect(screen.getByText(/ainda não foi classificado/)).toBeInTheDocument();
 
@@ -144,7 +131,7 @@ describe('AbaDadosPublicos', () => {
 
   it('não oferece mapeamento para CNAE decidido por gente', async () => {
     renderAba();
-    await screen.findByText('JOSE DA SILVA');
+    await screen.findByText('Fabricação de estruturas metálicas');
     expect(screen.queryByText(/ainda não foi classificado/)).not.toBeInTheDocument();
     expect(screen.queryByText(/Vertical sugerida/)).not.toBeInTheDocument();
     expect(screen.queryByLabelText('Vertical')).not.toBeInTheDocument();
@@ -166,7 +153,7 @@ describe('AbaDadosPublicos', () => {
 
   it('CNAE com vertical apenas SUGERIDA continua oferecendo o bloco', async () => {
     renderAba(CONTA_SUGERIDA);
-    await screen.findByText('JOSE DA SILVA');
+    await screen.findByText('Fabricação de estruturas metálicas');
 
     expect(screen.getByText(/Vertical sugerida: Serviços/)).toBeInTheDocument();
     expect(screen.getByText(/seção da CNAE 2.0/)).toBeInTheDocument();
@@ -177,7 +164,7 @@ describe('AbaDadosPublicos', () => {
 
   it('confirmar a sugestão grava sem mudar nada', async () => {
     renderAba(CONTA_SUGERIDA);
-    await screen.findByText('JOSE DA SILVA');
+    await screen.findByText('Fabricação de estruturas metálicas');
 
     mockPatch.mockResolvedValueOnce({ data: { codigo: '2511000' } });
     fireEvent.click(screen.getByText('Confirmar vertical'));
@@ -190,7 +177,7 @@ describe('AbaDadosPublicos', () => {
 
   it('trocar a sugestão muda o rótulo do botão', async () => {
     renderAba(CONTA_SUGERIDA);
-    await screen.findByText('JOSE DA SILVA');
+    await screen.findByText('Fabricação de estruturas metálicas');
 
     fireEvent.change(screen.getByLabelText('Vertical'), { target: { value: '1' } });
     expect(screen.getByText('Classificar CNAE')).toBeInTheDocument();
@@ -207,7 +194,7 @@ describe('AbaDadosPublicos', () => {
 
   it('avisa quando a empresa não está operando', async () => {
     renderAba({ ...CONTA_ENRIQUECIDA, situacao_cadastral: 'BAIXADA' });
-    await screen.findByText('JOSE DA SILVA');
+    await screen.findByText('Fabricação de estruturas metálicas');
     expect(screen.getByText(/fora de operação/)).toBeInTheDocument();
   });
 
@@ -220,7 +207,7 @@ describe('AbaDadosPublicos', () => {
       },
     });
     renderAba();
-    await screen.findByText('JOSE DA SILVA');
+    await screen.findByText('Fabricação de estruturas metálicas');
 
     fireEvent.click(screen.getByText('Atualizar dados públicos'));
 
@@ -246,7 +233,7 @@ describe('AbaDadosPublicos', () => {
       },
     });
     renderAba();
-    await screen.findByText('JOSE DA SILVA');
+    await screen.findByText('Fabricação de estruturas metálicas');
     fireEvent.click(screen.getByText('Atualizar dados públicos'));
 
     // O "não" da frase vive num <strong>, então o texto não é um nó só —
@@ -283,7 +270,7 @@ describe('AbaDadosPublicos', () => {
       },
     });
     renderAba();
-    await screen.findByText('JOSE DA SILVA');
+    await screen.findByText('Fabricação de estruturas metálicas');
     fireEvent.click(screen.getByText('Atualizar dados públicos'));
 
     expect(await screen.findByText(/declarado pelo cliente/)).toBeInTheDocument();
@@ -292,35 +279,7 @@ describe('AbaDadosPublicos', () => {
     expect(screen.queryByText('Usar os dados da fonte')).not.toBeInTheDocument();
   });
 
-  it('busca outras empresas do sócio e mostra a confiança', async () => {
-    renderAba();
-    await screen.findByText('JOSE DA SILVA');
-
-    mockGet.mockImplementationOnce(() => Promise.resolve({
-      data: {
-        nome: 'JOSE DA SILVA',
-        avisos: ['Busca externa de sócio não configurada.'],
-        empresas: [{
-          conta_id: 'c2', razao_social: 'Beta Servicos LTDA',
-          cnpj_formatado: '34.028.316/0001-03', qualificacao: 'Sócio',
-          entrada_em: null, confianca: 'alta', externa: false,
-        }],
-      },
-    }));
-
-    fireEvent.click(screen.getByText('Outras empresas'));
-
-    expect(await screen.findByText('Beta Servicos LTDA')).toBeInTheDocument();
-    expect(screen.getByText('nome e documento batem')).toBeInTheDocument();
-    // O aviso é obrigatório: sem ele, "nenhuma outra empresa" seria lido
-    // como "não existe" em vez de "não procurei fora daqui".
-    expect(
-      screen.getByText('Busca externa de sócio não configurada.')
-    ).toBeInTheDocument();
-  });
-
   it('conta nunca consultada mostra o estado vazio com o botão', async () => {
-    mockGet.mockImplementation(() => Promise.resolve({ data: [] }));
     renderAba({
       id: 'c1', razao_social: 'Nova LTDA', cnpj_formatado: '11.222.333/0001-81',
       enriquecida_em: null,

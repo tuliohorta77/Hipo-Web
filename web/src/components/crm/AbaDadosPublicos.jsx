@@ -12,30 +12,32 @@
 //
 //   * DASHBOARD OPERACIONAL, e não painel de leitura (diretriz pétrea 2).
 //     Cada coisa exibida leva a uma ação daqui: o CNAE sem classificação
-//     traz o formulário de mapeamento; o sócio traz "onde mais ele
-//     aparece"; a divergência entre o cadastro e a Receita traz o botão de
-//     substituir.
+//     traz o formulário de mapeamento; a divergência entre o cadastro e a
+//     Receita traz o botão de substituir.
 //
 //   * O MAPEAMENTO DO CNAE FICA ONDE O CNAE APARECE. Quem está olhando a
 //     conta é quem sabe a que vertical ela pertence. Mandar essa pessoa
 //     para uma tela de configuração significa que ninguém vai mapear.
+//
+//   * O QUADRO SOCIETÁRIO SAIU DAQUI (015) e virou a aba "Sócios". Vinham
+//     da mesma consulta, mas não se usam juntos: aqui se decide o que
+//     fazer com o que a Receita trouxe; lá se olha quem está por trás da
+//     empresa. Juntos, a lista de sócios ficava no fim de uma página que
+//     a pessoa já tinha parado de ler.
 //
 //   * NÚMERO ESTIMADO É MARCADO COMO ESTIMADO. A fonte paga devolve
 //     quadro de pessoal de base anual defasada; o número que vale para
 //     precificar é o que o cliente informa. A tela diz qual é qual em vez
 //     de exibir os dois como se fossem a mesma coisa.
 
-import { useCallback, useEffect, useState } from 'react';
-import {
-  Landmark, RefreshCw, Users2, Building2, ShieldAlert, Search, Tag,
-} from 'lucide-react';
+import { useState } from 'react';
+import { Landmark, RefreshCw, ShieldAlert, Tag } from 'lucide-react';
 
 import api from '../../api';
 import Button from '../ui/Button';
 import Badge from '../ui/Badge';
 import Empty from '../ui/Empty';
 import AlertMessage from '../ui/AlertMessage';
-import Table, { Th, Tr, Td } from '../ui/Table';
 import Input, { Select } from '../ui/Input';
 
 // Rótulo dos campos nas listas de "aplicado" e "mantido". Sem isto o
@@ -264,130 +266,14 @@ function MapearCnae({ conta, verticais, onCriarVertical, onMapeado }) {
   );
 }
 
-// ── Sócios ───────────────────────────────────────────────────────────
-
-function LinhaSocio({ socio, contaId }) {
-  const [empresas, setEmpresas] = useState(null);
-  const [avisos, setAvisos] = useState([]);
-  const [buscando, setBuscando] = useState(false);
-  const [erro, setErro] = useState(null);
-
-  async function buscarEmpresas() {
-    setBuscando(true);
-    setErro(null);
-    try {
-      const { data } = await api.get('/crm/enriquecimento/socios/empresas', {
-        params: {
-          nome: socio.nome,
-          documento: socio.documento_mascarado || undefined,
-          excluir_conta_id: contaId,
-        },
-      });
-      setEmpresas(data.empresas);
-      setAvisos(data.avisos || []);
-    } catch (err) {
-      setErro(mensagemDeErro(err, 'Não foi possível buscar as empresas do sócio.'));
-    } finally {
-      setBuscando(false);
-    }
-  }
-
-  return (
-    <>
-      <Tr>
-        <Td>
-          <div className="font-medium text-hipo-ink">{socio.nome}</div>
-          {socio.documento_mascarado && (
-            <div className="text-xs text-hipo-muted font-mono">
-              {socio.documento_mascarado}
-            </div>
-          )}
-        </Td>
-        <Td>{socio.qualificacao || <span className="text-hipo-muted">—</span>}</Td>
-        <Td>{socio.faixa_etaria || <span className="text-hipo-muted">—</span>}</Td>
-        <Td>{formatarData(socio.entrada_em)}</Td>
-        <Td align="right">
-          <Button
-            size="sm"
-            variant="ghost"
-            icon={Search}
-            loading={buscando}
-            onClick={buscarEmpresas}
-          >
-            Outras empresas
-          </Button>
-        </Td>
-      </Tr>
-
-      {(empresas !== null || erro) && (
-        <tr>
-          <td colSpan={5} className="px-4 pb-4 bg-hipo-bg/40">
-            {erro && <AlertMessage tipo="erro">{erro}</AlertMessage>}
-            {empresas !== null && empresas.length === 0 && (
-              <p className="text-sm text-hipo-slate py-2">
-                Nenhuma outra empresa deste sócio no HIPO.
-              </p>
-            )}
-            {empresas !== null && empresas.length > 0 && (
-              <ul className="py-2 space-y-1.5">
-                {empresas.map((e, i) => (
-                  <li
-                    key={`${e.conta_id || e.razao_social}-${i}`}
-                    className="flex flex-wrap items-center gap-2 text-sm"
-                  >
-                    <Building2 size={14} className="text-hipo-muted" />
-                    <span className="text-hipo-ink">{e.razao_social}</span>
-                    {e.cnpj_formatado && (
-                      <span className="font-mono text-xs text-hipo-muted">
-                        {e.cnpj_formatado}
-                      </span>
-                    )}
-                    {e.qualificacao && (
-                      <span className="text-xs text-hipo-slate">{e.qualificacao}</span>
-                    )}
-                    <Badge tone={e.confianca === 'alta' ? 'success' : 'warning'}>
-                      {e.confianca === 'alta'
-                        ? 'nome e documento batem'
-                        : 'só o nome bate'}
-                    </Badge>
-                    {e.externa && <Badge tone="info">fora do HIPO</Badge>}
-                  </li>
-                ))}
-              </ul>
-            )}
-            {avisos.map((a) => (
-              <p key={a} className="text-xs text-hipo-muted">{a}</p>
-            ))}
-          </td>
-        </tr>
-      )}
-    </>
-  );
-}
-
 // ── Componente principal ─────────────────────────────────────────────
 
 export default function AbaDadosPublicos({
   conta, verticais, onCriarVertical, onRecarregar,
 }) {
-  const [socios, setSocios] = useState(null);
   const [erro, setErro] = useState(null);
   const [buscando, setBuscando] = useState(false);
   const [resultado, setResultado] = useState(null);
-
-  const carregarSocios = useCallback(async () => {
-    try {
-      const { data } = await api.get(
-        `/crm/enriquecimento/contas/${conta.id}/socios`
-      );
-      setSocios(data);
-    } catch (err) {
-      setErro(mensagemDeErro(err, 'Não foi possível carregar o quadro societário.'));
-      setSocios([]);
-    }
-  }, [conta.id]);
-
-  useEffect(() => { carregarSocios(); }, [carregarSocios]);
 
   // `sobrescrever` só verdadeiro quando o usuário pede explicitamente, pelo
   // botão que aparece junto da divergência.
@@ -400,7 +286,6 @@ export default function AbaDadosPublicos({
         { forcar: true, sobrescrever },
       );
       setResultado(data);
-      await carregarSocios();
       await onRecarregar?.();
     } catch (err) {
       setErro(mensagemDeErro(err, 'Não foi possível consultar os dados públicos.'));
@@ -433,7 +318,7 @@ export default function AbaDadosPublicos({
   const cnaeAConferir = Boolean(conta.cnae_codigo)
     && conta.cnae_mapeamento_origem !== 'humano';
 
-  if (nuncaConsultada && socios !== null && socios.length === 0) {
+  if (nuncaConsultada) {
     return (
       <div className="space-y-4">
         {erro && <AlertMessage tipo="erro">{erro}</AlertMessage>}
@@ -589,55 +474,6 @@ export default function AbaDadosPublicos({
         )}
       </div>
 
-      {/* Quadro societário */}
-      <div>
-        <h3 className="text-sm font-semibold text-hipo-ink mb-2 flex items-center gap-2">
-          <Users2 size={15} className="text-hipo-muted" />
-          Quadro societário
-        </h3>
-
-        {socios === null ? (
-          <p className="py-6 text-center text-sm text-hipo-slate">Carregando…</p>
-        ) : socios.length === 0 ? (
-          // A mensagem muda conforme JÁ houve consulta ou não. Depois de
-          // consultar, "sem sócios" quase sempre significa empresário
-          // individual ou MEI — esses não têm quadro societário na Receita,
-          // e dizer só "sem sócios registrados" faria parecer defeito do
-          // sistema num dado que simplesmente não existe.
-          <Empty
-            title={
-              conta.enriquecida_em
-                ? 'A Receita não tem quadro societário para este CNPJ'
-                : 'Sem sócios registrados'
-            }
-            description={
-              conta.enriquecida_em
-                ? 'É o caso de empresário individual e MEI: a empresa é a própria pessoa, então não há sociedade a publicar. Para os demais tipos, o quadro vem na consulta.'
-                : 'O quadro societário vem junto com a consulta por CNPJ.'
-            }
-            icon={Users2}
-          />
-        ) : (
-          <div className="border border-hipo-border rounded-lg overflow-hidden">
-            <Table>
-              <thead>
-                <tr>
-                  <Th>Sócio</Th>
-                  <Th>Qualificação</Th>
-                  <Th>Faixa etária</Th>
-                  <Th>Entrada</Th>
-                  <Th align="right">Ações</Th>
-                </tr>
-              </thead>
-              <tbody>
-                {socios.map((s) => (
-                  <LinhaSocio key={s.id} socio={s} contaId={conta.id} />
-                ))}
-              </tbody>
-            </Table>
-          </div>
-        )}
-      </div>
     </div>
   );
 }

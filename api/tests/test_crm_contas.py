@@ -511,6 +511,77 @@ class TestEditar:
         )
         assert resp.status_code == 404
 
+    # ── Dados cadastrais (015) ───────────────────────────────────────
+    #
+    # Chegam pelo enriquecimento, mas são EDITÁVEIS. Sem isso, a regra
+    # "enriquecimento não sobrescreve trabalho humano" não valia para eles:
+    # não havia trabalho humano possível.
+
+    async def test_edita_os_dados_cadastrais(self, db_conn, client, usuario_adm):
+        conta = await criar_conta(client, usuario_adm["headers"])
+        resp = await client.patch(
+            f"/crm/contas/{conta['id']}",
+            json={
+                "porte": "MICRO EMPRESA",
+                "situacao_cadastral": "ATIVA",
+                "data_abertura": "2019-04-16",
+                "capital_social": 250000,
+            },
+            headers=usuario_adm["headers"],
+        )
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["porte"] == "MICRO EMPRESA"
+        assert body["situacao_cadastral"] == "ATIVA"
+        assert body["data_abertura"] == "2019-04-16"
+        assert body["capital_social"] == 250000
+
+    async def test_capital_social_negativo_recusado(
+        self, db_conn, client, usuario_adm
+    ):
+        conta = await criar_conta(client, usuario_adm["headers"])
+        resp = await client.patch(
+            f"/crm/contas/{conta['id']}",
+            json={"capital_social": -1},
+            headers=usuario_adm["headers"],
+        )
+        assert resp.status_code == 422
+
+    async def test_capital_social_de_holding_passa(
+        self, db_conn, client, usuario_adm
+    ):
+        """
+        Sem teto: capital social de holding passa de bilhão. Um máximo
+        arbitrário viraria 422 numa conta legítima — a Amazon Brasil tem
+        R$ 32 bilhões, e foi a primeira consulta real da fonte paga.
+        """
+        conta = await criar_conta(client, usuario_adm["headers"])
+        resp = await client.patch(
+            f"/crm/contas/{conta['id']}",
+            json={"capital_social": 32090416622},
+            headers=usuario_adm["headers"],
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["capital_social"] == 32090416622
+
+    async def test_cnae_nao_entra_pelo_patch_da_conta(
+        self, db_conn, client, usuario_adm
+    ):
+        """
+        O CNAE comanda a vertical de TODAS as contas com aquele código.
+        Trocar numa conta só esconderia o problema — o caminho é o de-para,
+        que aplica na base inteira e grava autoria.
+        """
+        conta = await criar_conta(client, usuario_adm["headers"])
+        resp = await client.patch(
+            f"/crm/contas/{conta['id']}",
+            json={"cnae_codigo": "8610101", "porte": "DEMAIS"},
+            headers=usuario_adm["headers"],
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["porte"] == "DEMAIS"
+        assert resp.json()["cnae_codigo"] is None
+
     async def test_obter_inexistente_404(self, db_conn, client, usuario_adm):
         resp = await client.get(f"/crm/contas/{uuid.uuid4()}", headers=usuario_adm["headers"])
         assert resp.status_code == 404
