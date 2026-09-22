@@ -652,9 +652,13 @@ describe('Oportunidades — drilldown da conta', () => {
 
   const botaoDaConta = () => screen.getByLabelText('Abrir a conta Metalurgica Alfa');
 
+  // A razão social deixou de ficar no bloco fixo da conta — ela mora na aba
+  // "Dados cadastrais". Abrir o drilldown não basta: é preciso entrar na aba
+  // antes de mexer no campo.
   async function abrirConta() {
     await abrirOportunidade();
     fireEvent.click(botaoDaConta());
+    fireEvent.click(await screen.findByTestId('tab-cadastrais'));
     return screen.findByLabelText('Razão social');
   }
 
@@ -699,6 +703,7 @@ describe('Oportunidades — drilldown da conta', () => {
     });
 
     fireEvent.click(botaoDaConta());
+    fireEvent.click(await screen.findByTestId('tab-cadastrais'));
     await screen.findByLabelText('Razão social');
     fireEvent.click(screen.getByText('Voltar à oportunidade'));
 
@@ -715,6 +720,7 @@ describe('Oportunidades — drilldown da conta', () => {
     expect(antes).toHaveLength(0);
 
     fireEvent.click(botaoDaConta());
+    fireEvent.click(await screen.findByTestId('tab-cadastrais'));
     await screen.findByLabelText('Razão social');
     expect(mockGet.mock.calls.some(([u]) => u === '/crm/dominio/verticais')).toBe(true);
   });

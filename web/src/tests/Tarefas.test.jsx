@@ -887,6 +887,9 @@ describe('Tarefas — drilldown da oportunidade', () => {
     await abrirOportunidade();
     fireEvent.click(screen.getByLabelText('Abrir a conta Metalurgica Alfa LTDA'));
 
+    // A identificação da conta mora na aba "Dados cadastrais" desde que o
+    // bloco fixo foi reduzido a uma linha.
+    fireEvent.click(await screen.findByTestId('tab-cadastrais'));
     const razao = await screen.findByLabelText('Razão social');
     expect(razao.value).toBe('Metalurgica Alfa LTDA');
     expect(screen.getByTestId('tab-dados')).toBeInTheDocument();
