@@ -36,6 +36,7 @@ TIMEOUT_S = 20.0
 # `conta_enriquecimentos.fonte`.
 BRASILAPI = "brasilapi"
 LEADCNPJ = "leadcnpj"
+ECONODATA = "econodata"
 
 
 def _url_base(valor: str, padrao: str) -> str:
@@ -53,6 +54,8 @@ def configurada(fonte: str) -> bool:
         return True
     if fonte == LEADCNPJ:
         return bool(getattr(settings, "LEADCNPJ_API_KEY", "").strip())
+    if fonte == ECONODATA:
+        return bool(getattr(settings, "ECONODATA_API_KEY", "").strip())
     return False
 
 
@@ -73,7 +76,7 @@ def fontes_habilitadas() -> list[str]:
     pedidas = [f.strip().lower() for f in bruto.split(",") if f.strip()]
     habilitadas: list[str] = []
     for fonte in pedidas:
-        if fonte not in (BRASILAPI, LEADCNPJ):
+        if fonte not in (BRASILAPI, LEADCNPJ, ECONODATA):
             log.warning("enriquecimento: fonte desconhecida no .env: %r", fonte)
             continue
         if not configurada(fonte):
@@ -221,9 +224,112 @@ async def empresas_do_socio(
     return [], None
 
 
+# ── Econodata ────────────────────────────────────────────────────────────────
+#
+# Entrou por UM motivo: quadro de pessoal. Nenhuma fonte pública tem esse
+# dado — a Receita não publica, e `porte` é faixa de FATURAMENTO, não de
+# gente. A BrasilAPI cobre todo o resto de graça.
+#
+# POR QUE ELA PEDE SÓ UM BLOCO
+#
+# A Econodata cobra por TIPO DE INFORMAÇÃO pedida em cada empresa. Pedir
+# `cadastro` junto seria pagar por endereço, CNAE e situação que a
+# BrasilAPI já deu sem custo — e ainda criaria divergência entre duas
+# fontes dizendo a mesma coisa com grafias diferentes.
+#
+# `ECONODATA_BLOCOS` fica no .env porque o nome do bloco que carrega
+# funcionários é deles, não nosso: se renomearem, o conserto é uma linha e
+# um restart, não um deploy.
+
+def _cabecalhos_econodata() -> dict:
+    chave = getattr(settings, "ECONODATA_API_KEY", "").strip()
+    return {
+        "Authorization": f"Bearer {chave}",
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+    }
+
+
+async def buscar_econodata(cnpj: str) -> tuple[dict | None, str | None]:
+    """
+    `POST /v4/companies/search` com o CNPJ como critério.
+
+    É POST, diferente das outras duas — por isso não reaproveita o
+    `_get_*`. O corpo segue o formato deles: `criterios` + `incluir`.
+    """
+    if not configurada(ECONODATA):
+        return None, "Econodata não configurada."
+
+    base = _url_base(
+        getattr(settings, "ECONODATA_URL", ""),
+        "https://api.econodata.com.br/v4",
+    )
+    caminho = (
+        getattr(settings, "ECONODATA_CAMINHO", "") or "companies/search"
+    ).lstrip("/")
+    blocos = [
+        b.strip()
+        for b in (getattr(settings, "ECONODATA_BLOCOS", "") or "estrategico").split(",")
+        if b.strip()
+    ]
+    corpo = {"criterios": {"cnpj": cnpj}, "incluir": blocos}
+
+    try:
+        async with httpx.AsyncClient(timeout=TIMEOUT_S) as cliente:
+            resp = await cliente.post(
+                f"{base}/{caminho}", json=corpo, headers=_cabecalhos_econodata()
+            )
+    except Exception as e:
+        log.warning("econodata: falhou (%s: %s)", type(e).__name__, e)
+        return None, f"Não foi possível falar com a Econodata ({type(e).__name__})."
+
+    if resp.status_code in (401, 403):
+        # ERROR e não WARNING: chave errada derruba TODA consulta paga.
+        log.error("econodata: HTTP %s — credencial recusada", resp.status_code)
+        return None, "A Econodata recusou a credencial. Confira ECONODATA_API_KEY."
+    if resp.status_code == 404:
+        return None, "CNPJ não encontrado na Econodata."
+    if resp.status_code == 429:
+        return None, "Limite de requisições da Econodata atingido."
+    if resp.status_code in (402, 403):
+        log.error("econodata: HTTP %s — tokens esgotados", resp.status_code)
+        return None, "Os tokens da Econodata acabaram."
+    if resp.status_code != 200:
+        log.warning("econodata: HTTP %s — %s", resp.status_code, resp.text[:200])
+        return None, f"A Econodata respondeu {resp.status_code}."
+
+    try:
+        bruto = resp.json()
+    except ValueError:
+        return None, "A Econodata respondeu num formato inesperado."
+
+    # É uma rota de BUSCA: a resposta vem em lista, mesmo filtrando por um
+    # CNPJ só. Desembrulhar aqui mantém o normalizador falando apenas de
+    # campos de negócio.
+    if isinstance(bruto, dict):
+        for chave in ("empresas", "companies", "data", "resultados", "results", "items"):
+            interno = bruto.get(chave)
+            if isinstance(interno, list):
+                if not interno:
+                    return None, "CNPJ não encontrado na Econodata."
+                return (interno[0], None) if isinstance(interno[0], dict) else (
+                    None, "A Econodata respondeu num formato inesperado."
+                )
+            if isinstance(interno, dict):
+                return interno, None
+        return bruto, None
+    if isinstance(bruto, list):
+        if not bruto:
+            return None, "CNPJ não encontrado na Econodata."
+        if isinstance(bruto[0], dict):
+            return bruto[0], None
+    return None, "A Econodata respondeu num formato inesperado."
+
+
 # Registro consultado pelo orquestrador. Fonte nova entra aqui e em
 # `modelo.py`; nenhum outro arquivo precisa saber que ela existe.
 BUSCADORES = {
     BRASILAPI: buscar_brasilapi,
     LEADCNPJ: buscar_leadcnpj,
+    ECONODATA: buscar_econodata,
 }

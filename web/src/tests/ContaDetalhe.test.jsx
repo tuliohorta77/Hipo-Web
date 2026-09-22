@@ -136,17 +136,37 @@ describe('ContaDetalhe — estrutura', () => {
     }
   });
 
-  it('mostra a identificação fora das abas, sempre visível', () => {
+  it('o bloco fixo cabe em UMA linha: só o que se opera', () => {
+    // A identificação saiu do bloco fixo e foi para "Dados cadastrais".
+    // Isso reverte uma decisão anterior ("identificação sempre visível"),
+    // e por um motivo medido: duas linhas de campos mais a dica do CNAE
+    // comiam metade da altura do drawer, e a aba — que é onde o trabalho
+    // acontece — ficava espremida. Razão social e CNPJ seguem à vista no
+    // título do drawer, que é do componente pai.
     montar();
-    expect(screen.getByLabelText('Razão social')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Razão social')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Nome fantasia')).not.toBeInTheDocument();
+
+    // O que FICA no bloco fixo é o que se consulta e se mexe a toda hora,
+    // em qualquer aba.
     fireEvent.click(screen.getByTestId('tab-historico'));
+    expect(screen.getByLabelText('Vertical')).toBeInTheDocument();
+    expect(screen.getByLabelText('Nº funcionários')).toBeInTheDocument();
+    expect(screen.getByText('Ana Vendas')).toBeInTheDocument();
+  });
+
+  it('a identificação continua editável, na aba Dados cadastrais', () => {
+    montar();
+    fireEvent.click(screen.getByTestId('tab-cadastrais'));
     expect(screen.getByLabelText('Razão social')).toBeInTheDocument();
+    expect(screen.getByLabelText('Nome fantasia')).toBeInTheDocument();
   });
 });
 
 describe('ContaDetalhe — campos não editáveis', () => {
   it('CNPJ é somente leitura', () => {
     montar();
+    fireEvent.click(screen.getByTestId('tab-cadastrais'));
     expect(screen.getByLabelText('CNPJ')).toBeDisabled();
   });
 
@@ -191,6 +211,7 @@ describe('ContaDetalhe — form único', () => {
 
   it('editar no cabeçalho marca alterações pendentes', async () => {
     const { registrarSalvar } = montar();
+    fireEvent.click(screen.getByTestId('tab-cadastrais'));
     fireEvent.change(screen.getByLabelText('Razão social'), {
       target: { value: 'Novo Nome LTDA' },
     });
@@ -208,6 +229,7 @@ describe('ContaDetalhe — form único', () => {
     mockPatch.mockResolvedValue({ data: CONTA });
     const { registrarSalvar, onSalvo } = montar();
 
+    fireEvent.click(screen.getByTestId('tab-cadastrais'));
     fireEvent.change(screen.getByLabelText('Razão social'), { target: { value: 'Novo Nome' } });
     fireEvent.click(screen.getByTestId('tab-telefones'));
     fireEvent.change(screen.getByLabelText('Telefone 2'), { target: { value: '1140004000' } });
@@ -278,6 +300,7 @@ describe('ContaDetalhe — form único', () => {
   it('mostra erro quando o PATCH falha', async () => {
     mockPatch.mockRejectedValue({ response: { data: { detail: 'Deu ruim' } } });
     const { registrarSalvar } = montar();
+    fireEvent.click(screen.getByTestId('tab-cadastrais'));
     fireEvent.change(screen.getByLabelText('Razão social'), { target: { value: 'X' } });
     await waitFor(() => expect(ultimoRegistro(registrarSalvar).sujo).toBe(true));
     await ultimoRegistro(registrarSalvar).salvar();
@@ -324,6 +347,7 @@ describe('ContaDetalhe — estabilidade de render', () => {
   it('publica de novo quando o estado do form muda', async () => {
     const { registrarSalvar } = montar();
     const antes = registrarSalvar.mock.calls.length;
+    fireEvent.click(screen.getByTestId('tab-cadastrais'));
     fireEvent.change(screen.getByLabelText('Razão social'), { target: { value: 'X' } });
     await waitFor(() =>
       expect(registrarSalvar.mock.calls.length).toBeGreaterThan(antes)
@@ -471,6 +495,7 @@ describe('ContaDetalhe — nao prospectar', () => {
   it('a marca nao vai no PATCH comum da conta', async () => {
     mockPatch.mockResolvedValue({ data: BLOQUEADA });
     const { registrarSalvar } = montar({ conta: BLOQUEADA });
+    fireEvent.click(screen.getByTestId('tab-cadastrais'));
     fireEvent.change(screen.getByLabelText('Razão social'), {
       target: { value: 'Alfa S/A' },
     });
@@ -587,6 +612,7 @@ describe('ContaDetalhe — recarga depois do enriquecimento', () => {
       />
     );
 
+    fireEvent.click(screen.getByTestId('tab-cadastrais'));
     fireEvent.change(screen.getByLabelText('Nome fantasia'), {
       target: { value: 'Nome que eu digitei' },
     });
@@ -605,27 +631,51 @@ describe('ContaDetalhe — recarga depois do enriquecimento', () => {
     });
   });
 
-  it('mostra o CNAE junto da vertical, com atalho para classificar', () => {
+  it('mostra o CNAE junto da vertical, com atalho para conferir', () => {
     render(
       <ContaDetalhe
-        conta={{ ...ENRIQUECIDA, cnae_vertical_id: null, vertical_id: null }}
+        conta={{
+          ...ENRIQUECIDA, cnae_vertical_id: null, vertical_id: null,
+          cnae_mapeamento_origem: null,
+        }}
         verticais={VERTICAIS} onCriarVertical={vi.fn()}
         onSalvo={vi.fn()} onRecarregar={vi.fn()} registrarSalvar={vi.fn()}
       />
     );
     expect(screen.getByText('2511000')).toBeInTheDocument();
-    expect(screen.getByText('(classificar este CNAE)')).toBeInTheDocument();
+    expect(screen.getByText('(conferir)')).toBeInTheDocument();
   });
 
-  it('CNAE já classificado não oferece o atalho', () => {
+  it('CNAE decidido por gente não oferece o atalho', () => {
+    // O atalho segue a mesma regra do bloco de classificar: some quando
+    // alguém DECIDIU, não quando o campo tem valor. Depois da 015 todo
+    // CNAE nasce com vertical derivada, então "tem vertical" deixou de
+    // significar "já foi conferido".
     render(
       <ContaDetalhe
-        conta={{ ...ENRIQUECIDA, cnae_vertical_id: 1 }}
+        conta={{
+          ...ENRIQUECIDA, cnae_vertical_id: 1,
+          cnae_mapeamento_origem: 'humano',
+        }}
         verticais={VERTICAIS} onCriarVertical={vi.fn()}
         onSalvo={vi.fn()} onRecarregar={vi.fn()} registrarSalvar={vi.fn()}
       />
     );
     expect(screen.getByText('2511000')).toBeInTheDocument();
-    expect(screen.queryByText('(classificar este CNAE)')).not.toBeInTheDocument();
+    expect(screen.queryByText('(conferir)')).not.toBeInTheDocument();
+  });
+
+  it('sugestão derivada ainda oferece o atalho', () => {
+    render(
+      <ContaDetalhe
+        conta={{
+          ...ENRIQUECIDA, cnae_vertical_id: 1,
+          cnae_mapeamento_origem: 'derivado',
+        }}
+        verticais={VERTICAIS} onCriarVertical={vi.fn()}
+        onSalvo={vi.fn()} onRecarregar={vi.fn()} registrarSalvar={vi.fn()}
+      />
+    );
+    expect(screen.getByText('(conferir)')).toBeInTheDocument();
   });
 });

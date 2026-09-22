@@ -131,6 +131,18 @@ class Settings(BaseSettings):
     # alta que nao procurou fora.
     LEADCNPJ_CAMINHO_SOCIO: str = ""
 
+    # Econodata. Entrou por UM dado: quadro de pessoal. Todo o resto do
+    # cadastro vem da BrasilAPI, de graca, da mesma base da Receita.
+    ECONODATA_API_KEY: str = ""
+    ECONODATA_URL: str = "https://api.econodata.com.br/v4"
+    ECONODATA_CAMINHO: str = "companies/search"
+    # A cobranca deles e por TIPO DE INFORMACAO pedida em cada empresa, e
+    # os blocos sao: cadastro, estrategico, perfilNegocio, contatosBasicos,
+    # contatosAvancados. Pedimos so `estrategico`, que e onde mora o numero
+    # de funcionarios -- os outros seriam pagar por dado que a BrasilAPI ja
+    # deu. Se eles renomearem o bloco, o conserto e uma linha no .env.
+    ECONODATA_BLOCOS: str = "estrategico"
+
     class Config:
         env_file = _ENV_FILE
 

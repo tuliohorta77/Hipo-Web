@@ -379,8 +379,11 @@ describe('Contas — visão 360', () => {
   it('editar um campo habilita o Salvar do rodapé', async () => {
     renderContas();
     fireEvent.click(await screen.findByText('Metalurgica Alfa LTDA'));
-    const campo = await screen.findByLabelText('Razão social');
-    fireEvent.change(campo, { target: { value: 'Outro Nome' } });
+    // Nº funcionários: fica no bloco fixo, visível em qualquer aba. Razão
+    // social mudou de lugar na 015 e viraria um teste sobre navegação em
+    // vez de sobre o rodapé.
+    const campo = await screen.findByLabelText('Nº funcionários');
+    fireEvent.change(campo, { target: { value: '42' } });
     expect(await screen.findByText('Alterações não salvas')).toBeInTheDocument();
   });
 });

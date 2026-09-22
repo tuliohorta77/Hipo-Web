@@ -10,6 +10,7 @@ aparece com banco:
   * a meta proporcional aos dias uteis, descontando os feriados da tabela
   * metas e feriados: leitura para todos, escrita so para a gestao
 """
+from calendar import monthrange
 from datetime import date, datetime, timedelta
 
 import pytest
@@ -31,6 +32,18 @@ def em(dia: int, mes: int | None = None, hora: int = 10) -> str:
 
 def hoje_op() -> date:
     return datetime.now(regras_tarefa.FUSO_OPERACAO).date()
+
+
+def fim_do_mes() -> str:
+    """
+    O ultimo dia do mes corrente, para passar em `?hoje=`.
+
+    Existe para o teste nao depender do dia em que o CI roda: reuniao
+    marcada para o 4o dia util do mes some da janela MTD se hoje for dia 2,
+    e o vermelho apareceria como se a regra estivesse errada.
+    """
+    h = hoje_op()
+    return date(h.year, h.month, monthrange(h.year, h.month)[1]).isoformat()
 
 
 def indicador(corpo, chave):
@@ -209,20 +222,25 @@ class TestReunioes:
         assert indicador(corpo, "noshow")["resultado"] is None
         assert indicador(corpo, "agen")["resultado"] == 1
 
+    async def _parceiro(self, client, h, cnpj=CNPJ_B, razao="Contabilidade Beta LTDA"):
+        parceiro = await nova_conta(client, h, cnpj, razao)
+        resp = await client.patch(
+            f"/crm/parceiros/{parceiro['id']}", json={"eh_finder": True}, headers=h
+        )
+        assert resp.status_code == 200, resp.text
+        return parceiro
+
     async def test_reuniao_de_parceria_vem_das_tarefas_do_parceiro(
         self, cenario, client,
     ):
         h, uid = cenario["headers"], cenario["usuario_id"]
-        parceiro = await nova_conta(client, h, CNPJ_B, "Contabilidade Beta LTDA")
-        await client.patch(
-            f"/crm/parceiros/{parceiro['id']}", json={"eh_finder": True}, headers=h
-        )
+        parceiro = await self._parceiro(client, h)
         r = await self._reuniao(
             client, h, None, uid, await self._dia_util(0), conta_id=parceiro["id"],
             oportunidade_id=None,
         )
         # So a REALIZADA conta.
-        antes = await painel(client, h)
+        antes = await painel(client, h, hoje=fim_do_mes())
         assert indicador(antes, "reunioes_parceria")["resultado"] == 0
 
         resp = await client.post(
@@ -234,11 +252,62 @@ class TestReunioes:
             headers=h,
         )
         assert resp.status_code == 200, resp.text
-        depois = await painel(client, h)
+        depois = await painel(client, h, hoje=fim_do_mes())
         assert indicador(depois, "reunioes_parceria")["resultado"] == 1
-        # Reuniao de parceria tambem e reuniao realizada: os dois quadros
-        # contam, de proposito, porque respondem perguntas diferentes.
-        assert indicador(depois, "apre")["resultado"] == 1
+        # PARCERIA E ILHA: a mesma reuniao NAO aparece em APRE. Antes de
+        # 21/09 os dois quadros contavam, e PARCERIAS era um subconjunto
+        # de APRE — a mesma reuniao lida duas vezes na mesma TV.
+        assert indicador(depois, "apre")["resultado"] == 0
+
+    async def test_parceria_nao_vaza_para_nenhum_quadro_comercial(
+        self, cenario, client,
+    ):
+        """
+        Tres reunioes de parceiro (realizada, no-show, desmarcada) ao lado
+        de UMA reuniao comercial realizada.
+
+        Se a parceria vazasse, os quatro numeros comerciais mudariam: AGEN
+        e AGEND MES subiriam, APRE subiria e o % NOSHOW sairia de um
+        denominador que mistura cliente com parceiro.
+        """
+        h, uid = cenario["headers"], cenario["usuario_id"]
+        opp = await nova_oportunidade(client, h, cenario["conta"]["id"])
+        parceiro = await self._parceiro(client, h)
+        proxima = {
+            "tipo": "ligacao", "titulo": "Retomar",
+            "responsavel_id": uid, "prazo": em(28),
+        }
+
+        comercial = await self._reuniao(
+            client, h, opp["id"], uid, await self._dia_util(0),
+        )
+        resp = await client.post(
+            f"/crm/agenda/reunioes/{comercial['id']}/desfecho",
+            json={"desfecho": "realizada", "proxima": proxima}, headers=h,
+        )
+        assert resp.status_code == 200, resp.text
+
+        for offset, desfecho in ((1, "realizada"), (2, "no_show"), (3, "cancelada")):
+            r = await self._reuniao(
+                client, h, None, uid, await self._dia_util(offset),
+                conta_id=parceiro["id"], oportunidade_id=None,
+            )
+            corpo = {"desfecho": desfecho}
+            if desfecho == "realizada":
+                corpo["proxima"] = proxima
+            resp = await client.post(
+                f"/crm/agenda/reunioes/{r['id']}/desfecho", json=corpo, headers=h,
+            )
+            assert resp.status_code == 200, resp.text
+
+        painel_mes = await painel(client, h, hoje=fim_do_mes())
+        assert indicador(painel_mes, "agen")["resultado"] == 1
+        assert indicador(painel_mes, "apre")["resultado"] == 1
+        assert indicador(painel_mes, "agendamentos_mes")["resultado"] == 1
+        # Uma reuniao de cliente fechada, nenhum no-show DE CLIENTE: 0%.
+        # Com o vazamento seriam 4 fechadas e 1 no-show — 25%.
+        assert indicador(painel_mes, "noshow")["resultado"] == 0.0
+        assert indicador(painel_mes, "reunioes_parceria")["resultado"] == 1
 
 
 # ── Vendas ───────────────────────────────────────────────────────────

@@ -41,6 +41,7 @@ from .modelo import (
     DadosEmpresa,
     mesclar,
     normalizar_brasilapi,
+    normalizar_econodata,
     normalizar_leadcnpj,
 )
 
@@ -49,6 +50,7 @@ log = logging.getLogger("hipo.enriquecimento")
 NORMALIZADORES = {
     fontes_mod.BRASILAPI: normalizar_brasilapi,
     fontes_mod.LEADCNPJ: normalizar_leadcnpj,
+    fontes_mod.ECONODATA: normalizar_econodata,
 }
 
 # Campos de `contas` que o enriquecimento sabe preencher. `vertical_id` está

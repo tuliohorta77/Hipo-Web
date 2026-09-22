@@ -55,8 +55,12 @@ ESTIMADO = "estimado"
 # NOMES sob os quais um objeto {codigo, descricao} guarda cada metade.
 # A LeadCNPJ devolve porte, situacao cadastral, CNAE, qualificacao de
 # socio e faixa etaria assim -- todos como objeto, nunca como texto.
+# "faixa" entra como RÓTULO, e não como código: num par
+# `{"codigo": 3, "faixa": "11 a 50"}` o legível é a faixa, e o código é o
+# índice dela. Ler o índice como quantidade já era um erro a caminho da
+# proposta comercial.
 _ROTULOS = ("descricao", "description", "nome", "name", "texto", "text",
-            "label", "valor", "value")
+            "label", "faixa", "range", "valor", "value")
 _CODIGOS = ("codigo", "code", "id", "valor", "value", "numero", "number")
 
 
@@ -200,7 +204,7 @@ def para_data(valor) -> date | None:
     >>> para_data({"valor": "2019-04-16"})
     datetime.date(2019, 4, 16)
     """
-    valor = desembrulhar(valor, "codigo")
+    valor = desembrulhar(valor)
     if valor is None:
         return None
     if isinstance(valor, datetime):
@@ -249,12 +253,15 @@ def para_inteiro(valor) -> int | None:
     11
     >>> para_inteiro("")
     >>> para_inteiro("sem informação")
-    >>> para_inteiro({"codigo": 5, "descricao": "41-50 anos"})
-    5
+    >>> para_inteiro({"codigo": 3, "faixa": "11 a 50"})
+    11
     """
-    # Aqui o CÓDIGO é o que vale: numa faixa `{"codigo": 5, "descricao":
-    # "41-50 anos"}` a descrição viraria 41, que é outra coisa.
-    valor = desembrulhar(valor, "codigo")
+    # PREFERE O RÓTULO, e isto já evitou um erro caro: a Econodata devolve
+    # `{"codigo": 3, "faixa": "11 a 50"}`, onde o código é o ÍNDICE da
+    # faixa, não a quantidade. Pegando o código, uma empresa de 11 a 50
+    # pessoas entraria no cadastro como tendo 3 funcionários — e esse
+    # número vai para a tela de quem vai precificar.
+    valor = desembrulhar(valor)
     if valor is None or isinstance(valor, bool):
         return None
     if isinstance(valor, int):
@@ -281,8 +288,12 @@ def para_decimal(valor) -> float | None:
     >>> para_decimal("50000.00")
     50000.0
     >>> para_decimal("nada")
+    >>> para_decimal({"codigo": 2, "valor": "250000.00"})
+    250000.0
     """
-    valor = desembrulhar(valor, "codigo")
+    # Rótulo, pelo mesmo motivo do para_inteiro: num par
+    # {codigo, descricao} o código é índice de faixa, não o valor.
+    valor = desembrulhar(valor)
     if valor is None or isinstance(valor, bool):
         return None
     if isinstance(valor, (int, float)):
@@ -836,4 +847,63 @@ def normalizar_leadcnpj(payload: dict) -> DadosEmpresa:
         num_funcionarios=funcionarios,
         num_funcionarios_origem=ESTIMADO if funcionarios is not None else None,
         socios=tuple(socios),
+    )
+
+
+def normalizar_econodata(payload: dict) -> DadosEmpresa:
+    """
+    Converte a resposta da Econodata — e só o que dela interessa.
+
+    ELA DEVOLVE UM CAMPO SÓ, DE PROPÓSITO.
+
+    A Econodata entrou no HIPO por um motivo: quadro de pessoal. Todo o
+    resto do cadastro vem da BrasilAPI, de graça, da mesma base da Receita.
+    Aproveitar os outros campos daqui teria dois custos e nenhum ganho:
+
+      * DINHEIRO. A cobrança é por tipo de informação pedida em cada
+        empresa. Ler campos que não pedimos convidaria a pedir o bloco
+        inteiro depois.
+      * RUÍDO. Duas fontes dizendo a mesma coisa com grafias diferentes
+        ("SAO PAULO" contra "São Paulo") viram divergência na tela, e o
+        usuário aprende a clicar em "usar os dados da fonte" sem ler.
+
+    Então tudo o mais fica None. O `mesclar` preenche vazio com o que a
+    outra fonte trouxe, então um None aqui não apaga nada — só não compete.
+
+    O nº de funcionários daqui é SEMPRE `estimado`: vem de base tipo
+    RAIS/CAGED, com defasagem de meses. Serve para PRIORIZAR prospecção.
+    Quem precifica é a vida declarada pelo cliente, e a regra que separa
+    os dois está em persistencia.aplicar().
+    """
+    cnpj = so_digitos(_primeiro(
+        payload, "cnpj", "cnpjCompleto", "empresa.cnpj", "document"
+    ))
+
+    # `funcionarios` pode vir como número, como faixa ("51 a 100") ou como
+    # objeto. Os três caminham pelo mesmo `para_inteiro`, que desembrulha o
+    # objeto e pega o PISO da faixa — dizer 51 quando pode ser 100
+    # subestima, mas dizer 75 inventaria precisão que o dado não tem.
+    # OS CAMINHOS ESPECÍFICOS VÊM PRIMEIRO, e a ordem não é estética: se
+    # `funcionarios` (o objeto inteiro) viesse antes, ele casaria sempre e
+    # os caminhos de dentro nunca seriam tentados. O objeto cru é o último
+    # recurso, para o caso de a fonte devolver o número direto.
+    funcionarios = para_inteiro(_primeiro(
+        payload,
+        "funcionarios.quantidade", "funcionarios.total",
+        "funcionarios.numero", "funcionarios.faixa", "funcionarios.valor",
+        "funcionarios.descricao",
+        "quantidadeFuncionarios", "quantidade_funcionarios",
+        "numeroFuncionarios", "numero_funcionarios", "qtdFuncionarios",
+        "qnt_funcionario_empresa",
+        "faixaFuncionarios", "faixa_funcionarios",
+        "porteFuncionarios", "employees", "employeeCount",
+        "estrategico.funcionarios", "empresa.funcionarios",
+        "funcionarios",
+    ))
+
+    return DadosEmpresa(
+        cnpj=cnpj,
+        fonte="econodata",
+        num_funcionarios=funcionarios,
+        num_funcionarios_origem=ESTIMADO if funcionarios is not None else None,
     )

@@ -208,6 +208,20 @@ async def _reunioes(conn, inicio: datetime, fim: datetime) -> dict:
     que a grade e o relatorio de produtividade usam. Repetir a deducao em
     SQL daria ao painel um no-show diferente do da Agenda.
 
+    PARCERIA E ILHA (decisao do Tulio, 21/09). Reuniao de parceiro — a que
+    tem `tarefas.conta_id` — conta SO no quadro PARCERIAS. Nao entra em
+    AGEN, nao entra em APRE, nao entra em AGEND MES e nao entra em nenhum
+    dos dois lados do % NOSHOW.
+
+    Antes disso a mesma reuniao aparecia duas vezes na mesma TV: dentro de
+    APRE e ao lado dele, em PARCERIAS. Os quadros comerciais medem o esforco
+    sobre CLIENTE, e parceria tem ritmo, meta e dono proprios — somar os
+    dois inflava o funil com um trabalho que nao gera proposta.
+
+    O CHECK `ck_tarefa_alvo` (`num_nonnulls(oportunidade_id, conta_id) = 1`)
+    garante alvo unico por tarefa, entao `conta_id IS NULL` e a definicao
+    exata de "reuniao comercial": nao existe terceiro caso.
+
     A janela e pela DATA DA REUNIAO (`t.prazo`), menos em `agendadas_no_mes`,
     que e pela data em que ela foi MARCADA (`r.criado_em`) — sao perguntas
     diferentes e o Tulio quer as duas: "reunioes deste mes" e "agendamentos
@@ -223,8 +237,17 @@ async def _reunioes(conn, inicio: datetime, fim: datetime) -> dict:
         """,
         inicio, fim,
     )
+    # O JOIN aqui nao e enfeite: AGEND MES e o unico numero do painel que
+    # nao precisaria de `tarefas` para existir, e foi exatamente por isso
+    # que ele contava agendamento de parceria sem ninguem perceber.
     agendadas_no_mes = await conn.fetchval(
-        "SELECT count(*) FROM reunioes WHERE criado_em >= $1 AND criado_em < $2",
+        """
+        SELECT count(*)
+          FROM reunioes r
+          JOIN tarefas t ON t.id = r.tarefa_id
+         WHERE r.criado_em >= $1 AND r.criado_em < $2
+           AND t.conta_id IS NULL
+        """,
         inicio, fim,
     )
 
@@ -236,6 +259,14 @@ async def _reunioes(conn, inicio: datetime, fim: datetime) -> dict:
             cancelada_em=r["cancelada_em"],
             inicio=r["inicio"],
         )
+        if r["conta_id"] is not None:
+            # Parceria sai do funil comercial aqui, antes de qualquer
+            # contagem. So a REALIZADA alimenta o quadro dela: parceiro
+            # que desmarcou nao e no-show de cliente nem reuniao perdida
+            # do mes — e assunto da carteira de parceiros.
+            if efetivo == "realizada":
+                parcerias += 1
+            continue
         # "Marcadas para o mes" exclui a DESMARCADA e mantem o no-show: o
         # compromisso existiu, o cliente e que nao veio. Contar o no-show
         # fora faria a taxa dele sair de um denominador menor que a
@@ -244,8 +275,6 @@ async def _reunioes(conn, inicio: datetime, fim: datetime) -> dict:
             marcadas += 1
         if efetivo == "realizada":
             realizadas += 1
-            if r["conta_id"] is not None:
-                parcerias += 1
         elif efetivo == "cancelada":
             canceladas += 1
         elif efetivo == "no_show":

@@ -92,11 +92,13 @@ INDICADORES: tuple[Indicador, ...] = (
     ),
     Indicador(
         "agen", "AGEN", "Reunioes no mes", ACUMULATIVO, "inteiro", 20,
-        "Reunioes marcadas para o mes (pela data da reuniao), menos as desmarcadas.",
+        "Reunioes com cliente marcadas para o mes (pela data da reuniao), "
+        "menos as desmarcadas. Parceria nao entra.",
     ),
     Indicador(
         "apre", "APRE", "Reunioes realizadas", ACUMULATIVO, "inteiro", 30,
-        "Reunioes com desfecho Realizada, pela data da reuniao.",
+        "Reunioes com cliente e desfecho Realizada, pela data da reuniao. "
+        "Parceria nao entra.",
     ),
     Indicador(
         "nmrr", "NMRR", "Mensalidade nova", ACUMULATIVO, "moeda", 40,
@@ -109,16 +111,19 @@ INDICADORES: tuple[Indicador, ...] = (
     Indicador(
         "reunioes_parceria", "PARCERIAS", "Reunioes de parceria", ACUMULATIVO,
         "inteiro", 60,
-        "Reunioes com parceiro (modulo Parceiros) com desfecho Realizada.",
+        "Reunioes com parceiro (modulo Parceiros) com desfecho Realizada. "
+        "E o unico quadro onde parceria aparece.",
     ),
     Indicador(
         "agendamentos_mes", "AGEND MES", "Agendamentos feitos", ACUMULATIVO,
         "inteiro", 70,
-        "Reunioes AGENDADAS no mes, pela data em que foram marcadas.",
+        "Reunioes com cliente AGENDADAS no mes, pela data em que foram "
+        "marcadas. Parceria nao entra.",
     ),
     Indicador(
         "noshow", "% NOSHOW", "No-show", TAXA_INVERSA, "percentual", 80,
-        "No-shows sobre as reunioes ja fechadas do mes. Quanto menor, melhor.",
+        "No-shows de cliente sobre as reunioes de cliente ja fechadas no mes. "
+        "Parceria fica fora dos dois lados. Quanto menor, melhor.",
     ),
     Indicador(
         "contratos", "CONTRATOS", "Contratos fechados", ACUMULATIVO, "inteiro", 90,

@@ -732,3 +732,103 @@ class TestPayloadRealDaLeadcnpj:
                 f"'{palavra}' apareceu no payload: reveja "
                 "`funcionarios` em normalizar_leadcnpj"
             )
+
+
+class TestNormalizarEconodata:
+    """
+    A Econodata entrou por UM dado. O teste mais importante desta classe é
+    o que garante que ela NÃO traz mais nada.
+    """
+
+    def _d(self, payload):
+        return m.normalizar_econodata(payload)
+
+    def test_numero_direto(self):
+        d = self._d({"cnpj": "11222333000181", "funcionarios": 180})
+        assert d.num_funcionarios == 180
+        assert d.num_funcionarios_origem == m.ESTIMADO
+
+    def test_faixa_vira_o_piso(self):
+        """
+        `"51 a 100"` vira 51, nunca 75. Dizer 51 quando pode ser 100
+        subestima; a média inventaria precisão que o dado não tem — e a
+        tela já diz que é estimativa.
+        """
+        assert self._d({"funcionarios": "51 a 100"}).num_funcionarios == 51
+
+    def test_objeto_com_codigo_e_faixa_usa_a_FAIXA(self):
+        """
+        O erro caro que este teste pegou: `codigo` ali é o ÍNDICE da faixa,
+        não a quantidade. Lendo o código, uma empresa de 11 a 50 pessoas
+        entraria no cadastro como tendo 3 funcionários — e esse número vai
+        para a tela de quem monta a proposta.
+        """
+        d = self._d({"funcionarios": {"faixa": "11 a 50", "codigo": 3}})
+        assert d.num_funcionarios == 11
+
+    def test_nome_alternativo_de_campo(self):
+        assert self._d(
+            {"quantidadeFuncionarios": 42}
+        ).num_funcionarios == 42
+
+    def test_sem_o_dado_nao_inventa_origem(self):
+        """
+        Sem número, `origem` fica nula também. Gravar 'estimado' com valor
+        vazio faria a tela dizer "estimativa" apontando para um traço.
+        """
+        d = self._d({"cnpj": "11222333000181", "razaoSocial": "ACME"})
+        assert d.num_funcionarios is None
+        assert d.num_funcionarios_origem is None
+
+    def test_NAO_traz_mais_nada(self):
+        """
+        A trava que protege o bolso e a tela.
+
+        Mesmo que a resposta venha cheia — e ela vem, se alguém trocar o
+        bloco pedido no .env — o normalizador ignora tudo menos o número de
+        funcionários. Ler os outros campos seria pagar por dado que a
+        BrasilAPI já deu de graça, e criaria divergência entre duas fontes
+        dizendo a mesma coisa com grafias diferentes.
+        """
+        cheio = {
+            "cnpj": "11222333000181",
+            "razaoSocial": "ACME LTDA",
+            "nomeFantasia": "Acme",
+            "cnaePrimario": {"codigo": "2511000", "descricao": "Metalurgia"},
+            "endereco": {"municipio": "SAO PAULO", "uf": "SP", "cep": "01310100"},
+            "telefones": ["1133334444"],
+            "emails": ["contato@acme.com.br"],
+            "faturamento": 5000000,
+            "capitalSocial": 250000,
+            "funcionarios": 180,
+            "decisores": [{"nome": "FULANO", "cargo": "CEO"}],
+        }
+        d = self._d(cheio)
+
+        assert d.num_funcionarios == 180
+        assert d.cnpj == "11222333000181"
+        assert d.fonte == "econodata"
+
+        import dataclasses
+        preenchidos = {
+            campo for campo, valor in dataclasses.asdict(d).items()
+            if valor not in (None, "", (), [])
+        }
+        assert preenchidos == {
+            "cnpj", "fonte", "num_funcionarios", "num_funcionarios_origem",
+        }, f"a Econodata trouxe campo que não devia: {preenchidos}"
+
+    def test_mesclar_deixa_a_brasilapi_mandar_no_cadastro(self):
+        """
+        O arranjo inteiro em uma asserção: BrasilAPI manda no cadastro, a
+        Econodata só completa o buraco que nenhuma fonte pública preenche.
+        """
+        receita = m.normalizar_brasilapi(PAYLOAD_BRASILAPI)
+        paga = m.normalizar_econodata({"funcionarios": "11 a 50"})
+        junto = m.mesclar(receita, paga)
+
+        assert junto.razao_social == "METALURGICA ALFA LTDA"
+        assert junto.cidade == "GUARULHOS"
+        assert junto.cnae_codigo == "2511000"
+        assert junto.num_funcionarios == 11
+        assert junto.num_funcionarios_origem == m.ESTIMADO

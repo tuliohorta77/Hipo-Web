@@ -284,6 +284,7 @@ export default function ContaDetalhe({
   const [salvando, setSalvando] = useState(false);
   const [novaVertical, setNovaVertical] = useState('');
   const [criandoVertical, setCriandoVertical] = useState(false);
+  const [criandoNova, setCriandoNova] = useState(false);
   const [formBloqueio, setFormBloqueio] = useState(false);
   const [motivoBloqueio, setMotivoBloqueio] = useState('');
   const [salvandoBloqueio, setSalvandoBloqueio] = useState(false);
@@ -448,6 +449,9 @@ export default function ContaDetalhe({
       const nova = await onCriarVertical(nome);
       set('vertical_id', String(nova.id));
       setNovaVertical('');
+      // Fecha o campo: criada e já selecionada, deixá-lo aberto só
+      // ocuparia espaço convidando a criar outra por engano.
+      setCriandoNova(false);
     } catch (err) {
       setErro(mensagemDeErro(err, 'Não foi possível criar a vertical.'));
     } finally {
@@ -480,7 +484,7 @@ export default function ContaDetalhe({
   return (
     <div className="flex flex-col h-full min-h-0">
       {/* ── Bloco fixo: identificação (não rola) ── */}
-      <div className="shrink-0 px-5 pt-4 pb-4 border-b border-hipo-border bg-hipo-bg/40">
+      <div className="shrink-0 px-5 pt-3 pb-3 border-b border-hipo-border bg-hipo-bg/40">
         {erro && <div className="mb-3"><AlertMessage tipo="erro">{erro}</AlertMessage></div>}
         {avisoBloqueio && (
           <div className="mb-3"><AlertMessage tipo="aviso">{avisoBloqueio}</AlertMessage></div>
@@ -543,35 +547,22 @@ export default function ContaDetalhe({
           </div>
         )}
 
-        <div className="grid grid-cols-1 md:grid-cols-12 gap-3">
-          <Campo className="md:col-span-5">
-            <Input
-              label="Razão social"
-              value={form.razao_social || ''}
-              onChange={(e) => set('razao_social', e.target.value)}
-            />
-          </Campo>
-          <Campo className="md:col-span-3">
-            <Input
-              label="CNPJ"
-              value={conta.cnpj_formatado}
-              disabled
-              hint="Não editável"
-            />
-          </Campo>
-          <Campo className="md:col-span-4">
-            <Input
-              label="Nome fantasia"
-              value={form.nome_fantasia || ''}
-              onChange={(e) => set('nome_fantasia', e.target.value)}
-            />
-          </Campo>
+        {/* UMA LINHA SÓ (015).
+            Antes eram duas linhas de campos mais a dica do CNAE, e o topo
+            comia metade da altura do drawer — sobrava pouco para a aba,
+            que é onde o trabalho acontece.
 
+            O que saiu daqui e foi para "Dados cadastrais": razão social,
+            nome fantasia e CNPJ. Os três são identidade, não operação:
+            mudam raramente, e o título do drawer já mostra razão social e
+            CNPJ o tempo todo. O que fica é o que se consulta e se mexe a
+            toda hora — vertical, vidas, vendedor e situação. */}
+        <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-start">
           <Campo className="md:col-span-4">
             <div className="flex gap-2 items-end">
               <Select
                 label="Vertical"
-                className="flex-1"
+                className="flex-1 min-w-0"
                 value={form.vertical_id ?? ''}
                 onChange={(e) => set('vertical_id', e.target.value)}
               >
@@ -580,21 +571,35 @@ export default function ContaDetalhe({
                   <option key={v.id} value={v.id}>{v.nome}</option>
                 ))}
               </Select>
-              <Input
-                label="Criar"
-                placeholder="nova vertical"
-                className="flex-1"
-                value={novaVertical}
-                onChange={(e) => setNovaVertical(e.target.value)}
-              />
-              <Button
-                variant="secondary"
-                icon={Plus}
-                loading={criandoVertical}
-                disabled={!novaVertical.trim()}
-                onClick={criarVertical}
-                aria-label="Adicionar vertical"
-              />
+              {/* O campo de criar vertical só aparece quando pedido: ele
+                  ocupava uma coluna inteira o tempo todo para uma ação
+                  que acontece uma vez por mês. */}
+              {criandoNova ? (
+                <>
+                  <Input
+                    label="Nova"
+                    placeholder="nome"
+                    className="flex-1 min-w-0"
+                    value={novaVertical}
+                    onChange={(e) => setNovaVertical(e.target.value)}
+                  />
+                  <Button
+                    variant="secondary"
+                    icon={Plus}
+                    loading={criandoVertical}
+                    disabled={!novaVertical.trim()}
+                    onClick={criarVertical}
+                    aria-label="Adicionar vertical"
+                  />
+                </>
+              ) : (
+                <Button
+                  variant="ghost"
+                  icon={Plus}
+                  onClick={() => setCriandoNova(true)}
+                  aria-label="Criar vertical"
+                />
+              )}
             </div>
 
             {/* O CNAE fica logo abaixo da Vertical porque é de onde ela
@@ -602,16 +607,16 @@ export default function ContaDetalhe({
                 tem como saber que o sistema já conhece a atividade da
                 empresa — o dado existe e ficava escondido numa aba. */}
             {conta.cnae_codigo && (
-              <p className="mt-1 text-xs text-hipo-slate">
+              <p className="mt-1 text-xs text-hipo-slate leading-tight">
                 <span className="font-mono">{conta.cnae_codigo}</span>
                 {conta.cnae_descricao && ` — ${conta.cnae_descricao}`}
-                {!conta.cnae_vertical_id && (
+                {conta.cnae_mapeamento_origem !== 'humano' && (
                   <button
                     type="button"
                     onClick={() => setAba('dados-publicos')}
                     className="ml-1 text-hipo-blue hover:underline"
                   >
-                    (classificar este CNAE)
+                    (conferir)
                   </button>
                 )}
               </p>
@@ -771,7 +776,37 @@ export default function ContaDetalhe({
         )}
 
         {aba === 'cadastrais' && (
-          <div className="max-w-3xl space-y-4">
+          <div className="max-w-3xl space-y-5">
+            {/* Identidade. Saiu do bloco fixo para o topo caber em uma
+                linha — muda raramente, e o título do drawer já mostra
+                razão social e CNPJ o tempo todo. */}
+            <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
+              <Campo className="md:col-span-7">
+                <Input
+                  label="Razão social"
+                  value={form.razao_social || ''}
+                  onChange={(e) => set('razao_social', e.target.value)}
+                />
+              </Campo>
+              <Campo className="md:col-span-5">
+                <Input
+                  label="CNPJ"
+                  value={conta.cnpj_formatado}
+                  disabled
+                  hint="Não editável — trocar o CNPJ é trocar de empresa"
+                />
+              </Campo>
+              <Campo className="md:col-span-12">
+                <Input
+                  label="Nome fantasia"
+                  value={form.nome_fantasia || ''}
+                  onChange={(e) => set('nome_fantasia', e.target.value)}
+                />
+              </Campo>
+            </div>
+
+            <hr className="border-hipo-border" />
+
             <p className="text-sm text-hipo-slate">
               Vêm da Receita pela aba <strong>Dados públicos</strong>, e ficam
               editáveis aqui: a Receita erra e demora, e a consulta{' '}

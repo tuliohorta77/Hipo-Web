@@ -3,10 +3,14 @@ HIPO — Amostra de enriquecimento: o plano pago se paga?
 
 POR QUE ESTE SCRIPT EXISTE
 
-A LeadCNPJ cobra por mês. O que decide se vale é UM número: em quantas
-empresas da SUA carteira a fonte devolve o que você não tem — quadro de
+Fonte paga cobra por mês. O que decide se vale é UM número: em quantas
+empresas da SUA carteira ela devolve o que você não tem — quadro de
 pessoal, acima de tudo. Material comercial não responde isso; uma amostra
 da base real responde.
+
+A leitura: acima de 60% de preenchimento, a assinatura se paga. Abaixo de
+30%, ela entrega pouco além do que a BrasilAPI dá de graça. No meio,
+depende de quanto a prospecção fria pesa na sua operação.
 
 Ele roda contra as contas que já estão no HIPO, mede o preenchimento campo
 a campo e escreve um CSV. Com 100 CNPJs você sabe a taxa de verdade antes
@@ -27,6 +31,9 @@ Na EC2, como o usuário do app:
     # Confira o banco ANTES. O seed não tem safeguard como o conftest tem.
     echo "$DATABASE_URL" | sed 's/:[^:@]*@/:****@/'
     python -m scripts.amostrar_enriquecimento --quantidade 100
+
+Ou, sem decorar nada: `bash /tmp/medir-cobertura.sh`, que acha o Python
+certo e carrega o .env sozinho.
 
 Opções:
     --quantidade N     quantas contas consultar (padrão 50)

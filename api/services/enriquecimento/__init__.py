@@ -15,16 +15,22 @@ precisa saber que a BrasilAPI ou a LeadCNPJ existem.
 
 PARA LIGAR, no .env:
 
-    ENRIQUECIMENTO_FONTES=leadcnpj,brasilapi
-    LEADCNPJ_API_KEY=...
+    ENRIQUECIMENTO_FONTES=brasilapi,econodata
+    ECONODATA_API_KEY=...
 
 Vazio = recurso desligado, e a API sobe igual — mesma regra do S3, do SES e
-da chave da IA. Sem chave da LeadCNPJ, só a BrasilAPI responde: some o nº de
+da chave da IA. Sem chave paga, só a BrasilAPI responde: some o nº de
 funcionários estimado, continua tudo o mais.
+
+A ORDEM IMPORTA, e a acima é a recomendada. A BrasilAPI vem primeiro
+porque cobre todo o cadastro de graça, da mesma base da Receita; a fonte
+paga vem depois só para completar o que faltou. Invertida, a paga venceria
+em campos que não precisava ter vencido.
 """
 from . import cnae_estrutura  # noqa: F401
 from .fontes import (  # noqa: F401
     BRASILAPI,
+    ECONODATA,
     LEADCNPJ,
     configurada,
     empresas_do_socio,
@@ -39,6 +45,7 @@ from .modelo import (  # noqa: F401
     mascarar_documento,
     mesclar,
     normalizar_brasilapi,
+    normalizar_econodata,
     normalizar_leadcnpj,
     normalizar_nome,
 )
