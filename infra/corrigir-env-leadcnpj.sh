@@ -53,7 +53,13 @@ desfazer() {
 }
 
 # ── 2. CRLF ───────────────────────────────────────────────────────────
-ANTES=$(sudo grep -c $'\r' "$ENV_PATH" 2>/dev/null || echo 0)
+# `grep -c` sai com codigo 1 quando nao acha nada -- e ai o `|| echo 0`
+# disparava JUNTO com o "0" que o grep ja tinha impresso, produzindo
+# "0\n0" e um "integer expression expected" na comparacao seguinte. O
+# `|| true` deixa o grep falar sozinho; o `head -1` garante um numero so.
+ANTES=$(sudo grep -c $'\r' "$ENV_PATH" 2>/dev/null || true)
+ANTES=$(printf '%s' "${ANTES:-0}" | head -1 | tr -cd '0-9')
+ANTES=${ANTES:-0}
 if [ "$ANTES" -gt 0 ]; then
     sudo sed -i 's/\r$//' "$ENV_PATH"
     echo "CRLF: $ANTES linha(s) limpa(s)."

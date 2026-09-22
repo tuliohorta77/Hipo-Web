@@ -734,6 +734,86 @@ class TestPayloadRealDaLeadcnpj:
             )
 
 
+# Resposta REAL da Econodata, capturada em 21/09/2026 consultando a Amazon
+# Brasil. A resposta vem em `empresa.estrategico`, e traz DOIS headcounts —
+# a diferença entre eles é o detalhe mais importante deste arquivo.
+PAYLOAD_ECONODATA_REAL = {
+    "empresa": {
+        "cnpj": "15.436.940/0001-03",
+        "estrategico": {
+            "headcountCnpj": {
+                "de": 200, "ate": 299, "valor": 250, "origem": "Notícias",
+            },
+            "faturamentoCnpj": {
+                "de": 100000001, "ate": 300000000,
+                "valor": 200000001, "origem": "Presumido",
+            },
+            "headcountMatrizFiliais": {
+                "total": 18000, "de": 5000, "ate": 999999999,
+                "origem": "Notícias",
+            },
+            "faturamentoMatrizFiliais": {
+                "valor": 14800000000, "de": 10000000001,
+                "ate": 20000000000, "origem": "Presumido",
+            },
+            "tecnologias": {
+                "categorias": ["Plataformas de E-commerce"],
+                "tecnologias": ["Outras"],
+            },
+        },
+    },
+}
+
+# Como o payload chega ao normalizador depois que `fontes.buscar_econodata`
+# tira a casca `empresa`.
+PAYLOAD_ECONODATA = PAYLOAD_ECONODATA_REAL["empresa"]
+
+
+class TestEconodataRespostaReal:
+    """
+    O campo certo, e o campo que não pode ser usado.
+    """
+
+    def test_pega_o_headcount_DO_CNPJ(self):
+        d = m.normalizar_econodata(PAYLOAD_ECONODATA)
+        assert d.num_funcionarios == 200
+        assert d.num_funcionarios_origem == m.ESTIMADO
+
+    def test_NUNCA_pega_o_headcount_do_grupo(self):
+        """
+        O erro que multiplicaria a proposta por setenta.
+
+        `headcountMatrizFiliais` soma o grupo econômico inteiro: 18.000 na
+        Amazon contra 250 no CNPJ. Em medicina ocupacional o que se
+        dimensiona são as vidas DAQUELE estabelecimento — o CNPJ que
+        assina o contrato.
+        """
+        d = m.normalizar_econodata(PAYLOAD_ECONODATA)
+        assert d.num_funcionarios != 18000
+        assert d.num_funcionarios != 5000
+
+    def test_usa_o_piso_e_nao_o_ponto_medio(self):
+        """
+        `valor: 250` é o meio de 200–299, não uma medição — e a própria
+        fonte diz `origem: "Notícias"`. O piso é a leitura honesta.
+        """
+        d = m.normalizar_econodata(PAYLOAD_ECONODATA)
+        assert d.num_funcionarios == 200, "pegou o ponto médio ou o teto"
+
+    def test_nao_confunde_faturamento_com_gente(self):
+        d = m.normalizar_econodata(PAYLOAD_ECONODATA)
+        assert d.num_funcionarios < 1000
+        assert d.capital_social is None
+
+    def test_a_casca_empresa_tambem_funciona(self):
+        """
+        Se o desembrulho de `fontes.py` mudar, o normalizador ainda acha o
+        campo — uma camada a mais não pode zerar o único dado da fonte.
+        """
+        d = m.normalizar_econodata(PAYLOAD_ECONODATA_REAL)
+        assert d.num_funcionarios == 200
+
+
 class TestNormalizarEconodata:
     """
     A Econodata entrou por UM dado. O teste mais importante desta classe é

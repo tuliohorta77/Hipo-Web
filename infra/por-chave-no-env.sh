@@ -40,6 +40,7 @@
 set -uo pipefail
 
 ENV_PATH=/home/hipo/app/.env
+APP_DIR=/home/hipo/app/api
 
 VARIAVEL="${1:-}"
 if [ -z "$VARIAVEL" ]; then
@@ -64,6 +65,43 @@ if [ ! -f "$ENV_PATH" ] && ! sudo test -f "$ENV_PATH"; then
     exit 1
 fi
 
+# ── 0. O CODIGO EM PRODUCAO CONHECE ESSA VARIAVEL? ────────────────────
+#
+# Esta trava existe porque a falta dela derrubou a producao em 22/09/2026.
+#
+# O `Settings` do HIPO usa `extra="forbid"`: variavel no .env que o
+# `config.py` nao declara faz o pydantic abortar NA PARTIDA. O app nao sobe
+# degradado -- ele simplesmente nao sobe, e o nginx segue servindo o front
+# com a API em 502.
+#
+# Ou seja: gravar a chave ANTES do push do codigo que a declara derruba o
+# sistema no primeiro restart. A ordem certa e sempre:
+#
+#     1. push (o CI leva o config.py novo)
+#     2. este script
+#
+# `--forcar` existe para o caso legitimo de variavel que nao vive no
+# config.py (algo lido por outro processo, por exemplo).
+
+FORCAR=""
+if [ "${2:-}" = "--forcar" ]; then FORCAR=1; fi
+
+if [ -z "$FORCAR" ] && ! sudo grep -qE "^[[:space:]]*${VARIAVEL}[[:space:]]*:" \
+        "$APP_DIR/config.py" 2>/dev/null; then
+    echo "ERRO: o config.py em producao NAO declara $VARIAVEL."
+    echo
+    echo "Gravar agora derrubaria a API no restart: o Settings usa"
+    echo "extra=forbid, entao variavel desconhecida aborta a partida."
+    echo
+    echo "A ordem certa e:"
+    echo "  1. git push   (o CI leva o config.py que declara $VARIAVEL)"
+    echo "  2. este script"
+    echo
+    echo "Se a variavel nao vive no config.py de proposito:"
+    echo "  bash $0 $VARIAVEL --forcar"
+    exit 1
+fi
+
 # ── 1. backup ─────────────────────────────────────────────────────────
 CARIMBO=$(date +%Y%m%d-%H%M%S)
 BACKUP="${ENV_PATH}.bak-${CARIMBO}"
@@ -77,7 +115,13 @@ desfazer() {
 }
 
 # ── 2. CRLF ───────────────────────────────────────────────────────────
-ANTES=$(sudo grep -c $'\r' "$ENV_PATH" 2>/dev/null || echo 0)
+# `grep -c` sai com codigo 1 quando nao acha nada -- e ai o `|| echo 0`
+# disparava JUNTO com o "0" que o grep ja tinha impresso, produzindo
+# "0\n0" e um "integer expression expected" na comparacao seguinte. O
+# `|| true` deixa o grep falar sozinho; o `head -1` garante um numero so.
+ANTES=$(sudo grep -c $'\r' "$ENV_PATH" 2>/dev/null || true)
+ANTES=$(printf '%s' "${ANTES:-0}" | head -1 | tr -cd '0-9')
+ANTES=${ANTES:-0}
 if [ "$ANTES" -gt 0 ]; then
     sudo sed -i 's/\r$//' "$ENV_PATH"
     echo "CRLF: $ANTES linha(s) limpa(s)."
@@ -129,6 +173,12 @@ else
     else
         sudo cat "$ENV_PATH" > "$NOVO"
     fi
+    # Garante quebra de linha no fim ANTES de acrescentar. Sem isto, um
+    # .env que nao termina em \n faria a ultima variavel dele e a nova
+    # virarem uma linha so -- corrompendo as duas em silencio.
+    if [ -s "$NOVO" ] && [ -n "$(tail -c 1 "$NOVO")" ]; then
+        printf '\n' >> "$NOVO"
+    fi
     printf '%s=%s\n' "$VARIAVEL" "$CHAVE" >> "$NOVO"
     sudo cp "$NOVO" "$ENV_PATH"
     sudo chmod 600 "$ENV_PATH"
@@ -155,11 +205,57 @@ if [ -z "$UNIDADE" ]; then
 fi
 
 echo "Unidade: $UNIDADE"
+
+# REINICIO COM REDE DE SEGURANCA.
+#
+# `is-active` logo apos o restart mente: um servico em crash-loop passa
+# por "active" entre as tentativas. Por isso a conferencia olha o contador
+# de reinicios, que so sobe quando o processo morre, e espera tempo
+# suficiente para o loop aparecer.
+#
+# E se ficar de pe? Otimo. Se nao ficar, o backup volta SOZINHO. Um script
+# que mexe no .env de producao as 22h tem que saber desfazer o proprio
+# estrago sem depender de alguem estar acordado para notar.
+reinicios() {
+    systemctl show "$UNIDADE" -p NRestarts --value 2>/dev/null || echo 0
+}
+
+ANTES_R=$(reinicios)
 echo "Reiniciando..."
 sudo systemctl restart "$UNIDADE"
-sleep 3
-systemctl show "$UNIDADE" -p ActiveState -p SubState -p ExecMainStartTimestamp \
-    2>/dev/null | sed 's/^/  /'
+
+OK=""
+for _ in 1 2 3 4 5 6 7 8; do
+    sleep 2
+    ESTADO=$(systemctl is-active "$UNIDADE" 2>/dev/null || true)
+    if [ "$ESTADO" = "active" ] && [ "$(reinicios)" = "$ANTES_R" ]; then
+        OK=1
+    else
+        OK=""
+    fi
+done
+
+if [ -n "$OK" ]; then
+    echo "OK: $UNIDADE de pe, sem reinicios extras."
+    systemctl show "$UNIDADE" -p ActiveState -p SubState \
+        -p ExecMainStartTimestamp 2>/dev/null | sed 's/^/  /'
+else
+    echo
+    echo "!! O SERVICO NAO FICOU DE PE. Desfazendo sozinho."
+    echo
+    sudo journalctl -u "$UNIDADE" -n 12 --no-pager 2>/dev/null \
+        | sed 's/^/  /'
+    echo
+    sudo cp "$BACKUP" "$ENV_PATH"
+    sudo systemctl restart "$UNIDADE"
+    sleep 4
+    echo "Backup restaurado. Estado agora: $(systemctl is-active "$UNIDADE")"
+    echo
+    echo "O .env voltou ao que era. Leia o erro acima antes de tentar de"
+    echo "novo -- a causa mais comum e a variavel nao existir no"
+    echo "config.py que esta em producao."
+    exit 1
+fi
 
 linha
 echo " Agora reinicie ja foi feito acima. Para conferir que pegou:"

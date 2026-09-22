@@ -307,7 +307,11 @@ async def buscar_econodata(cnpj: str) -> tuple[dict | None, str | None]:
     # CNPJ só. Desembrulhar aqui mantém o normalizador falando apenas de
     # campos de negócio.
     if isinstance(bruto, dict):
-        for chave in ("empresas", "companies", "data", "resultados", "results", "items"):
+        # "empresa" no SINGULAR é como a Econodata devolve de verdade:
+        # `{"empresa": {"cnpj": ..., "estrategico": {...}}}`. Sem ele, o
+        # payload chegava com uma camada a mais no normalizador.
+        for chave in ("empresa", "empresas", "companies", "data",
+                      "resultados", "results", "items"):
             interno = bruto.get(chave)
             if isinstance(interno, list):
                 if not interno:

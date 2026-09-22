@@ -870,10 +870,11 @@ def normalizar_econodata(payload: dict) -> DadosEmpresa:
     Então tudo o mais fica None. O `mesclar` preenche vazio com o que a
     outra fonte trouxe, então um None aqui não apaga nada — só não compete.
 
-    O nº de funcionários daqui é SEMPRE `estimado`: vem de base tipo
-    RAIS/CAGED, com defasagem de meses. Serve para PRIORIZAR prospecção.
-    Quem precifica é a vida declarada pelo cliente, e a regra que separa
-    os dois está em persistencia.aplicar().
+    O nº de funcionários daqui é SEMPRE `estimado`, e a resposta real
+    mostra por quê: ela vem com `origem: "Notícias"` — inferência, não
+    folha de pagamento. Serve para PRIORIZAR prospecção: vale a pena bater
+    nessa porta? Quem precifica é a vida declarada pelo cliente, e a regra
+    que separa os dois está em persistencia.aplicar().
     """
     cnpj = so_digitos(_primeiro(
         payload, "cnpj", "cnpjCompleto", "empresa.cnpj", "document"
@@ -883,13 +884,37 @@ def normalizar_econodata(payload: dict) -> DadosEmpresa:
     # objeto. Os três caminham pelo mesmo `para_inteiro`, que desembrulha o
     # objeto e pega o PISO da faixa — dizer 51 quando pode ser 100
     # subestima, mas dizer 75 inventaria precisão que o dado não tem.
-    # OS CAMINHOS ESPECÍFICOS VÊM PRIMEIRO, e a ordem não é estética: se
-    # `funcionarios` (o objeto inteiro) viesse antes, ele casaria sempre e
-    # os caminhos de dentro nunca seriam tentados. O objeto cru é o último
-    # recurso, para o caso de a fonte devolver o número direto.
+    # ── O CAMPO, conferido contra a resposta real em 21/09/2026 ──────
+    #
+    #   empresa.estrategico.headcountCnpj
+    #       {"de": 200, "ate": 299, "valor": 250, "origem": "Notícias"}
+    #
+    # DUAS ARMADILHAS AQUI, e a primeira é cara.
+    #
+    # 1. `headcountMatrizFiliais` NÃO PODE SER USADO. Ele soma o grupo
+    #    econômico inteiro: na consulta de teste, a Amazon Brasil deu 250
+    #    no CNPJ e 18.000 no grupo. Em medicina ocupacional o que se
+    #    dimensiona são as vidas DAQUELE estabelecimento — o CNPJ que
+    #    assina o contrato. Trocar um pelo outro multiplicaria a proposta
+    #    por setenta. Por isso o caminho do CNPJ vem primeiro e o do grupo
+    #    não aparece em lugar nenhum desta lista.
+    #
+    # 2. `valor` é o PONTO MÉDIO da faixa (250 entre 200 e 299), não uma
+    #    medição. Ficamos com `de`, o piso: é a mesma regra que já vale
+    #    para faixa em texto ("51 a 100" vira 51). Subestimar é honesto;
+    #    o meio inventa uma precisão que o dado não tem — ainda mais com
+    #    `origem: "Notícias"`, que é inferência, não folha de pagamento.
+    #
+    # Os caminhos específicos vêm antes do objeto cru: se `funcionarios`
+    # (o objeto inteiro) viesse primeiro, casaria sempre e os de dentro
+    # nunca seriam tentados.
     funcionarios = para_inteiro(_primeiro(
         payload,
-        "funcionarios.quantidade", "funcionarios.total",
+        # Econodata — o CNPJ, nunca o grupo.
+        "estrategico.headcountCnpj.de", "headcountCnpj.de",
+        "empresa.estrategico.headcountCnpj.de",
+        # Outras formas de faixa.
+        "funcionarios.de", "funcionarios.quantidade", "funcionarios.total",
         "funcionarios.numero", "funcionarios.faixa", "funcionarios.valor",
         "funcionarios.descricao",
         "quantidadeFuncionarios", "quantidade_funcionarios",
