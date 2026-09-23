@@ -1,10 +1,14 @@
+﻿# ==========================================================
+# HIPO - .gitignore
+# Revisado em 2026-09-22. Consolidado: regras duplicadas e
+# padroes de backup redundantes foram unificados.
+# ==========================================================
+
 # Python
 __pycache__/
 *.py[cod]
 *.egg
 *.egg-info/
-dist/
-build/
 .eggs/
 .venv/
 venv/
@@ -15,7 +19,7 @@ env/
 # Node
 node_modules/
 dist/
-.DS_Store
+build/
 *.local
 
 # IDE
@@ -23,30 +27,34 @@ dist/
 .idea/
 *.swp
 
+# OS
+.DS_Store
+Thumbs.db
+
+# Testes e cobertura
+.pytest_cache/
+.coverage
+htmlcov/
+coverage/
+
 # Uploads e logs
 uploads/
 *.log
 logs/
 
-# Coverage
-.coverage
-htmlcov/
-.pytest_cache/
-coverage/
-
-# Vitest
-coverage/
-
-# OS
-.DS_Store
-Thumbs.db
-scripts/
-
-# Backups locais gerados pelo install-carteira.ps1
-_backup_carteira_*/
-
-# Backups gerados pelos instaladores
+# ----------------------------------------------------------
+# Backups e patches locais gerados por script (nunca commitar)
+# Cobre _backup-*, _backup_*, backup_hotfix_*, _backup_carteira_*,
+# _backup_patch_*, _backup-014-* e todo .bak / .bak2_ / .bakP* / .bakV*
+# ----------------------------------------------------------
+_backup-*/
+_backup_*/
 backup_*/
+backups/
+_patches/
+*.bak*
+*.patch
+*.zip
 
 # Pastas extraidas dos zips de install (ficam temporariamente na raiz)
 clientes/
@@ -57,56 +65,37 @@ acessos-hotfix/
 tema-novo/
 carteira-v*/
 
-# Scripts de install soltos na raiz
+# Scripts descartaveis soltos na raiz
 install-*.ps1
-
-# Backups locais de patches (nunca commitar)
-_backup_patch_*/
-*.bak
-*.bak_*
-*.bak2_*
-
-# Backups numerados de patches (bakP1, bakP2, bakP3, ...)
-*.bakP*
-api/routers/clientes.py.bakP*
-api/tests/*.bakP*
-web/**/*.bakP*
-
-# patches descartaveis e backups de migracao
-_patches/
-*.bak*
 apply-*.ps1
 patch-*.ps1
 
-# Cargas de dados (contatos reais de parceiros — repositorio publico)
+# ----------------------------------------------------------
+# Dados reais de empresas e contatos
+# O remoto e github.com/tuliohorta77/Hipo-Web -- nada de base
+# de cliente aqui. Arquivo JA rastreado ignora esta secao:
+# precisa de "git rm --cached" para sair.
+# ----------------------------------------------------------
 _carga-*.sql
 _carga-*.csv
 _carga-*.xlsx
+api/scripts/dados/*.csv
+api/scripts/dados/*.json
 
 # Entregas do Claude e anotacoes de trabalho (nao sao codigo)
 Claude outputs/
 mensagem-do-commit.txt
 
-# Saidas de execucao dos scripts de dados (relatorios dry-run/aplicado)
-api/scripts/dados/*.csv
-
-# Scripts de deploy/diagnostico gerados por entrega ficam versionados
-# de proposito -- sao o registro de como cada release subiu. Se um dia
-# incomodarem, o padrao e deploy-*.ps1 / diagnostico-*.ps1.
-
-_backup-014-*/
-
-# --- backups e patches locais (gerados por script, nao versionar) ---
-_backup-*/
-_backup_*/
-backup_*/
-backups/
-*.bak
-*.bak[0-9]*
-*.bakP*
-*.bakV*
-_patches/
-*.patch
-*.zip
-_carga-*.sql
-Claude outputs/
+# ----------------------------------------------------------
+# VERSIONADOS DE PROPOSITO -- nao ignorar:
+#   ops/releases/     deploy-*.ps1, aplicar-*.ps1, fix-*.ps1
+#                     (registro de como cada release subiu)
+#   ops/utilitarios/  setup-*.ps1, diagnostico-*.ps1, liberar-*.ps1
+#   scripts/          cargas e rotinas remotas (.ps1 / .sh / .py)
+#
+# ATENCAO: nao reintroduzir a linha "scripts/" aqui. Ela existia
+# e, como git ignora por diretorio em qualquer nivel, deixava
+# arquivos NOVOS em scripts/ e api/scripts/ invisiveis ao
+# "git status" -- os 18 que estao lá hoje sobreviveram porque
+# foram adicionados antes ou com "git add -f".
+# ----------------------------------------------------------

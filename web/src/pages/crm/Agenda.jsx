@@ -43,8 +43,8 @@ import KpiInline from '../../components/ui/KpiInline';
 import ModalReuniao from '../../components/crm/ModalReuniao';
 import ProdutividadeAgenda from '../../components/crm/ProdutividadeAgenda';
 import {
-  ICONE_MODALIDADE, POR_DESFECHO, campoLocalDoSlot, diaCurto, faixaDaSemana,
-  hojeIso, horaCurta, mensagemDeErro, somarSemanas,
+  ALVOS, ICONE_MODALIDADE, POR_DESFECHO, alvoPadraoDoCargo, campoLocalDoSlot,
+  diaCurto, faixaDaSemana, hojeIso, horaCurta, mensagemDeErro, somarSemanas,
 } from '../../components/crm/agendaComum';
 
 const CLASSE_CAMPO =
@@ -149,7 +149,7 @@ function Cartao({ reuniao, onAbrir }) {
 
 // ── Célula ───────────────────────────────────────────────────────────
 
-function Celula({ dia, slot, reunioes, onAbrir, onMarcar }) {
+function Celula({ dia, slot, reunioes, ocupadoOculto, onAbrir, onMarcar }) {
   if (reunioes.length > 0) {
     return (
       <div className="p-0.5 space-y-0.5 min-h-[2.25rem] border-b border-r border-hipo-border">
@@ -172,6 +172,27 @@ function Celula({ dia, slot, reunioes, onAbrir, onMarcar }) {
     Não há risco de criar reunião no dono errado: o formulário abre sem
     anfitrião e o botão de salvar fica travado até alguém escolher um.
   */
+  /*
+    Exceto quando o filtro de assunto escondeu a reunião que ocupa este
+    horário. Aí a célula não é um buraco — é um horário tomado cujo cartão
+    está fora do recorte, e oferecê-lo como livre faria o EC prometer ao
+    parceiro um slot em que o EV já tem cliente. Some o conteúdo, não o
+    horário: hachura, `title` explicando, e o clique desligado.
+  */
+  if (ocupadoOculto) {
+    return (
+      <div
+        title="Ocupado por uma reunião de outro assunto — tire o filtro para ver."
+        aria-label={`${diaCurto(dia)} às ${slot}: ocupado por reunião fora do filtro`}
+        className={
+          'min-h-[2.25rem] border-b border-r border-hipo-border bg-hipo-bg ' +
+          'flex items-center justify-center'
+        }
+      >
+        <span className="block w-4 border-t border-dashed border-hipo-border" />
+      </div>
+    );
+  }
   return (
     <button
       type="button"
@@ -214,6 +235,23 @@ export default function Agenda() {
   // eu marquei para o Bruno" é a pergunta do SDR conferindo o próprio
   // trabalho, e ela precisa dos dois filtros ao mesmo tempo.
   const [agendadoPor, setAgendadoPor] = useState('');
+  /*
+    O assunto: Parceiros ou Oportunidades.
+
+    Abre no que o CARGO diz — EC em parceiros, o resto em oportunidades —,
+    e NÃO é lembrado entre visitas. Guardar a última escolha no
+    localStorage faria a tela abrir num recorte escolhido semanas atrás,
+    que é exatamente o modo de falha do `hipo_user`: filtro invisível que
+    ninguém lembra de ter ligado, e a pessoa concluindo que a semana está
+    vazia.
+
+    `null` = os dois botões desligados = a semana inteira. É por isso que
+    são dois toggles e não um seletor de três opções: "sem filtro" não é
+    uma terceira carteira, é a ausência de recorte.
+  */
+  const [alvo, setAlvo] = useState(
+    () => alvoPadraoDoCargo(usuarioLogado?.cargo)
+  );
   const [usuarios, setUsuarios] = useState([]);
   const [carregando, setCarregando] = useState(true);
   const [erro, setErro] = useState(null);
@@ -228,8 +266,13 @@ export default function Agenda() {
     const p = { inicio };
     if (anfitriao) p.anfitriao_id = anfitriao;
     if (agendadoPor) p.agendado_por = agendadoPor;
+    // Recorte no SERVIDOR, e não um `filter` sobre a resposta: é ele que
+    // sabe quais slots o recorte escondeu, e é dele que vêm os números do
+    // topo. Filtrar no navegador daria uma barra que conta uma coisa e uma
+    // grade que mostra outra.
+    if (alvo) p.alvo = alvo;
     return p;
-  }, [inicio, anfitriao, agendadoPor]);
+  }, [inicio, anfitriao, agendadoPor, alvo]);
 
   const carregar = useCallback(async () => {
     setCarregando(true);
@@ -281,6 +324,11 @@ export default function Agenda() {
   const porSlot = useMemo(() => {
     const mapa = new Map();
     const foraDaGrade = [];
+    // Os horários tomados por reunião que o filtro escondeu. Vêm prontos
+    // do servidor (`dias[].slots_ocultos`) porque quem decide em que slot
+    // uma reunião de 90 minutos cabe é ele — a grade não tem a duração
+    // dos cartões que não recebeu.
+    const ocultos = new Set();
     for (const dia of semana?.dias || []) {
       for (const r of dia.reunioes) {
         if (!r.slot) { foraDaGrade.push({ ...r, dia: dia.data }); continue; }
@@ -288,8 +336,9 @@ export default function Agenda() {
         if (!mapa.has(chave)) mapa.set(chave, []);
         mapa.get(chave).push(r);
       }
+      for (const s of dia.slots_ocultos || []) ocultos.add(`${dia.data}|${s}`);
     }
-    return { mapa, foraDaGrade };
+    return { mapa, foraDaGrade, ocultos };
   }, [semana]);
 
   const fechar = useCallback(() => { setAberta(null); setNovo(null); }, []);
@@ -402,9 +451,73 @@ export default function Agenda() {
               {semana.nao_sincronizadas} sem convite
             </Badge>
           )}
+          {/*
+            Filtro que esconde em silêncio é a versão educada de perder
+            registro: sem este número, quem abre numa semana em que todo o
+            movimento é do outro assunto lê "Marcadas: 0" e conclui que a
+            semana está vazia. Clicar desliga o filtro — o número É a ação.
+          */}
+          {semana?.ocultas > 0 && (
+            <button
+              type="button"
+              onClick={() => setAlvo(null)}
+              title="Reuniões do outro assunto nesta semana. Clique para ver a semana inteira."
+              className={
+                'h-6 px-2 rounded-full border border-hipo-border bg-hipo-bg ' +
+                'text-[11px] text-hipo-slate hover:bg-hipo-blueSoft ' +
+                'focus:outline-none focus-visible:ring-2 focus-visible:ring-hipo-blue'
+              }
+            >
+              +{semana.ocultas} fora do filtro
+            </button>
+          )}
         </div>
 
         <div className="ml-auto flex items-center gap-2">
+          {/*
+            O filtro de assunto: dois toggles, e o ativo desliga no
+            segundo clique.
+
+            Dois botões e não um `select` porque a troca precisa custar UM
+            clique — é o gesto que o EC faz ao entrar para conferir se
+            alguém marcou venda na agenda dele, e um seletor cobraria
+            abrir, ler duas opções e escolher. E não há terceira opção
+            "Todas" na lista pelo mesmo motivo: "sem filtro" não é uma
+            terceira carteira, é nenhum dos dois ligado — o estado que o
+            botão ativo produz quando é clicado de novo.
+          */}
+          <div
+            role="group"
+            aria-label="Assunto das reuniões"
+            className="inline-flex items-center rounded-lg border border-hipo-border overflow-hidden"
+          >
+            {ALVOS.map((a) => {
+              const ativo = alvo === a.valor;
+              return (
+                <button
+                  key={a.valor}
+                  type="button"
+                  aria-pressed={ativo}
+                  title={
+                    ativo
+                      ? `Mostrando só ${a.rotulo.toLowerCase()} — clique para ver tudo`
+                      : `Ver só ${a.rotulo.toLowerCase()}`
+                  }
+                  onClick={() => setAlvo(ativo ? null : a.valor)}
+                  className={
+                    'h-8 px-2.5 text-xs font-medium transition-colors ' +
+                    'focus:outline-none focus-visible:ring-2 focus-visible:ring-inset ' +
+                    'focus-visible:ring-hipo-blue ' +
+                    (ativo
+                      ? 'bg-hipo-blue text-white'
+                      : 'bg-hipo-card text-hipo-slate hover:bg-hipo-bg')
+                  }
+                >
+                  {a.rotulo}
+                </button>
+              );
+            })}
+          </div>
           {/*
             Botão de ícone, no mesmo formato das setas de semana, e não um
             botão com texto: "Produtividade" escrito custava ~100px numa
@@ -562,6 +675,7 @@ export default function Agenda() {
                           dia={d.data}
                           slot={slot}
                           reunioes={porSlot.mapa.get(`${d.data}|${slot}`) || []}
+                          ocupadoOculto={porSlot.ocultos.has(`${d.data}|${slot}`)}
                           onAbrir={(r) => { setNovo(null); setAberta(r); }}
                           onMarcar={marcar}
                         />
@@ -590,6 +704,10 @@ export default function Agenda() {
         reuniao={aberta}
         slotInicial={novo?.inicio || ''}
         anfitriaoInicial={anfitriao}
+        // O formulário abre no assunto que a tela está filtrando: quem
+        // clicou num buraco com "Parceiros" ligado quer marcar com um
+        // parceiro. Sem filtro, cai no padrão de sempre.
+        alvoInicial={alvo || 'oportunidade'}
         usuarios={usuarios}
       />
 

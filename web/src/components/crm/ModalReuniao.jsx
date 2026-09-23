@@ -250,6 +250,13 @@ export default function ModalReuniao({
   //              reunião" dentro do parceiro. Mesmo papel de `oportunidade`.
   parceiro = null,
   anfitriaoInicial = '',
+  // Em qual dos dois alvos o formulário ABRE quando nenhum veio preso —
+  // o caso do clique num slot vazio da Agenda, que passa aqui o filtro de
+  // assunto que está ligado na tela. É só o estado inicial: o par de
+  // botões continua ali e trocar é um clique. Sem isto, o EC filtrado em
+  // parceiros clicava no buraco e caía num formulário pedindo
+  // oportunidade.
+  alvoInicial = 'oportunidade',
   // Editar: a reunião existente. Presente = modo edição.
   reuniao: reuniaoRecebida = null,
   // Ou só o id dela — o caminho das telas de Tarefas, que conhecem a
@@ -288,7 +295,9 @@ export default function ModalReuniao({
   // Remonta o formulário sempre que o modal abre num alvo diferente. A
   // chave é o id da reunião (ou o slot, na criação): sem ela, abrir um
   // cartão depois de outro mostraria os dados do anterior por um render.
-  const chave = reuniao?.id || slotInicial || oportunidade?.id || parceiro?.id || 'novo';
+  const chave =
+    (reuniao?.id || slotInicial || oportunidade?.id || parceiro?.id || 'novo')
+    + `|${alvoInicial}`;
   useEffect(() => {
     if (!aberto) return;
     setErro(null);
@@ -303,7 +312,11 @@ export default function ModalReuniao({
         // são pessoas diferentes em todo agendamento que o SDR faz.
         agendado_por: eu,
         inicio: slotInicial || '',
-        alvo: parceiro ? 'parceiro' : 'oportunidade',
+        alvo: parceiro
+          ? 'parceiro'
+          : oportunidade
+            ? 'oportunidade'
+            : (alvoInicial === 'parceiro' ? 'parceiro' : 'oportunidade'),
         oportunidade: oportunidade || null,
         parceiro: parceiro || null,
         contato_id: oportunidade?.contato_id || '',

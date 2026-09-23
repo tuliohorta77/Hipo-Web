@@ -17,7 +17,7 @@ As quatro regras que esta suíte protege:
 import pytest
 
 from config import settings
-from services.enriquecimento import fontes
+from services.enriquecimento import fontes, modelo
 from tests.conftest import criar_usuario
 
 CNPJ_A = "11222333000181"
@@ -1137,3 +1137,83 @@ class TestVerticalDerivada:
             headers=usuario_adm["headers"],
         )
         assert "2511000" not in [c["codigo"] for c in resp.json()]
+
+
+# ── Quadro de pessoal: faixa não é contagem ──────────────────────────────────
+
+class TestFaixaNaoEhContagem:
+    """
+    Regressão de produção (21/09/2026): uma empresa de ~115 vidas entrou no
+    cadastro com 3 funcionários.
+
+    A causa não foi a fonte errar o dado — foi o HIPO ler `faixaFuncionarios:
+    3` como "três pessoas" quando significa "terceira faixa". Numa tabela
+    comum (1: até 9, 2: 10 a 49, 3: 50 a 249) o erro é de duas ordens de
+    grandeza, e **para baixo**: o lado que faz a proposta sair
+    subdimensionada e o problema só aparecer na execução do serviço.
+
+    São testes de lógica pura — rodam sem Postgres.
+    """
+
+    def test_faixa_como_indice_e_recusada(self):
+        """O caso exato que aconteceu. Vazio é melhor que errado: campo
+        vazio o enriquecimento preenche na próxima consulta; um 3 gravado
+        fica para sempre, protegido pela regra de não sobrescrever."""
+        dados = modelo.normalizar_econodata(
+            {"cnpj": "41029827000105", "faixaFuncionarios": 3}
+        )
+        assert dados.num_funcionarios is None
+
+    def test_faixa_como_texto_vira_o_piso(self):
+        dados = modelo.normalizar_econodata(
+            {"cnpj": "41029827000105", "faixaFuncionarios": "50 a 249"}
+        )
+        assert dados.num_funcionarios == 50
+
+    def test_faixa_com_codigo_e_rotulo_usa_o_rotulo(self):
+        dados = modelo.normalizar_econodata({
+            "cnpj": "41029827000105",
+            "faixaFuncionarios": {"codigo": 3, "faixa": "50 a 249"},
+        })
+        assert dados.num_funcionarios == 50
+
+    def test_objeto_so_com_codigo_nao_vira_quantidade(self):
+        """Preferir o rótulo só salva quando o rótulo vem."""
+        dados = modelo.normalizar_econodata(
+            {"cnpj": "41029827000105", "funcionarios": {"codigo": 3}}
+        )
+        assert dados.num_funcionarios is None
+
+    def test_contagem_de_verdade_continua_passando(self):
+        """A trava não pode custar o caso normal."""
+        dados = modelo.normalizar_econodata(
+            {"cnpj": "41029827000105", "quantidadeFuncionarios": 115}
+        )
+        assert dados.num_funcionarios == 115
+
+    def test_headcount_do_cnpj_usa_o_piso_da_faixa(self):
+        dados = modelo.normalizar_econodata({
+            "cnpj": "41029827000105",
+            "estrategico": {
+                "headcountCnpj": {"de": 100, "ate": 249, "valor": 175,
+                                  "origem": "Notícias"},
+            },
+        })
+        assert dados.num_funcionarios == 100
+        assert dados.num_funcionarios_origem == modelo.ESTIMADO
+
+    def test_grupo_economico_nunca_entra(self):
+        """`headcountMatrizFiliais` soma o grupo inteiro. Em medicina
+        ocupacional dimensiona-se o estabelecimento que assina o contrato —
+        na sondagem de teste, 250 no CNPJ contra 18.000 no grupo."""
+        dados = modelo.normalizar_econodata({
+            "cnpj": "41029827000105",
+            "estrategico": {"headcountMatrizFiliais": 18000},
+        })
+        assert dados.num_funcionarios is None
+
+    def test_quantidade_de_faixa_recusa_numero_solto(self):
+        assert modelo.quantidade_de_faixa(3) is None
+        assert modelo.quantidade_de_faixa(115) is None
+        assert modelo.quantidade_de_faixa("50 a 249") == 50
+        assert modelo.quantidade_de_faixa({"de": 100, "ate": 249}) == 100

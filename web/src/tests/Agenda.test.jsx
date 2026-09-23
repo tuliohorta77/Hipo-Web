@@ -27,6 +27,7 @@ vi.mock('../api', () => ({
 }));
 
 import Agenda from '../pages/crm/Agenda';
+import { alvoPadraoDoCargo } from '../components/crm/agendaComum';
 
 // Semana de 07 a 11 de setembro de 2026 (segunda a sexta).
 const SLOTS = [
@@ -71,13 +72,20 @@ function reuniao(id, extra = {}) {
   };
 }
 
+function dia(data, dia_semana) {
+  return {
+    data, dia_semana, nao_util: false, motivo: null,
+    reunioes: [], slots_ocultos: [],
+  };
+}
+
 function semana(extra = {}) {
   const dias = [
-    { data: '2026-09-07', dia_semana: 'seg', nao_util: false, motivo: null, reunioes: [] },
-    { data: '2026-09-08', dia_semana: 'ter', nao_util: false, motivo: null, reunioes: [] },
-    { data: '2026-09-09', dia_semana: 'qua', nao_util: false, motivo: null, reunioes: [] },
-    { data: '2026-09-10', dia_semana: 'qui', nao_util: false, motivo: null, reunioes: [] },
-    { data: '2026-09-11', dia_semana: 'sex', nao_util: false, motivo: null, reunioes: [] },
+    dia('2026-09-07', 'seg'),
+    dia('2026-09-08', 'ter'),
+    dia('2026-09-09', 'qua'),
+    dia('2026-09-10', 'qui'),
+    dia('2026-09-11', 'sex'),
   ];
   return {
     inicio: '2026-09-07', fim: '2026-09-11',
@@ -87,6 +95,7 @@ function semana(extra = {}) {
     total: 0, concluidas: 0, canceladas: 0, pendentes: 0,
     livres: 90, nao_sincronizadas: 0,
     google_configurado: true,
+    alvo: null, ocultas: 0,
     ...extra,
   };
 }
@@ -518,6 +527,135 @@ describe('Agenda — navegação', () => {
     });
     render(<Agenda />);
     expect(await screen.findByText('banco fora')).toBeInTheDocument();
+  });
+});
+
+
+// ── O filtro de assunto ──────────────────────────────────────────────
+//
+// Duas carteiras na mesma grade: a de parceiros (do EC) e a de
+// oportunidades (do SDR e do EV). Três promessas:
+//
+//   1. a tela abre no assunto do CARGO, sem ninguém clicar
+//   2. o botão ativo desliga no segundo clique, e aí vem a semana inteira
+//   3. o que o filtro esconde continua OCUPANDO o horário — a célula não
+//      vira buraco clicável
+
+describe('Agenda — filtro de assunto', () => {
+  function ultimaChamada() {
+    return mockGet.mock.calls
+      .filter((c) => c[0] === '/crm/agenda/semana').at(-1);
+  }
+
+  it('o EC abre a agenda em Parceiros', async () => {
+    mockGetUser.mockReturnValue({ id: 'u1', nome: 'Aline Martins', cargo: 'EC' });
+    await renderizar();
+    expect(screen.getByRole('button', { name: 'Parceiros' }))
+      .toHaveAttribute('aria-pressed', 'true');
+    await waitFor(() => expect(ultimaChamada()[1].params.alvo).toBe('parceiro'));
+  });
+
+  it('o EV abre a agenda em Oportunidades', async () => {
+    mockGetUser.mockReturnValue({ id: 'u1', nome: 'Jakeline Santana', cargo: 'EV' });
+    await renderizar();
+    expect(screen.getByRole('button', { name: 'Oportunidades' }))
+      .toHaveAttribute('aria-pressed', 'true');
+    await waitFor(() => expect(ultimaChamada()[1].params.alvo).toBe('oportunidade'));
+  });
+
+  it('o franqueado também abre em Oportunidades', async () => {
+    /*
+      Ele TEM o módulo de parceiros, mas quando abre a agenda a pergunta é
+      a da operação comercial. Foi essa a decisão.
+    */
+    mockGetUser.mockReturnValue({ id: 'u1', nome: 'Tulio', cargo: 'Franqueado' });
+    await renderizar();
+    await waitFor(() => expect(ultimaChamada()[1].params.alvo).toBe('oportunidade'));
+  });
+
+  it('clicar no botão ativo desliga o filtro e traz a semana inteira', async () => {
+    /*
+      É por isso que são dois toggles e não um seletor de três opções:
+      "sem filtro" não é uma terceira carteira, é nenhum dos dois ligado.
+    */
+    mockGetUser.mockReturnValue({ id: 'u1', nome: 'Aline', cargo: 'EC' });
+    await renderizar();
+    fireEvent.click(screen.getByRole('button', { name: 'Parceiros' }));
+    await waitFor(() => expect(ultimaChamada()[1].params.alvo).toBeUndefined());
+    expect(screen.getByRole('button', { name: 'Parceiros' }))
+      .toHaveAttribute('aria-pressed', 'false');
+  });
+
+  it('clicar no outro assunto troca o recorte', async () => {
+    mockGetUser.mockReturnValue({ id: 'u1', nome: 'Aline', cargo: 'EC' });
+    await renderizar();
+    fireEvent.click(screen.getByRole('button', { name: 'Oportunidades' }));
+    await waitFor(() => expect(ultimaChamada()[1].params.alvo).toBe('oportunidade'));
+  });
+
+  it('o horário escondido pelo filtro NÃO vira buraco clicável', async () => {
+    /*
+      O teste que trava a decisão: esconder o cartão não desocupa o
+      horário. Oferecer este slot como livre faria o EC prometer ao
+      parceiro um horário em que o EV já tem cliente — e o 409 só
+      apareceria depois da ligação.
+    */
+    const corpo = semana({ alvo: 'parceiro', ocultas: 1 });
+    corpo.dias[1].slots_ocultos = ['09:00'];
+    responder(corpo);
+    mockGetUser.mockReturnValue({ id: 'u1', nome: 'Aline', cargo: 'EC' });
+    await renderizar();
+    expect(
+      screen.queryByLabelText('Marcar reunião em 08/set às 09:00')
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByLabelText('08/set às 09:00: ocupado por reunião fora do filtro')
+    ).toBeInTheDocument();
+    // Os outros horários continuam livres e clicáveis.
+    expect(
+      screen.getByLabelText('Marcar reunião em 08/set às 09:30')
+    ).toBeInTheDocument();
+  });
+
+  it('diz quantas reuniões o filtro escondeu, e o número desliga o filtro', async () => {
+    /*
+      Filtro que esconde em silêncio é a versão educada de perder
+      registro: sem este número, quem abre numa semana em que todo o
+      movimento é do outro assunto lê "Marcadas: 0" e conclui que a semana
+      está vazia.
+    */
+    responder(semana({ alvo: 'parceiro', ocultas: 3 }));
+    mockGetUser.mockReturnValue({ id: 'u1', nome: 'Aline', cargo: 'EC' });
+    await renderizar();
+    const aviso = screen.getByText('+3 fora do filtro');
+    fireEvent.click(aviso);
+    await waitFor(() => expect(ultimaChamada()[1].params.alvo).toBeUndefined());
+  });
+
+  it('sem nada escondido, o aviso não aparece', async () => {
+    await renderizar();
+    expect(screen.queryByText(/fora do filtro/)).not.toBeInTheDocument();
+  });
+});
+
+describe('alvoPadraoDoCargo', () => {
+  it('EC trabalha carteira de parceiro', () => {
+    expect(alvoPadraoDoCargo('EC')).toBe('parceiro');
+  });
+
+  it('os cargos de venda e a gestão abrem em oportunidades', () => {
+    for (const cargo of ['SDR', 'EV', 'EP', 'ADM', 'Franqueado']) {
+      expect(alvoPadraoDoCargo(cargo)).toBe('oportunidade');
+    }
+  });
+
+  it('cargo ausente ou desconhecido cai no padrão, nunca em "sem filtro"', () => {
+    /*
+      Abrir sem filtro seria abrir na semana da operação inteira — que é
+      justamente o que esta tela deixou de ser.
+    */
+    expect(alvoPadraoDoCargo(undefined)).toBe('oportunidade');
+    expect(alvoPadraoDoCargo('Gerente')).toBe('oportunidade');
   });
 });
 

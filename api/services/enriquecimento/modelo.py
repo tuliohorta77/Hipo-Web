@@ -63,6 +63,11 @@ _ROTULOS = ("descricao", "description", "nome", "name", "texto", "text",
             "label", "faixa", "range", "valor", "value")
 _CODIGOS = ("codigo", "code", "id", "valor", "value", "numero", "number")
 
+# Chaves que NUNCA carregam quantidade, só identificador de tabela. Note que
+# `valor`, `numero` e afins ficam de fora desta lista de propósito: num campo
+# de quadro de pessoal, `{"valor": 250}` é mesmo a quantidade.
+_CODIGOS_PUROS = ("codigo", "code", "id")
+
 
 def desembrulhar(valor, prefere: str = "rotulo"):
     """
@@ -255,12 +260,27 @@ def para_inteiro(valor) -> int | None:
     >>> para_inteiro("sem informação")
     >>> para_inteiro({"codigo": 3, "faixa": "11 a 50"})
     11
+    >>> para_inteiro({"codigo": 3})
     """
     # PREFERE O RÓTULO, e isto já evitou um erro caro: a Econodata devolve
     # `{"codigo": 3, "faixa": "11 a 50"}`, onde o código é o ÍNDICE da
     # faixa, não a quantidade. Pegando o código, uma empresa de 11 a 50
     # pessoas entraria no cadastro como tendo 3 funcionários — e esse
     # número vai para a tela de quem vai precificar.
+    #
+    # Mas preferir o rótulo só salva quando o rótulo VEM. Um `{"codigo": 3}`
+    # sozinho cai no código e volta a valer 3. Para quantidade, código não é
+    # resposta parcial — é ausência de resposta. None deixa o campo vazio, e
+    # campo vazio o enriquecimento preenche na próxima consulta; um 3 errado
+    # fica para sempre, porque a regra de não sobrescrever o protege.
+    if isinstance(valor, dict):
+        legiveis = {
+            c: v for c, v in valor.items()
+            if v not in (None, "", [], {}) and not isinstance(v, (dict, list))
+        }
+        if legiveis and all(c in _CODIGOS_PUROS for c in legiveis):
+            return None
+
     valor = desembrulhar(valor)
     if valor is None or isinstance(valor, bool):
         return None
@@ -273,6 +293,41 @@ def para_inteiro(valor) -> int | None:
     if not numeros:
         return None
     return int(numeros[0])
+
+
+def quantidade_de_faixa(valor) -> int | None:
+    """
+    Piso de um campo que, PELO NOME, declara faixa — `faixaFuncionarios`,
+    `porteFuncionarios`, `funcionarios.faixa`.
+
+    A diferença em relação a `para_inteiro` é uma só, e é toda a razão desta
+    função existir: **número cru aqui é índice de faixa, não quantidade.**
+
+    `faixaFuncionarios: 3` não quer dizer três pessoas. Quer dizer "terceira
+    faixa" — que numa tabela comum (1: até 9, 2: 10 a 49, 3: 50 a 249) é uma
+    empresa de porte médio. Ler o 3 como quantidade não erra por pouco: erra
+    por duas ordens de grandeza, e erra PARA BAIXO, que é o lado que faz a
+    proposta sair subdimensionada.
+
+    Texto ("50 a 249") e objeto com rótulo seguem valendo — ali o piso é
+    legível de verdade. Só o número solto é recusado, porque a tabela de
+    faixas é da fonte e não está no HIPO.
+
+    >>> quantidade_de_faixa("50 a 249")
+    50
+    >>> quantidade_de_faixa({"codigo": 3, "faixa": "50 a 249"})
+    50
+    >>> quantidade_de_faixa({"de": 100, "ate": 249})
+    100
+    >>> quantidade_de_faixa(3)
+    >>> quantidade_de_faixa(115)
+    >>> quantidade_de_faixa("115")
+    115
+    """
+    # Número solto: índice, não quantidade. Recusado.
+    if isinstance(valor, bool) or isinstance(valor, (int, float)):
+        return None
+    return para_inteiro(valor)
 
 
 def para_decimal(valor) -> float | None:
@@ -908,23 +963,40 @@ def normalizar_econodata(payload: dict) -> DadosEmpresa:
     # Os caminhos específicos vêm antes do objeto cru: se `funcionarios`
     # (o objeto inteiro) viesse primeiro, casaria sempre e os de dentro
     # nunca seriam tentados.
+    # 3. E A TERCEIRA, que só apareceu em produção: os campos de FAIXA
+    #    estavam na mesma lista dos de contagem. `faixaFuncionarios: 3` não
+    #    é "três pessoas", é "terceira faixa" — e uma empresa de 115 vidas
+    #    entrou no cadastro como tendo 3. Duas ordens de grandeza, para
+    #    baixo, direto na tela de quem precifica.
+    #
+    #    Por isso agora são DUAS passadas. A de contagem primeiro; a de
+    #    faixa só se a primeira não achou nada, e por uma função que recusa
+    #    número solto — a tabela de faixas é da fonte, não é nossa.
     funcionarios = para_inteiro(_primeiro(
         payload,
         # Econodata — o CNPJ, nunca o grupo.
         "estrategico.headcountCnpj.de", "headcountCnpj.de",
         "empresa.estrategico.headcountCnpj.de",
-        # Outras formas de faixa.
+        # Contagem: o valor É a quantidade.
         "funcionarios.de", "funcionarios.quantidade", "funcionarios.total",
-        "funcionarios.numero", "funcionarios.faixa", "funcionarios.valor",
-        "funcionarios.descricao",
+        "funcionarios.numero", "funcionarios.valor", "funcionarios.descricao",
         "quantidadeFuncionarios", "quantidade_funcionarios",
         "numeroFuncionarios", "numero_funcionarios", "qtdFuncionarios",
         "qnt_funcionario_empresa",
-        "faixaFuncionarios", "faixa_funcionarios",
-        "porteFuncionarios", "employees", "employeeCount",
+        "employees", "employeeCount",
         "estrategico.funcionarios", "empresa.funcionarios",
         "funcionarios",
     ))
+
+    if funcionarios is None:
+        # Faixa: o valor é um intervalo, e número solto ali é índice.
+        funcionarios = quantidade_de_faixa(_primeiro(
+            payload,
+            "funcionarios.faixa",
+            "faixaFuncionarios", "faixa_funcionarios",
+            "estrategico.faixaFuncionarios",
+            "porteFuncionarios",
+        ))
 
     return DadosEmpresa(
         cnpj=cnpj,

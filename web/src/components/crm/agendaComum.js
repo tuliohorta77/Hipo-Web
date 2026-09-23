@@ -49,6 +49,44 @@ export const DURACOES = [
 
 export const DURACAO_PADRAO = 30;
 
+// ── O assunto da reunião ─────────────────────────────────────────────
+//
+// Duas carteiras convivem na mesma grade: a de PARCEIROS (o cultivo de
+// quem indica, trabalho do EC) e a de OPORTUNIDADES (a negociação, do SDR
+// ao EV). Quem abre a agenda quase sempre quer ver uma só — e o cargo já
+// diz qual é.
+//
+// Os valores são os mesmos de `services/tarefa.ALVOS`, porque é
+// literalmente o alvo da tarefa que classifica a reunião. O filtro vai
+// como `alvo` no GET da semana: quem recorta é o servidor, e é ele também
+// que devolve os slots que o recorte escondeu.
+export const ALVOS = [
+  { valor: 'parceiro', rotulo: 'Parceiros' },
+  { valor: 'oportunidade', rotulo: 'Oportunidades' },
+];
+
+// Quem trabalha carteira de parceiro. Mesma lista de
+// `permissions.CARGOS_COM_PARCEIROS` MENOS a gestão: o Franqueado tem o
+// módulo de parceiros, mas quando ele abre a agenda a pergunta é a da
+// operação comercial — foi essa a decisão, e é aqui que ela mora.
+const CARGOS_DE_PARCEIRO = ['EC'];
+
+/**
+ * Com qual filtro a Agenda abre, para o cargo de quem entrou.
+ *
+ * EC abre em Parceiros; todo o resto (SDR, EV, EP, ADM, Franqueado) abre
+ * em Oportunidades, e cargo ausente ou desconhecido cai no mesmo padrão —
+ * abrir SEM filtro seria abrir na semana da operação inteira, que é
+ * justamente o que esta tela deixou de ser.
+ *
+ * É regra de TELA, não de permissão: nada aqui esconde dado de ninguém, e
+ * desligar o filtro é um clique. Por isso mora no navegador e não numa
+ * coluna nova — no dia em que o padrão mudar, muda esta função.
+ */
+export function alvoPadraoDoCargo(cargo) {
+  return CARGOS_DE_PARCEIRO.includes(cargo) ? 'parceiro' : 'oportunidade';
+}
+
 // ── O desfecho ───────────────────────────────────────────────────────
 //
 // Três resultados, e a diferença entre os dois últimos é uma régua de

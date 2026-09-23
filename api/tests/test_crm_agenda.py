@@ -2114,6 +2114,169 @@ class TestReuniaoComParceiro:
         assert com.json()["desfecho"] == "realizada"
 
 
+# ── O filtro de assunto (parceiro × oportunidade) ────────────────────
+#
+# O EC abre a agenda para ver a carteira de parceiros; o SDR e o EV, para
+# ver a de vendas. O filtro atende os dois na mesma grade — e a promessa
+# que estes testes seguram é que ele esconde CARTÃO e nunca HORÁRIO: um
+# filtro que desocupasse o slot faria o EC oferecer ao parceiro um horário
+# em que o EV já tem cliente, e o 409 só apareceria depois de o horário ter
+# sido prometido por telefone.
+
+class TestFiltroPorAlvo:
+    async def _par(self, cenario, client, **extra_parceiro):
+        """Uma reunião de oportunidade às 9h e uma de parceiro às 14h."""
+        h, uid = cenario["headers"], cenario["usuario_id"]
+        de_venda = await nova_reuniao(
+            client, h, cenario["oportunidade"]["id"], uid
+        )
+        parceiro = await novo_parceiro(client, h)
+        corpo = {
+            "conta_id": parceiro["id"],
+            "anfitriao_id": uid,
+            "inicio": as_horas(proxima_segunda(), 14),
+        }
+        corpo.update(extra_parceiro)
+        resp = await client.post("/crm/agenda/reunioes", json=corpo, headers=h)
+        assert resp.status_code == 201, resp.text
+        return de_venda, resp.json()
+
+    async def _semana(self, cenario, client, **params):
+        base = {
+            "inicio": proxima_segunda().isoformat(),
+            "anfitriao_id": cenario["usuario_id"],
+        }
+        base.update(params)
+        resp = await client.get(
+            "/crm/agenda/semana", params=base, headers=cenario["headers"]
+        )
+        assert resp.status_code == 200, resp.text
+        return resp.json()
+
+    def _itens(self, semana):
+        return [i for d in semana["dias"] for i in d["reunioes"]]
+
+    async def test_cada_reuniao_diz_de_que_assunto_e(self, cenario, client):
+        """
+        Derivado do alvo da tarefa, pela mesma função que classifica a
+        tarefa — a agenda não tem definição própria de alvo.
+        """
+        de_venda, de_parceiro = await self._par(cenario, client)
+        por_id = {i["id"]: i["alvo"] for i in self._itens(await self._semana(cenario, client))}
+        assert por_id[de_venda["id"]] == "oportunidade"
+        assert por_id[de_parceiro["id"]] == "parceiro"
+
+    async def test_sem_filtro_a_semana_vem_inteira(self, cenario, client):
+        await self._par(cenario, client)
+        semana = await self._semana(cenario, client)
+        assert len(self._itens(semana)) == 2
+        assert semana["alvo"] is None
+        assert semana["ocultas"] == 0
+        assert all(d["slots_ocultos"] == [] for d in semana["dias"])
+
+    async def test_filtro_de_parceiro_deixa_so_parceiro(self, cenario, client):
+        de_venda, de_parceiro = await self._par(cenario, client)
+        semana = await self._semana(cenario, client, alvo="parceiro")
+        assert [i["id"] for i in self._itens(semana)] == [de_parceiro["id"]]
+        assert semana["alvo"] == "parceiro"
+        # Os agregados de reunião seguem o filtro: são perguntas sobre o
+        # que está na tela.
+        assert semana["total"] == 1
+
+    async def test_filtro_de_oportunidade_deixa_so_venda(self, cenario, client):
+        de_venda, de_parceiro = await self._par(cenario, client)
+        semana = await self._semana(cenario, client, alvo="oportunidade")
+        assert [i["id"] for i in self._itens(semana)] == [de_venda["id"]]
+        assert semana["total"] == 1
+
+    async def test_o_que_o_filtro_escondeu_e_contado_na_barra(self, cenario, client):
+        """
+        Filtro que esconde em silêncio é a versão educada de perder
+        registro: sem este número, quem abre numa semana em que todo o
+        movimento é do outro assunto lê "Marcadas: 0" e conclui que a
+        semana está vazia.
+        """
+        await self._par(cenario, client)
+        assert (await self._semana(cenario, client, alvo="parceiro"))["ocultas"] == 1
+        assert (await self._semana(cenario, client, alvo="oportunidade"))["ocultas"] == 1
+
+    async def test_o_filtro_nao_desocupa_o_horario(self, cenario, client):
+        """
+        O teste que trava a decisão. Se cair, ou a regra mudou de propósito
+        e o doc muda junto, ou alguém acabou de transformar a grade num
+        lugar onde dá para marcar por cima do colega.
+        """
+        de_venda, _ = await self._par(cenario, client)
+        inteira = await self._semana(cenario, client)
+        filtrada = await self._semana(cenario, client, alvo="parceiro")
+
+        # `livres` é pergunta sobre a AGENDA, não sobre a tela: não muda.
+        assert filtrada["livres"] == inteira["livres"]
+
+        # E o slot da reunião escondida sai nomeado, para a célula se
+        # desenhar ocupada sem dizer de quem é a reunião.
+        segunda = filtrada["dias"][0]
+        assert segunda["data"] == proxima_segunda().isoformat()
+        assert segunda["slots_ocultos"] == ["09:00"]
+
+    async def test_reuniao_longa_esconde_todos_os_slots_que_cobre(
+        self, cenario, client,
+    ):
+        """Uma de 90 minutos come três linhas da grade — as três somem."""
+        h, uid = cenario["headers"], cenario["usuario_id"]
+        parceiro = await novo_parceiro(client, h)
+        await client.post(
+            "/crm/agenda/reunioes",
+            json={
+                "conta_id": parceiro["id"], "anfitriao_id": uid,
+                "inicio": as_horas(proxima_segunda(), 10), "duracao_min": 90,
+            },
+            headers=h,
+        )
+        semana = await self._semana(cenario, client, alvo="oportunidade")
+        assert semana["dias"][0]["slots_ocultos"] == ["10:00", "10:30", "11:00"]
+
+    async def test_cancelada_nao_esconde_slot(self, cenario, client):
+        """Cancelada não ocupa — nem visível, nem escondida."""
+        h, uid = cenario["headers"], cenario["usuario_id"]
+        parceiro = await novo_parceiro(client, h)
+        r = (await client.post(
+            "/crm/agenda/reunioes",
+            json={
+                "conta_id": parceiro["id"], "anfitriao_id": uid,
+                "inicio": as_horas(proxima_segunda(), 16),
+            },
+            headers=h,
+        )).json()
+        await client.post(f"/crm/agenda/reunioes/{r['id']}/cancelar", json={}, headers=h)
+        semana = await self._semana(cenario, client, alvo="oportunidade")
+        assert semana["dias"][0]["slots_ocultos"] == []
+        assert semana["ocultas"] == 0
+
+    async def test_filtro_combina_com_anfitriao_e_com_agendado_por(
+        self, cenario, client,
+    ):
+        """
+        Os três filtros são independentes: "as reuniões de parceiro que eu
+        marquei para o Bruno" precisa dos três ao mesmo tempo.
+        """
+        _, de_parceiro = await self._par(cenario, client)
+        semana = await self._semana(
+            cenario, client, alvo="parceiro", agendado_por=cenario["usuario_id"],
+        )
+        assert [i["id"] for i in self._itens(semana)] == [de_parceiro["id"]]
+
+    async def test_assunto_invalido_e_422_em_portugues(self, cenario, client):
+        resp = await client.get(
+            "/crm/agenda/semana",
+            params={"alvo": "carteira"},
+            headers=cenario["headers"],
+        )
+        assert resp.status_code == 422
+        assert "oportunidade" in resp.json()["detail"]
+        assert "parceiro" in resp.json()["detail"]
+
+
 # ── A reunião na agenda de quem acompanha ────────────────────────────
 #
 # Regressão: quem estava em "Nossa equipe" não via a reunião na própria

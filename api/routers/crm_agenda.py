@@ -345,6 +345,18 @@ class ReuniaoOut(BaseModel):
     conta_id: UUID | None
     conta_razao_social: str | None
 
+    # De que ASSUNTO é a reunião: 'oportunidade' (a negociação) ou
+    # 'parceiro' (o cultivo de quem indica). Derivado do alvo da tarefa,
+    # pela MESMA função que a tarefa usa (`services.tarefa.validar_alvo`) —
+    # a agenda repetir a regra "tem oportunidade_id, logo é de venda"
+    # criaria uma segunda definição de alvo, e a que divergisse seria a que
+    # decide o que o EC vê ao abrir a tela.
+    #
+    # `None` só existe para dado torto (nenhum dos dois alvos, o que o
+    # CHECK do banco impede): a grade prefere mostrar a reunião sem
+    # classificação a não abrir.
+    alvo: str | None = None
+
     # A previa do que o cliente vai receber. Vem do servidor, e nao montada
     # no navegador, porque e literalmente o texto que sai no convite --
     # duas versoes da mesma string deixariam a tela prometer um convite e o
@@ -378,6 +390,16 @@ class DiaDaAgenda(BaseModel):
     nao_util: bool
     motivo: str | None
     reunioes: list[ReuniaoOut]
+    # Os slots deste dia que estão TOMADOS por uma reunião que o filtro de
+    # alvo escondeu. Vazio quando não há filtro.
+    #
+    # Existe porque esconder o cartão não desocupa o horário: sem esta
+    # lista, o EC filtrado em parceiros veria como livre o slot em que o EV
+    # já tem uma reunião de venda, clicaria nele e levaria um 409 do
+    # servidor — a tela mentindo sobre o buraco, que é a única coisa que
+    # ela promete não fazer. A célula fica marcada como ocupada e sem
+    # cartão: o horário não some, o assunto alheio não aparece.
+    slots_ocultos: list[str] = []
 
 
 class SemanaOut(BaseModel):
@@ -401,6 +423,18 @@ class SemanaOut(BaseModel):
     livres: int | None
     nao_sincronizadas: int
     google_configurado: bool
+
+    # ── O filtro de assunto ──
+    # Eco do que foi pedido (`None` = sem filtro, a semana inteira). A tela
+    # lê daqui, e não do próprio estado, pelo mesmo motivo que já lê
+    # `anfitriao_id`: o recorte que o usuário vê marcado tem de ser o que o
+    # servidor aplicou.
+    alvo: str | None
+    # Quantas reuniões VIVAS o filtro escondeu. Vai para a barra: filtro
+    # que esconde em silêncio é a versão educada de perder registro, e a
+    # pessoa que não sabe que há três reuniões fora do recorte conclui que
+    # a semana está vazia.
+    ocultas: int
 
 
 class DiaDoSdr(BaseModel):
@@ -582,6 +616,20 @@ def _linha(row, agora: datetime, participantes: dict[str, list[dict]]) -> dict:
     )
     d["participantes"] = participantes.get(str(d["id"]), [])
     d["convite_titulo"], d["convite_descricao"] = _texto_do_convite(d)
+
+    # O assunto da reunião, pela mesma função que classifica a tarefa. O
+    # `alvo_conta_id` é o alvo CRU (e não o `conta_id` de exibição, que é
+    # COALESCE com a empresa da oportunidade) — usar o de exibição faria
+    # toda reunião de venda parecer ter os dois alvos.
+    try:
+        d["alvo"] = regras_tarefa.validar_alvo(
+            d["oportunidade_id"], d["alvo_conta_id"]
+        )
+    except TarefaInvalida:
+        # Dado que o CHECK do banco não deixa nascer. Sem classificação a
+        # reunião fica fora dos dois filtros, mas continua na semana
+        # inteira — some da grade só quem ninguém consegue ver.
+        d["alvo"] = None
 
     # O desfecho que VALE para contagem: o registrado, ou o deduzido de uma
     # tarefa que outra tela fechou. Calculado aqui e não no navegador
@@ -1031,6 +1079,9 @@ async def criar_tipo(
 async def semana(
     anfitriao_id: UUID | None = None,
     agendado_por: UUID | None = None,
+    alvo: str | None = Query(
+        None, description="'oportunidade' ou 'parceiro'. Ausente = a semana inteira."
+    ),
     inicio: date | None = Query(None, description="Qualquer dia da semana desejada."),
     conn=Depends(get_conn),
     user=Depends(usuario_atual),
@@ -1065,10 +1116,34 @@ async def semana(
     `agendado_por` recorta por QUEM MARCOU, e combina com `anfitriao_id`:
     "as reuniões que eu marquei para o Bruno" precisa dos dois.
 
+    `alvo` recorta por ASSUNTO — 'parceiro' (o cultivo de quem indica) ou
+    'oportunidade' (a negociação). É o filtro que faz o EC abrir a tela na
+    carteira de parceiros e o EV na carteira de vendas, sem que nenhum dos
+    dois tenha de varrer a semana do outro. Ausente, a semana vem inteira.
+
+    E ele esconde CARTÃO, não HORÁRIO. Os slots tomados por uma reunião
+    filtrada saem em `dias[].slots_ocultos`, e `livres` continua contando a
+    agenda inteira: um filtro que desocupasse o horário faria o EC oferecer
+    ao parceiro um slot em que o EV já tem cliente — e o 409 só apareceria
+    depois de o horário ter sido prometido por telefone. A contagem de
+    reuniões (`total`, `pendentes`, `nao_sincronizadas`) segue o filtro,
+    porque essas são perguntas sobre o que está na tela; `livres` é
+    pergunta sobre a agenda.
+
     Este endpoint precisa vir declarado ANTES de qualquer `/{id}`: com o
     wildcard na frente, "semana" seria lido como id e a resposta viraria
     422. Mesma armadilha do /kanban e do /resumo em crm_tarefas.
     """
+    # Validado à mão, e não com um Literal no parâmetro, para a mensagem
+    # sair em português e nomear as duas opções — o 422 genérico do
+    # pydantic manda o vocabulário interno para a tela.
+    if alvo is not None and alvo not in regras_tarefa.ALVOS:
+        raise HTTPException(
+            422,
+            f"Filtro de assunto inválido: {alvo!r}. "
+            f"Use 'oportunidade' ou 'parceiro'.",
+        )
+
     referencia = inicio or datetime.now(regras.FUSO_OPERACAO).date()
     dias = regras.dias_da_semana(referencia)
     de, ate = regras.janela_da_semana(referencia)
@@ -1111,8 +1186,16 @@ async def semana(
         )
     }
 
+    # O filtro de assunto parte os itens em dois, e a divisão é só de
+    # EXIBIÇÃO: `escondidos` continua ocupando slot logo abaixo.
+    if alvo is None:
+        visiveis, escondidos = itens, []
+    else:
+        visiveis = [i for i in itens if i["alvo"] == alvo]
+        escondidos = [i for i in itens if i["alvo"] != alvo]
+
     por_dia: dict[date, list[dict]] = {d: [] for d in dias}
-    for item in itens:
+    for item in visiveis:
         dia = regras.no_fuso(item["inicio"]).date()
         # `setdefault` e não indexação direta: uma reunião gravada às 23h
         # de sexta com fuso estranho, ou um dado antigo, cairia fora dos
@@ -1124,7 +1207,14 @@ async def semana(
     # o cobre — inclusive uma de 90 minutos, que come três linhas da grade.
     # Contar por reunião diria "17 livres" numa manhã em que não cabe mais
     # nada.
+    #
+    # Roda sobre `itens`, NUNCA sobre `visiveis`: o filtro de assunto
+    # esconde o cartão e não desocupa o horário. `ocultos` é o mesmo
+    # cálculo restrito ao que foi escondido — é o que a célula usa para se
+    # desenhar ocupada sem dizer de quem é a reunião.
     ocupados: set[tuple[date, time]] = set()
+    ocultos: set[tuple[date, time]] = set()
+    ids_escondidos = {i["id"] for i in escondidos}
     for item in itens:
         if item["cancelada_em"] is not None:
             continue
@@ -1135,8 +1225,10 @@ async def semana(
             faixa_fim = regras.fim_de(faixa_ini, regras.PASSO_MIN)
             if regras.conflitam(ini, fim, faixa_ini, faixa_fim):
                 ocupados.add((ini.date(), s))
+                if item["id"] in ids_escondidos:
+                    ocultos.add((ini.date(), s))
 
-    vivas = [i for i in itens if i["cancelada_em"] is None]
+    vivas = [i for i in visiveis if i["cancelada_em"] is None]
     livres = None
     if anfitriao_id is not None:
         uteis = [d for d in dias if d not in feriados]
@@ -1163,13 +1255,16 @@ async def semana(
                 "nao_util": d in feriados,
                 "motivo": feriados.get(d),
                 "reunioes": por_dia.get(d, []),
+                "slots_ocultos": [
+                    _hhmm(s) for s in regras.SLOTS if (d, s) in ocultos
+                ],
             }
             for d in dias
         ],
         "total": len(vivas),
         "concluidas": sum(1 for i in vivas if i["situacao"] == "concluida"),
-        "canceladas": sum(1 for i in itens if i["cancelada_em"] is not None),
-        "pendentes": sum(1 for i in itens if i["pendente_de_desfecho"]),
+        "canceladas": sum(1 for i in visiveis if i["cancelada_em"] is not None),
+        "pendentes": sum(1 for i in visiveis if i["pendente_de_desfecho"]),
         "livres": livres,
         # O que ainda não chegou ao Google. É o número que impede o
         # convite perdido de passar despercebido — e por isso ele fica no
@@ -1178,6 +1273,8 @@ async def semana(
             1 for i in vivas if not i["google_event_id"]
         ),
         "google_configurado": google_agenda.configurado(),
+        "alvo": alvo,
+        "ocultas": sum(1 for i in escondidos if i["cancelada_em"] is None),
     }
 
 
