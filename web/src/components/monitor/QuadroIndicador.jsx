@@ -14,16 +14,22 @@
 // onde ela serve — fechar o mês e comparar com a planilha. Decisão do
 // Tulio, 17/09.
 //
-// ── Por que o quadro não clica ───────────────────────────────────────
-// O Monitor é uma TV: ninguém está com o mouse nela. O drilldown de cada
-// indicador vive na tela de origem (funil, agenda, parceiros), e um clique
-// que leva a lugar nenhum é pior que nenhum clique.
+// ── O quadro clica: a carinha abre a lista ───────────────────────────
+// Antes o quadro não clicava ("o Monitor é uma TV, ninguém está com o mouse
+// nela"). Mudou em 23/09 a pedido do Tulio: quem está na sala olhando a TV
+// quer saber QUAIS são as 18 realizadas, e mandar a pessoa para a Agenda
+// montar o mesmo recorte à mão é o jeito mais certo de nunca conferirem.
+//
+// A carinha é um <button> (teclado e leitor de tela chegam nele) e o
+// quadro inteiro também aceita o clique do mouse, porque de pé na frente da
+// TV ninguém mira num emoji. O quadro sem fonte (Treinamento) não clica: um
+// clique que abre uma lista vazia é pior que nenhum clique.
 
 import {
   TOM_CLASSE, carinhaDe, formatar, larguraDaBarra, pctCurto,
 } from './monitorComum';
 
-export default function QuadroIndicador({ indicador, grande = false }) {
+export default function QuadroIndicador({ indicador, grande = false, onAbrir = null }) {
   const {
     sigla, rotulo, fonte, formato, resultado, meta, meta_mtd: metaHoje,
     atingimento, carinha,
@@ -32,12 +38,27 @@ export default function QuadroIndicador({ indicador, grande = false }) {
   const cara = carinhaDe(carinha);
   const tom = TOM_CLASSE[cara.tom] || TOM_CLASSE.neutro;
   const largura = larguraDaBarra(atingimento);
+  const clica = Boolean(onAbrir) && indicador.natureza !== 'aberto';
+
+  const carinhaSpan = (
+    <span
+      role="img"
+      aria-label={cara.rotulo}
+      className={'leading-none ' + (grande ? 'text-6xl xl:text-7xl' : 'text-4xl md:text-5xl')}
+    >
+      {cara.emoji}
+    </span>
+  );
 
   return (
     <section
       aria-label={rotulo}
       title={fonte}
-      className="flex flex-col rounded-xl border border-hipo-border bg-hipo-card overflow-hidden"
+      onClick={clica ? () => onAbrir(indicador) : undefined}
+      className={
+        'flex flex-col rounded-xl border border-hipo-border bg-hipo-card overflow-hidden '
+        + (clica ? 'cursor-pointer transition-colors hover:border-hipo-blue' : '')
+      }
     >
       <header className="shrink-0 px-2 py-1.5 bg-hipo-bg border-b border-hipo-border">
         <h3 className={
@@ -54,13 +75,16 @@ export default function QuadroIndicador({ indicador, grande = false }) {
           extenso porque emoji sozinho não é texto para leitor de tela — e
           cor sozinha não carrega informação para quem não distingue tons.
         */}
-        <span
-          role="img"
-          aria-label={cara.rotulo}
-          className={'leading-none ' + (grande ? 'text-6xl xl:text-7xl' : 'text-4xl md:text-5xl')}
-        >
-          {cara.emoji}
-        </span>
+        {clica ? (
+          <button
+            type="button"
+            aria-label={`Ver o que compõe ${rotulo}`}
+            onClick={(e) => { e.stopPropagation(); onAbrir(indicador); }}
+            className="rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-hipo-blue"
+          >
+            {carinhaSpan}
+          </button>
+        ) : carinhaSpan}
 
         {/* Resultado contra a meta de HOJE: é o número que a carinha explica. */}
         <p className={

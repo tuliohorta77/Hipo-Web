@@ -582,3 +582,210 @@ class TestFeriados:
     async def test_apagar_inexistente_e_404(self, cenario, client):
         resp = await client.delete("/monitor/feriados/999999", headers=cenario["headers"])
         assert resp.status_code == 404
+
+
+# ── Detalhe: o clique na carinha ─────────────────────────────────────
+
+async def detalhe(client, headers, chave, **params):
+    resp = await client.get(f"/monitor/detalhe/{chave}", params=params, headers=headers)
+    assert resp.status_code == 200, resp.text
+    return resp.json()
+
+
+class TestDetalhe:
+    """
+    A lista que abre ao clicar num quadro. A promessa que importa: ela e
+    feita das MESMAS linhas que o quadro conta — se o quadro diz 7, a lista
+    tem os 7, e o % NOSHOW mostra o numerador e o denominador que deram
+    aquela taxa.
+    """
+
+    PROXIMA = None
+
+    async def _dia_util(self, offset=0):
+        dia = hoje_op().replace(day=1)
+        vistos = 0
+        while True:
+            if dia.weekday() < 5:
+                if vistos == offset:
+                    return dia.day
+                vistos += 1
+            dia += timedelta(days=1)
+
+    async def _reuniao(self, client, h, uid, dia, *, opp_id=None, conta_id=None):
+        corpo = {"anfitriao_id": uid, "inicio": em(dia)}
+        if opp_id:
+            corpo["oportunidade_id"] = opp_id
+        if conta_id:
+            corpo["conta_id"] = conta_id
+        resp = await client.post("/crm/agenda/reunioes", json=corpo, headers=h)
+        assert resp.status_code == 201, resp.text
+        return resp.json()
+
+    async def _desfecho(self, client, h, uid, reuniao_id, desfecho):
+        corpo = {"desfecho": desfecho}
+        if desfecho == "realizada":
+            corpo["proxima"] = {
+                "tipo": "ligacao", "titulo": "Retomar",
+                "responsavel_id": uid, "prazo": em(28),
+            }
+        resp = await client.post(
+            f"/crm/agenda/reunioes/{reuniao_id}/desfecho", json=corpo, headers=h,
+        )
+        assert resp.status_code == 200, resp.text
+
+    async def _mes_movimentado(self, cenario, client):
+        """
+        Duas realizadas, um no-show e uma desmarcada de cliente; uma
+        realizada e um no-show de parceiro; um lead; uma venda.
+        """
+        h, uid = cenario["headers"], cenario["usuario_id"]
+        opp = await nova_oportunidade(client, h, cenario["conta"]["id"])
+        resp = await client.patch(
+            f"/crm/oportunidades/{opp['id']}/fase", json={"fase": "lead"}, headers=h
+        )
+        assert resp.status_code == 200, resp.text
+
+        ids = {}
+        for i, desfecho in enumerate(("realizada", "realizada", "no_show", "cancelada")):
+            r = await self._reuniao(client, h, uid, await self._dia_util(i), opp_id=opp["id"])
+            await self._desfecho(client, h, uid, r["id"], desfecho)
+            ids.setdefault(desfecho, []).append(r["id"])
+
+        parceiro = await nova_conta(client, h, CNPJ_B, "Contabilidade Beta LTDA")
+        await client.patch(
+            f"/crm/parceiros/{parceiro['id']}", json={"eh_finder": True}, headers=h
+        )
+        for i, desfecho in ((4, "realizada"), (5, "no_show")):
+            r = await self._reuniao(
+                client, h, uid, await self._dia_util(i), conta_id=parceiro["id"],
+            )
+            await self._desfecho(client, h, uid, r["id"], desfecho)
+            ids.setdefault(f"parceiro_{desfecho}", []).append(r["id"])
+
+        ganha = await nova_oportunidade(
+            client, h, cenario["conta"]["id"], valor_mensalidade=1500,
+        )
+        resp = await client.post(
+            f"/crm/oportunidades/{ganha['id']}/desfecho",
+            json={"status": "conquistado", "tarefa": {
+                "tipo": "ligacao", "titulo": "Boas-vindas",
+                "responsavel_id": uid, "prazo": em(hoje_op().day),
+            }},
+            headers=h,
+        )
+        assert resp.status_code == 200, resp.text
+        return {"opp": opp, "ganha": ganha, "parceiro": parceiro, "reunioes": ids}
+
+    async def test_todo_quadro_bate_com_a_propria_lista(self, cenario, client):
+        """O invariante do recurso: detalhe.resultado == painel.resultado."""
+        h = cenario["headers"]
+        await self._mes_movimentado(cenario, client)
+        corpo = await painel(client, h, hoje=fim_do_mes())
+        for ind in corpo["indicadores"]:
+            d = await detalhe(client, h, ind["chave"], hoje=fim_do_mes())
+            assert d["resultado"] == ind["resultado"], ind["chave"]
+            if ind["formato"] == "inteiro" and ind["resultado"] is not None:
+                assert len(d["itens"]) == ind["resultado"], ind["chave"]
+
+    async def test_apre_lista_as_realizadas_de_cliente(self, cenario, client):
+        h = cenario["headers"]
+        m = await self._mes_movimentado(cenario, client)
+        d = await detalhe(client, h, "apre", hoje=fim_do_mes())
+        assert d["tipo"] == "reunioes"
+        assert sorted(i["reuniao_id"] for i in d["itens"]) == sorted(m["reunioes"]["realizada"])
+        item = d["itens"][0]
+        assert item["empresa"] == "Metalurgica Alfa LTDA"
+        assert item["oportunidade_numero"] == m["opp"]["numero"]
+        assert item["desfecho"] == "realizada"
+        assert item["desfecho_rotulo"] == "Realizada"
+        assert item["pessoa"]
+        assert item["agendado_por_nome"]
+        assert d["resumo"] == "2 reuniões de cliente realizadas"
+        # A reuniao realizada de parceiro NAO esta aqui: parceria e ilha.
+        assert m["reunioes"]["parceiro_realizada"][0] not in {i["reuniao_id"] for i in d["itens"]}
+
+    async def test_parceria_lista_so_a_realizada_do_parceiro(self, cenario, client):
+        h = cenario["headers"]
+        m = await self._mes_movimentado(cenario, client)
+        d = await detalhe(client, h, "reunioes_parceria", hoje=fim_do_mes())
+        assert [i["reuniao_id"] for i in d["itens"]] == m["reunioes"]["parceiro_realizada"]
+        assert d["itens"][0]["conta_id"] == m["parceiro"]["id"]
+        assert d["itens"][0]["oportunidade_id"] is None
+        assert d["itens"][0]["empresa"] == "Contabilidade Beta LTDA"
+
+    async def test_agen_tira_a_desmarcada_e_mantem_o_no_show(self, cenario, client):
+        h = cenario["headers"]
+        m = await self._mes_movimentado(cenario, client)
+        d = await detalhe(client, h, "agen", hoje=fim_do_mes())
+        ids = {i["reuniao_id"] for i in d["itens"]}
+        assert m["reunioes"]["cancelada"][0] not in ids
+        assert m["reunioes"]["no_show"][0] in ids
+        assert d["resumo"].endswith("sem as desmarcadas")
+
+    async def test_noshow_mostra_numerador_e_denominador(self, cenario, client):
+        h = cenario["headers"]
+        m = await self._mes_movimentado(cenario, client)
+        d = await detalhe(client, h, "noshow", hoje=fim_do_mes())
+        # Denominador: as 4 de cliente fechadas. O no-show de parceiro fora.
+        assert len(d["itens"]) == 4
+        assert m["reunioes"]["parceiro_no_show"][0] not in {i["reuniao_id"] for i in d["itens"]}
+        # Numerador marcado e no topo da lista.
+        assert [i["conta"] for i in d["itens"]] == [True, False, False, False]
+        assert d["itens"][0]["reuniao_id"] == m["reunioes"]["no_show"][0]
+        assert d["resultado"] == 25.0
+        assert d["resumo"] == "1 no-show em 4 reuniões de cliente fechadas"
+
+    async def test_agendamentos_do_mes_vem_pela_data_da_marcacao(
+        self, cenario, client, db_conn,
+    ):
+        h, uid = cenario["headers"], cenario["usuario_id"]
+        opp = await nova_oportunidade(client, h, cenario["conta"]["id"])
+        r = await self._reuniao(client, h, uid, await self._dia_util(0), opp_id=opp["id"])
+        antes = await detalhe(client, h, "agendamentos_mes")
+        assert [i["reuniao_id"] for i in antes["itens"]] == [r["id"]]
+        # Marcada no mes passado: sai da lista, mesmo sendo reuniao deste mes.
+        await db_conn.execute(
+            "UPDATE reunioes SET criado_em = criado_em - interval '45 days'"
+        )
+        depois = await detalhe(client, h, "agendamentos_mes")
+        assert depois["itens"] == []
+        assert depois["resultado"] == 0
+
+    async def test_lead_lista_a_oportunidade(self, cenario, client):
+        h = cenario["headers"]
+        m = await self._mes_movimentado(cenario, client)
+        d = await detalhe(client, h, "lead")
+        assert d["tipo"] == "oportunidades"
+        assert [i["oportunidade_id"] for i in d["itens"]] == [m["opp"]["id"]]
+        assert d["itens"][0]["reuniao_id"] is None
+
+    async def test_vendas_listam_a_mensalidade(self, cenario, client):
+        h = cenario["headers"]
+        m = await self._mes_movimentado(cenario, client)
+        for chave in ("contratos", "nmrr", "ticket_medio"):
+            d = await detalhe(client, h, chave)
+            assert [i["oportunidade_id"] for i in d["itens"]] == [m["ganha"]["id"]]
+            assert d["itens"][0]["valor"] == 1500
+        assert (await detalhe(client, h, "nmrr"))["resultado"] == 1500
+        assert (await detalhe(client, h, "nmrr"))["resumo"] == "soma da mensalidade de 1 contrato"
+
+    async def test_treinamento_devolve_lista_vazia(self, cenario, client):
+        d = await detalhe(client, cenario["headers"], "treinamento")
+        assert d["tipo"] == "nenhum"
+        assert d["itens"] == []
+        assert d["resultado"] is None
+
+    async def test_mes_fechado_pelo_parametro(self, cenario, client):
+        d = await detalhe(client, cenario["headers"], "apre", ano=2026, mes=3)
+        assert d["rotulo_mes"] == "marco de 2026"
+        assert d["itens"] == []
+
+    async def test_indicador_inexistente_e_404(self, cenario, client):
+        resp = await client.get("/monitor/detalhe/xpto", headers=cenario["headers"])
+        assert resp.status_code == 404
+
+    async def test_operacional_ve_o_detalhe(self, db_conn, client, usuario_adm):
+        sdr = await criar_usuario(db_conn, client, "SDR", "sdr-detalhe@teste.com")
+        resp = await client.get("/monitor/detalhe/apre", headers=sdr["headers"])
+        assert resp.status_code == 200

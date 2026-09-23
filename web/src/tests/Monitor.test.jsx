@@ -29,6 +29,19 @@ vi.mock('../api', () => ({
   getUser: (...a) => mockGetUser(...a),
 }));
 
+// O formulário da reunião tem teste próprio (ModalReuniao.test.jsx). Aqui
+// só importa que a linha da lista o abre com a reunião certa e que salvar
+// recarrega a lista e o painel.
+vi.mock('../components/crm/ModalReuniao', () => ({
+  default: ({ reuniaoId, onSalvo, onFechar }) => (
+    <div role="dialog" aria-label="Formulário da reunião">
+      <span>reunião {reuniaoId}</span>
+      <button type="button" onClick={onSalvo}>Salvar desfecho</button>
+      <button type="button" onClick={onFechar}>Fechar formulário</button>
+    </div>
+  ),
+}));
+
 import Monitor from '../pages/Monitor';
 
 function ind(chave, extra = {}) {
@@ -92,8 +105,74 @@ function responder(corpo) {
         data: [{ id: 7, data: '2026-09-07', motivo: 'Independência do Brasil' }],
       });
     }
+    if (url.startsWith('/monitor/detalhe/')) {
+      return Promise.resolve({ data: DETALHES[url.split('/').pop()] || detalheVazio(url) });
+    }
+    if (url === '/crm/dominio/usuarios') return Promise.resolve({ data: [] });
     return Promise.resolve({ data: {} });
   });
+}
+
+function reuniaoItem(extra = {}) {
+  return {
+    data: '2026-09-10T13:00:00Z',
+    empresa: 'Metalúrgica Alfa',
+    oportunidade_id: 'o1',
+    oportunidade_numero: 'OPP-2026-00001',
+    conta_id: null,
+    reuniao_id: 'r1',
+    tipo_sigla: 'DG',
+    pessoa: 'Jakeline Santana',
+    agendado_por_nome: 'Gabriel Lira',
+    reuniao_inicio: '2026-09-10T13:00:00Z',
+    desfecho: 'realizada',
+    desfecho_rotulo: 'Realizada',
+    valor: null,
+    conta: true,
+    ...extra,
+  };
+}
+
+const DETALHES = {
+  apre: {
+    chave: 'apre', sigla: 'APRE', rotulo: 'Reunioes realizadas',
+    fonte: 'Reunioes com cliente e desfecho Realizada.', formato: 'inteiro',
+    tipo: 'reunioes', ano: 2026, mes: 9, rotulo_mes: 'setembro de 2026',
+    resultado: 2, resumo: '2 reuniões de cliente realizadas',
+    itens: [
+      reuniaoItem(),
+      reuniaoItem({ reuniao_id: 'r2', empresa: 'Padaria Beta', pessoa: 'Bruno Gonçalo' }),
+    ],
+  },
+  noshow: {
+    chave: 'noshow', sigla: '% NOSHOW', rotulo: 'No-show', fonte: 'x',
+    formato: 'percentual', tipo: 'reunioes', ano: 2026, mes: 9,
+    rotulo_mes: 'setembro de 2026', resultado: 50,
+    resumo: '1 no-show em 2 reuniões de cliente fechadas',
+    itens: [
+      reuniaoItem({ reuniao_id: 'r9', empresa: 'Faltou LTDA', desfecho: 'no_show', desfecho_rotulo: 'No-show' }),
+      reuniaoItem({ conta: false }),
+    ],
+  },
+  nmrr: {
+    chave: 'nmrr', sigla: 'NMRR', rotulo: 'Mensalidade nova', fonte: 'x',
+    formato: 'moeda', tipo: 'oportunidades', ano: 2026, mes: 9,
+    rotulo_mes: 'setembro de 2026', resultado: 1500,
+    resumo: 'soma da mensalidade de 1 contrato',
+    itens: [{
+      data: '2026-09-12T15:00:00Z', empresa: 'Cliente Ganho', oportunidade_id: 'o7',
+      oportunidade_numero: 'OPP-2026-00007', pessoa: 'Jakeline Santana', valor: 1500,
+    }],
+  },
+};
+
+function detalheVazio(url) {
+  const chave = url.split('/').pop();
+  return {
+    chave, sigla: chave.toUpperCase(), rotulo: chave, fonte: 'x', formato: 'inteiro',
+    tipo: 'reunioes', ano: 2026, mes: 9, rotulo_mes: 'setembro de 2026',
+    resultado: 0, resumo: '0 reuniões', itens: [],
+  };
 }
 
 beforeEach(() => {
@@ -358,5 +437,111 @@ describe('Monitor — tela cheia', () => {
     // Os quadros continuam na parede.
     expect(screen.getByRole('region', { name: 'lead' })).toBeInTheDocument();
     delete Element.prototype.requestFullscreen;
+  });
+});
+
+describe('Monitor — a carinha abre a lista do que está sendo contado', () => {
+  it('clicar na carinha busca a lista do quadro no mês do painel', async () => {
+    render(<Monitor />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Ver o que compõe apre' }));
+
+    const modal = await screen.findByRole('dialog');
+    expect(await within(modal).findByText('2 reuniões de cliente realizadas')).toBeInTheDocument();
+    expect(mockGet).toHaveBeenCalledWith('/monitor/detalhe/apre', { params: { ano: 2026, mes: 9 } });
+    // As linhas que o número contou, com quem fez e quem marcou.
+    expect(within(modal).getByText('Metalúrgica Alfa')).toBeInTheDocument();
+    expect(within(modal).getByText('Padaria Beta')).toBeInTheDocument();
+    expect(within(modal).getAllByText('Gabriel Lira')).toHaveLength(2);
+    expect(within(modal).getAllByText('Realizada')).toHaveLength(2);
+  });
+
+  it('o quadro inteiro também abre — de pé na frente da TV ninguém mira no emoji', async () => {
+    render(<Monitor />);
+    fireEvent.click(await screen.findByRole('region', { name: 'apre' }));
+    expect(await screen.findByText('2 reuniões de cliente realizadas')).toBeInTheDocument();
+  });
+
+  it('quadro sem fonte (Treinamento) não clica', async () => {
+    const p = painel();
+    p.indicadores = p.indicadores.map((i) => (
+      i.chave === 'treinamento' ? { ...i, natureza: 'aberto', resultado: null } : i
+    ));
+    responder(p);
+    render(<Monitor />);
+    await screen.findByRole('region', { name: 'treinamento' });
+    expect(screen.queryByRole('button', { name: 'Ver o que compõe treinamento' })).toBeNull();
+    fireEvent.click(screen.getByRole('region', { name: 'treinamento' }));
+    expect(mockGet).not.toHaveBeenCalledWith(
+      '/monitor/detalhe/treinamento', expect.anything(),
+    );
+  });
+
+  it('% NOSHOW mostra numerador e denominador, no-shows primeiro', async () => {
+    render(<Monitor />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Ver o que compõe noshow' }));
+    const modal = await screen.findByRole('dialog');
+    expect(await within(modal).findByText('1 no-show em 2 reuniões de cliente fechadas')).toBeInTheDocument();
+    expect(within(modal).getByText(/No-shows primeiro/)).toBeInTheDocument();
+    const linhas = within(modal).getAllByRole('row').slice(1);
+    expect(within(linhas[0]).getByText('Faltou LTDA')).toBeInTheDocument();
+    // A linha que é só denominador fica em segundo plano.
+    expect(linhas[1].className).toMatch(/opacity-60/);
+    expect(linhas[0].className).not.toMatch(/opacity-60/);
+  });
+
+  it('venda lista a mensalidade e leva à oportunidade', async () => {
+    render(<Monitor />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Ver o que compõe nmrr' }));
+    const modal = await screen.findByRole('dialog');
+    expect(await within(modal).findByText('Cliente Ganho')).toBeInTheDocument();
+    expect(within(modal).getByText(/1\.500,00/)).toBeInTheDocument();
+    expect(within(modal).getByRole('link', { name: /OPP-2026-00007/ }))
+      .toHaveAttribute('href', '/crm/oportunidades?q=OPP-2026-00007');
+  });
+
+  it('clicar na reunião abre o formulário; salvar recarrega a lista e o painel', async () => {
+    render(<Monitor />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Ver o que compõe apre' }));
+    fireEvent.click(await screen.findByLabelText('Abrir reunião com Padaria Beta'));
+
+    expect(await screen.findByText('reunião r2')).toBeInTheDocument();
+    const antesDetalhe = mockGet.mock.calls.filter(([u]) => u === '/monitor/detalhe/apre').length;
+    const antesPainel = mockGet.mock.calls.filter(([u]) => u === '/monitor/painel').length;
+
+    fireEvent.click(screen.getByText('Salvar desfecho'));
+    await waitFor(() => {
+      expect(mockGet.mock.calls.filter(([u]) => u === '/monitor/detalhe/apre').length)
+        .toBeGreaterThan(antesDetalhe);
+      expect(mockGet.mock.calls.filter(([u]) => u === '/monitor/painel').length)
+        .toBeGreaterThan(antesPainel);
+    });
+  });
+
+  it('lista vazia diz que nada entra no número, em vez de uma tabela vazia', async () => {
+    render(<Monitor />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Ver o que compõe agen' }));
+    expect(await screen.findByText('Nada contando neste número')).toBeInTheDocument();
+  });
+
+  it('fechar o modal volta para o painel', async () => {
+    render(<Monitor />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Ver o que compõe apre' }));
+    const modal = await screen.findByRole('dialog');
+    fireEvent.click(within(modal).getByLabelText('Fechar'));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+  });
+
+  it('erro ao buscar a lista aparece dentro do modal', async () => {
+    mockGet.mockImplementation((url) => {
+      if (url === '/monitor/painel') return Promise.resolve({ data: painel() });
+      if (url.startsWith('/monitor/detalhe/')) {
+        return Promise.reject({ response: { data: { detail: 'Indicador invalido.' } } });
+      }
+      return Promise.resolve({ data: {} });
+    });
+    render(<Monitor />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Ver o que compõe lead' }));
+    const modal = await screen.findByRole('dialog');
+    expect(await within(modal).findByText('Indicador invalido.')).toBeInTheDocument();
   });
 });

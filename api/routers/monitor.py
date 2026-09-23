@@ -95,6 +95,54 @@ class PainelOut(BaseModel):
     indicadores: list[IndicadorOut]
 
 
+
+class ItemDetalheOut(BaseModel):
+    """
+    Uma linha do que compoe o numero de um quadro. Os campos sao a uniao de
+    reuniao e oportunidade: cada quadro preenche os seus e deixa o resto
+    null, e a tela desenha as colunas pelo `tipo` do detalhe.
+    """
+    # Reuniao: a hora da reuniao (ou a hora em que foi marcada, em AGEND
+    # MES). Lead e venda: a hora do evento que contou.
+    data: datetime
+    empresa: str | None
+    oportunidade_id: UUID | None
+    oportunidade_numero: str | None
+    # So na reuniao de parceiro: a conta do parceiro, que e o alvo dela.
+    conta_id: UUID | None = None
+    reuniao_id: UUID | None = None
+    tipo_sigla: str | None = None
+    # Reuniao: o anfitriao. Lead e venda: quem registrou o evento.
+    pessoa: str | None
+    agendado_por_nome: str | None = None
+    reuniao_inicio: datetime | None = None
+    desfecho: str | None = None
+    desfecho_rotulo: str | None = None
+    valor: float | None = None
+    # No % NOSHOW a lista e o DENOMINADOR (as fechadas) e `conta` marca o
+    # numerador (os no-shows). Nos outros quadros toda linha conta.
+    conta: bool = True
+
+
+class DetalheOut(BaseModel):
+    chave: str
+    sigla: str
+    rotulo: str
+    fonte: str
+    formato: str
+    # 'reunioes' | 'oportunidades' | 'nenhum' — escolhe as colunas da tela.
+    tipo: str
+    ano: int
+    mes: int
+    rotulo_mes: str
+    # O MESMO numero do quadro, calculado das mesmas linhas.
+    resultado: float | None
+    # Uma frase dizendo como a lista vira o numero: "3 no-shows em 27
+    # reunioes fechadas", "soma de 4 mensalidades". Taxa e soma nao se
+    # conferem contando linhas, e sem a frase a lista parece nao bater.
+    resumo: str
+    itens: list[ItemDetalheOut]
+
 class MetaIn(BaseModel):
     indicador: str
     # None APAGA a meta do mes — é como se tira a cobranca de um indicador
@@ -180,7 +228,13 @@ def _janela_mtd(ano: int, mes: int, hoje: date) -> tuple[datetime, datetime, dat
 # ── Fontes de cada indicador ─────────────────────────────────────────
 
 
-async def _leads(conn, inicio: datetime, fim: datetime) -> int:
+# Cada indicador tem UMA funcao que devolve as LINHAS que ele conta. O
+# painel conta essas linhas e o detalhe (o clique na carinha) as devolve
+# inteiras. Sao as mesmas linhas pela mesma consulta: a lista aberta na TV
+# nao tem como discordar do numero que estava no quadro.
+
+
+async def _linhas_leads(conn, inicio: datetime, fim: datetime) -> list[dict]:
     """
     Leads novos: quem passou de Suspect para Lead na janela.
 
@@ -188,140 +242,209 @@ async def _leads(conn, inicio: datetime, fim: datetime) -> int:
     lead": a fase de agora responde onde o negocio esta, nao quantos
     ENTRARAM no mes — e quem virou lead dia 3 e apresentacao dia 10 sumiria
     da conta.
-    """
-    return await conn.fetchval(
-        """
-        SELECT count(*) FROM oportunidade_eventos
-         WHERE tipo = 'fase' AND de = 'suspect' AND para = 'lead'
-           AND criado_em >= $1 AND criado_em < $2
-        """,
-        inicio, fim,
-    )
 
-
-async def _reunioes(conn, inicio: datetime, fim: datetime) -> dict:
-    """
-    Tudo o que vem de reuniao, numa consulta e com UMA regra de desfecho.
-
-    O desfecho efetivo (o registrado, ou o deduzido de uma tarefa fechada
-    por outra tela) e calculado em Python por `services/agenda`, o mesmo
-    que a grade e o relatorio de produtividade usam. Repetir a deducao em
-    SQL daria ao painel um no-show diferente do da Agenda.
-
-    PARCERIA E ILHA (decisao do Tulio, 21/09). Reuniao de parceiro — a que
-    tem `tarefas.conta_id` — conta SO no quadro PARCERIAS. Nao entra em
-    AGEN, nao entra em APRE, nao entra em AGEND MES e nao entra em nenhum
-    dos dois lados do % NOSHOW.
-
-    Antes disso a mesma reuniao aparecia duas vezes na mesma TV: dentro de
-    APRE e ao lado dele, em PARCERIAS. Os quadros comerciais medem o esforco
-    sobre CLIENTE, e parceria tem ritmo, meta e dono proprios — somar os
-    dois inflava o funil com um trabalho que nao gera proposta.
-
-    O CHECK `ck_tarefa_alvo` (`num_nonnulls(oportunidade_id, conta_id) = 1`)
-    garante alvo unico por tarefa, entao `conta_id IS NULL` e a definicao
-    exata de "reuniao comercial": nao existe terceiro caso.
-
-    A janela e pela DATA DA REUNIAO (`t.prazo`), menos em `agendadas_no_mes`,
-    que e pela data em que ela foi MARCADA (`r.criado_em`) — sao perguntas
-    diferentes e o Tulio quer as duas: "reunioes deste mes" e "agendamentos
-    que a equipe fez neste mes".
+    Uma linha por EVENTO, como o count(*) de antes: a oportunidade que
+    voltou a suspect e virou lead de novo no mesmo mes conta duas vezes no
+    quadro, e aparece duas vezes na lista.
     """
     rows = await conn.fetch(
         """
-        SELECT r.desfecho, r.duracao_min, t.prazo AS inicio,
-               t.concluida_em, t.cancelada_em, t.conta_id
-          FROM reunioes r
-          JOIN tarefas t ON t.id = r.tarefa_id
-         WHERE t.prazo >= $1 AND t.prazo < $2
+        SELECT e.criado_em AS data, o.id AS oportunidade_id,
+               o.numero AS oportunidade_numero,
+               COALESCE(c.nome_fantasia, c.razao_social) AS empresa,
+               u.nome AS pessoa
+          FROM oportunidade_eventos e
+          JOIN oportunidades o ON o.id = e.oportunidade_id
+          JOIN contas c        ON c.id = o.conta_id
+          LEFT JOIN usuarios u ON u.id = e.usuario_id
+         WHERE e.tipo = 'fase' AND e.de = 'suspect' AND e.para = 'lead'
+           AND e.criado_em >= $1 AND e.criado_em < $2
+         ORDER BY e.criado_em DESC
         """,
         inicio, fim,
     )
-    # O JOIN aqui nao e enfeite: AGEND MES e o unico numero do painel que
-    # nao precisaria de `tarefas` para existir, e foi exatamente por isso
-    # que ele contava agendamento de parceria sem ninguem perceber.
-    agendadas_no_mes = await conn.fetchval(
-        """
-        SELECT count(*)
-          FROM reunioes r
-          JOIN tarefas t ON t.id = r.tarefa_id
+    return [dict(r) for r in rows]
+
+
+# A mesma projecao para as duas janelas de reuniao. Empresa vem da conta da
+# OPORTUNIDADE ou, na reuniao de parceiro, da conta do proprio alvo — o
+# CHECK `ck_tarefa_alvo` garante que exatamente um dos dois existe.
+_SELECT_REUNIOES = """
+SELECT r.id AS reuniao_id, r.desfecho, r.duracao_min, r.criado_em AS agendada_em,
+       t.prazo AS inicio, t.concluida_em, t.cancelada_em,
+       t.conta_id, t.oportunidade_id,
+       o.numero AS oportunidade_numero,
+       COALESCE(c.nome_fantasia, c.razao_social) AS empresa,
+       tr.sigla AS tipo_sigla,
+       ua.nome AS pessoa,
+       ag.nome AS agendado_por_nome
+  FROM reunioes r
+  JOIN tarefas t            ON t.id = r.tarefa_id
+  LEFT JOIN oportunidades o ON o.id = t.oportunidade_id
+  LEFT JOIN contas c        ON c.id = COALESCE(o.conta_id, t.conta_id)
+  LEFT JOIN tipos_reuniao tr ON tr.id = r.tipo_id
+  LEFT JOIN usuarios ua     ON ua.id = t.responsavel_id
+  LEFT JOIN usuarios ag     ON ag.id = r.agendado_por
+"""
+
+
+def _com_desfecho(rows) -> list[dict]:
+    """
+    Acrescenta o desfecho EFETIVO a cada reuniao.
+
+    Calculado em Python por `services/agenda`, o mesmo que a grade e o
+    relatorio de produtividade usam. Repetir a deducao em SQL daria ao
+    painel um no-show diferente do da Agenda.
+    """
+    linhas = []
+    for r in rows:
+        d = dict(r)
+        d["efetivo"] = regras_agenda.desfecho_efetivo(
+            desfecho=d["desfecho"],
+            concluida_em=d["concluida_em"],
+            cancelada_em=d["cancelada_em"],
+            inicio=d["inicio"],
+        )
+        linhas.append(d)
+    return linhas
+
+
+async def _linhas_reunioes(conn, inicio: datetime, fim: datetime) -> list[dict]:
+    """
+    As reunioes do mes pela DATA DA REUNIAO (`t.prazo`), cliente e parceiro
+    juntos: quem separa e `_reunioes`, com a regra da ilha.
+    """
+    rows = await conn.fetch(
+        _SELECT_REUNIOES
+        + " WHERE t.prazo >= $1 AND t.prazo < $2 ORDER BY t.prazo DESC",
+        inicio, fim,
+    )
+    return _com_desfecho(rows)
+
+
+async def _linhas_agendadas(conn, inicio: datetime, fim: datetime) -> list[dict]:
+    """
+    Os agendamentos FEITOS no mes (`r.criado_em`), so de cliente.
+
+    O JOIN com `tarefas` nao e enfeite: AGEND MES e o unico numero do painel
+    que nao precisaria de `tarefas` para existir, e foi exatamente por isso
+    que ele contava agendamento de parceria sem ninguem perceber.
+    """
+    rows = await conn.fetch(
+        _SELECT_REUNIOES
+        + """
          WHERE r.criado_em >= $1 AND r.criado_em < $2
            AND t.conta_id IS NULL
+         ORDER BY r.criado_em DESC
         """,
         inicio, fim,
     )
+    return _com_desfecho(rows)
 
-    realizadas = canceladas = no_show = marcadas = parcerias = 0
-    for r in rows:
-        efetivo = regras_agenda.desfecho_efetivo(
-            desfecho=r["desfecho"],
-            concluida_em=r["concluida_em"],
-            cancelada_em=r["cancelada_em"],
-            inicio=r["inicio"],
-        )
+
+def _separar_reunioes(linhas: list[dict]) -> dict[str, list[dict]]:
+    """
+    Distribui as reunioes do mes pelos quadros. E AQUI que mora a regra de
+    cada quadro de reuniao — o painel conta estas listas e o detalhe as
+    devolve, entao nao existe uma segunda copia da regra para divergir.
+
+    PARCERIA E ILHA (decisao do Tulio, 21/09). Reuniao de parceiro — a que
+    tem `tarefas.conta_id` — conta SO no quadro PARCERIAS. Nao entra em
+    AGEN, nao entra em APRE e nao entra em nenhum dos dois lados do
+    % NOSHOW. So a REALIZADA alimenta o quadro dela: parceiro que desmarcou
+    nao e no-show de cliente nem reuniao perdida do mes.
+
+    "Marcadas para o mes" (AGEN) exclui a DESMARCADA e mantem o no-show: o
+    compromisso existiu, o cliente e que nao veio. Contar o no-show fora
+    faria a taxa dele sair de um denominador menor que a realidade.
+
+    `fechadas` e o denominador do % NOSHOW: realizada, desmarcada ou
+    no-show. Reuniao sem desfecho ainda nao entra em nenhum lado.
+    """
+    grupos = {"agen": [], "apre": [], "reunioes_parceria": [], "fechadas": []}
+    for r in linhas:
+        efetivo = r["efetivo"]
         if r["conta_id"] is not None:
-            # Parceria sai do funil comercial aqui, antes de qualquer
-            # contagem. So a REALIZADA alimenta o quadro dela: parceiro
-            # que desmarcou nao e no-show de cliente nem reuniao perdida
-            # do mes — e assunto da carteira de parceiros.
             if efetivo == "realizada":
-                parcerias += 1
+                grupos["reunioes_parceria"].append(r)
             continue
-        # "Marcadas para o mes" exclui a DESMARCADA e mantem o no-show: o
-        # compromisso existiu, o cliente e que nao veio. Contar o no-show
-        # fora faria a taxa dele sair de um denominador menor que a
-        # realidade.
         if efetivo != "cancelada":
-            marcadas += 1
+            grupos["agen"].append(r)
         if efetivo == "realizada":
-            realizadas += 1
-        elif efetivo == "cancelada":
-            canceladas += 1
-        elif efetivo == "no_show":
-            no_show += 1
+            grupos["apre"].append(r)
+        if efetivo in ("realizada", "cancelada", "no_show"):
+            grupos["fechadas"].append(r)
+    return grupos
 
-    fechadas = realizadas + canceladas + no_show
+
+async def _reunioes(conn, inicio: datetime, fim: datetime) -> dict:
+    """Tudo o que vem de reuniao, contado das mesmas listas do detalhe."""
+    grupos = _separar_reunioes(await _linhas_reunioes(conn, inicio, fim))
+    agendadas = await _linhas_agendadas(conn, inicio, fim)
+    no_show = sum(1 for r in grupos["fechadas"] if r["efetivo"] == "no_show")
     return {
-        "agen": marcadas,
-        "apre": realizadas,
-        "reunioes_parceria": parcerias,
-        "agendamentos_mes": agendadas_no_mes,
-        "noshow": regras.taxa_percentual(no_show, fechadas),
+        "agen": len(grupos["agen"]),
+        "apre": len(grupos["apre"]),
+        "reunioes_parceria": len(grupos["reunioes_parceria"]),
+        "agendamentos_mes": len(agendadas),
+        "noshow": regras.taxa_percentual(no_show, len(grupos["fechadas"])),
     }
 
 
-async def _vendas(conn, inicio: datetime, fim: datetime) -> dict:
+async def _linhas_vendas(conn, inicio: datetime, fim: datetime) -> list[dict]:
     """
-    Contratos e NMRR do mes, pela data em que o ganho foi REGISTRADO.
+    As oportunidades conquistadas no mes, pela data em que o ganho foi
+    REGISTRADO.
 
     Sai do evento de status ('conquistado'), e nao de `atualizado_em` da
     oportunidade: qualquer edicao posterior mexe em `atualizado_em` e
     moveria uma venda de agosto para setembro sozinha.
 
-    DISTINCT porque reabrir e ganhar de novo grava dois eventos, e uma
-    venda so aconteceu uma vez.
+    Uma linha por OPORTUNIDADE (DISTINCT ON): reabrir e ganhar de novo grava
+    dois eventos, e uma venda so aconteceu uma vez. Fica o primeiro ganho do
+    mes.
     """
-    row = await conn.fetchrow(
+    rows = await conn.fetch(
         """
-        SELECT count(*) AS contratos,
-               COALESCE(sum(valor_mensalidade), 0) AS nmrr
-          FROM (
-            SELECT DISTINCT o.id, o.valor_mensalidade
+        SELECT * FROM (
+            SELECT DISTINCT ON (o.id)
+                   e.criado_em AS data, o.id AS oportunidade_id,
+                   o.numero AS oportunidade_numero,
+                   COALESCE(c.nome_fantasia, c.razao_social) AS empresa,
+                   o.valor_mensalidade AS valor,
+                   u.nome AS pessoa
               FROM oportunidade_eventos e
               JOIN oportunidades o ON o.id = e.oportunidade_id
+              JOIN contas c        ON c.id = o.conta_id
+              LEFT JOIN usuarios u ON u.id = e.usuario_id
              WHERE e.tipo = 'status' AND e.para = 'conquistado'
                AND e.criado_em >= $1 AND e.criado_em < $2
-          ) ganhas
+             ORDER BY o.id, e.criado_em
+        ) ganhas
+        ORDER BY data DESC
         """,
         inicio, fim,
     )
-    contratos = row["contratos"]
-    nmrr = float(row["nmrr"])
+    linhas = []
+    for r in rows:
+        d = dict(r)
+        d["valor"] = float(d["valor"]) if d["valor"] is not None else None
+        linhas.append(d)
+    return linhas
+
+
+def _somar_vendas(linhas: list[dict]) -> dict:
+    contratos = len(linhas)
+    nmrr = float(sum(l["valor"] or 0 for l in linhas))
     return {
         "contratos": contratos,
         "nmrr": nmrr,
         "ticket_medio": regras.media(nmrr, contratos),
     }
+
+
+async def _vendas(conn, inicio: datetime, fim: datetime) -> dict:
+    return _somar_vendas(await _linhas_vendas(conn, inicio, fim))
 
 
 async def _metas_do_mes(conn, ano: int, mes: int) -> dict[str, float]:
@@ -368,7 +491,9 @@ async def painel(
     uteis = dias_uteis.dias_uteis_no_mes(primeiro, nao_uteis)
     corridos = dias_uteis.dia_util_atual_no_mes(primeiro, nao_uteis, ate)
 
-    resultados: dict[str, float | None] = {"lead": await _leads(conn, inicio, fim)}
+    resultados: dict[str, float | None] = {
+        "lead": len(await _linhas_leads(conn, inicio, fim)),
+    }
     resultados.update(await _reunioes(conn, inicio, fim))
     resultados.update(await _vendas(conn, inicio, fim))
     resultados["treinamento"] = None
@@ -409,6 +534,173 @@ async def painel(
         "progresso": (corridos / len(uteis)) if uteis else 0.0,
         "atualizado_em": _agora(),
         "indicadores": indicadores,
+    }
+
+
+
+# ── O detalhe de um quadro ───────────────────────────────────────────
+
+TIPO_DO_DETALHE = {
+    "lead": "oportunidades",
+    "agen": "reunioes",
+    "apre": "reunioes",
+    "reunioes_parceria": "reunioes",
+    "agendamentos_mes": "reunioes",
+    "noshow": "reunioes",
+    "nmrr": "oportunidades",
+    "ticket_medio": "oportunidades",
+    "contratos": "oportunidades",
+    "treinamento": "nenhum",
+}
+
+
+def _plural(n: int, singular: str, plural: str) -> str:
+    return f"{n} {singular if n == 1 else plural}"
+
+
+def _item_reuniao(r: dict, *, pela_marcacao: bool = False, conta: bool = True) -> dict:
+    return {
+        "data": r["agendada_em"] if pela_marcacao else r["inicio"],
+        "empresa": r["empresa"],
+        "oportunidade_id": r["oportunidade_id"],
+        "oportunidade_numero": r["oportunidade_numero"],
+        "conta_id": r["conta_id"],
+        "reuniao_id": r["reuniao_id"],
+        "tipo_sigla": r["tipo_sigla"],
+        "pessoa": r["pessoa"],
+        "agendado_por_nome": r["agendado_por_nome"],
+        "reuniao_inicio": r["inicio"],
+        "desfecho": r["efetivo"],
+        "desfecho_rotulo": (
+            regras_agenda.ROTULO_DESFECHO.get(r["efetivo"]) if r["efetivo"]
+            else "Sem desfecho"
+        ),
+        "conta": conta,
+    }
+
+
+def _item_oportunidade(l: dict) -> dict:
+    return {
+        "data": l["data"],
+        "empresa": l["empresa"],
+        "oportunidade_id": l["oportunidade_id"],
+        "oportunidade_numero": l["oportunidade_numero"],
+        "pessoa": l["pessoa"],
+        "valor": l.get("valor"),
+    }
+
+
+@router.get("/detalhe/{chave}", response_model=DetalheOut)
+async def detalhe(
+    chave: str,
+    ano: int | None = Query(None, ge=2020, le=2100),
+    mes: int | None = Query(None, ge=1, le=12),
+    hoje: date | None = Query(None, description="So para teste deterministico."),
+    conn=Depends(get_conn),
+    user=Depends(usuario_atual),
+):
+    """
+    O que compoe o numero de UM quadro: o clique na carinha.
+
+    Mesma janela MTD e mesmas funcoes de linha do painel — o painel CONTA
+    as linhas que este endpoint DEVOLVE. E isso que garante que a lista
+    aberta na TV confere com o numero que estava no quadro; uma consulta
+    propria aqui seria a segunda regra que um dia diverge.
+
+    Leitura aberta a quem ve o painel: a TV fica na sala, e quem olha o
+    numero tem o direito de ver de onde ele vem. Agir sobre a linha (abrir
+    a reuniao, registrar desfecho) passa pelas permissoes da tela de origem.
+    """
+    try:
+        regras.validar_indicador(chave)
+    except MonitorInvalido as e:
+        raise HTTPException(404, str(e))
+
+    ind = regras.POR_CHAVE[chave]
+    ano, mes = _mes_pedido(ano, mes)
+    inicio, fim, _ate = _janela_mtd(ano, mes, hoje or _hoje())
+
+    itens: list[dict] = []
+    resultado: float | None = None
+    resumo = ""
+
+    if chave == "lead":
+        linhas = await _linhas_leads(conn, inicio, fim)
+        itens = [_item_oportunidade(l) for l in linhas]
+        resultado = len(linhas)
+        resumo = _plural(resultado, "passagem de Suspect para Lead", "passagens de Suspect para Lead")
+
+    elif chave in ("agen", "apre", "reunioes_parceria", "noshow"):
+        grupos = _separar_reunioes(await _linhas_reunioes(conn, inicio, fim))
+        if chave == "noshow":
+            fechadas = grupos["fechadas"]
+            no_show = sum(1 for r in fechadas if r["efetivo"] == "no_show")
+            # No-shows primeiro: sao eles que o quadro mede. O resto da
+            # lista e o denominador, e fica abaixo para quem quer conferir.
+            ordenadas = (
+                [r for r in fechadas if r["efetivo"] == "no_show"]
+                + [r for r in fechadas if r["efetivo"] != "no_show"]
+            )
+            itens = [
+                _item_reuniao(r, conta=r["efetivo"] == "no_show") for r in ordenadas
+            ]
+            resultado = regras.taxa_percentual(no_show, len(fechadas))
+            resumo = (
+                f"{_plural(no_show, 'no-show', 'no-shows')} em "
+                f"{_plural(len(fechadas), 'reunião de cliente fechada', 'reuniões de cliente fechadas')}"
+            )
+        else:
+            linhas = grupos[chave]
+            itens = [_item_reuniao(r) for r in linhas]
+            resultado = len(linhas)
+            singular, plural = {
+                "agen": ("reunião de cliente no mês", "reuniões de cliente no mês"),
+                "apre": ("reunião de cliente realizada", "reuniões de cliente realizadas"),
+                "reunioes_parceria": (
+                    "reunião de parceiro realizada", "reuniões de parceiro realizadas",
+                ),
+            }[chave]
+            resumo = _plural(resultado, singular, plural)
+            if chave == "agen":
+                resumo += ", sem as desmarcadas"
+
+    elif chave == "agendamentos_mes":
+        linhas = await _linhas_agendadas(conn, inicio, fim)
+        itens = [_item_reuniao(r, pela_marcacao=True) for r in linhas]
+        resultado = len(linhas)
+        resumo = _plural(
+            resultado, "reunião de cliente marcada no mês",
+            "reuniões de cliente marcadas no mês",
+        )
+
+    elif chave in ("contratos", "nmrr", "ticket_medio"):
+        linhas = await _linhas_vendas(conn, inicio, fim)
+        itens = [_item_oportunidade(l) for l in linhas]
+        somas = _somar_vendas(linhas)
+        resultado = somas[chave]
+        n = somas["contratos"]
+        resumo = {
+            "contratos": _plural(n, "oportunidade conquistada", "oportunidades conquistadas"),
+            "nmrr": f"soma da mensalidade de {_plural(n, 'contrato', 'contratos')}",
+            "ticket_medio": f"NMRR dividido por {_plural(n, 'contrato', 'contratos')}",
+        }[chave]
+
+    else:  # treinamento: quadro reservado, sem fonte
+        resumo = "Quadro reservado: ainda não há fonte de dado."
+
+    return {
+        "chave": ind.chave,
+        "sigla": ind.sigla,
+        "rotulo": ind.rotulo,
+        "fonte": ind.fonte,
+        "formato": ind.formato,
+        "tipo": TIPO_DO_DETALHE[chave],
+        "ano": ano,
+        "mes": mes,
+        "rotulo_mes": f"{MESES[mes - 1]} de {ano}",
+        "resultado": resultado,
+        "resumo": resumo,
+        "itens": itens,
     }
 
 

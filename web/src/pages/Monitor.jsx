@@ -35,6 +35,12 @@
 // sai, e o estado é lido do evento `fullscreenchange` em vez de ser
 // adivinhado no clique — sair pelo Esc ou pelo F11 deixaria o botão
 // mentindo sobre o que ele faz.
+//
+// ── A carinha abre a lista ───────────────────────────────────────────
+// Clicar num quadro abre o que está sendo contado nele (DetalheIndicador).
+// O modal é renderizado DENTRO do container do painel, e não num portal no
+// body: em tela cheia só o container aparece, e um modal fora dele abriria
+// invisível atrás da TV.
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
@@ -46,6 +52,7 @@ import Button from '../components/ui/Button';
 import AlertMessage from '../components/ui/AlertMessage';
 import QuadroIndicador from '../components/monitor/QuadroIndicador';
 import ConfigMonitor from '../components/monitor/ConfigMonitor';
+import DetalheIndicador from '../components/monitor/DetalheIndicador';
 import { INTERVALO_MS, horaDaLeitura } from '../components/monitor/monitorComum';
 import { mensagemDeErro } from '../components/crm/tarefaComum';
 
@@ -60,6 +67,8 @@ export default function Monitor() {
   const [buscando, setBuscando] = useState(false);
   const [config, setConfig] = useState(false);
   const [cheia, setCheia] = useState(false);
+  // A chave do quadro cuja lista está aberta, ou null.
+  const [detalhe, setDetalhe] = useState(null);
   const container = useRef(null);
   const usuario = getUser();
   const podeConfigurar = CARGOS_DE_GESTAO.includes(usuario?.cargo);
@@ -248,11 +257,27 @@ export default function Monitor() {
         ) : (
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-2 auto-rows-fr h-full">
             {painel.indicadores.map((i) => (
-              <QuadroIndicador key={i.chave} indicador={i} grande={cheia} />
+              <QuadroIndicador
+                key={i.chave}
+                indicador={i}
+                grande={cheia}
+                onAbrir={(ind) => setDetalhe(ind.chave)}
+              />
             ))}
           </div>
         )}
       </div>
+
+      {painel && detalhe && (
+        <DetalheIndicador
+          aberto
+          chave={detalhe}
+          ano={painel.ano}
+          mes={painel.mes}
+          onFechar={() => setDetalhe(null)}
+          onMudou={carregar}
+        />
+      )}
 
       {podeConfigurar && painel && (
         <ConfigMonitor
