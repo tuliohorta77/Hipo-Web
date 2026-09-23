@@ -42,6 +42,7 @@ from .modelo import (
     mesclar,
     normalizar_brasilapi,
     normalizar_econodata,
+    normalizar_oportunidados,
     normalizar_leadcnpj,
 )
 
@@ -51,6 +52,7 @@ NORMALIZADORES = {
     fontes_mod.BRASILAPI: normalizar_brasilapi,
     fontes_mod.LEADCNPJ: normalizar_leadcnpj,
     fontes_mod.ECONODATA: normalizar_econodata,
+    fontes_mod.OPORTUNIDADOS: normalizar_oportunidados,
 }
 
 # Campos de `contas` que o enriquecimento sabe preencher. `vertical_id` está

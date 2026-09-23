@@ -143,6 +143,21 @@ class Settings(BaseSettings):
     # deu. Se eles renomearem o bloco, o conserto e uma linha no .env.
     ECONODATA_BLOCOS: str = "estrategico"
 
+    # Oportunidados. Entrou pelo mesmo unico dado que a Econodata --
+    # quadro de pessoal -- e pela diferenca que decidiu a troca: a origem
+    # e declaracao trabalhista (RAIS/eSocial), confirmada pelo fornecedor
+    # em 23/09/2026, e nao inferencia de LinkedIn. Por isso o campo vem
+    # como CONTAGEM EXATA ("94"), e nao como faixa.
+    #
+    # O campo so aparece na resposta quando o plano tem a feature ligada
+    # (`EmployeeCountFeature`). Sem ela a chave nem existe no JSON -- o
+    # que e diagnostico diferente de "Sem dados oficiais", que e a fonte
+    # declarando que nao sabe aquela empresa.
+    OPORTUNIDADOS_API_TOKEN: str = ""
+    OPORTUNIDADOS_URL: str = "https://app.oportunidados.com.br/api/v1"
+    # `{cnpj}` e substituido em tempo de chamada.
+    OPORTUNIDADOS_CAMINHO: str = "brazilian_companies/{cnpj}/company"
+
     class Config:
         env_file = _ENV_FILE
 

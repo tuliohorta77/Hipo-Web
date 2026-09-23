@@ -37,6 +37,7 @@ TIMEOUT_S = 20.0
 BRASILAPI = "brasilapi"
 LEADCNPJ = "leadcnpj"
 ECONODATA = "econodata"
+OPORTUNIDADOS = "oportunidados"
 
 
 def _url_base(valor: str, padrao: str) -> str:
@@ -56,6 +57,8 @@ def configurada(fonte: str) -> bool:
         return bool(getattr(settings, "LEADCNPJ_API_KEY", "").strip())
     if fonte == ECONODATA:
         return bool(getattr(settings, "ECONODATA_API_KEY", "").strip())
+    if fonte == OPORTUNIDADOS:
+        return bool(getattr(settings, "OPORTUNIDADOS_API_TOKEN", "").strip())
     return False
 
 
@@ -76,7 +79,11 @@ def fontes_habilitadas() -> list[str]:
     pedidas = [f.strip().lower() for f in bruto.split(",") if f.strip()]
     habilitadas: list[str] = []
     for fonte in pedidas:
-        if fonte not in (BRASILAPI, LEADCNPJ, ECONODATA):
+        # Lista derivada de BUSCADORES, e não escrita à mão: fonte nova
+        # registrada lá passa a ser aceita no .env sem ninguém lembrar de
+        # editar esta linha. Já esqueci uma vez — a `oportunidados` entrou
+        # no registro e continuava sendo recusada aqui como "desconhecida".
+        if fonte not in BUSCADORES:
             log.warning("enriquecimento: fonte desconhecida no .env: %r", fonte)
             continue
         if not configurada(fonte):
@@ -332,8 +339,87 @@ async def buscar_econodata(cnpj: str) -> tuple[dict | None, str | None]:
 
 # Registro consultado pelo orquestrador. Fonte nova entra aqui e em
 # `modelo.py`; nenhum outro arquivo precisa saber que ela existe.
+async def buscar_oportunidados(cnpj: str) -> tuple[dict | None, str | None]:
+    """
+    `GET /api/v1/brazilian_companies/{cnpj}/company`.
+
+    Devolve o bloco `company` ja desembrulhado -- a resposta traz tambem
+    `socios`, `contatos_extras` e `contexto`, que o HIPO nao usa: socios
+    vem da BrasilAPI de graca e o resto e ruido.
+
+    O token vai no header `Authorization: Bearer`. A API aceita
+    `?api_token=` por legado e NAO usamos: query string entra em log de
+    servidor e de proxy.
+    """
+    if not configurada(OPORTUNIDADOS):
+        return None, "Oportunidados não configurada."
+
+    base = _url_base(
+        getattr(settings, "OPORTUNIDADOS_URL", ""),
+        "https://app.oportunidados.com.br/api/v1",
+    )
+    molde = (
+        getattr(settings, "OPORTUNIDADOS_CAMINHO", "")
+        or "brazilian_companies/{cnpj}/company"
+    ).lstrip("/")
+    caminho = molde.replace("{cnpj}", cnpj)
+    token = getattr(settings, "OPORTUNIDADOS_API_TOKEN", "").strip()
+
+    try:
+        async with httpx.AsyncClient(timeout=TIMEOUT_S) as cliente:
+            resp = await cliente.get(
+                f"{base}/{caminho}",
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "Accept": "application/json",
+                },
+            )
+    except Exception as e:
+        log.warning("oportunidados: falhou (%s: %s)", type(e).__name__, e)
+        return None, (
+            f"Não foi possível falar com a Oportunidados ({type(e).__name__})."
+        )
+
+    if resp.status_code == 401:
+        # ERROR e nao WARNING: token errado derruba TODA consulta paga.
+        log.error("oportunidados: HTTP 401 — credencial recusada")
+        return None, (
+            "A Oportunidados recusou a credencial. "
+            "Confira OPORTUNIDADOS_API_TOKEN."
+        )
+    if resp.status_code == 403:
+        log.error("oportunidados: HTTP 403 — conta inelegível ou quota")
+        return None, (
+            "A Oportunidados recusou: conta inelegível ou quota mensal "
+            "esgotada."
+        )
+    if resp.status_code == 404:
+        return None, "CNPJ não encontrado na Oportunidados."
+    if resp.status_code == 429:
+        return None, "Limite por minuto da Oportunidados atingido."
+    if resp.status_code != 200:
+        log.warning(
+            "oportunidados: HTTP %s — %s", resp.status_code, resp.text[:200]
+        )
+        return None, f"A Oportunidados respondeu {resp.status_code}."
+
+    try:
+        bruto = resp.json()
+    except ValueError:
+        return None, "A Oportunidados respondeu num formato inesperado."
+
+    if not isinstance(bruto, dict):
+        return None, "A Oportunidados respondeu num formato inesperado."
+
+    empresa = bruto.get("company")
+    if not isinstance(empresa, dict):
+        return None, "A Oportunidados respondeu sem o bloco `company`."
+    return empresa, None
+
+
 BUSCADORES = {
     BRASILAPI: buscar_brasilapi,
     LEADCNPJ: buscar_leadcnpj,
     ECONODATA: buscar_econodata,
+    OPORTUNIDADOS: buscar_oportunidados,
 }

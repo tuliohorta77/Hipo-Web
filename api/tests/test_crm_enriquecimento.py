@@ -1217,3 +1217,139 @@ class TestFaixaNaoEhContagem:
         assert modelo.quantidade_de_faixa(115) is None
         assert modelo.quantidade_de_faixa("50 a 249") == 50
         assert modelo.quantidade_de_faixa({"de": 100, "ate": 249}) == 100
+
+
+# ── Oportunidados: a fonte de quadro de pessoal ──────────────────────────────
+
+class TestOportunidados:
+    """
+    Substituiu a Econodata em 23/09/2026 por causa da ORIGEM: declaração
+    trabalhista (RAIS/eSocial), confirmada pelo fornecedor, contra a
+    inferência de LinkedIn/notícias da anterior — que errava por 13 a 38
+    vezes, sempre para baixo, e pior justamente nas empresas com mais vidas.
+
+    Testes de lógica pura: rodam sem Postgres.
+    """
+
+    def test_contagem_exata_e_o_caso_normal_do_plano_pago(self):
+        """`"94"`, não `"51 a 100"`. Dado de declaração vem contado."""
+        dados = modelo.normalizar_oportunidados({
+            "cnpj": "05.352.393/0001-16",
+            "razao_social": "ALFAPET PRODUTOS PARA ANIMAIS",
+            "numero_funcionarios": "94",
+        })
+        assert dados.num_funcionarios == 94
+        assert dados.cnpj == "05352393000116"
+        assert dados.fonte == "oportunidados"
+
+    def test_faixa_do_plano_basico_vira_o_piso(self):
+        dados = modelo.normalizar_oportunidados({
+            "cnpj": "05352393000116",
+            "numero_funcionarios": "101 a 500 funcionários",
+        })
+        assert dados.num_funcionarios == 101
+
+    def test_sem_dados_oficiais_vira_nulo(self):
+        """
+        A fonte declarando que não sabe. Nulo é o estado certo: campo vazio o
+        enriquecimento repreenche na próxima consulta, número errado fica
+        para sempre porque a regra de não sobrescrever o protege.
+        """
+        dados = modelo.normalizar_oportunidados({
+            "cnpj": "05352393000116",
+            "numero_funcionarios": "Sem dados oficiais",
+        })
+        assert dados.num_funcionarios is None
+        assert dados.num_funcionarios_origem is None
+
+    def test_nenhum_funcionario_vira_zero_e_nao_nulo(self):
+        """
+        Zero é informação — a empresa declarou nenhum vínculo, e isso decide
+        não prospectar. Nulo é ausência de informação. Como o texto não tem
+        dígito, `para_inteiro` devolveria None; o normalizador trata à parte.
+        """
+        dados = modelo.normalizar_oportunidados({
+            "cnpj": "05352393000116",
+            "numero_funcionarios": "Nenhum funcionário",
+        })
+        assert dados.num_funcionarios == 0
+        assert dados.num_funcionarios_origem == modelo.ESTIMADO
+
+    def test_chave_ausente_nao_quebra(self):
+        """
+        `numero_funcionarios` só vem quando `EmployeeCountFeature` está no
+        plano da CONTA. Sem ela a chave nem existe no JSON.
+        """
+        dados = modelo.normalizar_oportunidados({
+            "cnpj": "05352393000116", "razao_social": "ALFAPET",
+        })
+        assert dados.num_funcionarios is None
+
+    def test_traz_so_o_quadro_de_pessoal(self):
+        """
+        A resposta tem 48 chaves. Aproveitar as outras custaria ruído: duas
+        fontes escrevendo o mesmo campo com grafias diferentes viram
+        divergência na tela, e o usuário aprende a aceitar sem ler.
+        """
+        dados = modelo.normalizar_oportunidados({
+            "cnpj": "05352393000116",
+            "razao_social": "ALFAPET PRODUTOS PARA ANIMAIS LTDA",
+            "nome_fantasia": "ALFAPET",
+            "capital_social": 100000,
+            "cnae_fiscal": "4623108",
+            "numero_funcionarios": "94",
+        })
+        assert dados.num_funcionarios == 94
+        assert dados.razao_social is None
+        assert dados.nome_fantasia is None
+        assert dados.capital_social is None
+        assert dados.cnae_codigo is None
+
+    def test_continua_estimado_mesmo_vindo_de_fonte_oficial(self):
+        """
+        `DECLARADO` significa "o cliente nos informou" — é o número que
+        precifica. Marcar dado de terceiro como declarado deixaria um número
+        externo chegar à proposta.
+        """
+        dados = modelo.normalizar_oportunidados({
+            "cnpj": "05352393000116", "numero_funcionarios": "94",
+        })
+        assert dados.num_funcionarios_origem == modelo.ESTIMADO
+        assert dados.num_funcionarios_origem != modelo.DECLARADO
+
+    def test_fonte_desligada_sem_token(self, monkeypatch):
+        """
+        Fonte não configurada é fonte DESLIGADA, não erro de inicialização —
+        mesma regra do S3, do SES e da chave da IA. Sem token no .env ela
+        simplesmente não entra na lista e a API sobe igual.
+        """
+        from services.enriquecimento import fontes as f
+
+        assert f.OPORTUNIDADOS in f.BUSCADORES
+
+        monkeypatch.setattr(settings, "OPORTUNIDADOS_API_TOKEN", "")
+        assert f.configurada(f.OPORTUNIDADOS) is False
+
+        monkeypatch.setattr(settings, "OPORTUNIDADOS_API_TOKEN", "tok-de-teste")
+        assert f.configurada(f.OPORTUNIDADOS) is True
+
+    def test_entra_na_ordem_declarada_no_env(self, monkeypatch):
+        """
+        A ordem de `ENRIQUECIMENTO_FONTES` é a precedência do `mesclar`. Com
+        `brasilapi,oportunidados` a gratuita é a base do cadastro e a paga só
+        completa o buraco que ela deixa — que é o quadro de pessoal.
+        """
+        from services.enriquecimento import fontes as f
+
+        monkeypatch.setattr(
+            settings, "ENRIQUECIMENTO_FONTES", "brasilapi,oportunidados"
+        )
+        monkeypatch.setattr(settings, "OPORTUNIDADOS_API_TOKEN", "tok-de-teste")
+        assert f.fontes_habilitadas() == [f.BRASILAPI, f.OPORTUNIDADOS]
+
+    async def test_buscar_sem_token_nao_chama_a_rede(self, monkeypatch):
+        from services.enriquecimento import fontes as f
+        monkeypatch.setattr(settings, "OPORTUNIDADOS_API_TOKEN", "")
+        payload, erro = await f.buscar_oportunidados("05352393000116")
+        assert payload is None
+        assert "não configurada" in erro.lower() or "nao configurada" in erro.lower()

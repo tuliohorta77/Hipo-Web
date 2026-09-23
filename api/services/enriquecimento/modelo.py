@@ -905,6 +905,92 @@ def normalizar_leadcnpj(payload: dict) -> DadosEmpresa:
     )
 
 
+def normalizar_oportunidados(payload: dict) -> DadosEmpresa:
+    """
+    Converte o bloco `company` da Oportunidados — e só o quadro de pessoal.
+
+    ELA DEVOLVE UM CAMPO SÓ, PELO MESMO MOTIVO DA ECONODATA.
+
+    A resposta tem 48 chaves: razão social, CNAE, endereço, capital, sócios,
+    regime tributário. Tudo isso a BrasilAPI já dá de graça, da mesma base da
+    Receita. Aproveitar daqui custaria ruído — duas fontes escrevendo o mesmo
+    campo com grafias diferentes ("SAO PAULO" contra "São Paulo") viram
+    divergência na tela, e o usuário aprende a clicar em "usar os dados da
+    fonte" sem ler.
+
+    POR QUE ESTA FONTE SUBSTITUIU A ECONODATA
+
+    A origem. Confirmada pelo fornecedor em 23/09/2026: declaração
+    trabalhista (RAIS/eSocial). A Econodata inferia de LinkedIn e notícias, e
+    o efeito media-se em ordens de grandeza — uma empresa de ~115 vidas saía
+    como faixa "3 a 9", erro de 13 a 38 vezes, sempre PARA BAIXO. E o viés
+    era pior justamente no nosso segmento: quem está na produção, na limpeza
+    e na portaria não tem perfil no LinkedIn.
+
+    Duas consequências práticas na leitura do campo:
+
+      * O valor vem como CONTAGEM EXATA em texto (`"94"`), não como faixa.
+        O plano básico devolve rótulo de faixa (`"101 a 500 funcionários"`);
+        `para_inteiro` resolve os dois, e faixa vira o PISO.
+      * Ausência tem nome próprio: `"Sem dados oficiais"`. A fonte declara
+        que não sabe em vez de chutar. Vira None, e None é o estado que o
+        enriquecimento repreenche na próxima consulta.
+
+    A CHAVE PODE NEM EXISTIR, e isso é outro diagnóstico
+
+    `numero_funcionarios` só aparece quando `EmployeeCountFeature` está
+    ligada no plano da CONTA (não da empresa consultada). Chave ausente é
+    plano sem o recurso; `"Sem dados oficiais"` é plano com o recurso e sem
+    o dado daquele CNPJ. Os dois viram None aqui — mas quem investiga
+    precisa saber que são coisas diferentes, e `infra/sondar-oportunidados.sh`
+    as separa.
+
+    O NÚMERO É DO ESTABELECIMENTO, NÃO DO GRUPO
+
+    Dado de declaração trabalhista é por CNPJ, porque é assim que a empresa
+    declara. Uma matriz com 94 e duas filiais com 14 e 7 soma 115 — e o "115
+    vidas" que o comercial conhece costuma ser a conta do grupo. Não é erro
+    da fonte: é outra pergunta. Para medicina ocupacional o número do
+    ESTABELECIMENTO é o certo, porque é ele que dimensiona SESMT (NR-4) e é
+    o CNPJ que assina o contrato.
+
+    E SEGUE SENDO `ESTIMADO`
+
+    Mesmo vindo de declaração oficial. `DECLARADO`, no HIPO, significa "o
+    cliente nos informou" — é o número que precifica, e a regra de
+    `persistencia.aplicar()` existe para protegê-lo. Marcar dado de terceiro
+    como declarado corromperia esse significado e deixaria um número externo
+    chegar à proposta. Fonte externa é sempre estimativa, por melhor que seja
+    a origem.
+    """
+    cnpj = so_digitos(_primeiro(
+        payload, "cnpj", "cnpj_raiz", "documento", "document"
+    ))
+
+    texto = _primeiro(
+        payload,
+        "numero_funcionarios", "numeroFuncionarios",
+        "employees_count_info", "employeesCountInfo",
+    )
+
+    # "Nenhum funcionário" é informação, não ausência: a empresa declarou
+    # zero vínculos. Precisa virar 0 e não None, porque são estados
+    # diferentes — zero é "sabidamente vazio" (não vale prospectar) e None é
+    # "não sei". `para_inteiro` devolveria None aqui, já que não há dígito
+    # nenhum no texto.
+    if isinstance(texto, str) and "nenhum" in texto.lower():
+        funcionarios = 0
+    else:
+        funcionarios = para_inteiro(texto)
+
+    return DadosEmpresa(
+        cnpj=cnpj,
+        fonte="oportunidados",
+        num_funcionarios=funcionarios,
+        num_funcionarios_origem=ESTIMADO if funcionarios is not None else None,
+    )
+
+
 def normalizar_econodata(payload: dict) -> DadosEmpresa:
     """
     Converte a resposta da Econodata — e só o que dela interessa.
