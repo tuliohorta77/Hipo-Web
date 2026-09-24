@@ -18,17 +18,22 @@ problema que uma configuração única no Admin Console já resolve.
      APIs & Services → habilitar a "Google Calendar API".
   2. Criar uma Service Account. Anotar o Client ID numérico dela.
   3. Gerar uma chave JSON da conta de serviço e gravá-la na EC2 em
-     /home/hipo/app/google-sa.json, com dono `hipo` e modo 600.
+     /home/hipo/app/google-sa.json, com dono `ec2-user` e modo 600 —
+     o mesmo usuario do `User=` da unit hipo-api (com `hipo`, a API nao
+     consegue ler o arquivo e todo convite falha).
   4. Admin Console do Workspace → Segurança → Controle de acesso a dados
      → Controles de API → Delegação em todo o domínio → Adicionar novo:
        Client ID: o numérico do passo 2
        Escopos:   https://www.googleapis.com/auth/calendar.events
+                  (+ os dois do Meet, ver services/google_meet.py)
   5. No /home/hipo/app/.env:
        GOOGLE_SA_ARQUIVO=/home/hipo/app/google-sa.json
   6. Instalar as bibliotecas NA MÃO — o deploy faz rsync e reinicia, NÃO
      roda pip install:
-       sudo -iu hipo pip install google-api-python-client==2.149.0 \
-                                google-auth==2.35.0
+       sudo pip3 install google-api-python-client==2.149.0 \
+                         google-auth==2.35.0
+     (no site-packages do /usr/bin/python3 do ExecStart; `sudo -iu hipo
+     pip` instala em outro lugar e o import continua falhando).
   7. Reiniciar o serviço.
 
 O DIAGNÓSTICO de tudo isso é `problemas()`, que roda sem chamar a rede.

@@ -52,6 +52,7 @@ from routers.crm_tarefas import (
 )
 from routers.permissions import requer_qualquer_modulo
 from services import agenda as regras
+from services import coleta_transcricao
 from services import google_agenda
 from services import tarefa as regras_tarefa
 from services.agenda import AgendaInvalida
@@ -369,6 +370,14 @@ class ReuniaoOut(BaseModel):
     google_sincronizado_em: datetime | None
     google_erro: str | None
 
+    # A transcricao (016). So o STATUS vem na grade -- o texto e pesado e
+    # tem endpoint proprio, lido quando alguem abre a tarefa. `None` =
+    # ainda nao ha linha (reuniao nao acabou, ou nao tem Meet).
+    transcricao_status: str | None = None
+    # A transcricao automatica NAO foi ligada na sala. A tela avisa para o
+    # anfitriao ligar a mao na call -- senao a reuniao acaba sem texto.
+    transcricao_auto_erro: str | None = None
+
     observacoes: str | None
     # Só na grade com uma agenda escolhida: 'anfitriao' quando a reunião é
     # DELA, 'participante' quando ela está em "Nossa equipe" de uma reunião de
@@ -518,6 +527,8 @@ _SELECT_BASE = """
            r.convidados, r.observacoes,
            r.google_calendar_id, r.google_event_id, r.google_link,
            r.google_sincronizado_em, r.google_erro,
+           r.transcricao_auto_erro,
+           rt.status AS transcricao_status,
            r.criado_em,
            r.agendado_por, ag.nome AS agendado_por_nome,
            r.desfecho, r.desfecho_em, r.desfecho_observacao,
@@ -572,6 +583,7 @@ _SELECT_BASE = """
       LEFT JOIN contas cp        ON cp.id = t.conta_id
       LEFT JOIN usuarios ag      ON ag.id = r.agendado_por
       LEFT JOIN usuarios dp      ON dp.id = r.desfecho_por
+      LEFT JOIN reuniao_transcricoes rt ON rt.reuniao_id = r.id
 """
 
 # O JOIN com `tarefas` é INNER, e é o único do arquivo que pode ser: a FK é
@@ -936,6 +948,13 @@ async def _sincronizar(conn, reuniao_id: UUID) -> dict:
              WHERE id = $1
             """,
             reuniao_id, resultado.event_id, resultado.calendar_id, resultado.link,
+        )
+        # Sala nova do Meet: liga a transcricao automatica. Depois do
+        # UPDATE acima e fora de transacao, como o proprio evento -- e com
+        # o e-mail do CALENDARIO onde o evento nasceu, que e o dono da sala.
+        # Melhor-esforco: falha vira `transcricao_auto_erro` e nada mais.
+        await coleta_transcricao.ligar_na_sala(
+            conn, reuniao_id, resultado.calendar_id, resultado.link,
         )
     else:
         # O event_id ANTIGO é preservado de propósito. Uma atualização que
@@ -2067,3 +2086,110 @@ async def cancelar(
     )
     await remover_evento_da_tarefa(conn, atual["tarefa_id"])
     return await _obter(conn, reuniao_id)
+
+
+# ── Transcrição (016) ────────────────────────────────────────────────
+#
+# Pela TAREFA, e não pela reunião: é a tarefa que as três telas têm na mão
+# (Tarefas, a aba da oportunidade e o formulário da reunião), e é na tarefa
+# que o texto "fica salvo" para quem abre depois. Mesma escolha dos anexos.
+
+
+class TranscricaoOut(BaseModel):
+    reuniao_id: UUID
+    tarefa_id: UUID
+    # aguardando | pronta | indisponivel, mais dois que não têm linha:
+    # sem_meet (não tem como ter) e nao_iniciada (ainda não é hora).
+    status: str
+    rotulo: str | None
+    motivo: str | None
+    erro: str | None
+    tentativas: int
+    ultima_tentativa_em: datetime | None
+    tem_meet: bool
+    documento_url: str | None
+    idioma: str | None
+    texto: str | None
+    falas: int
+    coletada_em: datetime | None
+    resumo: str | None
+    proximos_passos: list[str]
+    resumo_modelo: str | None
+    resumo_em: datetime | None
+    resumo_erro: str | None
+    transcricao_auto_em: datetime | None
+    transcricao_auto_erro: str | None
+    google_configurado: bool
+    ia_configurada: bool
+    pode_buscar: bool
+    pode_resumir: bool
+
+
+async def _reuniao_da_tarefa_ou_404(conn, tarefa_id: UUID) -> UUID:
+    reuniao_id = await coleta_transcricao.reuniao_da_tarefa(conn, tarefa_id)
+    if reuniao_id is None:
+        raise HTTPException(404, "Esta tarefa não é uma reunião da agenda.")
+    return reuniao_id
+
+
+@router.get("/tarefas/{tarefa_id}/transcricao", response_model=TranscricaoOut)
+async def obter_transcricao(
+    tarefa_id: UUID,
+    conn=Depends(get_conn),
+    user=Depends(usuario_atual),
+):
+    """O estado da transcrição, com o texto e o resumo quando prontos."""
+    reuniao_id = await _reuniao_da_tarefa_ou_404(conn, tarefa_id)
+    return await coleta_transcricao.obter(conn, reuniao_id)
+
+
+@router.post("/tarefas/{tarefa_id}/transcricao/buscar", response_model=TranscricaoOut)
+async def buscar_transcricao(
+    tarefa_id: UUID,
+    conn=Depends(get_conn),
+    user=Depends(usuario_atual),
+):
+    """
+    "Buscar agora": a mesma passada do timer, sem esperar os 15 minutos.
+
+    Existe porque o vendedor quer o texto ao sair da call, para registrar o
+    desfecho com ele na mão — e porque reavalia o que já tinha desistido:
+    quem acabou de corrigir a delegação no Admin Console não pode ter de
+    esperar uma transcrição que o timer não vai mais procurar.
+
+    Falha do Google NÃO é erro HTTP: volta 200 com `erro` preenchido, e a
+    tela mostra a frase. O 422 fica para o que a pessoa pode corrigir
+    clicando diferente.
+    """
+    reuniao_id = await _reuniao_da_tarefa_ou_404(conn, tarefa_id)
+    atual = await coleta_transcricao.obter(conn, reuniao_id)
+    if not atual["tem_meet"]:
+        raise HTTPException(422, "Esta reunião não tem sala do Google Meet.")
+    if not atual["pode_buscar"] and atual["status"] != "pronta":
+        raise HTTPException(
+            422,
+            "Ainda não dá para buscar: a reunião não terminou, foi cancelada "
+            "ou passou dos 30 dias em que o Google guarda as falas.",
+        )
+    return await coleta_transcricao.coletar(conn, reuniao_id, manual=True)
+
+
+@router.post("/tarefas/{tarefa_id}/transcricao/resumo", response_model=TranscricaoOut)
+async def refazer_resumo(
+    tarefa_id: UUID,
+    conn=Depends(get_conn),
+    user=Depends(usuario_atual),
+):
+    """
+    Gera o resumo de novo. Para o resumo descartado pela guarda numérica,
+    ou para a transcrição que chegou antes de a chave da IA existir.
+    """
+    reuniao_id = await _reuniao_da_tarefa_ou_404(conn, tarefa_id)
+    atual = await coleta_transcricao.obter(conn, reuniao_id)
+    if not atual["pode_resumir"]:
+        raise HTTPException(422, "Só dá para resumir uma transcrição pronta.")
+    if not atual["ia_configurada"]:
+        raise HTTPException(
+            422, "A IA não está configurada neste servidor (ANTHROPIC_API_KEY)."
+        )
+    return await coleta_transcricao.resumir(conn, reuniao_id)

@@ -53,6 +53,7 @@ import {
   DesfechoRegistrado, PainelDesfecho, agendarProximaSeForReuniao,
 } from './DesfechoReuniao';
 import AnexosTarefa from './AnexosTarefa';
+import TranscricaoReuniao from './TranscricaoReuniao';
 
 function formVazio(usuarioPadrao = '') {
   return {
@@ -833,6 +834,16 @@ export default function ModalReuniao({
             }}
             nivelLightbox={3}
           />
+        )}
+
+        {/*
+          A transcrição do Meet, entre os anexos e o desfecho: o resumo é o
+          que a pessoa lê para responder "o que aconteceu?" logo abaixo.
+          `key` pela tarefa para não mostrar a conversa da reunião
+          anterior enquanto a nova carrega.
+        */}
+        {editando && (
+          <TranscricaoReuniao key={reuniao.tarefa_id} tarefa={{ id: reuniao.tarefa_id }} />
         )}
 
         {/* ── O desfecho ── */}

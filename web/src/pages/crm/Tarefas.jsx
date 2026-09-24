@@ -68,6 +68,7 @@ import OportunidadeDetalhe from '../../components/crm/OportunidadeDetalhe';
 import ContaDetalhe from '../../components/crm/ContaDetalhe';
 import ModalDesfecho from '../../components/crm/ModalDesfecho';
 import AnexosTarefa from '../../components/crm/AnexosTarefa';
+import TranscricaoReuniao from '../../components/crm/TranscricaoReuniao';
 import ModalReuniao from '../../components/crm/ModalReuniao';
 import {
   PainelReuniaoDaTarefa, SeloDesfecho, agendarProximaSeForReuniao,
@@ -903,6 +904,9 @@ export default function Tarefas() {
               nivelLightbox={2}
               onMudou={recarregarTarefaAberta}
             />
+
+            {/* A conversa da reunião (Meet), antes do painel de desfecho. */}
+            {aberta.reuniao_id && <TranscricaoReuniao tarefa={aberta} />}
 
             {ABERTAS.includes(aberta.situacao) && aberta.agendavel ? (
               <PainelReuniaoDaTarefa

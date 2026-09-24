@@ -1,0 +1,43 @@
+[Unit]
+# HIPO -- coletor de transcricoes do Google Meet.
+#
+# Instalacao: infra/aplicar-016-transcricao.sh --timer (o deploy-020 roda).
+# O rsync do CI NAO leva a pasta infra/: a unit vai por scp.
+#
+# Verificacao:
+#   systemctl list-timers hipo-transcricoes.timer
+#   sudo systemctl start hipo-transcricoes.service   # roda agora
+#   journalctl -u hipo-transcricoes.service -n 50 --no-pager
+Description=HIPO -- coleta transcricoes do Google Meet
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# ec2-user, o mesmo usuario de hipo-api.service e de hipo-fechamento.
+# Com `hipo`, o pydantic-settings nao le o .env (600 ec2-user) e a chave
+# do Google (600 ec2-user) -- o acidente de 31/08 do fechamento.
+User=ec2-user
+Group=ec2-user
+WorkingDirectory=/home/hipo/app/api
+EnvironmentFile=/home/hipo/app/.env
+Environment=PYTHONPATH=/home/hipo/app/api
+Environment=PYTHONUNBUFFERED=1
+
+ExecStart=/usr/bin/python3 -m scripts.coletar_transcricoes
+
+# Sem Restart=: o proprio timer e a retentativa. A proxima passada vem em
+# 15 minutos, e o script e idempotente.
+
+# Uma passada normal leva segundos. Cinco minutos cobrem uma fila grande
+# com a IA lenta; mais que isso e travamento, e o proximo disparo nao pode
+# encontrar o anterior ainda de pe.
+TimeoutStartSec=300
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=read-only
+
+[Install]
+WantedBy=multi-user.target

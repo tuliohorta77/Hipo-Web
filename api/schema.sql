@@ -1015,6 +1015,10 @@ CREATE TABLE IF NOT EXISTS reunioes (
     -- Coluna e nao log: a tela precisa dizer "o convite nao saiu". Convite
     -- que o cliente nunca recebeu e reuniao que nao vai acontecer.
     google_erro            TEXT,
+    -- 016: a transcricao automatica foi ligada na sala do Meet? O coletor
+    -- de transcricoes depende disso, e a tela avisa quando nao foi.
+    transcricao_auto_em    TIMESTAMPTZ,
+    transcricao_auto_erro  TEXT,
 
     criado_por    UUID REFERENCES usuarios(id) ON DELETE SET NULL,
     criado_em     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -1075,6 +1079,56 @@ CREATE TABLE IF NOT EXISTS reuniao_participantes (
 
 CREATE INDEX IF NOT EXISTS idx_reuniao_participantes_usuario
     ON reuniao_participantes (usuario_id);
+
+
+-- 016: a transcricao da reuniao, puxada do Google Meet depois que ela
+-- acaba. O porque de cada coluna esta na migration 016.
+CREATE TABLE IF NOT EXISTS reuniao_transcricoes (
+    reuniao_id          UUID PRIMARY KEY REFERENCES reunioes(id) ON DELETE CASCADE,
+    status              VARCHAR(16) NOT NULL DEFAULT 'aguardando',
+    -- Por que ainda esta aguardando, ou por que nao vai chegar. Frase em
+    -- portugues para a tela, e nao codigo.
+    motivo              TEXT,
+    -- Ultimo erro TECNICO da coleta (403 da delegacao, rede). NULL quando
+    -- a ultima tentativa falou com o Google sem problema.
+    erro                TEXT,
+    tentativas          INTEGER NOT NULL DEFAULT 0,
+    ultima_tentativa_em TIMESTAMPTZ,
+
+    -- Os `conferenceRecords/...` que compuseram o texto. Rastro: e o que
+    -- permite, com a API ainda dentro dos 30 dias, conferir de onde veio.
+    conferencias        TEXT[] NOT NULL DEFAULT '{}',
+    documento_url       TEXT,
+    idioma              VARCHAR(16),
+    -- As falas estruturadas: [{inicio, fim, participante, texto}]. O
+    -- `texto` abaixo e derivado delas; as duas ficam porque a tela le o
+    -- texto corrido e uma futura busca por fala le a estrutura.
+    entradas            JSONB,
+    texto               TEXT,
+    coletada_em         TIMESTAMPTZ,
+
+    -- O resumo pela IA. Opcional: sem ANTHROPIC_API_KEY a transcricao
+    -- chega igual, so sem resumo.
+    resumo              TEXT,
+    proximos_passos     JSONB,
+    resumo_modelo       VARCHAR(64),
+    resumo_em           TIMESTAMPTZ,
+    resumo_erro         TEXT,
+
+    criado_em           TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    atualizado_em       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+    CONSTRAINT ck_transcricao_status
+        CHECK (status IN ('aguardando', 'pronta', 'indisponivel')),
+    -- "Pronta" sem texto seria a tela prometendo o que nao tem.
+    CONSTRAINT ck_transcricao_pronta_tem_texto
+        CHECK (status <> 'pronta' OR (texto IS NOT NULL AND coletada_em IS NOT NULL))
+);
+
+-- O coletor pergunta "o que ainda esta aguardando" a cada 15 minutos.
+CREATE INDEX IF NOT EXISTS idx_reuniao_transcricoes_aguardando
+    ON reuniao_transcricoes (ultima_tentativa_em)
+    WHERE status = 'aguardando';
 
 
 -- ============================================================================

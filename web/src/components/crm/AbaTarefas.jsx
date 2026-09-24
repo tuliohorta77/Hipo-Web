@@ -45,6 +45,7 @@ import Badge from '../ui/Badge';
 import Empty from '../ui/Empty';
 import AlertMessage from '../ui/AlertMessage';
 import AnexosTarefa from './AnexosTarefa';
+import TranscricaoReuniao from './TranscricaoReuniao';
 import ModalReuniao from './ModalReuniao';
 import {
   PainelReuniaoDaTarefa, SeloDesfecho, agendarProximaSeForReuniao,
@@ -168,6 +169,13 @@ function Evento({
               é o topo da escala de CAMADAS.
             */}
             <AnexosTarefa tarefa={tarefa} nivelLightbox={3} />
+
+            {/*
+              A conversa da reunião, quando houve Meet. Antes do painel de
+              desfecho de propósito: o resumo é o que a pessoa lê para
+              registrar o que aconteceu e agendar a próxima.
+            */}
+            {tarefa.reuniao_id && <TranscricaoReuniao tarefa={tarefa} />}
 
             {/*
               Ações só em tarefa aberta. Tarefa fechada é histórico, e o

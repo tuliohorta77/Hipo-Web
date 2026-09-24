@@ -79,6 +79,8 @@ CATALOGO: dict[tuple[str, str], Tipo] = {
     ("PATCH", "/crm/agenda/reunioes/{reuniao_id}"): _t("Reuniões", "Reunião editada", 22),
     ("POST", "/crm/agenda/reunioes/{reuniao_id}/cancelar"): _t("Reuniões", "Reunião cancelada", 23),
     ("POST", "/crm/agenda/reunioes/{reuniao_id}/sincronizar"): _t("Reuniões", "Reunião reenviada ao Google", 24),
+    ("POST", "/crm/agenda/tarefas/{tarefa_id}/transcricao/buscar"): _t("Reuniões", "Transcrição buscada", 25),
+    ("POST", "/crm/agenda/tarefas/{tarefa_id}/transcricao/resumo"): _t("Reuniões", "Resumo de reunião gerado", 26),
 
     # Oportunidades
     ("POST", "/crm/oportunidades"): _t("Oportunidades", "Oportunidade criada", 30),

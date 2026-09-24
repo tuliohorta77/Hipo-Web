@@ -1,0 +1,17 @@
+[Unit]
+Description=HIPO -- dispara o coletor de transcricoes a cada 15 minutos
+Documentation=file:///home/hipo/app/api/scripts/coletar_transcricoes.py
+
+[Timer]
+# A cada 15 minutos, todos os dias. Sem restricao de horario ou dia da
+# semana: a reuniao das 18h ou do sabado tambem tem transcricao, e uma
+# passada sem nada para olhar custa uma consulta ao banco.
+#
+# 15 e o meio-termo entre "o vendedor sai da call e ja tem o texto" (o
+# botao Buscar agora cobre quem tem pressa) e bater no Google a toa.
+OnCalendar=*:0/15
+Persistent=true
+RandomizedDelaySec=60
+
+[Install]
+WantedBy=timers.target
