@@ -70,7 +70,9 @@ class TestLigar:
         r = await google_meet.ligar_transcricao("ana@x.com", "abc-defg-hij")
         assert r.ok and r.erro is None
         patch = s.pedidos[1]
-        assert patch["params"] == {"updateMask": "config.artifactConfig.transcriptionConfig"}
+        # Ate o campo final: so ate transcriptionConfig o Google devolve 400.
+        assert patch["params"] == {
+            "updateMask": "config.artifactConfig.transcriptionConfig.autoTranscriptionGeneration"}
         assert patch["json"] == {"config": {"artifactConfig": {
             "transcriptionConfig": {"autoTranscriptionGeneration": "ON"}}}}
         # Só o escopo de configuração: pedir mais derrubaria o token inteiro.

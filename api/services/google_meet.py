@@ -62,6 +62,9 @@ BASE = "https://meet.googleapis.com/v2"
 ESCOPO_LEITURA = "https://www.googleapis.com/auth/meetings.space.readonly"
 ESCOPO_CONFIG = "https://www.googleapis.com/auth/meetings.space.settings"
 TIMEOUT_S = 30
+MASCARA_TRANSCRICAO = (
+    "config.artifactConfig.transcriptionConfig.autoTranscriptionGeneration"
+)
 TAMANHO_PAGINA = 100
 # Teto de páginas por listagem. Uma reunião de 2h tem algumas centenas de
 # entradas; mil páginas de cem só existiriam num laço de paginação quebrado
@@ -191,7 +194,11 @@ def _ligar_sync(email: str, codigo: str) -> ResultadoMeet:
             return ResultadoMeet(False, "O Google não devolveu o id da sala do Meet.")
         _pedir(
             sessao, "PATCH", f"{BASE}/{nome}", ESCOPO_CONFIG,
-            params={"updateMask": "config.artifactConfig.transcriptionConfig"},
+            # O caminho vai ate o CAMPO FINAL. A documentacao mostra so
+            # ate `transcriptionConfig`, e o Google recusa esse com 400
+            # "Invalid update mask" -- conferido contra a API real em
+            # 24/09/2026 numa sala do Business Standard.
+            params={"updateMask": MASCARA_TRANSCRICAO},
             json={"config": {"artifactConfig": {
                 "transcriptionConfig": {"autoTranscriptionGeneration": "ON"},
             }}},
