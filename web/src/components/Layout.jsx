@@ -62,6 +62,11 @@ const NAV_ITEMS = [
   // abrindo, pela aba Dados publicos.
   { to: '/crm/cnaes', label: 'CNAEs', modulo: 'crm', cargos: ['Franqueado', 'ADM'] },
   { to: '/crm/parceiros', label: 'Parceiros', modulo: 'parceiros' },
+  // Relatorios: a tabela dinamica sobre a base. Modulo 'crm' (todo cargo
+  // monta relatorio); o que muda entre cargos e o RECORTE dos dados, que e
+  // do servidor. Fica antes do Monitor porque os dois sao as telas de
+  // olhar o todo -- e o Monitor segue fechando a barra, como a TV da sala.
+  { to: '/crm/relatorios', label: 'Relatórios', modulo: 'crm' },
   { to: '/monitor', label: 'Monitor', modulo: 'crm' },
 ];
 

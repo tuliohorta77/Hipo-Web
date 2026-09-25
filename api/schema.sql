@@ -1169,3 +1169,35 @@ CREATE TABLE IF NOT EXISTS monitor_metas (
 -- A consulta do painel e sempre "as metas deste mes".
 CREATE INDEX IF NOT EXISTS idx_monitor_metas_mes
     ON monitor_metas (ano, mes);
+
+
+-- ============================================================================
+-- relatorios_salvos  (migration 017 -- modulo de Relatorios)
+-- ============================================================================
+-- A montagem da tabela dinamica que o usuario salva no perfil, com nome.
+-- Guarda a PERGUNTA (fonte, periodo relativo ou fixo, linhas, colunas,
+-- valores, filtros), nunca a resposta: o resultado e recalculado a cada
+-- abertura. `compartilhado` deixa os colegas verem e duplicarem; editar e
+-- excluir sao so do dono (regra na API). Ver o cabecalho da 017.
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS relatorios_salvos (
+    id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    usuario_id     UUID NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
+    nome           VARCHAR(120) NOT NULL,
+    descricao      TEXT,
+    fonte          VARCHAR(40)  NOT NULL,
+    config         JSONB        NOT NULL,
+    compartilhado  BOOLEAN      NOT NULL DEFAULT FALSE,
+    criado_em      TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    atualizado_em  TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    CONSTRAINT ck_relatorio_nome   CHECK (length(btrim(nome)) > 0),
+    CONSTRAINT ck_relatorio_config CHECK (jsonb_typeof(config) = 'object')
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_relatorios_salvos_nome
+    ON relatorios_salvos (usuario_id, lower(btrim(nome)));
+
+CREATE INDEX IF NOT EXISTS idx_relatorios_salvos_compartilhados
+    ON relatorios_salvos (usuario_id)
+    WHERE compartilhado;

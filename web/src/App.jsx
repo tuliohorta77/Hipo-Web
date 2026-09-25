@@ -14,6 +14,7 @@ import Oportunidades from './pages/crm/Oportunidades';
 import Parceiros from './pages/crm/Parceiros';
 import Tarefas from './pages/crm/Tarefas';
 import Agenda from './pages/crm/Agenda';
+import Relatorios from './pages/crm/Relatorios';
 import Monitor from './pages/Monitor';
 import { primeiraRotaAcessivel } from './api';
 
@@ -40,6 +41,12 @@ export default function App() {
           <Route path="crm/tarefas" element={<Tarefas />} />
           <Route path="crm/agenda" element={<Agenda />} />
           <Route path="crm/contas" element={<Contas />} />
+          {/*
+            Relatórios: tabela dinâmica + relatórios salvos. ?r=<id> abre um
+            relatório salvo direto — é o link que se manda para um colega
+            quando o relatório está compartilhado.
+          */}
+          <Route path="crm/relatorios" element={<Relatorios />} />
           {/*
             De-para CNAE -> vertical. A rota existe para todo mundo; quem
             barra o remapeamento e a API, e a nav so mostra o item para

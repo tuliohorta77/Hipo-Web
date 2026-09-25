@@ -438,6 +438,18 @@ export default function Oportunidades() {
     }
   }
 
+  /*
+    ?abrir=<id> abre a oportunidade direto. É o destino do drilldown dos
+    Relatórios: o número da tabela leva ao registro, e o registro abre
+    pronto para agir. Roda uma vez por id — trocar de oportunidade depois é
+    com a própria tela.
+  */
+  const idParaAbrir = searchParams.get('abrir');
+  useEffect(() => {
+    if (idParaAbrir) abrir(idParaAbrir);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [idParaAbrir]);
+
   const recarregarDetalhe = useCallback(async () => {
     if (!detalhe) return;
     try {

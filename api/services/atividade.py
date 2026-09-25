@@ -150,6 +150,17 @@ IGNORADAS: frozenset[tuple[str, str]] = frozenset({
     ("PUT", "/auth/perfil"),
     ("PUT", "/auth/senha"),
     ("PUT", "/crm/dominio/preferencias/{chave}"),
+    # Relatorios. A consulta, o drilldown e a lista de valores sao LEITURA
+    # que viaja em POST (o corpo nao cabe numa query string). Salvar,
+    # editar, compartilhar e duplicar um relatorio e preferencia pessoal,
+    # como a coluna do kanban acima: nao produz nada para a operacao.
+    ("POST", "/crm/relatorios/consulta"),
+    ("POST", "/crm/relatorios/registros"),
+    ("POST", "/crm/relatorios/valores"),
+    ("POST", "/crm/relatorios/salvos"),
+    ("PUT", "/crm/relatorios/salvos/{relatorio_id}"),
+    ("DELETE", "/crm/relatorios/salvos/{relatorio_id}"),
+    ("POST", "/crm/relatorios/salvos/{relatorio_id}/duplicar"),
 })
 
 

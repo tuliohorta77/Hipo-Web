@@ -69,7 +69,9 @@ describe('Layout — nav com o módulo crm', () => {
       '/crm/oportunidades', '/crm/tarefas', '/crm/agenda',
       // CNAEs vem logo depois de Contas porque é cadastro de apoio DELAS —
       // e só aparece para gestão, que é o cargo deste teste.
-      '/crm/contas', '/crm/cnaes', '/crm/parceiros', '/monitor',
+      '/crm/contas', '/crm/cnaes', '/crm/parceiros',
+      // Relatórios e Monitor são as telas de olhar o todo; o Monitor fecha.
+      '/crm/relatorios', '/monitor',
     ]);
   });
 
@@ -102,9 +104,10 @@ describe('Layout — nav com o módulo crm', () => {
       // é do módulo 'crm' mas restrito a gestão por CARGO — ver o teste
       // logo abaixo, que cobre o operacional.
       '/crm/cnaes',
-      // O Monitor é o painel de parede e fica com todo mundo: é do módulo
-      // 'crm', como as quatro telas de trabalho.
-      '/monitor',
+      // Relatórios e Monitor ficam com todo mundo: são do módulo 'crm',
+      // como as quatro telas de trabalho. O recorte dos dados do relatório
+      // é do servidor, não da nav.
+      '/crm/relatorios', '/monitor',
     ]);
     expect(screen.queryByText('Parceiros')).not.toBeInTheDocument();
   });

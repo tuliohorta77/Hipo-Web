@@ -17,6 +17,7 @@
 // oportunidades ativas — não existe campo de vendedor em lugar nenhum.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   Building2, Search, Plus, Handshake, CircleSlash, Layers, X, ShieldBan,
   Landmark, Tag,
@@ -476,6 +477,14 @@ export default function Contas() {
       setAbrindo(false);
     }
   }
+
+  // ?abrir=<id> abre a conta direto — destino do drilldown dos Relatórios.
+  const [searchParams] = useSearchParams();
+  const idParaAbrir = searchParams.get('abrir');
+  useEffect(() => {
+    if (idParaAbrir) abrirConta(idParaAbrir);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [idParaAbrir]);
 
   // Estas três são passadas como prop para o ContaDetalhe. Mantê-las
   // estáveis não é otimização: prop nova a cada render do pai realimenta os

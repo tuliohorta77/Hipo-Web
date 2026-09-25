@@ -25,6 +25,7 @@ from routers import (
     crm_oportunidades,
     crm_parceiros,
     crm_propostas,
+    crm_relatorios,
     crm_tarefas,
     monitor,
     telemetria,
@@ -196,6 +197,18 @@ app.include_router(
 app.include_router(
     crm_enriquecimento.router,
     prefix="/crm/enriquecimento", tags=["CRM - Enriquecimento"],
+    dependencies=[Depends(requer_modulo("crm"))],
+)
+
+
+# Relatorios: tabela dinamica sobre a base + relatorios salvos no perfil.
+# Modulo 'crm' e nao um modulo proprio: todo cargo monta relatorio, e o que
+# muda entre cargos e o RECORTE dos dados (services/permissao.py), aplicado
+# dentro do motor -- gestao ve a base inteira, operacional ve o que e seu.
+# Modulo novo so valeria depois de todo mundo relogar.
+app.include_router(
+    crm_relatorios.router,
+    prefix="/crm/relatorios", tags=["CRM - Relatórios"],
     dependencies=[Depends(requer_modulo("crm"))],
 )
 
