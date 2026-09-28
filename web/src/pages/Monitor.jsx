@@ -36,6 +36,14 @@
 // adivinhado no clique — sair pelo Esc ou pelo F11 deixaria o botão
 // mentindo sobre o que ele faz.
 //
+// ── Tema escuro ──────────────────────────────────────────────────────
+// Botão lua/sol na barra. A classe `tema-escuro` no CONTAINER redefine as
+// variáveis de cor do HIPO (src/index.css) só aqui dentro: quadros, a
+// lista da carinha, o formulário da reunião e Metas e calendário escurecem
+// juntos, porque todos são renderizados dentro do container (ver a nota
+// abaixo). A nav do HIPO, fora dele, não muda. A escolha fica gravada no
+// navegador — é da TV, não da pessoa (monitorComum.lerTema).
+//
 // ── A carinha abre a lista ───────────────────────────────────────────
 // Clicar num quadro abre o que está sendo contado nele (DetalheIndicador).
 // O modal é renderizado DENTRO do container do painel, e não num portal no
@@ -44,7 +52,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  RefreshCw, Settings, AlertTriangle, Maximize2, Minimize2,
+  RefreshCw, Settings, AlertTriangle, Maximize2, Minimize2, Moon, Sun,
 } from 'lucide-react';
 
 import api, { getUser } from '../api';
@@ -53,7 +61,9 @@ import AlertMessage from '../components/ui/AlertMessage';
 import QuadroIndicador from '../components/monitor/QuadroIndicador';
 import ConfigMonitor from '../components/monitor/ConfigMonitor';
 import DetalheIndicador from '../components/monitor/DetalheIndicador';
-import { INTERVALO_MS, horaDaLeitura } from '../components/monitor/monitorComum';
+import {
+  INTERVALO_MS, horaDaLeitura, lerTema, gravarTema,
+} from '../components/monitor/monitorComum';
 import { mensagemDeErro } from '../components/crm/tarefaComum';
 
 // Metas e feriados são da gestão — é a régua pela qual a equipe é medida.
@@ -69,6 +79,8 @@ export default function Monitor() {
   const [cheia, setCheia] = useState(false);
   // A chave do quadro cuja lista está aberta, ou null.
   const [detalhe, setDetalhe] = useState(null);
+  const [tema, setTema] = useState(lerTema);
+  const escuro = tema === 'escuro';
   const container = useRef(null);
   const usuario = getUser();
   const podeConfigurar = CARGOS_DE_GESTAO.includes(usuario?.cargo);
@@ -80,7 +92,14 @@ export default function Monitor() {
     cada minuto, isso acontece todo dia.
   */
   const montado = useRef(true);
-  useEffect(() => () => { montado.current = false; }, []);
+  // O `true` no corpo do efeito não é redundante: o StrictMode do React 18
+  // (ligado em main.jsx) monta, DESMONTA e monta de novo em desenvolvimento.
+  // Só com o cleanup, o ref ficava `false` para sempre e o painel parava em
+  // "Carregando painel…" no `npm run dev` — em produção não acontecia.
+  useEffect(() => {
+    montado.current = true;
+    return () => { montado.current = false; };
+  }, []);
 
   const carregar = useCallback(async () => {
     setBuscando(true);
@@ -155,16 +174,33 @@ export default function Monitor() {
     };
   }, [carregar]);
 
+  function alternarTema() {
+    const novo = escuro ? 'claro' : 'escuro';
+    setTema(novo);
+    gravarTema(novo);
+  }
+
   const hora = horaDaLeitura(painel?.atualizado_em);
 
   return (
     <div
       ref={container}
+      data-testid="monitor"
+      data-tema={tema}
       className={
-        'h-full min-h-0 flex flex-col gap-2 '
+        'min-h-0 flex flex-col gap-2 '
+        + (escuro ? 'tema-escuro ' : '')
         // Em tela cheia o container passa a ser a tela: sem fundo e sem
         // respiro próprios, os quadros ficariam colados na moldura preta.
-        + (cheia ? 'bg-hipo-bg p-4 overflow-hidden' : '')
+        + (cheia
+          ? 'h-full bg-hipo-bg p-4 overflow-hidden'
+          // Fora da tela cheia, o escuro cobre também o respiro que o
+          // Layout dá em volta da página (px-3 lg:px-5 py-3): sem isso
+          // ficaria uma moldura clara em volta do painel escuro. A altura
+          // soma os dois respiros (0,75rem em cima e embaixo).
+          : (escuro
+            ? 'bg-hipo-bg -mx-3 lg:-mx-5 -my-3 px-3 lg:px-5 py-3 h-[calc(100%+1.5rem)]'
+            : 'h-full'))
       }
     >
 
@@ -204,6 +240,14 @@ export default function Monitor() {
               {hora}
             </span>
           )}
+          <Button
+            size="sm" variant="ghost" icon={escuro ? Sun : Moon}
+            aria-label={escuro ? 'Usar tema claro' : 'Usar tema escuro'}
+            aria-pressed={escuro}
+            onClick={alternarTema}
+          >
+            {escuro ? 'Claro' : 'Escuro'}
+          </Button>
           <Button
             size="sm" variant="ghost" icon={cheia ? Minimize2 : Maximize2}
             aria-label={cheia ? 'Sair da tela cheia' : 'Tela cheia'}

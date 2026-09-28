@@ -211,7 +211,7 @@ export default function Modal({
       }}
     >
       {/* Overlay */}
-      <div className="absolute inset-0 bg-hipo-ink/50" />
+      <div className="absolute inset-0 bg-hipo-overlay/50" />
 
       {/* Conteúdo */}
       <div

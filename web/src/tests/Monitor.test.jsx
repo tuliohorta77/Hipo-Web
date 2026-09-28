@@ -176,6 +176,7 @@ function detalheVazio(url) {
 }
 
 beforeEach(() => {
+  window.localStorage.removeItem('hipo_monitor_tema');
   mockGet.mockReset();
   mockPut.mockReset();
   mockPost.mockReset();
@@ -543,5 +544,66 @@ describe('Monitor — a carinha abre a lista do que está sendo contado', () => 
     fireEvent.click(await screen.findByRole('button', { name: 'Ver o que compõe lead' }));
     const modal = await screen.findByRole('dialog');
     expect(await within(modal).findByText('Indicador invalido.')).toBeInTheDocument();
+  });
+});
+
+describe('Monitor — tema escuro', () => {
+  /*
+    O escuro é da TELA (TV da sala), não da pessoa: fica no localStorage
+    daquele navegador. A classe vai no CONTAINER do painel, e não no <html>,
+    para escurecer só o Monitor — e tudo que abre dentro dele.
+  */
+  it('abre claro por padrão', async () => {
+    render(<Monitor />);
+    await screen.findByRole('region', { name: 'apre' });
+    const painel = screen.getByTestId('monitor');
+    expect(painel).toHaveAttribute('data-tema', 'claro');
+    expect(painel).not.toHaveClass('tema-escuro');
+    expect(screen.getByRole('button', { name: 'Usar tema escuro' })).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  it('o botão escurece o painel e grava a escolha no navegador', async () => {
+    render(<Monitor />);
+    await screen.findByRole('region', { name: 'apre' });
+    fireEvent.click(screen.getByRole('button', { name: 'Usar tema escuro' }));
+    expect(screen.getByTestId('monitor')).toHaveClass('tema-escuro');
+    expect(window.localStorage.getItem('hipo_monitor_tema')).toBe('escuro');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Usar tema claro' }));
+    expect(screen.getByTestId('monitor')).not.toHaveClass('tema-escuro');
+    expect(window.localStorage.getItem('hipo_monitor_tema')).toBe('claro');
+  });
+
+  it('reabrir a tela mantém o escuro escolhido antes', async () => {
+    window.localStorage.setItem('hipo_monitor_tema', 'escuro');
+    render(<Monitor />);
+    await screen.findByRole('region', { name: 'apre' });
+    expect(screen.getByTestId('monitor')).toHaveClass('tema-escuro');
+  });
+
+  it('valor estranho gravado cai no claro', async () => {
+    window.localStorage.setItem('hipo_monitor_tema', 'roxo');
+    render(<Monitor />);
+    await screen.findByRole('region', { name: 'apre' });
+    expect(screen.getByTestId('monitor')).toHaveAttribute('data-tema', 'claro');
+  });
+
+  it('a lista da carinha abre DENTRO do painel escuro', async () => {
+    window.localStorage.setItem('hipo_monitor_tema', 'escuro');
+    render(<Monitor />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Ver o que compõe apre' }));
+    const modal = await screen.findByRole('dialog');
+    expect(screen.getByTestId('monitor')).toContainElement(modal);
+  });
+
+  it('navegador sem armazenamento não derruba a tela', async () => {
+    const get = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => { throw new Error('bloqueado'); });
+    const set = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('bloqueado'); });
+    render(<Monitor />);
+    await screen.findByRole('region', { name: 'apre' });
+    fireEvent.click(screen.getByRole('button', { name: 'Usar tema escuro' }));
+    expect(screen.getByTestId('monitor')).toHaveClass('tema-escuro');
+    get.mockRestore();
+    set.mockRestore();
   });
 });

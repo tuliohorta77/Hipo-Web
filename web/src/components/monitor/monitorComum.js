@@ -97,3 +97,33 @@ export function horaDaLeitura(iso) {
 // que o dado de fato muda (uma reunião registrada, uma venda fechada) e
 // mantém a carga em uma request por minuto por tela aberta.
 export const INTERVALO_MS = 60000;
+
+// ── Tema da parede (claro | escuro) ──────────────────────────────────
+//
+// Guardado no NAVEGADOR, e não no usuário: a TV da sala fica escura e o
+// notebook de quem abre o Monitor pode continuar claro, mesmo logados com
+// a mesma conta. É preferência da TELA, não da pessoa — decisão do
+// Tulio, 28/09.
+//
+// localStorage pode não existir ou recusar (aba anônima, política do
+// navegador): nesse caso o tema vale só até recarregar, e a tela não
+// quebra por isso.
+export const CHAVE_TEMA = 'hipo_monitor_tema';
+export const TEMAS = ['claro', 'escuro'];
+
+export function lerTema() {
+  try {
+    const t = window.localStorage.getItem(CHAVE_TEMA);
+    return TEMAS.includes(t) ? t : 'claro';
+  } catch {
+    return 'claro';
+  }
+}
+
+export function gravarTema(tema) {
+  try {
+    window.localStorage.setItem(CHAVE_TEMA, tema);
+  } catch {
+    // sem armazenamento: o tema vale até recarregar
+  }
+}

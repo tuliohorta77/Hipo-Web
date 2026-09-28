@@ -2,38 +2,54 @@
 // HIPO — Design tokens conforme Manual de Marca v1.0
 // Cores nomeadas com prefixo `hipo.*` para clareza e para evitar
 // colisão com utilitários do Tailwind padrão.
+//
+// ── Os tokens são VARIÁVEIS CSS, e não hex fixo ──────────────────────
+// O valor de cada cor mora em src/index.css (:root), em canais RGB. Aqui
+// cada token só aponta para a variável. Motivo: o tema escuro do Monitor
+// (.tema-escuro) redefine as MESMAS variáveis num container, e tudo que
+// está dentro dele — quadros, modais, tabelas, formulário da reunião —
+// escurece sem nenhum `dark:` espalhado pelos componentes.
+//
+// O hex do manual está no index.css, ao lado de cada variável. `<alpha-value>` mantém funcionando os
+// modificadores de opacidade (bg-hipo-blueSoft/60, bg-hipo-overlay/50).
+const v = (nome) => `rgb(var(--hipo-${nome}) / <alpha-value>)`;
 export default {
   content: ['./index.html', './src/**/*.{js,jsx}'],
   theme: {
     extend: {
       colors: {
         hipo: {
-          blue:        '#2563EB',  // Ações principais, links, estados ativos
-          blueDark:    '#1D4ED8',  // Hover de primário
-          blueSoft:    '#EFF6FF',  // Fundo de item ativo, badges informativos
-          ink:         '#0F172A',  // Títulos e textos de alta importância
-          slate:       '#475569',  // Labels e textos de apoio
-          muted:       '#64748B',  // Variante mais clara de slate
-          border:      '#E2E8F0',  // Bordas e divisórias
-          bg:          '#F8FAFC',  // Background geral
-          card:        '#FFFFFF',  // Superfícies (cards, sidebar, topbar)
+          blue:        v('blue'),  // Ações principais, links, estados ativos
+          blueDark:    v('blueDark'),  // Hover de primário
+          blueSoft:    v('blueSoft'),  // Fundo de item ativo, badges informativos
+          ink:         v('ink'),  // Títulos e textos de alta importância
+          slate:       v('slate'),  // Labels e textos de apoio
+          muted:       v('muted'),  // Variante mais clara de slate
+          border:      v('border'),  // Bordas e divisórias
+          bg:          v('bg'),  // Background geral
+          card:        v('card'),  // Superfícies (cards, sidebar, topbar)
 
           // Cores semânticas (sólidas — texto, ícones, dots)
-          success:     '#16A34A',
-          warning:     '#F59E0B',
-          danger:      '#DC2626',
+          success:     v('success'),
+          warning:     v('warning'),
+          danger:      v('danger'),
 
           // Variantes "soft" (pastel — fundos de badge, alerts)
           // Cumprem a regra do manual §6: "badges suaves, sem saturação excessiva"
-          successSoft: '#ECFDF5',  // equivalente a emerald-50
-          warningSoft: '#FFFBEB',  // equivalente a amber-50
-          dangerSoft:  '#FEF2F2',  // equivalente a red-50
+          successSoft: v('successSoft'),  // equivalente a emerald-50
+          warningSoft: v('warningSoft'),  // equivalente a amber-50
+          dangerSoft:  v('dangerSoft'),  // equivalente a red-50
 
           // Bordas suaves equivalentes aos -100 do Tailwind, usadas com
           // os fundos soft acima para dar profundidade discreta
-          successBorder: '#A7F3D0',  // emerald-200 (mais suave que emerald-100 puro)
-          warningBorder: '#FDE68A',  // amber-200
-          dangerBorder:  '#FECACA',  // red-200
+          successBorder: v('successBorder'),  // emerald-200 (mais suave que emerald-100 puro)
+          warningBorder: v('warningBorder'),  // amber-200
+          dangerBorder:  v('dangerBorder'),  // red-200
+
+          // Fundo do overlay dos modais. No claro é o próprio ink; no
+          // escuro não pode ser (ink vira texto claro), então tem token
+          // próprio.
+          overlay:       v('overlay'),
         },
       },
       fontFamily: {

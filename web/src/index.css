@@ -4,6 +4,73 @@
 
 /* HIPO — Estilos globais (Manual de Marca v1.0) */
 @layer base {
+  /*
+    Tokens de cor, em canais RGB (o Tailwind aplica a opacidade por cima:
+    bg-hipo-blueSoft/60). O tailwind.config.js só aponta para estas
+    variáveis. Os valores do tema CLARO são os hex do Manual de Marca.
+  */
+  :root {
+    --hipo-blue: 37 99 235;            /* #2563EB */
+    --hipo-blueDark: 29 78 216;        /* #1D4ED8 */
+    --hipo-blueSoft: 239 246 255;      /* #EFF6FF */
+    --hipo-ink: 15 23 42;              /* #0F172A */
+    --hipo-slate: 71 85 105;           /* #475569 */
+    --hipo-muted: 100 116 139;         /* #64748B */
+    --hipo-border: 226 232 240;        /* #E2E8F0 */
+    --hipo-bg: 248 250 252;            /* #F8FAFC */
+    --hipo-card: 255 255 255;          /* #FFFFFF */
+    --hipo-success: 22 163 74;         /* #16A34A */
+    --hipo-warning: 245 158 11;        /* #F59E0B */
+    --hipo-danger: 220 38 38;          /* #DC2626 */
+    --hipo-successSoft: 236 253 245;   /* #ECFDF5 */
+    --hipo-warningSoft: 255 251 235;   /* #FFFBEB */
+    --hipo-dangerSoft: 254 242 242;    /* #FEF2F2 */
+    --hipo-successBorder: 167 243 208; /* #A7F3D0 */
+    --hipo-warningBorder: 253 230 138; /* #FDE68A */
+    --hipo-dangerBorder: 254 202 202;  /* #FECACA */
+    --hipo-overlay: 15 23 42;          /* = ink */
+    --hipo-scroll: 226 232 240;
+    --hipo-scroll-hover: 203 213 225;
+  }
+
+  /*
+    TEMA ESCURO — hoje só o Monitor usa (painel de parede numa TV, que
+    passa o dia aceso numa sala). Redefine as MESMAS variáveis dentro do
+    container que recebe a classe; o que está fora dele não muda.
+
+    Critérios: fundo quase preto azulado (não #000, que em TV LCD vira
+    "cinza lavado" e cansa); texto principal claro mas não branco puro;
+    verde/amarelo/vermelho mais claros que os do claro, para manter o
+    contraste sobre fundo escuro — a carinha e o número colorido precisam
+    ser lidos a cinco metros.
+  */
+  .tema-escuro {
+    color-scheme: dark;
+    --hipo-blue: 59 130 246;           /* #3B82F6 */
+    --hipo-blueDark: 37 99 235;        /* #2563EB */
+    --hipo-blueSoft: 23 37 84;         /* #172554 */
+    --hipo-ink: 226 232 240;           /* #E2E8F0 */
+    --hipo-slate: 148 163 184;         /* #94A3B8 */
+    --hipo-muted: 124 139 161;         /* #7C8BA1 -- #64748B nao passa 4.5:1 no escuro */
+    --hipo-border: 30 41 59;           /* #1E293B */
+    --hipo-bg: 2 6 23;                 /* #020617 */
+    --hipo-card: 15 23 42;             /* #0F172A */
+    --hipo-success: 34 197 94;         /* #22C55E */
+    --hipo-warning: 251 191 36;        /* #FBBF24 */
+    --hipo-danger: 248 113 113;        /* #F87171 */
+    --hipo-successSoft: 5 46 22;       /* #052E16 */
+    --hipo-warningSoft: 45 31 5;       /* #2D1F05 */
+    --hipo-dangerSoft: 50 12 12;       /* #320C0C */
+    --hipo-successBorder: 20 83 45;    /* #14532D */
+    --hipo-warningBorder: 120 53 15;   /* #78350F */
+    --hipo-dangerBorder: 127 29 29;    /* #7F1D1D */
+    --hipo-overlay: 0 0 0;
+    --hipo-scroll: 51 65 85;
+    --hipo-scroll-hover: 71 85 105;
+    background-color: rgb(var(--hipo-bg));
+    color: rgb(var(--hipo-ink));
+  }
+
   html {
     font-family: 'Inter', 'Manrope', system-ui, -apple-system, BlinkMacSystemFont,
       'Segoe UI', sans-serif;
@@ -34,10 +101,10 @@
     background: transparent;
   }
   ::-webkit-scrollbar-thumb {
-    background: #E2E8F0;
+    background: rgb(var(--hipo-scroll));
     border-radius: 999px;
   }
   ::-webkit-scrollbar-thumb:hover {
-    background: #CBD5E1;
+    background: rgb(var(--hipo-scroll-hover));
   }
 }
