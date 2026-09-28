@@ -183,10 +183,6 @@ describe('grade da tabela dinâmica', () => {
     expect(g.linhas[0].chave).toEqual(['negociacao']);
   });
 
-  it('máximo por medida só olha detalhe', () => {
-    expect(montarGrade(RES_LXC).maximos).toEqual([300]);
-  });
-
   it('dois níveis de linha geram subtotal depois do grupo e suprimem rótulo repetido', () => {
     const res = {
       linhas: [

@@ -200,6 +200,19 @@ describe('Relatórios — início', () => {
 });
 
 describe('Relatórios — montagem e consulta', () => {
+  it('relatório novo começa com o painel de campos aberto', async () => {
+    await montarBasico();
+    expect(screen.getByRole('button', { name: /Campos/ })).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByTestId('zona-valores')).toBeInTheDocument();
+  });
+
+  it('não tem mais destaque de cor nas células', async () => {
+    await montarBasico();
+    expect(screen.queryByText('Destacar maiores')).not.toBeInTheDocument();
+    const tabela = screen.getByTestId('tabela-dinamica');
+    expect(tabela.querySelectorAll('td[style]')).toHaveLength(0);
+  });
+
   it('consulta com o período resolvido e a contagem padrão', async () => {
     await montarBasico();
     const [url, corpo] = mockPost.mock.calls.find(([u]) => u === '/crm/relatorios/consulta');
@@ -323,6 +336,7 @@ describe('Relatórios — salvos', () => {
     });
     // Sem alteração, Salvar fica desabilitado; mexer marca como não salvo.
     expect(screen.getByRole('button', { name: /^Salvar$/ })).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: /Campos/ }));
     fireEvent.click(screen.getByRole('button', { name: 'Remover Fase de Linhas' }));
     expect(await screen.findByText('Alterações não salvas')).toBeInTheDocument();
   });
@@ -332,6 +346,7 @@ describe('Relatórios — salvos', () => {
     mockPut.mockResolvedValue({ data: { ...SALVO_MEU, config: { ...SALVO_MEU.config, linhas: [] } } });
     renderTela('/crm/relatorios?r=r1');
     expect(await screen.findByRole('heading', { name: 'Funil por fase' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /Campos/ }));
     fireEvent.click(await screen.findByRole('button', { name: 'Remover Fase de Linhas' }));
     fireEvent.click(screen.getByRole('button', { name: /^Salvar$/ }));
     await waitFor(() => expect(mockPut).toHaveBeenCalled());
@@ -339,6 +354,23 @@ describe('Relatórios — salvos', () => {
     expect(url).toBe('/crm/relatorios/salvos/r1');
     expect(corpo.nome).toBe('Funil por fase');
     expect(corpo.config.linhas).toEqual([]);
+  });
+
+  it('relatório salvo abre com os campos recolhidos e um resumo da montagem', async () => {
+    salvos = [SALVO_MEU];
+    renderTela('/crm/relatorios?r=r1');
+    await screen.findByRole('heading', { name: 'Funil por fase' });
+    const botao = screen.getByRole('button', { name: /Campos/ });
+    expect(botao).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByTestId('zona-linhas')).not.toBeInTheDocument();
+    expect(screen.getByTestId('resumo-montagem')).toHaveTextContent('Linhas: Fase');
+
+    fireEvent.click(botao);
+    expect(botao).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByTestId('zona-linhas')).toBeInTheDocument();
+
+    fireEvent.click(botao);
+    expect(screen.queryByTestId('zona-linhas')).not.toBeInTheDocument();
   });
 
   it('relatório de colega é só leitura e pode ser duplicado', async () => {

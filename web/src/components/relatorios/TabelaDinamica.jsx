@@ -4,10 +4,8 @@
 // diretriz "dashboard operacional": o agregado leva ao item, e o item leva
 // à tela onde se age sobre ele.
 //
-// O fundo azul proporcional ao valor (o "destaque") é o mapa de calor do
-// Excel, em versão discreta: bate o olho e acha o maior sem ler número.
-// Só nas células de detalhe, e só pela primeira medida de cada coluna —
-// pintar total e subtotal faria o maior número ser sempre o total geral.
+// Sem mapa de calor: as células de detalhe ficam no fundo neutro, e só
+// subtotal e total ganham fundo — é a hierarquia que ajuda a ler a grade.
 
 import { useMemo } from 'react';
 import { ArrowDownWideNarrow, ArrowUpNarrowWide, ArrowDownAZ, ArrowUpAZ } from 'lucide-react';
@@ -17,9 +15,8 @@ import {
 
 const TH = 'px-3 py-2 text-[11px] font-semibold text-hipo-slate bg-hipo-bg border-b border-r border-hipo-border whitespace-nowrap';
 
-function Valor({ c, j, formato, maximo, destacar, onAbrir, forte }) {
+function Valor({ c, j, formato, onAbrir, forte }) {
   const v = c.v[j];
-  const alfa = destacar && typeof v === 'number' && maximo > 0 ? Math.abs(v) / maximo : 0;
   const clicavel = c.n > 0;
   return (
     <td
@@ -27,7 +24,6 @@ function Valor({ c, j, formato, maximo, destacar, onAbrir, forte }) {
         'px-3 py-1.5 text-right tabular-nums border-b border-r border-hipo-border whitespace-nowrap ' +
         (forte ? 'font-semibold text-hipo-ink ' : 'text-hipo-ink ')
       }
-      style={alfa ? { backgroundColor: `rgba(37, 99, 235, ${(0.04 + alfa * 0.22).toFixed(3)})` } : undefined}
     >
       {clicavel ? (
         <button
@@ -45,7 +41,7 @@ function Valor({ c, j, formato, maximo, destacar, onAbrir, forte }) {
   );
 }
 
-export default function TabelaDinamica({ resultado, ordenacao, onOrdenar, destacar = true, onAbrirCelula }) {
+export default function TabelaDinamica({ resultado, ordenacao, onOrdenar, onAbrirCelula }) {
   const grade = useMemo(() => montarGrade(resultado, ordenacao), [resultado, ordenacao]);
   const L = resultado.linhas.length;
   const C = resultado.colunas.length;
@@ -179,8 +175,6 @@ export default function TabelaDinamica({ resultado, ordenacao, onOrdenar, destac
                       c={c}
                       j={j}
                       formato={m.formato}
-                      maximo={grade.maximos[j]}
-                      destacar={destacar && linha.tipo === 'detalhe'}
                       forte={forte}
                       onAbrir={onAbrirCelula}
                     />
@@ -192,8 +186,6 @@ export default function TabelaDinamica({ resultado, ordenacao, onOrdenar, destac
                     c={linha.total}
                     j={j}
                     formato={m.formato}
-                    maximo={grade.maximos[j]}
-                    destacar={destacar && C === 0 && linha.tipo === 'detalhe'}
                     forte={forte || C > 0}
                     onAbrir={onAbrirCelula}
                   />

@@ -9,7 +9,10 @@
 //    prazo, data da reunião…) e qual período. Número sem "de quando" não
 //    responde pergunta nenhuma — e é o período que impede a consulta da base
 //    inteira.
-// 2. MONTAGEM. Filtros, Linhas, Colunas e Valores, como no Excel. A tabela
+// 2. MONTAGEM. Filtros, Linhas, Colunas e Valores, como no Excel, dentro do
+//    painel "Campos" (engrenagem). O painel fica FECHADO por padrão — a tela
+//    é da tabela — e abre sozinho só ao começar um relatório novo. Fechado,
+//    uma linha resume fonte, período e como a tabela foi cortada. A tabela
 //    recalcula sozinha a cada mudança (com debounce).
 // 3. AÇÃO. Todo número abre os registros que o compõem, e cada registro
 //    abre a oportunidade ou a conta — diretriz 2: a mesma tela mostra o
@@ -27,6 +30,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
   FilePlus2, Save, Copy, Trash2, Pencil, Loader2, ListOrdered, Sigma, Users, Lock, Sparkles,
+  Settings, ChevronDown,
 } from 'lucide-react';
 import api from '../../api';
 import PageHeader from '../../components/ui/PageHeader';
@@ -64,7 +68,6 @@ export function novaConfig(fonte, periodo) {
     valores: [{ campo: REGISTROS, agregacao: 'contagem' }],
     filtros: [],
     ordenacao: ORDENACAO_PADRAO,
-    destacar: true,
   };
 }
 
@@ -93,7 +96,6 @@ export function normalizarConfig(cfg, fonte) {
     valores: filtrar(cfg.valores),
     filtros: filtrar(cfg.filtros),
     ordenacao: cfg.ordenacao || ORDENACAO_PADRAO,
-    destacar: cfg.destacar !== false,
   };
   if (!config.valores.length) config.valores = [{ campo: REGISTROS, agregacao: 'contagem' }];
   return { config, removidos };
@@ -111,6 +113,24 @@ export function corpoDaConsulta(config, hoje = new Date()) {
     valores: config.valores,
     filtros: config.filtros,
   };
+}
+
+/**
+ * Resumo da montagem em uma linha, para quando o painel de campos está
+ * fechado: a tabela fica em primeiro plano, mas ninguém perde de vista o
+ * que está olhando (fonte, período e como a tabela foi cortada).
+ */
+export function resumoMontagem(config, fonte) {
+  const nome = (k) => (k === REGISTROS
+    ? `Quantidade de ${fonte.rotulo_registro}`
+    : fonte.campos.find((c) => c.chave === k)?.rotulo || k);
+  const partes = [];
+  if (config.linhas.length) partes.push(`Linhas: ${config.linhas.map((x) => nome(x.campo)).join(', ')}`);
+  if (config.colunas.length) partes.push(`Colunas: ${config.colunas.map((x) => nome(x.campo)).join(', ')}`);
+  if (config.filtros.length) {
+    partes.push(config.filtros.length === 1 ? '1 filtro' : `${config.filtros.length} filtros`);
+  }
+  return partes.join(' · ');
 }
 
 // ── Período (fonte + data de referência + intervalo) ─────────────────
@@ -260,6 +280,10 @@ export default function Relatorios() {
   const pedido = useRef(0);
 
   const [drill, setDrill] = useState(null);
+  // Painel de campos (fonte, período, filtros, linhas, colunas, valores).
+  // Fechado por padrão: a tela é da TABELA. Abre sozinho só quando a
+  // montagem está começando e ainda não tem nada para mostrar.
+  const [camposAbertos, setCamposAbertos] = useState(false);
   const [modalSalvar, setModalSalvar] = useState(null); // 'novo' | 'copia' | 'editar'
   const [salvando, setSalvando] = useState(false);
   const [erroSalvar, setErroSalvar] = useState(null);
@@ -305,6 +329,7 @@ export default function Relatorios() {
     }
     const { config: cfg, removidos } = normalizarConfig(r.config, f);
     setConfig(cfg);
+    setCamposAbertos(false);
     setAtual(r);
     setSnapshot(JSON.stringify(cfg));
     setResultado(null);
@@ -513,11 +538,40 @@ export default function Relatorios() {
             <Card><div className="flex justify-center py-10 text-hipo-slate"><Loader2 className="animate-spin" /></div></Card>
           )}
 
-          {catalogo && !config && <Inicio catalogo={catalogo} onComecar={(c) => { setConfig(c); setAviso(null); }} />}
+          {catalogo && !config && <Inicio catalogo={catalogo} onComecar={(c) => { setConfig(c); setCamposAbertos(true); setAviso(null); }} />}
 
           {catalogo && config && fonte && (
             <>
               <Card padding="sm">
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+                  <Button
+                    variant={camposAbertos ? 'primary' : 'secondary'}
+                    size="sm"
+                    icon={Settings}
+                    iconRight={ChevronDown}
+                    aria-expanded={camposAbertos}
+                    aria-controls="rel-painel-campos"
+                    onClick={() => setCamposAbertos((v) => !v)}
+                    className={camposAbertos ? '[&>svg:last-child]:rotate-180' : ''}
+                  >
+                    Campos
+                  </Button>
+                  <span className="text-sm text-hipo-ink font-medium">{fonte.rotulo}</span>
+                  <span className="text-xs text-hipo-slate">
+                    {fonte.campos.find((c) => c.chave === config.periodo.data_ref)?.rotulo}: {descreverPeriodo(config.periodo)}
+                  </span>
+                  {resumoMontagem(config, fonte) && (
+                    <span className="text-xs text-hipo-slate min-w-0 truncate" data-testid="resumo-montagem">
+                      · {resumoMontagem(config, fonte)}
+                    </span>
+                  )}
+                  {consultando && (
+                    <Loader2 size={14} className="ml-auto animate-spin text-hipo-slate" aria-label="Calculando" />
+                  )}
+                </div>
+
+                {camposAbertos && (
+                <div id="rel-painel-campos" className="mt-3 pt-3 border-t border-hipo-border">
                 <div className="grid gap-2 lg:grid-cols-[14rem_minmax(0,1fr)] mb-3">
                   <Select
                     label="Fonte de dados"
@@ -541,6 +595,8 @@ export default function Relatorios() {
                   consultaBase={consultaBase}
                   onChange={setConfig}
                 />
+                </div>
+                )}
               </Card>
 
               {!consultaBase && (
@@ -571,21 +627,6 @@ export default function Relatorios() {
                         />
                       )
                     ))}
-                    <span className="ml-auto flex items-center gap-3 text-xs text-hipo-slate">
-                      {consultando && <Loader2 size={14} className="animate-spin" aria-label="Calculando" />}
-                      <span>
-                        {resultado.periodo.data_ref_rotulo}: {descreverPeriodo(config.periodo)}
-                      </span>
-                      <label className="inline-flex items-center gap-1.5 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={config.destacar}
-                          onChange={(e) => setConfig({ ...config, destacar: e.target.checked })}
-                          className="accent-hipo-blue"
-                        />
-                        Destacar maiores
-                      </label>
-                    </span>
                   </div>
 
                   {resultado.total_registros === 0 ? (
@@ -598,13 +639,12 @@ export default function Relatorios() {
                       resultado={resultado}
                       ordenacao={config.ordenacao}
                       onOrdenar={(o) => setConfig({ ...config, ordenacao: o })}
-                      destacar={config.destacar}
                       onAbrirCelula={abrirCelula}
                     />
                   )}
                   {resultado.linhas.length === 0 && resultado.colunas.length === 0 && resultado.total_registros > 0 && (
                     <p className="text-xs text-hipo-slate mt-2">
-                      Dica: adicione um campo em <strong>Linhas</strong> (ex.: Fase, Responsável) para quebrar o total.
+                      Dica: abra <strong>Campos</strong> e adicione um campo em Linhas (ex.: Fase, Responsável) para quebrar o total.
                     </p>
                   )}
                 </Card>

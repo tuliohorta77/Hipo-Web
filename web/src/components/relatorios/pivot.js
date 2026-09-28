@@ -127,7 +127,6 @@ const TOTAL = '__total__';
  *   colunas: {chave: (string|null)[]}[],                  // combinações de coluna
  *   linhas: {tipo: 'detalhe'|'subtotal'|'total', nivel: number, chave: (string|null)[],
  *            mostrar?: boolean[], celulas: object[], total: object}[],
- *   maximos: number[],   // maior valor de detalhe por medida (para o destaque)
  * }}
  * Cada item de `celulas`/`total` é {v, n, celula} — `celula` é a lista de
  * {campo, granularidade, valor} que o drilldown manda para a API.
@@ -250,19 +249,7 @@ export function montarGrade(res, ordenacao = { por: 'rotulo', direcao: 'asc' }) 
   visitar([]);
   linhas.push({ tipo: 'total', nivel: 0, chave: [], ...valoresDa(0, []) });
 
-  // Maior valor de DETALHE por medida: base do destaque de intensidade.
-  const maximos = Array(M).fill(0);
-  for (const l of linhas) {
-    if (l.tipo !== 'detalhe') continue;
-    const fontes = C ? l.celulas : [l.total];
-    for (const c of fontes) {
-      c.v.forEach((v, j) => {
-        if (typeof v === 'number' && Math.abs(v) > maximos[j]) maximos[j] = Math.abs(v);
-      });
-    }
-  }
-
-  return { colunas, linhas, maximos };
+  return { colunas, linhas };
 }
 
 /**
