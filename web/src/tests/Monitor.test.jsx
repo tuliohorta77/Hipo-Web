@@ -395,6 +395,8 @@ describe('Monitor — metas e calendário', () => {
     render(<Monitor />);
     await screen.findByText('setembro de 2026');
     expect(screen.queryByText('Metas e calendário')).not.toBeInTheDocument();
+    // O RPeR expõe o resultado individual: também é só de gestão.
+    expect(screen.queryByText('RPeR')).not.toBeInTheDocument();
   });
 });
 

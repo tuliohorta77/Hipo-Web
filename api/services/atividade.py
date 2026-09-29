@@ -130,6 +130,10 @@ CATALOGO: dict[tuple[str, str], Tipo] = {
     ("POST", "/monitor/feriados/nacionais"): _t("Cadastros", "Feriados nacionais carregados", 86),
     ("DELETE", "/monitor/feriados/{feriado_id}"): _t("Cadastros", "Dia sem expediente removido", 87),
 
+    # RPeR (metas por squad e por pessoa)
+    ("PUT", "/rper/metas"): _t("Cadastros", "Metas do RPeR definidas", 91),
+    ("POST", "/rper/metas/copiar"): _t("Cadastros", "Metas do RPeR copiadas do mes anterior", 92),
+
     # Cadastros de apoio
     ("POST", "/crm/dominio/{tabela}"): _t("Cadastros", "Item de cadastro criado", 80),
     ("POST", "/crm/dominio/motivos/{tipo}"): _t("Cadastros", "Motivo criado", 81),

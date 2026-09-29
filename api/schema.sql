@@ -1201,3 +1201,42 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_relatorios_salvos_nome
 CREATE INDEX IF NOT EXISTS idx_relatorios_salvos_compartilhados
     ON relatorios_salvos (usuario_id)
     WHERE compartilhado;
+
+-- ============================================================================
+-- metas_comerciais  (migration 018 -- RPeR)
+-- ============================================================================
+-- Meta do SQUAD (usuario_id NULL) e meta da PESSOA, por mes, para a
+-- Reuniao de Planejamento e Resultados. A meta do squad e guardada, nao
+-- somada: nem sempre ela e a soma das metas do time. Lista de indicadores
+-- em services/rper.py. Ver o cabecalho da 018.
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS metas_comerciais (
+    id              BIGSERIAL PRIMARY KEY,
+    squad           VARCHAR(3)    NOT NULL,
+    usuario_id      UUID REFERENCES usuarios(id) ON DELETE CASCADE,
+    indicador       VARCHAR(40)   NOT NULL,
+    ano             SMALLINT      NOT NULL,
+    mes             SMALLINT      NOT NULL,
+    -- NUMERIC: NMRR e pipeline sao dinheiro, % de no-show tem decimal.
+    valor           NUMERIC(14,2) NOT NULL,
+    atualizado_por  UUID REFERENCES usuarios(id) ON DELETE SET NULL,
+    atualizado_em   TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
+    CONSTRAINT ck_meta_com_squad CHECK (squad IN ('SDR', 'EV', 'EC')),
+    CONSTRAINT ck_meta_com_mes   CHECK (mes BETWEEN 1 AND 12),
+    CONSTRAINT ck_meta_com_ano   CHECK (ano BETWEEN 2020 AND 2100),
+    -- Zero existe (indicador que este mes nao se cobra); negativo nao.
+    CONSTRAINT ck_meta_com_valor CHECK (valor >= 0)
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_meta_com_squad
+    ON metas_comerciais (squad, indicador, ano, mes)
+    WHERE usuario_id IS NULL;
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_meta_com_pessoa
+    ON metas_comerciais (squad, usuario_id, indicador, ano, mes)
+    WHERE usuario_id IS NOT NULL;
+
+-- A consulta e sempre "as metas deste mes".
+CREATE INDEX IF NOT EXISTS idx_meta_com_mes
+    ON metas_comerciais (ano, mes);

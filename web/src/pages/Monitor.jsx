@@ -52,7 +52,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  RefreshCw, Settings, AlertTriangle, Maximize2, Minimize2, Moon, Sun,
+  RefreshCw, Settings, AlertTriangle, Maximize2, Minimize2, Moon, Sun, Presentation,
 } from 'lucide-react';
 
 import api, { getUser } from '../api';
@@ -61,6 +61,7 @@ import AlertMessage from '../components/ui/AlertMessage';
 import QuadroIndicador from '../components/monitor/QuadroIndicador';
 import ConfigMonitor from '../components/monitor/ConfigMonitor';
 import DetalheIndicador from '../components/monitor/DetalheIndicador';
+import RperMonitor from '../components/monitor/RperMonitor';
 import {
   INTERVALO_MS, horaDaLeitura, lerTema, gravarTema,
 } from '../components/monitor/monitorComum';
@@ -76,6 +77,8 @@ export default function Monitor() {
   const [erro, setErro] = useState(null);
   const [buscando, setBuscando] = useState(false);
   const [config, setConfig] = useState(false);
+  // O RPeR (PPT da reunião do 1º dia útil) — gestão, como as metas.
+  const [rper, setRper] = useState(false);
   const [cheia, setCheia] = useState(false);
   // A chave do quadro cuja lista está aberta, ou null.
   const [detalhe, setDetalhe] = useState(null);
@@ -265,6 +268,14 @@ export default function Monitor() {
           </Button>
           {podeConfigurar && (
             <Button
+              size="sm" variant="secondary" icon={Presentation}
+              onClick={() => setRper(true)}
+            >
+              RPeR
+            </Button>
+          )}
+          {podeConfigurar && (
+            <Button
               size="sm" variant="secondary" icon={Settings}
               onClick={() => setConfig(true)}
             >
@@ -321,6 +332,10 @@ export default function Monitor() {
           onFechar={() => setDetalhe(null)}
           onMudou={carregar}
         />
+      )}
+
+      {podeConfigurar && rper && (
+        <RperMonitor aberto={rper} onFechar={() => setRper(false)} />
       )}
 
       {podeConfigurar && painel && (

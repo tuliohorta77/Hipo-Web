@@ -28,6 +28,7 @@ from routers import (
     crm_relatorios,
     crm_tarefas,
     monitor,
+    rper,
     telemetria,
 )
 from routers.permissions import requer_modulo
@@ -220,6 +221,18 @@ app.include_router(
 app.include_router(
     monitor.router,
     prefix="/monitor", tags=["Monitor"],
+    dependencies=[Depends(requer_modulo("crm"))],
+)
+
+
+# RPeR: o PPT da Reuniao de Planejamento e Resultados, gerado do HIPO, e as
+# metas por squad e por pessoa que ele cobra. Modulo 'crm' no router e
+# `requer_gestao` em CADA rota: o RPeR mostra o resultado individual de cada
+# pessoa, e modulo novo so valeria depois de todo mundo relogar. Mesma
+# escolha das metas do Monitor.
+app.include_router(
+    rper.router,
+    prefix="/rper", tags=["RPeR"],
     dependencies=[Depends(requer_modulo("crm"))],
 )
 
