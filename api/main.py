@@ -31,7 +31,7 @@ from routers import (
     rper,
     telemetria,
 )
-from routers.permissions import requer_modulo
+from routers.permissions import requer_modulo, requer_qualquer_modulo
 
 @asynccontextmanager
 async def ciclo_de_vida(app: FastAPI):
@@ -218,10 +218,15 @@ app.include_router(
 # cargo valido tem 'crm', a tela fica numa TV para a equipe inteira, e
 # modulo novo so valeria depois de todo mundo relogar. Quem barra a ESCRITA
 # de metas e feriados e `requer_gestao`, dentro do router.
+#
+# 'crm' OU 'monitor': o modulo 'monitor' e exclusivo do cargo Monitor, a conta
+# de TV que so abre o painel. Os demais cargos continuam entrando pelo 'crm'
+# -- assim ninguem precisa relogar e os asserts de modulos_do_cargo ficam
+# como estao.
 app.include_router(
     monitor.router,
     prefix="/monitor", tags=["Monitor"],
-    dependencies=[Depends(requer_modulo("crm"))],
+    dependencies=[Depends(requer_qualquer_modulo(["crm", "monitor"]))],
 )
 
 

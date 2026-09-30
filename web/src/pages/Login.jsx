@@ -82,7 +82,8 @@ export default function Login() {
         >
           <Input
             label="E-mail"
-            type="email"
+            type="text"
+            autoComplete="username"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             required

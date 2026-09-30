@@ -25,7 +25,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ExternalLink } from 'lucide-react';
 
-import api from '../../api';
+import api, { getUser } from '../../api';
 import Modal from '../ui/Modal';
 import Badge from '../ui/Badge';
 import Empty from '../ui/Empty';
@@ -112,7 +112,7 @@ function TabelaReunioes({ itens, chave, onAbrirReuniao }) {
   );
 }
 
-function TabelaOportunidades({ itens, comValor }) {
+function TabelaOportunidades({ itens, comValor, semLink = false }) {
   return (
     <Table>
       <thead>
@@ -130,7 +130,9 @@ function TabelaOportunidades({ itens, comValor }) {
             <Td className="whitespace-nowrap tabular-nums">{dataCompleta(i.data)}</Td>
             <Td><span className="block truncate max-w-[20rem]">{i.empresa || '—'}</span></Td>
             <Td>
-              {i.oportunidade_numero ? (
+              {i.oportunidade_numero && semLink ? (
+                i.oportunidade_numero
+              ) : i.oportunidade_numero ? (
                 <a
                   href={linkOportunidade(i.oportunidade_numero)}
                   className="inline-flex items-center gap-1 text-hipo-blue hover:underline"
@@ -182,8 +184,12 @@ export default function DetalheIndicador({
   // A lista de usuários só é necessária para o formulário da reunião —
   // buscar no clique, e não ao abrir a lista, poupa uma request a cada
   // olhada na TV.
+  // Conta de TV (cargo Monitor): só o painel. A lista abre, mas a linha não
+  // leva ao formulário da reunião nem à oportunidade — a API barraria (403).
+  const somenteLeitura = getUser()?.cargo === 'Monitor';
+
   function abrirReuniao(id) {
-    if (!id) return;
+    if (!id || somenteLeitura) return;
     if (usuarios.length === 0) {
       api.get('/crm/dominio/usuarios')
         .then(({ data }) => setUsuarios(Array.isArray(data) ? data : []))
@@ -252,7 +258,7 @@ export default function DetalheIndicador({
             <TabelaReunioes itens={itens} chave={chave} onAbrirReuniao={abrirReuniao} />
           )}
           {detalhe && itens.length > 0 && detalhe.tipo === 'oportunidades' && (
-            <TabelaOportunidades itens={itens} comValor={comValor} />
+            <TabelaOportunidades itens={itens} comValor={comValor} semLink={somenteLeitura} />
           )}
         </div>
       </Modal>

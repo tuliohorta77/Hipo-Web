@@ -216,3 +216,27 @@ describe('Layout — CNAEs só para gestão', () => {
     expect(hrefs).toContain('/crm/cnaes');
   });
 });
+
+describe('Layout — conta de TV (cargo Monitor)', () => {
+  beforeEach(() => {
+    mockGetUser.mockReturnValue({ nome: 'Monitor m1', email: 'm1', cargo: 'Monitor' });
+    mockGetModulos.mockReturnValue(['monitor']);
+  });
+
+  it('a nav mostra só o Monitor', () => {
+    renderLayout();
+    const nav = screen.getByLabelText('Navegação principal');
+    const links = Array.from(nav.querySelectorAll('a')).map((a) => a.textContent);
+    expect(links).toEqual(['Monitor']);
+  });
+});
+
+describe('Layout — Monitor segue visível para quem tem crm', () => {
+  it('SDR vê o Monitor pelo módulo crm', () => {
+    mockGetUser.mockReturnValue({ nome: 'SDR', email: 'sdr@teste.com', cargo: 'SDR' });
+    mockGetModulos.mockReturnValue(['perfil', 'crm']);
+    renderLayout();
+    const nav = screen.getByLabelText('Navegação principal');
+    expect(Array.from(nav.querySelectorAll('a')).map((a) => a.textContent)).toContain('Monitor');
+  });
+});

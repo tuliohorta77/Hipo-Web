@@ -67,7 +67,9 @@ const NAV_ITEMS = [
   // do servidor. Fica antes do Monitor porque os dois sao as telas de
   // olhar o todo -- e o Monitor segue fechando a barra, como a TV da sala.
   { to: '/crm/relatorios', label: 'Relatórios', modulo: 'crm' },
-  { to: '/monitor', label: 'Monitor', modulo: 'crm' },
+  // 'crm' OU 'monitor': o segundo é exclusivo da conta de TV (cargo
+  // Monitor), que enxerga só este item.
+  { to: '/monitor', label: 'Monitor', modulo: ['crm', 'monitor'] },
 ];
 
 // Itens do dropdown do usuário (não da nav principal).
@@ -78,8 +80,10 @@ const USER_MENU_ITEMS = [
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
+// `modulo` pode ser string ou lista (basta ter QUALQUER UM deles).
 function itemVisivel(item, modulos, cargo) {
-  if (item.modulo !== '__sempre' && !modulos.includes(item.modulo)) return false;
+  const exigidos = Array.isArray(item.modulo) ? item.modulo : [item.modulo];
+  if (!exigidos.includes('__sempre') && !exigidos.some((m) => modulos.includes(m))) return false;
   if (item.cargos && !item.cargos.includes(cargo)) return false;
   return true;
 }

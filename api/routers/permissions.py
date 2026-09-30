@@ -19,6 +19,9 @@ Módulos:
   'parceiros'  — carteira de parceiros indicadores (EC + gestão)
   'usuarios'   — gestão de usuários (Franqueado, ADM)
   'telemetria' — uso do sistema e fechamento diário (Franqueado, ADM)
+  'monitor'    — SÓ o painel de parede; exclusivo do cargo Monitor (conta de
+                 TV). Os demais cargos chegam ao Monitor pelo 'crm' — o router
+                 aceita qualquer um dos dois (requer_qualquer_modulo).
 
 Por que 'parceiros' NÃO é de todo mundo: cultivar a relação com o escritório
 de contabilidade que indica é trabalho do EC, e a diretriz é uma tela por
@@ -55,6 +58,12 @@ CARGOS_OPERACIONAIS = {"EC", "SDR", "EV", "EP"}
 # Todos os cargos válidos do sistema.
 CARGOS_VALIDOS = CARGOS_GESTAO | CARGOS_OPERACIONAIS
 
+# Conta de tela: login que existe só para deixar o Monitor aberto numa TV.
+# NÃO entra em CARGOS_VALIDOS de propósito: CARGOS_VALIDOS é "gente que opera"
+# (recebe a base, aparece no seletor de envolvidos, pode ser dona de
+# oportunidade). A TV não é ninguém — vê o painel e mais nada.
+CARGO_MONITOR = "Monitor"
+
 # Módulos que todo cargo válido enxerga.
 MODULOS_BASE = {"perfil", "crm"}
 
@@ -69,6 +78,11 @@ def modulos_do_cargo(cargo: str | None) -> set[str]:
     """Devolve o conjunto de módulos visíveis para o cargo informado."""
     if not cargo:
         return set()
+
+    # Conta de TV: só o painel. Nem 'perfil' nem 'crm' — sem o 'crm' a API
+    # barra contas, oportunidades, tarefas e relatórios no guard do router.
+    if cargo == CARGO_MONITOR:
+        return {"monitor"}
 
     if cargo not in CARGOS_VALIDOS:
         return set()

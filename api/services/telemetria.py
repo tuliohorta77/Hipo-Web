@@ -106,6 +106,7 @@ async def adocao(conn, dia: date) -> dict:
         SELECT u.nome, u.cargo
         FROM usuarios u
         WHERE u.ativo
+          AND u.cargo IS DISTINCT FROM 'Monitor'  -- conta de TV nao e ausencia
           AND NOT EXISTS (
               SELECT 1 FROM uso_eventos e
               WHERE e.usuario_id = u.id AND {_JANELA.replace('criado_em', 'e.criado_em')}
