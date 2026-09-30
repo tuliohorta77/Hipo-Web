@@ -130,11 +130,45 @@ function renderizar() {
   );
 }
 
-async function abrir(resposta = dados()) {
-  mockGet.mockResolvedValue({ data: resposta });
+// A reunião como a Agenda a devolve: é dela que saem os botões de
+// Realizada / No-show e a regra da próxima tarefa.
+function reuniaoDaAgenda(extra = {}) {
+  return {
+    id: 'r1', tarefa_id: 't1', inicio: '2026-10-01T13:00:00Z',
+    anfitriao_id: 'u1', situacao: 'hoje',
+    desfecho: null, desfecho_efetivo: null, desfecho_sugerido: 'realizada',
+    oportunidade_id: 'o1', status_oportunidade: 'ativa', outras_abertas: 1,
+    ...extra,
+  };
+}
+
+let respostaAoVivo;
+let respostaReuniao;
+
+function rotearGet() {
+  mockGet.mockImplementation((url) => {
+    if (url === URL) {
+      return respostaAoVivo instanceof Error || respostaAoVivo?.response
+        ? Promise.reject(respostaAoVivo)
+        : Promise.resolve({ data: respostaAoVivo });
+    }
+    if (url === '/crm/agenda/reunioes/r1') return Promise.resolve({ data: respostaReuniao });
+    if (url === '/crm/dominio/usuarios') {
+      return Promise.resolve({ data: [{ id: 'u1', nome: 'Bruno Gonçalo', cargo: 'EV' }] });
+    }
+    return Promise.resolve({ data: null });
+  });
+}
+
+async function abrir(resposta = dados(), reuniao = reuniaoDaAgenda()) {
+  respostaAoVivo = resposta;
+  respostaReuniao = reuniao;
+  rotearGet();
   renderizar();
   await screen.findByText('Reunião ao vivo');
 }
+
+const chamadasAoVivo = () => mockGet.mock.calls.filter(([u]) => u === URL).length;
 
 const botaoIniciar = () => screen.getByRole('button', { name: /Iniciar transcrição/ });
 
@@ -201,7 +235,8 @@ describe('ReuniaoAoVivo — antes de capturar', () => {
   });
 
   it('erro ao carregar', async () => {
-    mockGet.mockRejectedValue({ response: { status: 404, data: { detail: 'Esta tarefa não é uma reunião da agenda.' } } });
+    respostaAoVivo = { response: { status: 404, data: { detail: 'Esta tarefa não é uma reunião da agenda.' } } };
+    rotearGet();
     renderizar();
     expect(await screen.findByText('Esta tarefa não é uma reunião da agenda.')).toBeInTheDocument();
   });
@@ -224,7 +259,7 @@ describe('ReuniaoAoVivo — capturando', () => {
     sessaoAberta();
     await abrir();
     fireEvent.click(botaoIniciar());
-    await screen.findByText('Encerrar');
+    await screen.findByText('Só parar');
 
     expect(getDisplayMedia).toHaveBeenCalledWith(expect.objectContaining({
       audio: expect.anything(), selfBrowserSurface: 'exclude',
@@ -259,7 +294,7 @@ describe('ReuniaoAoVivo — capturando', () => {
     sessaoAberta();
     await abrir();
     fireEvent.click(botaoIniciar());
-    await screen.findByText('Encerrar');
+    await screen.findByText('Só parar');
     expect(screen.getByText(/Sem acesso ao microfone/)).toBeInTheDocument();
     expect(mockPost).toHaveBeenCalledWith(URL, { canais: ['cliente'], navegador: 'Chrome 141' });
     expect(reconhecedores).toHaveLength(1);
@@ -279,7 +314,7 @@ describe('ReuniaoAoVivo — capturando', () => {
     sessaoAberta();
     await abrir();
     fireEvent.click(botaoIniciar());
-    await screen.findByText('Encerrar');
+    await screen.findByText('Só parar');
 
     const cliente = reconhecedores.find((r) => r.iniciadoCom.nome === 'aba');
     const vendedor = reconhecedores.find((r) => r.iniciadoCom.nome === 'mic');
@@ -294,8 +329,8 @@ describe('ReuniaoAoVivo — capturando', () => {
     // 1 palavra do vendedor em 4: 25%
     expect(screen.getByText('25%')).toBeInTheDocument();
 
-    mockGet.mockResolvedValue({ data: dados({ sessoes: [{ id: 's1' }] }) });
-    fireEvent.click(screen.getByText('Encerrar'));
+    respostaAoVivo = dados({ sessoes: [{ id: 's1' }] });
+    fireEvent.click(screen.getByText('Só parar'));
     await waitFor(() => expect(mockPost).toHaveBeenCalledWith(
       '/crm/agenda/ao-vivo/s1/encerrar',
       expect.objectContaining({
@@ -307,14 +342,14 @@ describe('ReuniaoAoVivo — capturando', () => {
     ));
     await screen.findByRole('button', { name: /Iniciar transcrição/ });
     expect(trilhaAba.stop).toHaveBeenCalled();
-    expect(mockGet).toHaveBeenCalledTimes(2);
+    expect(chamadasAoVivo()).toBe(2);
   });
 
   it('parar o compartilhamento da aba avisa que o cliente parou de ser transcrito', async () => {
     sessaoAberta();
     await abrir();
     fireEvent.click(botaoIniciar());
-    await screen.findByText('Encerrar');
+    await screen.findByText('Só parar');
     act(() => { trilhaAba.disparar('ended'); });
     expect(await screen.findByText(/compartilhamento da aba do Meet foi interrompido/)).toBeInTheDocument();
   });
@@ -323,9 +358,118 @@ describe('ReuniaoAoVivo — capturando', () => {
     sessaoAberta();
     await abrir();
     fireEvent.click(botaoIniciar());
-    await screen.findByText('Encerrar');
+    await screen.findByText('Só parar');
     const vendedor = reconhecedores.find((r) => r.iniciadoCom.nome === 'mic');
     act(() => { vendedor.onerror({ error: 'language-not-supported' }); });
     expect(screen.getByText(/Você: o português não está disponível/)).toBeInTheDocument();
+  });
+});
+
+// ── Desfecho: Realizada / No-show dão baixa daqui ────────────────────
+
+describe('ReuniaoAoVivo — desfecho', () => {
+  const URL_DESFECHO = '/crm/agenda/reunioes/r1/desfecho';
+
+  function servidor({ desfechoFalha = false } = {}) {
+    mockPost.mockImplementation((url, corpo) => {
+      if (url === URL) return Promise.resolve({ data: { id: 's1', canais: corpo.canais } });
+      if (url === URL_DESFECHO) {
+        if (desfechoFalha) {
+          return Promise.reject({ response: { status: 422, data: { detail: 'Esta reunião já foi registrada como no-show.' } } });
+        }
+        const fechada = reuniaoDaAgenda({
+          situacao: corpo.desfecho === 'realizada' ? 'concluida' : 'cancelada',
+          desfecho: corpo.desfecho, desfecho_efetivo: corpo.desfecho,
+        });
+        respostaReuniao = fechada;
+        return Promise.resolve({ data: fechada });
+      }
+      return Promise.resolve({ data: {} });
+    });
+  }
+
+  const urlsPost = () => mockPost.mock.calls.map(([u]) => u);
+
+  it('capturando: Realizada encerra a transcrição e depois conclui a reunião', async () => {
+    servidor();
+    await abrir();
+    fireEvent.click(botaoIniciar());
+    await screen.findByText('Só parar');
+    const cliente = reconhecedores.find((r) => r.iniciadoCom.nome === 'aba');
+    act(() => { cliente.falar('fechado então'); });
+
+    fireEvent.click(screen.getByRole('button', { name: /Realizada/ }));
+    expect(await screen.findByText(/registrada como realizada/)).toBeInTheDocument();
+    expect(urlsPost()).toEqual([URL, '/crm/agenda/ao-vivo/s1/encerrar', URL_DESFECHO]);
+    expect(mockPost).toHaveBeenCalledWith(URL_DESFECHO, {
+      desfecho: 'realizada', observacao: null, proxima: null,
+    });
+    // Fechada: somem os botões e aparece o desfecho registrado.
+    expect(screen.queryByRole('button', { name: /No-show/ })).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Desfecho da reunião')).toHaveTextContent('Realizada');
+  });
+
+  it('sem captura: No-show dá baixa direto, sem sessão para encerrar', async () => {
+    servidor();
+    await abrir();
+    fireEvent.click(screen.getByRole('button', { name: /No-show/ }));
+    expect(await screen.findByText(/registrada como no-show/)).toBeInTheDocument();
+    expect(urlsPost()).toEqual([URL_DESFECHO]);
+    expect(mockPost).toHaveBeenCalledWith(URL_DESFECHO, {
+      desfecho: 'no_show', observacao: null, proxima: null,
+    });
+  });
+
+  it('última tarefa aberta da oportunidade: Realizada pede a próxima antes de gravar', async () => {
+    servidor();
+    await abrir(dados(), reuniaoDaAgenda({ outras_abertas: 0 }));
+    fireEvent.click(screen.getByRole('button', { name: /Realizada/ }));
+    expect(await screen.findByText(/Toda reunião realizada exige a próxima/)).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: /Realizada/ })).toHaveAttribute('aria-checked', 'true');
+    expect(urlsPost()).not.toContain(URL_DESFECHO);
+    // Enquanto o painel está aberto, os botões do topo saem de cena.
+    expect(screen.queryByRole('button', { name: /No-show/ })).not.toBeInTheDocument();
+  });
+
+  it('oportunidade finalizada: Realizada não pede próxima', async () => {
+    servidor();
+    await abrir(dados(), reuniaoDaAgenda({ outras_abertas: 0, status_oportunidade: 'ganha' }));
+    fireEvent.click(screen.getByRole('button', { name: /Realizada/ }));
+    expect(await screen.findByText(/registrada como realizada/)).toBeInTheDocument();
+  });
+
+  it('reunião já fechada: sem Iniciar, sem Realizada/No-show, com o desfecho', async () => {
+    await abrir(dados(), reuniaoDaAgenda({
+      situacao: 'concluida', desfecho: 'realizada', desfecho_efetivo: 'realizada',
+    }));
+    await screen.findByLabelText('Desfecho da reunião');
+    expect(screen.queryByRole('button', { name: /Iniciar transcrição/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Realizada/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /No-show/ })).not.toBeInTheDocument();
+  });
+
+  it('erro do servidor aparece e a reunião continua aberta', async () => {
+    servidor({ desfechoFalha: true });
+    await abrir();
+    fireEvent.click(screen.getByRole('button', { name: /No-show/ }));
+    expect(await screen.findByText('Esta reunião já foi registrada como no-show.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /No-show/ })).toBeInTheDocument();
+  });
+
+  it('Só parar encerra a transcrição sem registrar desfecho', async () => {
+    servidor();
+    await abrir();
+    fireEvent.click(botaoIniciar());
+    await screen.findByText('Só parar');
+    fireEvent.click(screen.getByText('Só parar'));
+    await screen.findByRole('button', { name: /Iniciar transcrição/ });
+    expect(urlsPost()).toEqual([URL, '/crm/agenda/ao-vivo/s1/encerrar']);
+    expect(screen.getByRole('button', { name: /Realizada/ })).toBeInTheDocument();
+  });
+
+  it('sem a reunião da agenda, a captura segue e os botões de desfecho não aparecem', async () => {
+    await abrir(dados(), null);
+    expect(botaoIniciar()).not.toBeDisabled();
+    expect(screen.queryByRole('button', { name: /No-show/ })).not.toBeInTheDocument();
   });
 });

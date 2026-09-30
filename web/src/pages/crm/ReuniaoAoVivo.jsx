@@ -18,12 +18,21 @@
 // A barra de cima é o painel (tempo, palavras de cada lado e a proporção
 // de fala do vendedor — nas reuniões medidas em 30/09 o EV falou 65-68%);
 // a ação é iniciar e encerrar dali mesmo.
+//
+// ── Encerrar já dá baixa ─────────────────────────────────────────────
+// Os botões de fim são as respostas de "o que aconteceu?": Realizada ou
+// No-show. Um clique para a transcrição, registra o desfecho pela MESMA
+// rota da Agenda (POST /reunioes/{id}/desfecho) e com isso fecha a
+// reunião e a tarefa na mesma transação. Quando a regra da casa exige a
+// próxima tarefa (realizada, oportunidade viva, última tarefa aberta), o
+// clique abre o mesmo painel de desfecho da Agenda, já com Realizada
+// marcada — a regra não se pula por ter vindo de outra tela.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import {
   Mic, MicOff, MonitorSpeaker, Square, ExternalLink, Timer, User, Users,
-  Gauge, Loader2, CloudUpload,
+  Gauge, Loader2, CloudUpload, CheckCircle2, UserX,
 } from 'lucide-react';
 
 import api from '../../api';
@@ -33,7 +42,10 @@ import Button from '../../components/ui/Button';
 import Badge from '../../components/ui/Badge';
 import AlertMessage from '../../components/ui/AlertMessage';
 import KpiInline from '../../components/ui/KpiInline';
-import { mensagemDeErro } from '../../components/crm/tarefaComum';
+import { exigeProximaTarefa, mensagemDeErro } from '../../components/crm/tarefaComum';
+import {
+  DesfechoRegistrado, PainelDesfecho, agendarProximaSeForReuniao,
+} from '../../components/crm/DesfechoReuniao';
 import {
   CANAIS, INTERVALO_ENVIO_MS, MAX_FALAS_POR_LOTE, ROTULO_CANAL,
   criarFila, criarReconhecedor, construtorDeReconhecimento, descreverNavegador,
@@ -41,6 +53,10 @@ import {
 } from '../../components/crm/aoVivo';
 
 const FUSO = 'America/Sao_Paulo';
+
+// As situações em que a reunião ainda espera um desfecho. Mesma lista do
+// ModalReuniao: fora dela a reunião já foi concluída ou cancelada.
+const SITUACOES_ABERTAS = ['atrasada', 'hoje', 'futura'];
 
 // Acima disto o vendedor está falando mais que o cliente numa conversa que
 // deveria ser de descoberta. A barra fica amarela — é aviso, não regra.
@@ -94,6 +110,15 @@ export default function ReuniaoAoVivo() {
   const [inicio, setInicio] = useState(null);
   const [agora, setAgora] = useState(Date.now());
 
+  // A reunião como a Agenda a vê (desfecho, situação, oportunidade) e a
+  // lista de pessoas para a próxima tarefa. É o que os botões de
+  // Realizada / No-show precisam para dar baixa daqui.
+  const [reuniao, setReuniao] = useState(null);
+  const [usuarios, setUsuarios] = useState([]);
+  const [registrando, setRegistrando] = useState(false);
+  const [pedindoProxima, setPedindoProxima] = useState(false);
+  const [sucesso, setSucesso] = useState(null);
+
   const suporte = useMemo(() => diagnosticarSuporte(window), []);
 
   const sessaoRef = useRef(null);
@@ -122,6 +147,27 @@ export default function ReuniaoAoVivo() {
   }, [base]);
 
   useEffect(() => { carregar(); }, [carregar]);
+
+  const reuniaoId = dados?.reuniao_id;
+  const carregarReuniao = useCallback(async () => {
+    if (!reuniaoId) return;
+    try {
+      const { data } = await api.get(`/crm/agenda/reunioes/${reuniaoId}`);
+      setReuniao(data && typeof data === 'object' && data.id ? data : null);
+    } catch {
+      // Sem a reunião, os botões de desfecho só não aparecem: a captura
+      // continua funcionando, e a baixa se dá pela Agenda como sempre.
+      setReuniao(null);
+    }
+  }, [reuniaoId]);
+
+  useEffect(() => { carregarReuniao(); }, [carregarReuniao]);
+
+  useEffect(() => {
+    api.get('/crm/dominio/usuarios')
+      .then(({ data }) => setUsuarios(Array.isArray(data) ? data : []))
+      .catch(() => setUsuarios([]));
+  }, []);
 
   // Cronômetro: só anda enquanto captura.
   useEffect(() => {
@@ -270,7 +316,10 @@ export default function ReuniaoAoVivo() {
     intervaloRef.current = setInterval(enviar, INTERVALO_ENVIO_MS);
   }
 
+  // Para a captura e manda o que falta. Devolve false se o último lote
+  // não chegou ao HIPO — quem chamou decide se segue para o desfecho.
   async function encerrar() {
+    if (!sessaoRef.current) return true;
     setFase('encerrando');
     clearInterval(intervaloRef.current);
     await Promise.all(Object.values(recsRef.current).map((r) => r.parar()));
@@ -283,11 +332,13 @@ export default function ReuniaoAoVivo() {
     for (let i = 0; fila && fila.pendentes > MAX_FALAS_POR_LOTE && i < 10; i += 1) {
       if (!(await enviar())) break;
     }
+    let salvo = true;
     try {
       const lote = fila ? fila.lote(MAX_FALAS_POR_LOTE) : { falas: [], erros: [] };
       await api.post(`/crm/agenda/ao-vivo/${sessao.id}/encerrar`, lote);
       fila?.confirmar(lote);
     } catch (err) {
+      salvo = false;
       setErro(mensagemDeErro(
         err,
         `A captura parou, mas ${fila?.pendentes || 0} fala(s) não chegaram ao HIPO.`,
@@ -301,6 +352,55 @@ export default function ReuniaoAoVivo() {
     setFalasLocais([]);
     setFase('pronto');
     await carregar();
+    return salvo;
+  }
+
+  // ── Desfecho ──────────────────────────────────────────────────────
+
+  async function gravarDesfecho(corpo) {
+    setRegistrando(true);
+    setErro(null);
+    try {
+      const { data } = await api.post(`/crm/agenda/reunioes/${reuniao.id}/desfecho`, corpo);
+      const problema = await agendarProximaSeForReuniao(corpo.proxima, data?.proxima_id);
+      if (problema) avisar(problema);
+      setReuniao(data && data.id ? data : reuniao);
+      setPedindoProxima(false);
+      setSucesso(corpo.desfecho === 'realizada'
+        ? 'Reunião registrada como realizada: a tarefa foi concluída e a agenda atualizada.'
+        : 'Reunião registrada como no-show: a tarefa foi cancelada e o evento saiu da agenda.');
+      await carregarReuniao();
+      return true;
+    } catch (err) {
+      setErro(mensagemDeErro(err, 'Não foi possível registrar o desfecho da reunião.'));
+      return false;
+    } finally {
+      setRegistrando(false);
+    }
+  }
+
+  /**
+   * Realizada / No-show: para a transcrição (se estiver rodando) e dá
+   * baixa. Se a próxima tarefa for obrigatória, abre o painel para ela.
+   */
+  async function finalizar(desfecho) {
+    setSucesso(null);
+    if (sessaoRef.current) {
+      const salvo = await encerrar();
+      // Falas perdidas não impedem a baixa, mas a pessoa precisa ver o
+      // aviso antes de a tela mudar de assunto.
+      if (!salvo) return;
+    }
+    const exige = desfecho === 'realizada' && exigeProximaTarefa(
+      reuniao.oportunidade_id ? 'oportunidade' : 'parceiro',
+      reuniao.status_oportunidade,
+      reuniao.outras_abertas,
+    );
+    if (exige) {
+      setPedindoProxima(true);
+      return;
+    }
+    await gravarDesfecho({ desfecho, observacao: null, proxima: null });
   }
 
   const capturando = fase === 'capturando';
@@ -313,6 +413,8 @@ export default function ReuniaoAoVivo() {
     return [...salvas, ...falasLocais];
   }, [dados, falasLocais]);
   const metricas = useMemo(() => metricasDasFalas(falas), [falas]);
+  const reuniaoAberta = Boolean(reuniao && SITUACOES_ABERTAS.includes(reuniao.situacao));
+  const reuniaoFechada = Boolean(reuniao && !reuniaoAberta);
 
   if (carregando) {
     return (
@@ -354,22 +456,48 @@ export default function ReuniaoAoVivo() {
                 <ExternalLink size={16} /> Abrir o Meet
               </a>
             )}
-            {capturando || fase === 'encerrando'
-              ? (
-                <Button variant="danger" icon={Square} loading={fase === 'encerrando'} onClick={encerrar}>
-                  Encerrar
-                </Button>
-              )
-              : (
+            {(capturando || fase === 'encerrando') && (
+              <Button
+                variant="ghost" icon={Square}
+                disabled={fase === 'encerrando' || registrando}
+                onClick={encerrar}
+                title="Para a transcrição sem registrar o desfecho da reunião."
+              >
+                Só parar
+              </Button>
+            )}
+            {!capturando && fase !== 'encerrando' && !reuniaoFechada && (
+              <Button
+                icon={Mic}
+                loading={fase === 'iniciando'}
+                disabled={Boolean(bloqueio) || ocupado}
+                onClick={iniciar}
+              >
+                Iniciar transcrição
+              </Button>
+            )}
+            {reuniaoAberta && !pedindoProxima && (
+              <>
                 <Button
-                  icon={Mic}
-                  loading={fase === 'iniciando'}
-                  disabled={Boolean(bloqueio) || ocupado}
-                  onClick={iniciar}
+                  variant="secondary" icon={UserX}
+                  disabled={ocupado || registrando}
+                  onClick={() => finalizar('no_show')}
+                  title="O cliente não apareceu: encerra a transcrição, cancela a tarefa e tira o evento da agenda."
                 >
-                  Iniciar transcrição
+                  No-show
                 </Button>
-              )}
+                <Button
+                  variant={capturando || fase === 'encerrando' ? 'primary' : 'secondary'}
+                  icon={CheckCircle2}
+                  loading={registrando || fase === 'encerrando'}
+                  disabled={ocupado || registrando}
+                  onClick={() => finalizar('realizada')}
+                  title="A reunião aconteceu: encerra a transcrição e conclui a tarefa."
+                >
+                  Realizada
+                </Button>
+              </>
+            )}
           </>
         )}
       />
@@ -420,7 +548,21 @@ export default function ReuniaoAoVivo() {
 
       {bloqueio && !capturando && <AlertMessage tipo="aviso">{bloqueio}</AlertMessage>}
       {erro && <AlertMessage tipo="erro">{erro}</AlertMessage>}
+      {sucesso && <AlertMessage tipo="ok">{sucesso}</AlertMessage>}
       {avisos.map((a) => <AlertMessage key={a} tipo="aviso">{a}</AlertMessage>)}
+
+      {pedindoProxima && reuniao && (
+        <Card padding="sm" aria-label="Registrar a reunião">
+          <PainelDesfecho
+            key={reuniao.id}
+            reuniao={{ ...reuniao, desfecho_sugerido: 'realizada' }}
+            usuarios={usuarios}
+            ocupado={registrando}
+            onVoltar={() => setPedindoProxima(false)}
+            onRegistrar={gravarDesfecho}
+          />
+        </Card>
+      )}
 
       <div className="grid gap-4 lg:grid-cols-3">
         <Card padding="sm" className="lg:col-span-2 flex flex-col min-h-[24rem]">
@@ -475,6 +617,13 @@ export default function ReuniaoAoVivo() {
               </p>
             )}
           </Card>
+
+          {reuniaoFechada && (
+            <Card padding="sm" aria-label="Desfecho da reunião">
+              <h2 className="text-sm font-medium text-hipo-ink">Desfecho</h2>
+              <DesfechoRegistrado reuniao={reuniao} />
+            </Card>
+          )}
 
           {dados.comparacao && (
             <Card padding="sm" aria-label="Comparação com o Meet">
