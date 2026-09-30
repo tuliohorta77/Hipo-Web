@@ -425,6 +425,11 @@ describe('ReuniaoAoVivo — desfecho', () => {
     await abrir(dados(), reuniaoDaAgenda({ outras_abertas: 0 }));
     fireEvent.click(screen.getByRole('button', { name: /Realizada/ }));
     expect(await screen.findByText(/Toda reunião realizada exige a próxima/)).toBeInTheDocument();
+    // O clique não pode parecer mudo: a tela explica e leva até o painel.
+    expect(screen.getByText(/Falta um passo para dar baixa/)).toBeInTheDocument();
+    await waitFor(() => expect(Element.prototype.scrollIntoView).toHaveBeenCalledWith(
+      expect.objectContaining({ block: 'start' }),
+    ));
     expect(screen.getByRole('radio', { name: /Realizada/ })).toHaveAttribute('aria-checked', 'true');
     expect(urlsPost()).not.toContain(URL_DESFECHO);
     // Enquanto o painel está aberto, os botões do topo saem de cena.

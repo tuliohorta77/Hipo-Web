@@ -128,6 +128,7 @@ export default function ReuniaoAoVivo() {
   const intervaloRef = useRef(null);
   const enviandoRef = useRef(false);
   const fimDaListaRef = useRef(null);
+  const painelProximaRef = useRef(null);
 
   const avisar = useCallback((texto) => {
     setAvisos((a) => (a.includes(texto) ? a : [...a, texto]));
@@ -180,6 +181,14 @@ export default function ReuniaoAoVivo() {
   useEffect(() => {
     fimDaListaRef.current?.scrollIntoView?.({ block: 'end' });
   }, [falasLocais.length, parciais.vendedor, parciais.cliente]);
+
+  // O painel da próxima tarefa nasce no alto da página, mas quem clicou em
+  // Realizada pode estar lendo a conversa lá embaixo. Sem levar a pessoa
+  // até ele, o clique "não faz nada" — foi o que aconteceu no primeiro uso.
+  useEffect(() => {
+    if (!pedindoProxima) return;
+    painelProximaRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
+  }, [pedindoProxima]);
 
   // Fechar a aba no meio da call perderia as falas ainda não enviadas.
   useEffect(() => {
@@ -552,7 +561,13 @@ export default function ReuniaoAoVivo() {
       {avisos.map((a) => <AlertMessage key={a} tipo="aviso">{a}</AlertMessage>)}
 
       {pedindoProxima && reuniao && (
-        <Card padding="sm" aria-label="Registrar a reunião">
+        <div ref={painelProximaRef} className="scroll-mt-4">
+        <Card padding="sm" aria-label="Registrar a reunião" className="space-y-2">
+          <AlertMessage tipo="aviso">
+            Falta um passo para dar baixa: esta é a última tarefa aberta da
+            oportunidade, e reunião realizada precisa da próxima tarefa.
+            Preencha abaixo e clique em <strong>Registrar realizada</strong>.
+          </AlertMessage>
           <PainelDesfecho
             key={reuniao.id}
             reuniao={{ ...reuniao, desfecho_sugerido: 'realizada' }}
@@ -562,6 +577,7 @@ export default function ReuniaoAoVivo() {
             onRegistrar={gravarDesfecho}
           />
         </Card>
+        </div>
       )}
 
       <div className="grid gap-4 lg:grid-cols-3">
