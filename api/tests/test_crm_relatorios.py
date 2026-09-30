@@ -241,7 +241,57 @@ class TestConsulta:
 
 # ── Recorte ──────────────────────────────────────────────────────────
 
+class TestVisaoGeral:
+    """
+    Decisao de 30/09/2026: nos relatorios, TODO cargo ve a base inteira.
+    Se este bloco cair, ou a regra mudou de proposito (e o docstring de
+    routers/crm_relatorios.py muda junto), ou alguem religou o recorte.
+    """
+
+    def test_recorte_esta_desligado(self):
+        from routers import crm_relatorios
+        assert crm_relatorios.RECORTE_POR_ENVOLVIMENTO is False
+
+    async def test_operacional_ve_todas_as_oportunidades(self, client, cenario):
+        for quem in ("ana", "beto"):
+            res = await consultar(client, cenario[quem]["headers"],
+                                  valores=[{"campo": "mensalidade", "agregacao": "soma"}])
+            assert res["total_registros"] == 3
+            assert total_geral(res)["v"] == [600]
+
+    async def test_drilldown_e_valores_tambem_sao_gerais(self, client, cenario):
+        h = cenario["beto"]["headers"]
+        r = await client.post("/crm/relatorios/registros", json={**corpo(), "celula": []}, headers=h)
+        assert r.json()["total"] == 3
+        r = await client.post("/crm/relatorios/valores", json={**corpo(), "campo": "empresa"}, headers=h)
+        assert {i["valor"] for i in r.json()["itens"]} == {"Metalurgica Alfa LTDA", "Padaria Beta ME"}
+
+    async def test_tarefas_de_todos(self, client, cenario):
+        h = cenario["adm"]["headers"]
+        prazo = (datetime.now(ZoneInfo("UTC")) + timedelta(days=1)).isoformat()
+        for resp in (cenario["id_ana"], cenario["id_beto"]):
+            r = await client.post("/crm/tarefas", json={
+                "oportunidade_id": cenario["opps"][0]["id"], "tipo": "ligacao", "titulo": "Ligar",
+                "responsavel_id": str(resp), "prazo": prazo,
+            }, headers=h)
+            assert r.status_code == 201, r.text
+        res = await consultar(client, cenario["ana"]["headers"], fonte="tarefas",
+                              periodo={**PERIODO, "data_ref": "data_criacao"})
+        assert res["total_registros"] == 2
+
+
 class TestRecorte:
+    """
+    O recorte por envolvimento esta DESLIGADO (ver TestVisaoGeral), mas o
+    motor continua sabendo aplicar. Estes testes ligam a chave para que
+    religar no futuro seja trocar uma constante, e nao reescrever o motor.
+    """
+
+    @pytest.fixture(autouse=True)
+    def recorte_ligado(self, monkeypatch):
+        from routers import crm_relatorios
+        monkeypatch.setattr(crm_relatorios, "RECORTE_POR_ENVOLVIMENTO", True)
+
     async def test_operacional_ve_so_o_seu(self, client, cenario):
         res = await consultar(client, cenario["ana"]["headers"],
                               valores=[{"campo": "mensalidade", "agregacao": "soma"}])

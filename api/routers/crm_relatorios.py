@@ -7,11 +7,18 @@ relatorios salvos.
 
 DECISOES
 
-  * Modulo 'crm' (todo cargo valido), e nao um modulo proprio. O que muda
-    de um cargo para outro e o RECORTE, e o recorte e do servidor
-    (services/permissao.escopo_de_visao): gestao ve a base inteira,
-    operacional ve so o que e seu. Modulo novo so valeria depois de todo
-    mundo relogar, em troca de nenhuma separacao que o recorte ja nao faca.
+  * Modulo 'crm' (todo cargo valido), e nao um modulo proprio.
+
+  * VISAO GERAL, POR ORA. Todo cargo ve TODAS as oportunidades, tarefas e
+    reunioes nos relatorios -- decisao do Tulio em 30/09/2026 ("todos os
+    usuarios podem ver todas as oportunidades; se mudar, eu aviso"). E o
+    mesmo comportamento das outras telas do CRM hoje.
+
+    O recorte por envolvimento NAO foi apagado: o motor
+    (services/relatorios.py) continua sabendo aplicar, e a regra continua
+    em services/permissao.escopo_de_visao. Religar e trocar
+    RECORTE_POR_ENVOLVIMENTO para True -- os testes do recorte continuam
+    na suite, rodando com a chave ligada.
 
   * A consulta e POST porque o corpo (linhas, colunas, valores, filtros) nao
     cabe com dignidade numa query string. Continua sendo LEITURA: roda em
@@ -21,9 +28,9 @@ DECISOES
 
   * Relatorio salvo e do dono. Compartilhar deixa os outros VEREM e
     DUPLICAREM, nunca editarem: um relatorio que muda sozinho porque o
-    colega mexeu nele e um numero em que ninguem confia. E os dados de um
-    relatorio compartilhado continuam passando pelo recorte de quem ABRE,
-    nao de quem criou -- compartilhar a montagem nao compartilha a visao.
+    colega mexeu nele e um numero em que ninguem confia. Se o recorte for
+    religado, os dados de um relatorio compartilhado passam pelo recorte
+    de quem ABRE, nao de quem criou.
 """
 from __future__ import annotations
 
@@ -44,6 +51,10 @@ from services.permissao import escopo_de_visao
 router = APIRouter()
 
 TIMEOUT_CONSULTA = "20s"
+
+# Desligado em 30/09/2026: relatorio mostra a base inteira para todo cargo.
+# Ver a nota no topo do arquivo.
+RECORTE_POR_ENVOLVIMENTO = False
 MAX_BYTES_CONFIG = 20_000
 
 
@@ -167,6 +178,13 @@ async def _executar(conn, sql: str, params: list) -> list:
         )
 
 
+def _escopo(user) -> UUID | None:
+    """None = visao total. So recorta quando a chave estiver ligada."""
+    if not RECORTE_POR_ENVOLVIMENTO:
+        return None
+    return escopo_de_visao(user.get("cargo"), user["id"])
+
+
 def _invalida(e: rel.ConsultaInvalida) -> HTTPException:
     return HTTPException(http.HTTP_422_UNPROCESSABLE_ENTITY, str(e))
 
@@ -186,7 +204,7 @@ async def consultar(
     user=Depends(usuario_atual),
 ):
     consulta = _consulta_dict(payload)
-    escopo = escopo_de_visao(user.get("cargo"), user["id"])
+    escopo = _escopo(user)
     try:
         sql, params, meta = rel.montar_consulta(consulta, escopo)
     except rel.ConsultaInvalida as e:
@@ -245,7 +263,7 @@ async def registros(
     registro -- o numero agregado vira acao.
     """
     consulta = _consulta_dict(payload)
-    escopo = escopo_de_visao(user.get("cargo"), user["id"])
+    escopo = _escopo(user)
     try:
         sql, params, meta = rel.montar_registros(
             consulta, escopo, [c.model_dump() for c in payload.celula],
@@ -282,7 +300,7 @@ async def valores_distintos(
 ):
     """Os valores que um campo assume no periodo, para montar o filtro."""
     consulta = _consulta_dict(payload)
-    escopo = escopo_de_visao(user.get("cargo"), user["id"])
+    escopo = _escopo(user)
     try:
         sql, params = rel.montar_valores(
             consulta, escopo, payload.campo, payload.granularidade, payload.busca,
