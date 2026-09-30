@@ -1470,6 +1470,266 @@ class TestListagem:
         assert detalhe["qtd_oportunidades_ativas"] == 1
 
 
+# ── Filtros do funil (botão "Filtros" da tela) ───────────────────────
+#
+# Os mesmos filtros valem para resumo, kanban, coluna do kanban e tabela.
+# Estes testes travam o contrato de cada filtro e o recorte das colunas.
+
+async def _finalizar(client, h, opp_id, status="perdido"):
+    corpo = {"tarefa": TAREFA_FIM, "status": status}
+    if status in ("perdido", "cancelado"):
+        motivo = await novo_motivo(client, h, "perda" if status == "perdido" else "cancelamento",
+                                   f"Motivo {uuid.uuid4().hex[:6]}")
+        corpo["motivo_desfecho_id"] = motivo["id"]
+    resp = await client.post(f"/crm/oportunidades/{opp_id}/desfecho", json=corpo, headers=h)
+    assert resp.status_code == 200, resp.text
+    return resp.json()
+
+
+async def _total(client, h, qs):
+    resp = await client.get(f"/crm/oportunidades?{qs}", headers=h)
+    assert resp.status_code == 200, resp.text
+    return resp.json()["total"]
+
+
+class TestFiltrosDoFunil:
+    async def test_situacao_multipla(self, db_conn, client, usuario_adm):
+        h = usuario_adm["headers"]
+        conta = await nova_conta(client, h)
+        await nova_oportunidade(client, h, conta["id"])
+        ganha = await nova_oportunidade(client, h, conta["id"])
+        perdida = await nova_oportunidade(client, h, conta["id"])
+        await _finalizar(client, h, ganha["id"], "conquistado")
+        await _finalizar(client, h, perdida["id"], "perdido")
+        assert await _total(client, h, "status=conquistado&status=perdido") == 2
+        assert await _total(client, h, "status=ativa") == 1
+
+    async def test_situacao_invalida_e_422(self, db_conn, client, usuario_adm):
+        resp = await client.get("/crm/oportunidades?status=sumida", headers=usuario_adm["headers"])
+        assert resp.status_code == 422
+        assert "Situação inválida" in resp.json()["detail"]
+
+    async def test_faixa_de_temperatura(self, db_conn, client, usuario_adm):
+        h = usuario_adm["headers"]
+        conta = await nova_conta(client, h)
+        for t in (10, 50, 80):
+            await nova_oportunidade(client, h, conta["id"], temperatura=t)
+        assert await _total(client, h, "temperatura_min=40&temperatura_max=60") == 1
+        assert await _total(client, h, "temperatura_max=50") == 2
+
+    async def test_faixa_de_mensalidade(self, db_conn, client, usuario_adm):
+        h = usuario_adm["headers"]
+        conta = await nova_conta(client, h)
+        await nova_oportunidade(client, h, conta["id"], valor_mensalidade=500)
+        await nova_oportunidade(client, h, conta["id"], valor_mensalidade=2500)
+        await nova_oportunidade(client, h, conta["id"])
+        assert await _total(client, h, "valor_min=1000") == 1
+        assert await _total(client, h, "valor_min=100&valor_max=3000") == 2
+
+    async def test_faixa_invertida_e_422(self, db_conn, client, usuario_adm):
+        h = usuario_adm["headers"]
+        for qs in ("temperatura_min=60&temperatura_max=10",
+                   "valor_min=10&valor_max=1",
+                   "data_de=2026-09-30&data_ate=2026-09-01"):
+            resp = await client.get(f"/crm/oportunidades?{qs}", headers=h)
+            assert resp.status_code == 422, qs
+
+    async def test_periodo_pela_criacao_inclui_o_dia_final_inteiro(
+        self, db_conn, client, usuario_adm
+    ):
+        """
+        "Até 10/09" tem que incluir 10/09 às 23h de São Paulo — que em UTC já
+        é dia 11. Comparar a data em UTC perderia o fim do dia.
+        """
+        h = usuario_adm["headers"]
+        conta = await nova_conta(client, h)
+        dentro = await nova_oportunidade(client, h, conta["id"])
+        fora = await nova_oportunidade(client, h, conta["id"])
+        await db_conn.execute(
+            "UPDATE oportunidades SET criado_em = '2026-09-10 23:30:00-03' WHERE id = $1",
+            uuid.UUID(dentro["id"]),
+        )
+        await db_conn.execute(
+            "UPDATE oportunidades SET criado_em = '2026-09-11 00:30:00-03' WHERE id = $1",
+            uuid.UUID(fora["id"]),
+        )
+        assert await _total(
+            client, h, "data_campo=criacao&data_de=2026-09-01&data_ate=2026-09-10"
+        ) == 1
+
+    async def test_periodo_sem_data_de_referencia_usa_criacao(
+        self, db_conn, client, usuario_adm
+    ):
+        h = usuario_adm["headers"]
+        conta = await nova_conta(client, h)
+        await nova_oportunidade(client, h, conta["id"])
+        assert await _total(client, h, "data_de=2000-01-01&data_ate=2000-12-31") == 0
+        assert await _total(client, h, "data_de=2000-01-01") == 1
+
+    async def test_periodo_pela_previsao(self, db_conn, client, usuario_adm):
+        h = usuario_adm["headers"]
+        conta = await nova_conta(client, h)
+        await nova_oportunidade(client, h, conta["id"], previsao_fechamento="2026-10-15")
+        await nova_oportunidade(client, h, conta["id"], previsao_fechamento="2026-12-01")
+        assert await _total(
+            client, h, "data_campo=previsao&data_de=2026-10-01&data_ate=2026-10-31"
+        ) == 1
+
+    async def test_periodo_pelo_desfecho(self, db_conn, client, usuario_adm):
+        """O desfecho vem da trilha de eventos, não de `atualizado_em`."""
+        h = usuario_adm["headers"]
+        conta = await nova_conta(client, h)
+        aberta = await nova_oportunidade(client, h, conta["id"])
+        ganha = await nova_oportunidade(client, h, conta["id"])
+        await _finalizar(client, h, ganha["id"], "conquistado")
+        # A aberta foi editada hoje — não pode entrar como "fechada hoje".
+        await client.patch(f"/crm/oportunidades/{aberta['id']}",
+                           json={"descricao": "ajuste"}, headers=h)
+        body = (await client.get(
+            "/crm/oportunidades?data_campo=desfecho&data_de=2000-01-01", headers=h
+        )).json()
+        assert [i["id"] for i in body["itens"]] == [ganha["id"]]
+
+    async def test_data_de_referencia_invalida_e_422(self, db_conn, client, usuario_adm):
+        resp = await client.get(
+            "/crm/oportunidades?data_campo=o.criado_em;DROP&data_de=2026-01-01",
+            headers=usuario_adm["headers"],
+        )
+        assert resp.status_code == 422
+
+    async def test_papel_com_e_sem_pessoa(self, db_conn, client, usuario_adm):
+        h = usuario_adm["headers"]
+        u = await criar_usuario(db_conn, client, "EV", "filtro-papel@teste.com")
+        uid = str(await db_conn.fetchval("SELECT id FROM usuarios WHERE email=$1", u["email"]))
+        conta = await nova_conta(client, h)
+        await nova_oportunidade(client, h, conta["id"],
+                                envolvidos=[{"usuario_id": uid, "papel": "EV"}])
+        await nova_oportunidade(client, h, conta["id"],
+                                envolvidos=[{"usuario_id": uid, "papel": "SDR"}])
+        await nova_oportunidade(client, h, conta["id"])
+        assert await _total(client, h, f"envolvido_id={uid}") == 2
+        assert await _total(client, h, f"envolvido_id={uid}&papel=EV") == 1
+        assert await _total(client, h, "papel=SDR") == 1
+        resp = await client.get("/crm/oportunidades?papel=Gerente", headers=h)
+        assert resp.status_code == 422
+
+    async def test_veio_de_parceiro(self, db_conn, client, usuario_adm):
+        h = usuario_adm["headers"]
+        conta = await nova_conta(client, h)
+        parceiro = await nova_conta(client, h, CNPJ_B, "Contabil Beta")
+        await nova_oportunidade(client, h, conta["id"], finder_conta_id=parceiro["id"])
+        await nova_oportunidade(client, h, conta["id"])
+        assert await _total(client, h, "veio_de_parceiro=true") == 1
+        assert await _total(client, h, "veio_de_parceiro=false") == 1
+
+    async def test_vertical_da_empresa(self, db_conn, client, usuario_adm):
+        h = usuario_adm["headers"]
+        vertical = (await client.post(
+            "/crm/dominio/verticais", json={"nome": "Metalurgia"}, headers=h
+        )).json()
+        a = await nova_conta(client, h, CNPJ_A, "Alfa")
+        b = await nova_conta(client, h, CNPJ_B, "Beta")
+        await db_conn.execute(
+            "UPDATE contas SET vertical_id = $1 WHERE id = $2",
+            vertical["id"], uuid.UUID(a["id"]),
+        )
+        await nova_oportunidade(client, h, a["id"])
+        await nova_oportunidade(client, h, b["id"])
+        assert await _total(client, h, f"vertical_id={vertical['id']}") == 1
+
+    async def test_resumo_aplica_situacao_e_fase(self, db_conn, client, usuario_adm):
+        h = usuario_adm["headers"]
+        conta = await nova_conta(client, h)
+        await nova_oportunidade(client, h, conta["id"], fase="lead")
+        await nova_oportunidade(client, h, conta["id"], fase="negociacao")
+        body = (await client.get("/crm/oportunidades/resumo?fase=lead", headers=h)).json()
+        assert body["abertas"] == 1
+        por_fase = {p["fase"]: p["quantidade"] for p in body["por_fase"]}
+        assert por_fase["lead"] == 1 and por_fase["negociacao"] == 0
+        body = (await client.get("/crm/oportunidades/resumo?status=perdido", headers=h)).json()
+        assert body["abertas"] == 0
+
+    async def test_kanban_so_devolve_as_colunas_do_recorte(
+        self, db_conn, client, usuario_adm
+    ):
+        h = usuario_adm["headers"]
+        conta = await nova_conta(client, h)
+        await nova_oportunidade(client, h, conta["id"], fase="lead")
+        colunas = (await client.get("/crm/oportunidades/kanban?fase=lead", headers=h)).json()
+        assert [c["fase"] for c in colunas] == ["lead"]
+        colunas = (await client.get("/crm/oportunidades/kanban?status=perdido", headers=h)).json()
+        assert [c["fase"] for c in colunas] == ["finalizado"]
+        colunas = (await client.get("/crm/oportunidades/kanban?status=ativa", headers=h)).json()
+        assert "finalizado" not in [c["fase"] for c in colunas]
+        assert len(colunas) == len(regras.FASES_ABERTAS)
+
+    async def test_kanban_situacao_suspensa_filtra_as_colunas_abertas(
+        self, db_conn, client, usuario_adm
+    ):
+        h = usuario_adm["headers"]
+        conta = await nova_conta(client, h)
+        await nova_oportunidade(client, h, conta["id"])
+        suspensa = await nova_oportunidade(client, h, conta["id"])
+        await db_conn.execute(
+            "UPDATE oportunidades SET status = 'suspensa' WHERE id = $1",
+            uuid.UUID(suspensa["id"]),
+        )
+        colunas = (await client.get("/crm/oportunidades/kanban?status=suspensa", headers=h)).json()
+        suspect = next(c for c in colunas if c["fase"] == "suspect")
+        assert suspect["quantidade"] == 1
+        assert suspect["itens"][0]["id"] == suspensa["id"]
+
+    async def test_periodo_libera_a_finalizado_do_mes_corrente(
+        self, db_conn, client, usuario_adm
+    ):
+        """
+        Sem período, a Finalizado mostra só o mês corrente. Com período, vale
+        o período — é o jeito de achar "as perdidas de julho" no kanban.
+        """
+        h = usuario_adm["headers"]
+        conta = await nova_conta(client, h)
+        opp = await nova_oportunidade(client, h, conta["id"])
+        await _finalizar(client, h, opp["id"], "perdido")
+        oid = uuid.UUID(opp["id"])
+        await db_conn.execute(
+            "UPDATE oportunidades SET atualizado_em = '2025-07-15 12:00-03' WHERE id = $1", oid
+        )
+        await db_conn.execute(
+            "UPDATE oportunidade_eventos SET criado_em = '2025-07-15 12:00-03'"
+            " WHERE oportunidade_id = $1", oid,
+        )
+
+        def finalizado(colunas):
+            return next(c for c in colunas if c["fase"] == "finalizado")
+
+        sem = (await client.get("/crm/oportunidades/kanban", headers=h)).json()
+        assert finalizado(sem)["quantidade"] == 0
+        com = (await client.get(
+            "/crm/oportunidades/kanban?data_campo=desfecho&data_de=2025-07-01&data_ate=2025-07-31",
+            headers=h,
+        )).json()
+        assert finalizado(com)["quantidade"] == 1
+        pagina = (await client.get(
+            "/crm/oportunidades/kanban/coluna?fase=finalizado"
+            "&data_campo=desfecho&data_de=2025-07-01&data_ate=2025-07-31",
+            headers=h,
+        )).json()
+        assert [i["id"] for i in pagina["itens"]] == [opp["id"]]
+
+    async def test_coluna_fora_do_recorte_de_situacao_vem_vazia(
+        self, db_conn, client, usuario_adm
+    ):
+        """Carregar mais numa coluna que o filtro excluiu não é erro: é vazio."""
+        h = usuario_adm["headers"]
+        conta = await nova_conta(client, h)
+        await nova_oportunidade(client, h, conta["id"])
+        resp = await client.get(
+            "/crm/oportunidades/kanban/coluna?fase=suspect&status=perdido", headers=h
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["quantidade"] == 0
+
+
 # ── Edição ───────────────────────────────────────────────────────────
 
 class TestEditar:
@@ -1740,3 +2000,43 @@ class TestContaNaoProspectar:
         )
         assert r.status_code == 201, r.text
         assert r.json()["finder_conta_id"] == indicador["id"]
+
+
+# ── Filtros do funil (sem banco) ─────────────────────────────────────
+
+class TestRecorteDasColunas:
+    """Função pura: roda no pytest local do Windows."""
+
+    def test_sem_filtro_todas_as_colunas(self):
+        f = crm_oportunidades.FiltrosFunil()
+        assert all(f.coluna_visivel(x) for x in (*regras.FASES_ABERTAS, "finalizado"))
+
+    def test_situacao_de_desfecho_esconde_as_abertas(self):
+        f = crm_oportunidades.FiltrosFunil(status=("perdido",))
+        assert not f.coluna_visivel("suspect")
+        assert f.coluna_visivel("finalizado")
+        assert f.status_da_coluna("finalizado") == ("perdido",)
+
+    def test_situacao_mista_divide_por_coluna(self):
+        f = crm_oportunidades.FiltrosFunil(status=("ativa", "conquistado"))
+        assert f.status_da_coluna("lead") == ("ativa",)
+        assert f.status_da_coluna("finalizado") == ("conquistado",)
+
+    def test_fase_escolhe_as_colunas(self):
+        f = crm_oportunidades.FiltrosFunil(fase=("lead",))
+        assert f.coluna_visivel("lead")
+        assert not f.coluna_visivel("negociacao")
+        assert not f.coluna_visivel("finalizado")
+
+    def test_periodo_com_hora_usa_o_fuso_de_sao_paulo(self):
+        from datetime import date as _d
+        where, params = crm_oportunidades.FiltrosFunil(
+            data_campo="criacao", data_de=_d(2026, 9, 1), data_ate=_d(2026, 9, 30),
+        ).montar()
+        assert len(where) == 2
+        assert all("America/Sao_Paulo" in w for w in where)
+        assert "+ 1" in where[1]
+        assert params == [_d(2026, 9, 1), _d(2026, 9, 30)]
+
+    def test_so_um_periodo_nao_liga_o_filtro_sem_datas(self):
+        assert not crm_oportunidades.FiltrosFunil(data_campo="criacao").tem_periodo

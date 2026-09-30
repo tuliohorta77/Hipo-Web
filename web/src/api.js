@@ -7,6 +7,11 @@ export const USER_KEY = "hipo_user";
 
 const api = axios.create({
   baseURL: "/api",
+  // Listas vão repetidas na query (`fase=lead&fase=negociacao`), que é o que
+  // o FastAPI entende por `list[str] = Query(...)`. O padrão do axios 1.x é
+  // `fase[]=lead`, que o backend ignoraria em silêncio — o filtro sumiria
+  // sem erro nenhum.
+  paramsSerializer: { indexes: null },
 });
 
 api.interceptors.request.use((cfg) => {

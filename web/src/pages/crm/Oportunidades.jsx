@@ -40,6 +40,9 @@ import ModalReuniao from '../../components/crm/ModalReuniao';
 import {
   PAGINA_KANBAN, completarColuna, mesclarItens,
 } from '../../components/crm/CarregarMais';
+import FiltrosOportunidades, {
+  FILTROS_PADRAO, contarFiltros, paramsDosFiltros,
+} from '../../components/crm/FiltrosOportunidades';
 
 const POR_PAGINA = 50;
 const CHAVE_VISAO = 'crm_oportunidades_visao';
@@ -65,9 +68,12 @@ const TOM_STATUS = {
   perdido: 'danger', cancelado: 'neutral',
 };
 
-const FILTROS_VAZIOS = {
-  q: '', fase: '', status: '', envolvido_id: '', apenas_abertas: false,
-};
+// A busca (`q`) fica na barra; o resto mora no botão "Filtros".
+const FILTROS_VAZIOS = { q: '', ...FILTROS_PADRAO };
+
+// "Em aberto" do KPI é um filtro de situação como outro qualquer: aparece
+// marcado no painel e vale nas três visões, não só na tabela.
+const STATUS_ABERTOS = ['ativa', 'suspensa'];
 
 function mensagemDeErro(err, padrao) {
   const d = err?.response?.data?.detail;
@@ -323,12 +329,18 @@ export default function Oportunidades() {
 
   // Depende dos VALORES, nao do objeto `filtros`. Qualquer troca de identidade
   // do estado sem mudanca real de conteudo passaria por aqui e viraria refetch.
+  // A chave em JSON cobre os arrays (fase, situação) sem listar campo a campo.
+  //
+  // Os MESMOS params vão para resumo, kanban, coluna e tabela: o backend
+  // aceita o mesmo conjunto nas quatro rotas, e é isso que mantém o KPI do
+  // topo e a visão de baixo respondendo a mesma pergunta.
+  const chaveFiltros = JSON.stringify(filtros);
   const params = useMemo(() => {
-    const p = {};
+    const p = paramsDosFiltros(filtros);
     if (filtros.q) p.q = filtros.q;
-    if (filtros.envolvido_id) p.envolvido_id = filtros.envolvido_id;
     return p;
-  }, [filtros.q, filtros.envolvido_id]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chaveFiltros]);
 
   /*
     ── Carregar mais no kanban ──
@@ -390,14 +402,7 @@ export default function Oportunidades() {
         chamadas.push(api.get('/crm/oportunidades/kanban', { params }));
       } else if (visao === 'tabela') {
         chamadas.push(api.get('/crm/oportunidades', {
-          params: {
-            ...params,
-            ...(filtros.fase ? { fase: filtros.fase } : {}),
-            ...(filtros.status ? { status: filtros.status } : {}),
-            apenas_abertas: filtros.apenas_abertas || undefined,
-            limit: POR_PAGINA,
-            offset: pagina * POR_PAGINA,
-          },
+          params: { ...params, limit: POR_PAGINA, offset: pagina * POR_PAGINA },
         }));
       }
 
@@ -420,7 +425,7 @@ export default function Oportunidades() {
     } finally {
       setCarregando(false);
     }
-  }, [visao, params, filtros.fase, filtros.status, filtros.apenas_abertas, pagina, buscarPaginaKanban]);
+  }, [visao, params, pagina, buscarPaginaKanban]);
 
   useEffect(() => { carregar(); }, [carregar]);
 
@@ -575,6 +580,14 @@ export default function Oportunidades() {
     setPagina(0);
   }
 
+  // O painel devolve os filtros sem a busca; a busca continua a da barra.
+  // Mexer no painel desliga o KPI: o recorte passou a ser outro.
+  function aplicarFiltros(novos) {
+    setFiltros((f) => ({ ...novos, q: f.q }));
+    setKpiAtivo(null);
+    setPagina(0);
+  }
+
   function limpar() {
     setFiltros(FILTROS_VAZIOS);
     setBusca('');
@@ -582,9 +595,9 @@ export default function Oportunidades() {
     setPagina(0);
   }
 
-  const temFiltro =
-    JSON.stringify({ ...filtros, q: '' }) !== JSON.stringify({ ...FILTROS_VAZIOS, q: '' })
-    || Boolean(filtros.q);
+  const temFiltro = contarFiltros(filtros) > 0 || Boolean(filtros.q);
+  const filtrosDoPainel = { ...filtros };
+  delete filtrosDoPainel.q;
 
   const totalPaginas = Math.max(1, Math.ceil(lista.total / POR_PAGINA));
 
@@ -621,7 +634,7 @@ export default function Oportunidades() {
             icone={Briefcase}
             tom="text-hipo-blue bg-hipo-blueSoft"
             ativo={kpiAtivo === 'abertas'}
-            onClick={() => alternarKpi('abertas', { apenas_abertas: true })}
+            onClick={() => alternarKpi('abertas', { status: STATUS_ABERTOS })}
           />
           <KpiInline
             label="Previsto no mês"
@@ -663,37 +676,20 @@ export default function Oportunidades() {
             />
           </div>
 
-          <select
-            aria-label="Envolvido"
-            value={filtros.envolvido_id}
-            onChange={(e) => {
-              setFiltros((f) => ({ ...f, envolvido_id: e.target.value }));
-              setPagina(0);
-            }}
-            className={`${CLASSE_CAMPO} px-1 w-28`}
-          >
-            <option value="">Todos</option>
-            {usuarios.map((u) => <option key={u.id} value={u.id}>{u.nome}</option>)}
-          </select>
-
           {/*
-            Fase só na tabela: no kanban a fase É a coluna, e filtrar por fase
-            deixaria a tela com uma coluna cheia e cinco vazias.
+            Situação, fase, temperatura, período, mensalidade, equipe, origem,
+            vertical e parceiro — os filtros do Relatórios para oportunidades —
+            ficam todos atrás de um botão. Espalhados na barra, ela quebraria
+            em três linhas e tiraria altura das colunas do kanban.
+
+            Fase agora vale também no kanban: o backend devolve só as colunas
+            do recorte, em vez de uma coluna cheia ao lado de cinco vazias.
           */}
-          {visao === 'tabela' && (
-            <select
-              aria-label="Fase"
-              value={filtros.fase}
-              onChange={(e) => {
-                setFiltros((f) => ({ ...f, fase: e.target.value }));
-                setPagina(0);
-              }}
-              className={`${CLASSE_CAMPO} px-1.5`}
-            >
-              <option value="">Todas as fases</option>
-              {Object.entries(FASES).map(([v, r]) => <option key={v} value={v}>{r}</option>)}
-            </select>
-          )}
+          <FiltrosOportunidades
+            valor={filtrosDoPainel}
+            usuarios={usuarios}
+            onAplicar={aplicarFiltros}
+          />
 
           {temFiltro && (
             <button

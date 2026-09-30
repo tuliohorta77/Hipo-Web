@@ -222,7 +222,9 @@ describe('Oportunidades — a terceira visão (funil)', () => {
     mockGet.mockImplementation(respostas('funil'));
     montar();
     await screen.findByRole('region', { name: 'Funil de vendas' });
+    fireEvent.click(screen.getByRole('button', { name: 'Filtros' }));
     fireEvent.change(screen.getByLabelText('Envolvido'), { target: { value: 'u1' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Aplicar filtros' }));
     await waitFor(() =>
       expect(mockGet).toHaveBeenCalledWith(
         '/crm/oportunidades/resumo',
@@ -244,11 +246,11 @@ describe('Oportunidades — a terceira visão (funil)', () => {
     );
   });
 
-  it('o filtro de fase não aparece no funil — a fase É a faixa', async () => {
+  it('o botão Filtros também existe no funil', async () => {
     mockGet.mockImplementation(respostas('funil'));
     montar();
     await screen.findByRole('region', { name: 'Funil de vendas' });
-    expect(screen.queryByLabelText('Fase')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Filtros' })).toBeInTheDocument();
   });
 
   it('mover pelo painel da fase chama o endpoint e recarrega', async () => {
@@ -313,21 +315,18 @@ describe('Oportunidades — tabela', () => {
     expect(screen.getByText('Metalurgica Alfa')).toBeInTheDocument();
   });
 
-  it('mostra o filtro de fase só na tabela', async () => {
+  it('a tabela recebe os filtros do painel junto com a paginação', async () => {
     montar();
     await screen.findByText('OPP-2026-00001');
-    expect(screen.getByLabelText('Fase')).toBeInTheDocument();
-  });
-
-  it('as seis fases aparecem no filtro', async () => {
-    montar();
-    await screen.findByText('OPP-2026-00001');
-    const opcoes = [...screen.getByLabelText('Fase').querySelectorAll('option')]
-      .map((o) => o.value)
-      .filter(Boolean);
-    expect(opcoes).toEqual([
-      'suspect', 'lead', 'qualificacao', 'apresentacao', 'negociacao', 'finalizado',
-    ]);
+    fireEvent.click(screen.getByRole('button', { name: 'Filtros' }));
+    fireEvent.click(within(screen.getByRole('group', { name: 'Situação' }))
+      .getByRole('button', { name: 'Perdida' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Aplicar filtros' }));
+    await waitFor(() =>
+      expect(mockGet).toHaveBeenCalledWith('/crm/oportunidades', {
+        params: { status: ['perdido'], limit: 50, offset: 0 },
+      })
+    );
   });
 
   it('estado vazio quando não há oportunidades', async () => {
@@ -339,6 +338,146 @@ describe('Oportunidades — tabela', () => {
     });
     montar();
     expect(await screen.findByText('Nenhuma oportunidade')).toBeInTheDocument();
+  });
+});
+
+describe('Oportunidades — botão Filtros', () => {
+  async function abrirPainel() {
+    montar();
+    await screen.findByRole('region', { name: 'Fase Suspect' });
+    fireEvent.click(screen.getByRole('button', { name: 'Filtros' }));
+    return screen.getByRole('dialog', { name: 'Filtrar oportunidades' });
+  }
+
+  it('fechado por padrão: a barra não tem mais selects de filtro soltos', async () => {
+    montar();
+    await screen.findByRole('region', { name: 'Fase Suspect' });
+    expect(screen.queryByRole('dialog', { name: 'Filtrar oportunidades' })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Envolvido')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Filtros' })).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  it('abre com as situações e as seis fases', async () => {
+    const painel = await abrirPainel();
+    const situacoes = within(within(painel).getByRole('group', { name: 'Situação' }))
+      .getAllByRole('button').map((b) => b.textContent);
+    expect(situacoes).toEqual(['Ativa', 'Suspensa', 'Conquistada', 'Perdida', 'Cancelada']);
+    const fases = within(within(painel).getByRole('group', { name: 'Fase' }))
+      .getAllByRole('button').map((b) => b.textContent);
+    expect(fases).toEqual([
+      'Suspect', 'Lead', 'Qualificação', 'Apresentação', 'Negociação', 'Finalizado',
+    ]);
+    for (const rotulo of ['Data de referência', 'Data inicial', 'Data final',
+      'Temperatura mínima', 'Temperatura máxima', 'Mensalidade mínima',
+      'Mensalidade máxima', 'Envolvido', 'Papel', 'Origem', 'Vertical']) {
+      expect(within(painel).getByLabelText(rotulo)).toBeInTheDocument();
+    }
+  });
+
+  it('origens e verticais são buscadas uma vez só, na primeira abertura', async () => {
+    await abrirPainel();
+    await waitFor(() =>
+      expect(mockGet.mock.calls.filter(([u]) => u === '/crm/dominio/origens')).toHaveLength(1)
+    );
+    fireEvent.click(screen.getByLabelText('Fechar filtros'));
+    fireEvent.click(screen.getByRole('button', { name: 'Filtros' }));
+    await new Promise((r) => setTimeout(r, 20));
+    expect(mockGet.mock.calls.filter(([u]) => u === '/crm/dominio/origens')).toHaveLength(1);
+    expect(mockGet.mock.calls.filter(([u]) => u === '/crm/dominio/verticais')).toHaveLength(1);
+  });
+
+  it('só busca quando aplica — o painel edita um rascunho', async () => {
+    const painel = await abrirPainel();
+    const antes = mockGet.mock.calls.filter(([u]) => u === '/crm/oportunidades/kanban').length;
+    fireEvent.change(within(painel).getByLabelText('Temperatura mínima'), { target: { value: '50' } });
+    fireEvent.change(within(painel).getByLabelText('Mensalidade mínima'), { target: { value: '2500' } });
+    await new Promise((r) => setTimeout(r, 50));
+    expect(mockGet.mock.calls.filter(([u]) => u === '/crm/oportunidades/kanban')).toHaveLength(antes);
+  });
+
+  it('aplicar manda os mesmos filtros para o kanban e para o resumo', async () => {
+    const painel = await abrirPainel();
+    fireEvent.click(within(within(painel).getByRole('group', { name: 'Fase' }))
+      .getByRole('button', { name: 'Lead' }));
+    fireEvent.click(within(within(painel).getByRole('group', { name: 'Situação' }))
+      .getByRole('button', { name: 'Ativa' }));
+    fireEvent.change(within(painel).getByLabelText('Temperatura mínima'), { target: { value: '40' } });
+    fireEvent.change(within(painel).getByLabelText('Data de referência'), { target: { value: 'previsao' } });
+    fireEvent.change(within(painel).getByLabelText('Data inicial'), { target: { value: '2026-10-01' } });
+    fireEvent.click(within(within(painel).getByRole('group', { name: 'Indicação de parceiro' }))
+      .getByRole('button', { name: 'Veio de parceiro' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Aplicar filtros' }));
+
+    const esperado = {
+      fase: ['lead'], status: ['ativa'], temperatura_min: 40,
+      data_campo: 'previsao', data_de: '2026-10-01', veio_de_parceiro: true,
+    };
+    await waitFor(() =>
+      expect(mockGet).toHaveBeenCalledWith('/crm/oportunidades/kanban', { params: esperado })
+    );
+    expect(mockGet).toHaveBeenCalledWith('/crm/oportunidades/resumo', { params: esperado });
+    expect(screen.queryByRole('dialog', { name: 'Filtrar oportunidades' })).not.toBeInTheDocument();
+  });
+
+  it('o selo do botão conta os grupos de filtro ativos', async () => {
+    const painel = await abrirPainel();
+    fireEvent.click(within(within(painel).getByRole('group', { name: 'Situação' }))
+      .getByRole('button', { name: 'Perdida' }));
+    fireEvent.click(within(within(painel).getByRole('group', { name: 'Situação' }))
+      .getByRole('button', { name: 'Cancelada' }));
+    fireEvent.change(within(painel).getByLabelText('Temperatura máxima'), { target: { value: '30' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Aplicar filtros' }));
+    expect(await screen.findByRole('button', { name: 'Filtros (2 ativos)' })).toBeInTheDocument();
+  });
+
+  it('faixa invertida não deixa aplicar', async () => {
+    const painel = await abrirPainel();
+    fireEvent.change(within(painel).getByLabelText('Temperatura mínima'), { target: { value: '70' } });
+    fireEvent.change(within(painel).getByLabelText('Temperatura máxima'), { target: { value: '20' } });
+    expect(within(painel).getByText('A mínima é maior que a máxima.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Aplicar filtros' })).toBeDisabled();
+  });
+
+  it('Esc fecha sem aplicar o rascunho', async () => {
+    const painel = await abrirPainel();
+    fireEvent.click(within(within(painel).getByRole('group', { name: 'Fase' }))
+      .getByRole('button', { name: 'Lead' }));
+    fireEvent.keyDown(document, { key: 'Escape' });
+    await waitFor(() =>
+      expect(screen.queryByRole('dialog', { name: 'Filtrar oportunidades' })).not.toBeInTheDocument()
+    );
+    expect(screen.getByRole('button', { name: 'Filtros' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Filtros' }));
+    const fase = within(screen.getByRole('group', { name: 'Fase' })).getByRole('button', { name: 'Lead' });
+    expect(fase).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  it('o KPI "Em aberto" vira filtro de situação e aparece marcado no painel', async () => {
+    montar();
+    await screen.findByText('Em aberto');
+    fireEvent.click(screen.getByText('Em aberto').closest('button'));
+    await waitFor(() =>
+      expect(mockGet).toHaveBeenCalledWith('/crm/oportunidades/kanban', {
+        params: { status: ['ativa', 'suspensa'] },
+      })
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Filtros (1 ativos)' }));
+    const grupo = screen.getByRole('group', { name: 'Situação' });
+    expect(within(grupo).getByRole('button', { name: 'Ativa' })).toHaveAttribute('aria-pressed', 'true');
+    expect(within(grupo).getByRole('button', { name: 'Perdida' })).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  it('o X da barra limpa tudo', async () => {
+    const painel = await abrirPainel();
+    fireEvent.click(within(within(painel).getByRole('group', { name: 'Fase' }))
+      .getByRole('button', { name: 'Lead' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Aplicar filtros' }));
+    fireEvent.click(await screen.findByLabelText('Limpar filtros'));
+    expect(await screen.findByRole('button', { name: 'Filtros' })).toBeInTheDocument();
+    await waitFor(() => {
+      const ultima = mockGet.mock.calls.filter(([u]) => u === '/crm/oportunidades/kanban').at(-1);
+      expect(ultima[1]).toEqual({ params: {} });
+    });
   });
 });
 

@@ -25,6 +25,7 @@ Decisões que este módulo materializa:
 """
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
 from uuid import UUID
@@ -527,18 +528,166 @@ async def _detalhe(conn, oportunidade_id: UUID) -> dict:
     return d
 
 
+# ── Filtros do funil ─────────────────────────────────────────────────
+#
+# UM conjunto de filtros para as quatro leituras da tela (resumo, kanban,
+# coluna do kanban e tabela). Declarado uma vez, como dependência: antes cada
+# rota repetia sete parâmetros na assinatura, e bastava esquecer um em uma
+# delas para o KPI do topo contar uma coisa e a lista embaixo mostrar outra.
+#
+# Espelha o que o módulo de Relatórios oferece para oportunidades — situação,
+# fase, temperatura, datas, mensalidade, equipe, origem, parceiro, vertical —
+# mas com SQL fixo e parâmetro posicional. Nada vindo do cliente vira SQL: a
+# data escolhida é chave de dicionário, não nome de coluna.
+
+# Data de referência do filtro de período -> expressão SQL e se é timestamptz.
+# O desfecho vem da trilha de eventos, como no Relatórios: `atualizado_em`
+# muda a cada edição e diria "fechou hoje" para quem só corrigiu o telefone.
+_EXPR_DESFECHO = (
+    "(SELECT max(e_d.criado_em) FROM oportunidade_eventos e_d"
+    " WHERE e_d.oportunidade_id = o.id AND e_d.tipo = 'status'"
+    " AND e_d.para IN ('conquistado','perdido','cancelado'))"
+)
+DATAS_FILTRO: dict[str, tuple[str, bool]] = {
+    "criacao": ("o.criado_em", True),
+    "previsao": ("o.previsao_fechamento", False),
+    "desfecho": (_EXPR_DESFECHO, True),
+    "atualizacao": ("o.atualizado_em", True),
+}
+FUSO = "America/Sao_Paulo"
+
+
+@dataclass(frozen=True)
+class FiltrosFunil:
+    q: str | None = None
+    fase: tuple[str, ...] | None = None
+    status: tuple[str, ...] | None = None
+    conta_id: UUID | None = None
+    envolvido_id: UUID | None = None
+    papel: str | None = None
+    finder_conta_id: UUID | None = None
+    origem_id: int | None = None
+    vertical_id: int | None = None
+    veio_de_parceiro: bool | None = None
+    temperatura_min: int | None = None
+    temperatura_max: int | None = None
+    valor_min: Decimal | None = None
+    valor_max: Decimal | None = None
+    previsao_ate: date | None = None
+    data_campo: str | None = None
+    data_de: date | None = None
+    data_ate: date | None = None
+
+    @property
+    def tem_periodo(self) -> bool:
+        return self.data_campo is not None and (
+            self.data_de is not None or self.data_ate is not None
+        )
+
+    def montar(self, *, fase=None, status=None, apenas_abertas=False,
+               ignorar_fase=False, ignorar_status=False):
+        """
+        WHERE + parâmetros. `fase`/`status` explícitos SUBSTITUEM os do
+        filtro — é como o kanban pede uma coluna só, já intersectada.
+        """
+        return _montar_filtros(
+            self.q,
+            None if ignorar_fase else (fase if fase is not None else self.fase),
+            None if ignorar_status else (status if status is not None else self.status),
+            self.conta_id, self.envolvido_id, self.finder_conta_id,
+            self.origem_id, self.temperatura_min, self.previsao_ate,
+            apenas_abertas,
+            temperatura_max=self.temperatura_max,
+            valor_min=self.valor_min, valor_max=self.valor_max,
+            papel=self.papel, vertical_id=self.vertical_id,
+            veio_de_parceiro=self.veio_de_parceiro,
+            data_campo=self.data_campo, data_de=self.data_de, data_ate=self.data_ate,
+        )
+
+    # ── Recorte das colunas do kanban ──
+    #
+    # O kanban tem colunas FIXAS por fase e por natureza: as cinco abertas só
+    # mostram ativa/suspensa, a Finalizado só os três desfechos. Filtro de
+    # situação e de fase escolhe QUAIS colunas existem e o que cada uma
+    # mostra; coluna que o filtro exclui inteira não é consultada.
+
+    def status_da_coluna(self, fase: str) -> tuple[str, ...] | None:
+        """Situações que a coluna mostra; () = a coluna sai do recorte."""
+        naturais = regras.STATUS_DESFECHO if fase == "finalizado" else regras.STATUS_ABERTOS
+        if not self.status:
+            return None
+        return tuple(s for s in naturais if s in self.status)
+
+    def coluna_visivel(self, fase: str) -> bool:
+        if self.fase and fase not in self.fase:
+            return False
+        return self.status_da_coluna(fase) != ()
+
+
+def filtros_funil(
+    q: str | None = Query(None, max_length=200),
+    fase: list[str] | None = Query(None),
+    status: list[str] | None = Query(None),
+    conta_id: UUID | None = None,
+    envolvido_id: UUID | None = None,
+    papel: str | None = None,
+    finder_conta_id: UUID | None = None,
+    origem_id: int | None = None,
+    vertical_id: int | None = None,
+    veio_de_parceiro: bool | None = None,
+    temperatura_min: int | None = Query(None, ge=0, le=90),
+    temperatura_max: int | None = Query(None, ge=0, le=90),
+    valor_min: Decimal | None = Query(None, ge=0),
+    valor_max: Decimal | None = Query(None, ge=0),
+    previsao_ate: date | None = None,
+    data_campo: str | None = None,
+    data_de: date | None = None,
+    data_ate: date | None = None,
+) -> FiltrosFunil:
+    """Lê e valida os filtros do funil. Erro é 422 com mensagem em português."""
+    for v in fase or []:
+        if v not in regras.FASES:
+            raise HTTPException(422, f"Fase inválida: '{v}'.")
+    for v in status or []:
+        if v not in regras.STATUS:
+            raise HTTPException(422, f"Situação inválida: '{v}'.")
+    if papel is not None and papel not in PAPEIS:
+        raise HTTPException(422, f"Papel inválido: '{papel}'. Use: {', '.join(PAPEIS)}.")
+    if data_campo is not None and data_campo not in DATAS_FILTRO:
+        raise HTTPException(
+            422, f"Data de referência inválida: '{data_campo}'. Use: {', '.join(DATAS_FILTRO)}."
+        )
+    # Período sem data de referência: vale a criação, que é a leitura mais
+    # comum ("o que entrou no funil em setembro").
+    if data_campo is None and (data_de is not None or data_ate is not None):
+        data_campo = "criacao"
+    for nome, mn, mx in (
+        ("Temperatura", temperatura_min, temperatura_max),
+        ("Mensalidade", valor_min, valor_max),
+        ("Período", data_de, data_ate),
+    ):
+        if mn is not None and mx is not None and mn > mx:
+            raise HTTPException(422, f"{nome}: o início da faixa é maior que o fim.")
+
+    return FiltrosFunil(
+        q=q or None,
+        fase=tuple(dict.fromkeys(fase)) if fase else None,
+        status=tuple(dict.fromkeys(status)) if status else None,
+        conta_id=conta_id, envolvido_id=envolvido_id, papel=papel,
+        finder_conta_id=finder_conta_id, origem_id=origem_id,
+        vertical_id=vertical_id, veio_de_parceiro=veio_de_parceiro,
+        temperatura_min=temperatura_min, temperatura_max=temperatura_max,
+        valor_min=valor_min, valor_max=valor_max, previsao_ate=previsao_ate,
+        data_campo=data_campo, data_de=data_de, data_ate=data_ate,
+    )
+
+
 # ── Leitura ──────────────────────────────────────────────────────────
 
 @router.get("/resumo", response_model=ResumoFunil)
 async def resumo(
     dias_parada: int = Query(14, ge=1, le=365),
-    q: str | None = Query(None, max_length=200),
-    conta_id: UUID | None = None,
-    envolvido_id: UUID | None = None,
-    finder_conta_id: UUID | None = None,
-    origem_id: int | None = None,
-    temperatura_min: int | None = Query(None, ge=0, le=90),
-    previsao_ate: date | None = None,
+    f: FiltrosFunil = Depends(filtros_funil),
     conn=Depends(get_conn),
     user=Depends(usuario_atual),
 ):
@@ -548,11 +697,12 @@ async def resumo(
     Cada número tem filtro equivalente na listagem — é o que permite o
     drilldown.
 
-    Aceita o MESMO conjunto de filtros do kanban (menos fase e status, que
-    são a dimensão que este endpoint agrega). Sem isso, trocar de visão com
-    um filtro ativo mostrava um funil global ao lado de uma lista filtrada —
-    dois números diferentes para a mesma pergunta na mesma tela. Chamado sem
-    parâmetro nenhum, o resultado é idêntico ao de antes.
+    Aceita EXATAMENTE os mesmos filtros do kanban e da tabela, fase e
+    situação inclusive. Sem isso, trocar de visão com um filtro ativo
+    mostrava um funil global ao lado de uma lista filtrada — dois números
+    diferentes para a mesma pergunta na mesma tela. Com fase filtrada, as
+    outras faixas do funil saem zeradas: é o retrato fiel do recorte.
+    Chamado sem parâmetro nenhum, o resultado é idêntico ao de antes.
 
     'paradas' usa a data do último EVENTO, não `atualizado_em`: corrigir um
     telefone não significa que a negociação andou.
@@ -560,10 +710,7 @@ async def resumo(
     # `apenas_abertas=False` aqui: os KPIs de ganhas/perdidas do mês precisam
     # enxergar as finalizadas. O recorte por status é feito com FILTER dentro
     # de cada agregado.
-    where, params = _montar_filtros(
-        q, None, None, conta_id, envolvido_id, finder_conta_id, origem_id,
-        temperatura_min, previsao_ate, False,
-    )
+    where, params = f.montar()
     clausula = f"WHERE {' AND '.join(where)}" if where else ""
 
     # O JOIN com contas é obrigatório mesmo sem busca textual: `_montar_filtros`
@@ -671,6 +818,10 @@ POR_COLUNA_MAX = 500
 def _montar_filtros(
     q, fase, status, conta_id, envolvido_id, finder_conta_id, origem_id,
     temperatura_min, previsao_ate, apenas_abertas,
+    *,
+    temperatura_max=None, valor_min=None, valor_max=None, papel=None,
+    vertical_id=None, veio_de_parceiro=None,
+    data_campo=None, data_de=None, data_ate=None,
 ) -> tuple[list[str], list]:
     where: list[str] = []
     params: list = []
@@ -715,25 +866,66 @@ def _montar_filtros(
             f" AND ct_q.nome ILIKE ${i_texto}))"
         )
     if fase:
-        add("o.fase = ANY(${n}::text[])", fase)
+        add("o.fase = ANY(${n}::text[])", list(fase))
     if status:
-        add("o.status = ANY(${n}::text[])", status)
+        add("o.status = ANY(${n}::text[])", list(status))
     if conta_id is not None:
         add("o.conta_id = ${n}", conta_id)
-    if envolvido_id is not None:
+    if envolvido_id is not None and papel is not None:
+        params.append(envolvido_id)
+        params.append(papel)
+        where.append(
+            "EXISTS (SELECT 1 FROM oportunidade_envolvidos oe"
+            f" WHERE oe.oportunidade_id = o.id AND oe.usuario_id = ${len(params) - 1}"
+            f" AND oe.papel = ${len(params)})"
+        )
+    elif envolvido_id is not None:
         add(
             "EXISTS (SELECT 1 FROM oportunidade_envolvidos oe"
             " WHERE oe.oportunidade_id = o.id AND oe.usuario_id = ${n})",
             envolvido_id,
         )
+    elif papel is not None:
+        # Papel sem pessoa: "tem SDR nesta oportunidade".
+        add(
+            "EXISTS (SELECT 1 FROM oportunidade_envolvidos oe"
+            " WHERE oe.oportunidade_id = o.id AND oe.papel = ${n})",
+            papel,
+        )
     if finder_conta_id is not None:
         add("o.finder_conta_id = ${n}", finder_conta_id)
     if origem_id is not None:
         add("o.origem_id = ${n}", origem_id)
+    if vertical_id is not None:
+        add("c.vertical_id = ${n}", vertical_id)
+    if veio_de_parceiro is True:
+        where.append("o.finder_conta_id IS NOT NULL")
+    elif veio_de_parceiro is False:
+        where.append("o.finder_conta_id IS NULL")
     if temperatura_min is not None:
         add("o.temperatura >= ${n}", temperatura_min)
+    if temperatura_max is not None:
+        add("o.temperatura <= ${n}", temperatura_max)
+    if valor_min is not None:
+        add("o.valor_mensalidade >= ${n}", valor_min)
+    if valor_max is not None:
+        add("o.valor_mensalidade <= ${n}", valor_max)
     if previsao_ate is not None:
         add("o.previsao_fechamento <= ${n}", previsao_ate)
+    if data_campo is not None and (data_de is not None or data_ate is not None):
+        expr, com_hora = DATAS_FILTRO[data_campo]
+        # Timestamp: faixa semiaberta no fuso de São Paulo — "até 30/09"
+        # inclui o dia 30 inteiro, e a comparação direta usa o índice.
+        if data_de is not None:
+            if com_hora:
+                add(f"{expr} >= (${{n}}::date)::timestamp AT TIME ZONE '{FUSO}'", data_de)
+            else:
+                add(f"{expr} >= ${{n}}", data_de)
+        if data_ate is not None:
+            if com_hora:
+                add(f"{expr} < (${{n}}::date + 1)::timestamp AT TIME ZONE '{FUSO}'", data_ate)
+            else:
+                add(f"{expr} <= ${{n}}", data_ate)
     if apenas_abertas:
         where.append("o.status IN ('ativa','suspensa')")
 
@@ -742,14 +934,8 @@ def _montar_filtros(
 
 @router.get("/kanban", response_model=list[ColunaKanban])
 async def kanban(
-    q: str | None = Query(None, max_length=200),
-    conta_id: UUID | None = None,
-    envolvido_id: UUID | None = None,
-    finder_conta_id: UUID | None = None,
-    origem_id: int | None = None,
-    temperatura_min: int | None = Query(None, ge=0, le=90),
-    previsao_ate: date | None = None,
     por_coluna: int = Query(100, ge=1, le=POR_COLUNA_MAX),
+    f: FiltrosFunil = Depends(filtros_funil),
     conn=Depends(get_conn),
     user=Depends(usuario_atual),
 ):
@@ -762,25 +948,30 @@ async def kanban(
     itens do que cabe na tela. O resto da coluna vem, página a página, por
     GET /kanban/coluna — nenhum cartão fica inalcançável.
 
+    Com filtro de fase ou de situação, só vêm as colunas que o recorte
+    alcança: filtrar "perdidas" devolve só a Finalizado, filtrar "Lead"
+    devolve só a Lead. Cinco colunas vazias ao lado da única cheia seriam
+    ruído ocupando a largura que o cartão precisa.
+
     A coluna Finalizado é diferente das outras em três pontos, e cada um tem
     motivo:
 
-      * Só o mês corrente. O funil aberto é um estoque e cresce devagar; o
-        finalizado é um fluxo e cresce para sempre. Sem recorte a coluna
-        viraria um arquivo morto que ninguém lê e que custa uma varredura da
-        tabela inteira a cada carga da tela.
+      * Só o mês corrente — A MENOS que haja filtro de período, que então
+        manda. O funil aberto é um estoque e cresce devagar; o finalizado é
+        um fluxo e cresce para sempre. Sem recorte a coluna viraria um
+        arquivo morto que ninguém lê.
       * O ticket somado conta só as conquistadas. Somar mensalidade de
         perdida com ganha produz um número que não significa nada.
       * `somente_leitura=True`. Fechar exige status e motivo, então o front
         não deixa soltar cartão ali — abre o modal de desfecho.
     """
-    filtros = (q, conta_id, envolvido_id, finder_conta_id, origem_id,
-               temperatura_min, previsao_ate)
     colunas = [
-        await _coluna_aberta(conn, fase, filtros, por_coluna, 0)
+        await _coluna_aberta(conn, fase, f, por_coluna, 0)
         for fase in regras.FASES_ABERTAS
+        if f.coluna_visivel(fase)
     ]
-    colunas.append(await _coluna_finalizado(conn, filtros, por_coluna, 0))
+    if f.coluna_visivel("finalizado"):
+        colunas.append(await _coluna_finalizado(conn, f, por_coluna, 0))
     return colunas
 
 
@@ -789,13 +980,7 @@ async def kanban_coluna(
     fase: str = Query(...),
     offset: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=POR_COLUNA_MAX),
-    q: str | None = Query(None, max_length=200),
-    conta_id: UUID | None = None,
-    envolvido_id: UUID | None = None,
-    finder_conta_id: UUID | None = None,
-    origem_id: int | None = None,
-    temperatura_min: int | None = Query(None, ge=0, le=90),
-    previsao_ate: date | None = None,
+    f: FiltrosFunil = Depends(filtros_funil),
     conn=Depends(get_conn),
     user=Depends(usuario_atual),
 ):
@@ -808,28 +993,38 @@ async def kanban_coluna(
 
     Mesmos filtros e MESMA ordenação do /kanban — com desempate por id —, para
     que a página N+1 continue exatamente de onde a N parou, sem repetir nem
-    pular cartão.
+    pular cartão. O `fase` aqui é a COLUNA; o filtro de fase da tela não se
+    aplica (a coluna pedida já está dentro dele).
     """
-    filtros = (q, conta_id, envolvido_id, finder_conta_id, origem_id,
-               temperatura_min, previsao_ate)
-    if fase == "finalizado":
-        return await _coluna_finalizado(conn, filtros, limit, offset)
-    if fase not in regras.FASES_ABERTAS:
+    if fase != "finalizado" and fase not in regras.FASES_ABERTAS:
         raise HTTPException(
             422,
             f"Fase inválida: '{fase}'. Use: "
             f"{', '.join([*regras.FASES_ABERTAS, 'finalizado'])}.",
         )
-    return await _coluna_aberta(conn, fase, filtros, limit, offset)
+    if fase == "finalizado":
+        return await _coluna_finalizado(conn, f, limit, offset)
+    return await _coluna_aberta(conn, fase, f, limit, offset)
 
 
-async def _coluna_aberta(conn, fase, filtros, limit, offset) -> dict:
+def _coluna_vazia(fase: str) -> dict:
+    return {
+        "fase": fase,
+        "rotulo": regras.ROTULOS_FASE[fase],
+        "quantidade": 0,
+        "ticket_total": 0,
+        "itens": [],
+        "somente_leitura": fase == "finalizado",
+    }
+
+
+async def _coluna_aberta(conn, fase, f: FiltrosFunil, limit, offset) -> dict:
     """Uma das cinco colunas abertas: totais da coluna inteira + uma página."""
-    q, conta_id, envolvido_id, finder_conta_id, origem_id, temperatura_min, previsao_ate = filtros
-    where, params = _montar_filtros(
-        q, [fase], None, conta_id, envolvido_id, finder_conta_id, origem_id,
-        temperatura_min, previsao_ate, True,
-    )
+    status_col = f.status_da_coluna(fase)
+    if status_col == ():
+        return _coluna_vazia(fase)
+    where, params = f.montar(fase=[fase], status=status_col, apenas_abertas=True,
+                             ignorar_status=status_col is None)
     clausula = f"WHERE {' AND '.join(where)}"
 
     totais = await conn.fetchrow(
@@ -861,24 +1056,26 @@ async def _coluna_aberta(conn, fase, filtros, limit, offset) -> dict:
     }
 
 
-async def _coluna_finalizado(conn, filtros, limit, offset) -> dict:
+async def _coluna_finalizado(conn, f: FiltrosFunil, limit, offset) -> dict:
     """
     A sexta coluna: o que fechou no mês corrente, em qualquer dos três
     desfechos. Só leitura.
 
     O recorte é por `atualizado_em` e não por `criado_em`: o que interessa é
     quando fechou, não quando nasceu. Uma oportunidade aberta em maio e ganha
-    em agosto pertence a agosto.
+    em agosto pertence a agosto. Com filtro de período ativo, o mês corrente
+    sai e vale o período escolhido.
     """
-    q, conta_id, envolvido_id, finder_conta_id, origem_id, temperatura_min, previsao_ate = filtros
-    where, params = _montar_filtros(
-        q, None, None, conta_id, envolvido_id, finder_conta_id, origem_id,
-        temperatura_min, previsao_ate, False,
-    )
-    where = where + [
-        "o.fase = 'finalizado'",
-        "date_trunc('month', o.atualizado_em) = date_trunc('month', CURRENT_DATE)",
-    ]
+    status_col = f.status_da_coluna("finalizado")
+    if status_col == ():
+        return _coluna_vazia("finalizado")
+    where, params = f.montar(status=status_col, ignorar_fase=True,
+                             ignorar_status=status_col is None)
+    where = where + ["o.fase = 'finalizado'"]
+    if not f.tem_periodo:
+        where.append(
+            "date_trunc('month', o.atualizado_em) = date_trunc('month', CURRENT_DATE)"
+        )
     clausula = f"WHERE {' AND '.join(where)}"
 
     totais = await conn.fetchrow(
@@ -915,15 +1112,7 @@ async def _coluna_finalizado(conn, filtros, limit, offset) -> dict:
 
 @router.get("", response_model=OportunidadeLista)
 async def listar(
-    q: str | None = Query(None, max_length=200),
-    fase: list[str] | None = Query(None),
-    status: list[str] | None = Query(None),
-    conta_id: UUID | None = None,
-    envolvido_id: UUID | None = None,
-    finder_conta_id: UUID | None = None,
-    origem_id: int | None = None,
-    temperatura_min: int | None = Query(None, ge=0, le=90),
-    previsao_ate: date | None = None,
+    f: FiltrosFunil = Depends(filtros_funil),
     apenas_abertas: bool = False,
     ordenar_por: str = Query("criado_em"),
     desc: bool = True,
@@ -934,17 +1123,8 @@ async def listar(
 ):
     if ordenar_por not in ORDENACOES:
         raise HTTPException(422, f"ordenar_por inválido. Use: {sorted(ORDENACOES)}")
-    for f in fase or []:
-        if f not in regras.FASES:
-            raise HTTPException(422, f"Fase inválida: '{f}'.")
-    for s in status or []:
-        if s not in regras.STATUS:
-            raise HTTPException(422, f"Status inválido: '{s}'.")
 
-    where, params = _montar_filtros(
-        q, fase, status, conta_id, envolvido_id, finder_conta_id, origem_id,
-        temperatura_min, previsao_ate, apenas_abertas,
-    )
+    where, params = f.montar(apenas_abertas=apenas_abertas)
     clausula = f"WHERE {' AND '.join(where)}" if where else ""
 
     total = await conn.fetchval(
