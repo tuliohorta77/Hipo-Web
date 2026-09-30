@@ -117,7 +117,16 @@ async function mensagemDeBlob(err, padrao) {
 
 function AbaGerar({ status }) {
   const opcoes = useMemo(
-    () => (status ? mesesAnteriores(status.ano, status.mes) : []),
+    () => {
+      if (!status) return [];
+      // O mês CORRENTE entra no topo como prévia parcial: a reunião é no
+      // 1º dia útil, mas a gestão quer ver o PPT antes do mês fechar. O
+      // padrão continua sendo o mês fechado (segundo item).
+      const atual = mesSeguinte(status.ano, status.mes);
+      return mesesAnteriores(atual.ano, atual.mes, 13).map((o, i) => (
+        i === 0 ? { ...o, parcial: true } : o
+      ));
+    },
     [status],
   );
   const [escolhido, setEscolhido] = useState(null);
@@ -130,7 +139,7 @@ function AbaGerar({ status }) {
   const [squad, setSquad] = useState('EC');
 
   useEffect(() => {
-    if (opcoes.length && !escolhido) setEscolhido(opcoes[0]);
+    if (opcoes.length && !escolhido) setEscolhido(opcoes[1] || opcoes[0]);
   }, [opcoes, escolhido]);
 
   useEffect(() => {
@@ -193,7 +202,7 @@ function AbaGerar({ status }) {
 
       <div className="flex flex-wrap items-end gap-3">
         <label className="text-sm text-hipo-ink" htmlFor="rper-mes">
-          <span className="block font-medium mb-1.5">Mês fechado</span>
+          <span className="block font-medium mb-1.5">Mês dos resultados</span>
           <select
             id="rper-mes"
             className="h-10 px-3 rounded-lg bg-hipo-card border border-hipo-border text-sm"
@@ -201,7 +210,9 @@ function AbaGerar({ status }) {
             onChange={(e) => setEscolhido(opcoes.find((o) => o.valor === e.target.value))}
           >
             {opcoes.map((o) => (
-              <option key={o.valor} value={o.valor}>{rotuloMes(o.ano, o.mes)}</option>
+              <option key={o.valor} value={o.valor}>
+                {rotuloMes(o.ano, o.mes)}{o.parcial ? ' (parcial, até hoje)' : ''}
+              </option>
             ))}
           </select>
         </label>
@@ -212,6 +223,11 @@ function AbaGerar({ status }) {
               return rotuloMes(s.ano, s.mes);
             })()}: resultados de {rotuloMes(escolhido.ano, escolhido.mes)} e
             planejamento do mês seguinte.
+            {escolhido.parcial && (
+              <strong className="block text-hipo-warning">
+                Mês ainda aberto: os números vão até hoje e mudam até o fim do mês.
+              </strong>
+            )}
           </p>
         )}
       </div>

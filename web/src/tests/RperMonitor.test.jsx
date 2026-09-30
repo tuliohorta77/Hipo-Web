@@ -171,6 +171,20 @@ describe('RperMonitor — Gerar', () => {
     expect(await screen.findByText(/2 textos da IA citavam número/)).toBeInTheDocument();
   });
 
+  it('oferece o mês corrente como prévia parcial, mas abre no mês fechado', async () => {
+    render(<RperMonitor aberto onFechar={() => {}} />);
+    const seletor = await screen.findByLabelText('Mês dos resultados');
+    await waitFor(() => expect(seletor.value).toBe('2026-8'));
+    const opcoes = within(seletor).getAllByRole('option').map((o) => o.textContent);
+    expect(opcoes[0]).toBe('setembro/2026 (parcial, até hoje)');
+    expect(opcoes[1]).toBe('agosto/2026');
+    fireEvent.change(seletor, { target: { value: '2026-9' } });
+    expect(await screen.findByText(/Mês ainda aberto/)).toBeInTheDocument();
+    await waitFor(() => expect(mockGet).toHaveBeenCalledWith(
+      '/rper/previa', { params: { ano: 2026, mes: 9 } },
+    ));
+  });
+
   it('sem LibreOffice, o PDF fica desligado', async () => {
     render(<RperMonitor aberto onFechar={() => {}} />);
     await screen.findByText('Baixar PPTX');
