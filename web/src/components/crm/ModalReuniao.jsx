@@ -35,7 +35,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   CalendarPlus, RefreshCw, CheckCircle2,
-  Mail, X, Plus, ExternalLink,
+  Mail, X, Plus, ExternalLink, Radio,
 } from 'lucide-react';
 
 import api, { getUser } from '../../api';
@@ -842,6 +842,27 @@ export default function ModalReuniao({
           `key` pela tarefa para não mostrar a conversa da reunião
           anterior enquanto a nova carrega.
         */}
+        {/*
+          Reunião ao vivo: abre numa aba nova, para ficar ao lado do Meet.
+          Só online e não cancelada — a captura precisa do áudio da aba da
+          chamada. A própria tela diz se ainda é cedo ou tarde demais.
+        */}
+        {editando && reuniao.modalidade === 'online' && !reuniao.cancelada_em && (
+          <a
+            href={`/crm/agenda/ao-vivo/${reuniao.tarefa_id}`}
+            target="_blank"
+            rel="noreferrer"
+            className={
+              'inline-flex items-center gap-1.5 text-xs font-medium text-hipo-blue '
+              + 'hover:underline focus:outline-none focus-visible:ring-2 '
+              + 'focus-visible:ring-hipo-blue rounded'
+            }
+          >
+            <Radio size={13} aria-hidden="true" />
+            Reunião ao vivo (transcrição durante a call)
+          </a>
+        )}
+
         {editando && (
           <TranscricaoReuniao key={reuniao.tarefa_id} tarefa={{ id: reuniao.tarefa_id }} />
         )}

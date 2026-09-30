@@ -81,6 +81,7 @@ CATALOGO: dict[tuple[str, str], Tipo] = {
     ("POST", "/crm/agenda/reunioes/{reuniao_id}/sincronizar"): _t("Reuniões", "Reunião reenviada ao Google", 24),
     ("POST", "/crm/agenda/tarefas/{tarefa_id}/transcricao/buscar"): _t("Reuniões", "Transcrição buscada", 25),
     ("POST", "/crm/agenda/tarefas/{tarefa_id}/transcricao/resumo"): _t("Reuniões", "Resumo de reunião gerado", 26),
+    ("POST", "/crm/agenda/tarefas/{tarefa_id}/ao-vivo"): _t("Reuniões", "Transcrição ao vivo ligada", 27),
 
     # Oportunidades
     ("POST", "/crm/oportunidades"): _t("Oportunidades", "Oportunidade criada", 30),
@@ -151,6 +152,12 @@ CATALOGO: dict[tuple[str, str], Tipo] = {
 # quem mexe muito na tela.
 IGNORADAS: frozenset[tuple[str, str]] = frozenset({
     ("POST", "/auth/login"),
+    # Reuniao ao vivo: os lotes de fala chegam a cada ~10 s enquanto a call
+    # dura, e o encerrar e o fim do mesmo gesto. Conta-los faria uma reuniao
+    # de 30 min valer 180 "atividades" -- a armadilha que o catalogo existe
+    # para evitar. Quem ligou a captura ja aparece pela rota de abrir.
+    ("POST", "/crm/agenda/ao-vivo/{sessao_id}/falas"),
+    ("POST", "/crm/agenda/ao-vivo/{sessao_id}/encerrar"),
     ("PUT", "/auth/perfil"),
     ("PUT", "/auth/senha"),
     ("PUT", "/crm/dominio/preferencias/{chave}"),

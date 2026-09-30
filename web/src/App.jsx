@@ -14,6 +14,7 @@ import Oportunidades from './pages/crm/Oportunidades';
 import Parceiros from './pages/crm/Parceiros';
 import Tarefas from './pages/crm/Tarefas';
 import Agenda from './pages/crm/Agenda';
+import ReuniaoAoVivo from './pages/crm/ReuniaoAoVivo';
 import Relatorios from './pages/crm/Relatorios';
 import Monitor from './pages/Monitor';
 import { primeiraRotaAcessivel } from './api';
@@ -40,6 +41,12 @@ export default function App() {
           <Route path="crm/oportunidades" element={<Oportunidades />} />
           <Route path="crm/tarefas" element={<Tarefas />} />
           <Route path="crm/agenda" element={<Agenda />} />
+          {/*
+            Reunião ao vivo: aberta numa aba ao lado do Meet, a partir do
+            modal da reunião. O id é o da TAREFA, como o da transcrição do
+            Meet — é a tarefa que as telas têm na mão.
+          */}
+          <Route path="crm/agenda/ao-vivo/:tarefaId" element={<ReuniaoAoVivo />} />
           <Route path="crm/contas" element={<Contas />} />
           {/*
             Relatórios: tabela dinâmica + relatórios salvos. ?r=<id> abre um

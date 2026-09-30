@@ -18,6 +18,7 @@ from routers import (
     auth,
     crm_agenda,
     crm_anexos,
+    crm_ao_vivo,
     crm_contas,
     crm_contatos,
     crm_dominio,
@@ -144,6 +145,16 @@ app.include_router(
 app.include_router(
     crm_agenda.router,
     prefix="/crm/agenda", tags=["CRM - Agenda"],
+    dependencies=[Depends(requer_modulo("crm"))],
+)
+
+# Transcricao AO VIVO da reuniao (prova de conceito do copiloto). Mesmo
+# prefixo e mesmo modulo da agenda: e a mesma reuniao, vista durante a call.
+# Router separado porque pode sair inteiro se o reconhecimento de voz do
+# navegador nao servir -- ver routers/crm_ao_vivo.py.
+app.include_router(
+    crm_ao_vivo.router,
+    prefix="/crm/agenda", tags=["CRM - Reuniao ao vivo"],
     dependencies=[Depends(requer_modulo("crm"))],
 )
 

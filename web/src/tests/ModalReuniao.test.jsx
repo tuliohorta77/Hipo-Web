@@ -722,3 +722,33 @@ describe('ModalReuniao — reunião com parceiro', () => {
   });
 });
 
+
+// ── Reunião ao vivo ──────────────────────────────────────────────────
+
+describe('ModalReuniao — reunião ao vivo', () => {
+  const ROTULO = /Reunião ao vivo/;
+
+  it('online: oferece a tela ao vivo numa aba nova, pelo id da tarefa', async () => {
+    await abrir({ reuniao: reuniao() });
+    const link = screen.getByText(ROTULO).closest('a');
+    expect(link).toHaveAttribute('href', '/crm/agenda/ao-vivo/t1');
+    expect(link).toHaveAttribute('target', '_blank');
+  });
+
+  it('presencial: não oferece — a captura precisa do áudio da chamada', async () => {
+    await abrir({ reuniao: reuniao({ modalidade: 'presencial', modalidade_rotulo: 'Presencial' }) });
+    expect(screen.queryByText(ROTULO)).not.toBeInTheDocument();
+  });
+
+  it('cancelada: não oferece', async () => {
+    await abrir({
+      reuniao: reuniao({ situacao: 'cancelada', cancelada_em: '2026-09-07T12:00:00Z' }),
+    });
+    expect(screen.queryByText(ROTULO)).not.toBeInTheDocument();
+  });
+
+  it('marcando uma nova: ainda não oferece', async () => {
+    await abrir({ slotInicial: '2026-09-09T14:00', anfitriaoInicial: 'u1' });
+    expect(screen.queryByText(ROTULO)).not.toBeInTheDocument();
+  });
+});
