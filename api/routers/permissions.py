@@ -74,6 +74,13 @@ MODULOS_BASE = {"perfil", "crm"}
 CARGOS_COM_PARCEIROS = CARGOS_GESTAO | {"EC"}
 
 
+# Cargos que fatiam a base da Receita e puxam empresa para o CRM (022). E a
+# tela do SDR; gestao entra porque acompanha e distribui. Restricao por
+# CARGO dentro do modulo 'crm', e nao modulo novo: modulo novo so reflete
+# depois de todo mundo relogar, e mexer em modulos_do_cargo quebraria os
+# asserts de igualdade da suite. Mesmo arranjo do de-para de CNAEs.
+CARGOS_PROSPECCAO = CARGOS_GESTAO | {"SDR"}
+
 def modulos_do_cargo(cargo: str | None) -> set[str]:
     """Devolve o conjunto de módulos visíveis para o cargo informado."""
     if not cargo:
@@ -161,3 +168,19 @@ def requer_qualquer_modulo(modulos: Iterable[str]):
             )
         return user
     return _dep
+
+
+async def requer_prospeccao(user=Depends(usuario_atual)):
+    """
+    Dependency: 403 para quem nao trabalha a base de prospeccao.
+
+    Aplicada no include_router de /crm/prospeccao, ao lado do guard do
+    modulo 'crm'. Ver CARGOS_PROSPECCAO.
+    """
+    cargo = user.get("cargo")
+    if cargo not in CARGOS_PROSPECCAO:
+        raise HTTPException(
+            403,
+            f"Cargo '{cargo or 'sem cargo'}' nao trabalha a base de prospeccao.",
+        )
+    return user

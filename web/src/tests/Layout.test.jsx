@@ -66,6 +66,9 @@ describe('Layout — nav com o módulo crm', () => {
     const nav = screen.getByLabelText('Navegação principal');
     const hrefs = [...nav.querySelectorAll('a')].map((a) => a.getAttribute('href'));
     expect(hrefs).toEqual([
+      // Prospecção abre a barra: é a boca do funil. Aparece aqui porque o
+      // usuário deste teste é Franqueado (SDR e gestão).
+      '/crm/prospeccao',
       '/crm/oportunidades', '/crm/tarefas', '/crm/agenda',
       // CNAEs vem logo depois de Contas porque é cadastro de apoio DELAS —
       // e só aparece para gestão, que é o cargo deste teste.
@@ -101,6 +104,7 @@ describe('Layout — nav com o módulo crm', () => {
     const nav = screen.getByLabelText('Navegação principal');
     const hrefs = [...nav.querySelectorAll('a')].map((a) => a.getAttribute('href'));
     expect(hrefs).toEqual([
+      '/crm/prospeccao',
       '/crm/oportunidades', '/crm/tarefas', '/crm/agenda', '/crm/contas',
       // CNAEs entra aqui porque o usuário deste teste é Franqueado. O item
       // é do módulo 'crm' mas restrito a gestão por CARGO — ver o teste
@@ -217,6 +221,32 @@ describe('Layout — CNAEs só para gestão', () => {
     const nav = screen.getByLabelText('Navegação principal');
     const hrefs = [...nav.querySelectorAll('a')].map((a) => a.getAttribute('href'));
     expect(hrefs).toContain('/crm/cnaes');
+  });
+});
+
+// ── 022: Prospecção é do SDR e da gestão ──────────────────────────────
+
+describe('Layout — Prospecção só para SDR e gestão', () => {
+  function hrefsDo(cargo, modulos = ['perfil', 'crm']) {
+    mockGetUser.mockReturnValue({ nome: 'Fulano', email: 'f@teste.com', cargo });
+    mockGetModulos.mockReturnValue(modulos);
+    renderLayout();
+    const nav = screen.getByLabelText('Navegação principal');
+    return [...nav.querySelectorAll('a')].map((a) => a.getAttribute('href'));
+  }
+
+  it('SDR vê Prospecção abrindo a barra', () => {
+    expect(hrefsDo('SDR')[0]).toBe('/crm/prospeccao');
+  });
+
+  it.each(['EV', 'EP', 'EC'])('%s não vê Prospecção', (cargo) => {
+    expect(hrefsDo(cargo, cargo === 'EC' ? ['perfil', 'crm', 'parceiros'] : ['perfil', 'crm']))
+      .not.toContain('/crm/prospeccao');
+  });
+
+  it('gestão vê Prospecção', () => {
+    expect(hrefsDo('ADM', ['perfil', 'crm', 'usuarios', 'telemetria', 'parceiros']))
+      .toContain('/crm/prospeccao');
   });
 });
 

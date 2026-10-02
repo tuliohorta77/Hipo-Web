@@ -123,6 +123,12 @@ CATALOGO: dict[tuple[str, str], Tipo] = {
     ("POST", "/crm/enriquecimento/contas/{conta_id}/aplicar"):
         _t("Contas e contatos", "Conta enriquecida pelo CNPJ", 90),
 
+    # Prospeccao (022). Um lote puxado e UMA atividade, nao cinquenta: o
+    # gesto e escolher a fatia e apertar o botao. As oportunidades e tarefas
+    # que ele cria ja aparecem nas contagens proprias, que leem o banco.
+    ("POST", "/crm/prospeccao/puxar"):
+        _t("Oportunidades", "Lote puxado da base da Receita", 38),
+
     # Parceiros
     ("PATCH", "/crm/parceiros/{conta_id}"): _t("Parceiros", "Parceiro editado", 60),
     ("POST", "/crm/parceiros/carteira/transferir"): _t("Parceiros", "Carteira transferida", 61),

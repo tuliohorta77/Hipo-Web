@@ -19,6 +19,8 @@
 --                        e progresso (UC-1)
 --   021_reuniao_avaliacao.sql  scorecard da reuniao contra o Roteiro de
 --                        Vendas (nota da IA, ajuste da gestao)
+--   022_base_receita.sql base de Dados Abertos do CNPJ (fonte de consulta da
+--                        tela de Prospeccao; nao e cadastro)
 --   014_enriquecimento.sql  CNAE com vertical e grau de risco, QSA, cache
 --                           das consultas de CNPJ e procedencia do numero
 --                           de funcionarios
@@ -1486,3 +1488,89 @@ CREATE TABLE IF NOT EXISTS reuniao_avaliacao_itens (
         OR (nota_gestor IS NOT NULL AND ajustada_em IS NOT NULL)
     )
 );
+
+-- ---------------------------------------------------------------------------
+-- receita_*  (022 -- base de Dados Abertos do CNPJ para a Prospeccao)
+-- ---------------------------------------------------------------------------
+-- Fonte de CONSULTA, nao cadastro: a empresa so vira conta quando um SDR a
+-- puxa pela tela. Escrita so pelo scripts/carregar_base_receita.py; a API
+-- apenas le. Sem FK para usuarios -- o conftest trunca estas tabelas por
+-- nome. Comentarios completos em api/migrations/022_base_receita.sql.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS receita_estabelecimentos (
+    cnpj               CHAR(14) PRIMARY KEY,
+    cnpj_basico        CHAR(8)  NOT NULL,
+    matriz             BOOLEAN  NOT NULL,
+    razao_social       VARCHAR(200) NOT NULL,
+    nome_fantasia      VARCHAR(200),
+    natureza_juridica  CHAR(4),
+    -- Codigo da Receita: 00 nao informado, 01 ME, 03 EPP, 05 demais.
+    -- E faixa de FATURAMENTO, nao de funcionarios.
+    porte              CHAR(2),
+    capital_social     NUMERIC(17,2),
+    -- Optante do Simples. Quem NAO e optante fatura acima do teto do
+    -- Simples -- e o melhor sinal de porte que a base publica oferece.
+    simples            BOOLEAN,
+    mei                BOOLEAN,
+    data_abertura      DATE,
+    cnae_principal     CHAR(7) NOT NULL,
+    cnaes_secundarios  CHAR(7)[] NOT NULL DEFAULT '{}',
+    logradouro         VARCHAR(200),
+    numero             VARCHAR(20),
+    complemento        VARCHAR(100),
+    bairro             VARCHAR(100),
+    cep                CHAR(8),
+    uf                 CHAR(2) NOT NULL,
+    -- Codigo de municipio da RECEITA (tabela TOM/SIAFI, 4 digitos), que
+    -- NAO e o codigo do IBGE. O nome mora em receita_municipios.
+    municipio_codigo   CHAR(4) NOT NULL,
+    telefone           VARCHAR(20),
+    telefone_2         VARCHAR(20),
+    email              VARCHAR(150),
+    CONSTRAINT ck_receita_cnpj CHECK (cnpj ~ '^[0-9]{14}$'),
+    CONSTRAINT ck_receita_cnae CHECK (cnae_principal ~ '^[0-9]{7}$'),
+    CONSTRAINT ck_receita_uf   CHECK (uf ~ '^[A-Z]{2}$')
+);
+
+-- UF por igualdade, CNAE por faixa: e a pergunta da tela.
+CREATE INDEX IF NOT EXISTS idx_receita_uf_cnae
+    ON receita_estabelecimentos (uf, cnae_principal);
+-- A mesma pergunta recortada por cidade.
+CREATE INDEX IF NOT EXISTS idx_receita_uf_municipio_cnae
+    ON receita_estabelecimentos (uf, municipio_codigo, cnae_principal);
+-- "Incluir CNAE secundario": o risco de uma empresa nem sempre esta no
+-- CNAE fiscal. Ver conta_cnaes_secundarios (014).
+CREATE INDEX IF NOT EXISTS idx_receita_cnaes_sec
+    ON receita_estabelecimentos USING gin (cnaes_secundarios);
+
+CREATE TABLE IF NOT EXISTS receita_municipios (
+    codigo  CHAR(4) PRIMARY KEY,
+    nome    VARCHAR(100) NOT NULL,
+    uf      CHAR(2) NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_receita_municipios_uf
+    ON receita_municipios (uf, nome);
+
+CREATE TABLE IF NOT EXISTS receita_cnaes (
+    codigo     CHAR(7) PRIMARY KEY,
+    descricao  VARCHAR(300) NOT NULL,
+    CONSTRAINT ck_receita_cnaes_codigo CHECK (codigo ~ '^[0-9]{7}$')
+);
+
+-- Uma linha por execucao do script. A tela mostra a ultima concluida
+-- ("base de 2026-09, carregada em 05/10"): quem fatia precisa saber de
+-- quando e o dado que esta olhando.
+CREATE TABLE IF NOT EXISTS receita_cargas (
+    id                SERIAL PRIMARY KEY,
+    referencia        VARCHAR(20) NOT NULL,
+    ufs               VARCHAR(100) NOT NULL,
+    status            VARCHAR(12) NOT NULL DEFAULT 'carregando',
+    estabelecimentos  INTEGER,
+    observacao        TEXT,
+    iniciada_em       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    concluida_em      TIMESTAMPTZ,
+    CONSTRAINT ck_receita_cargas_status
+        CHECK (status IN ('carregando', 'concluida', 'erro'))
+);
+CREATE INDEX IF NOT EXISTS idx_receita_cargas_concluidas
+    ON receita_cargas (concluida_em DESC) WHERE status = 'concluida';

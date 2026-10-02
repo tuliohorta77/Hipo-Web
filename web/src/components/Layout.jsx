@@ -50,6 +50,12 @@ import Logo, { LogoWordmark } from './Logo';
 // módulo novo só valeria depois de cada pessoa relogar. Quem edita as metas
 // é a gestão, e isso é decidido DENTRO da tela.
 const NAV_ITEMS = [
+  // Prospeccao abre a barra de quem a enxerga: e a boca do funil, o primeiro
+  // gesto do dia do SDR (fatiar a base, puxar, e as tarefas de primeiro
+  // contato aparecem em Tarefas). Modulo 'crm' + restricao por CARGO, como
+  // CNAEs: a API barra o resto (CARGOS_PROSPECCAO), e modulo novo so
+  // refletiria depois de relogin.
+  { to: '/crm/prospeccao', label: 'Prospecção', modulo: 'crm', cargos: ['Franqueado', 'ADM', 'SDR'] },
   { to: '/crm/oportunidades', label: 'Oportunidades', modulo: 'crm' },
   { to: '/crm/tarefas', label: 'Tarefas', modulo: 'crm' },
   { to: '/crm/agenda', label: 'Agenda', modulo: 'crm' },

@@ -135,6 +135,12 @@ async def db_conn():
     # TRUNCATE explicito, o dia gravado por um teste colide com o do proximo
     # na PK e a suite falha por ordem de execucao.
     await conn.execute("TRUNCATE TABLE relatorios_diarios")
+    # Base da Receita (022): escrita so pelo script de carga, sem FK para
+    # usuarios -- o CASCADE acima nao a alcanca.
+    await conn.execute(
+        "TRUNCATE TABLE receita_estabelecimentos, receita_municipios, "
+        "receita_cnaes, receita_cargas"
+    )
     yield conn
     await conn.close()
 

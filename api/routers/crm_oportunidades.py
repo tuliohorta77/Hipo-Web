@@ -1157,6 +1157,72 @@ async def obter(
     return await _detalhe(conn, oportunidade_id)
 
 
+async def inserir_oportunidade(
+    conn,
+    *,
+    conta_id: UUID,
+    fase: str,
+    temperatura: int,
+    criado_por,
+    contato_id: UUID | None = None,
+    valor_mensalidade: Decimal | None = None,
+    previsao_fechamento: date | None = None,
+    descricao: str | None = None,
+    observacoes: str | None = None,
+    origem_id: int | None = None,
+    finder_conta_id: UUID | None = None,
+    proxima_acao_em: datetime | None = None,
+    proxima_acao_tipo: str | None = None,
+    envolvidos: list[EnvolvidoIn] | None = None,
+    concorrentes: list[int] | None = None,
+) -> UUID:
+    """
+    O INSERT da oportunidade, com envolvidos, concorrentes, finder e o
+    evento de criacao. Chamar DENTRO de uma transacao.
+
+    Existe separado do POST porque a Prospeccao (routers/crm_prospeccao.py)
+    abre oportunidades em lote. Duas copias do mesmo INSERT divergem na
+    primeira coluna nova -- e a que divergir vai ser a que ninguem esta
+    olhando. Mesmo raciocinio de `inserir_tarefa_concluida`.
+
+    Validacao de referencias e de prospeccao NAO mora aqui: cada chamador
+    decide o que checar e com qual mensagem.
+    """
+    # Numeração gerada dentro do INSERT: ler a sequence antes abriria
+    # janela para duas requisições pegarem o mesmo número.
+    novo_id = await conn.fetchval(
+        """
+        INSERT INTO oportunidades (
+            numero, conta_id, contato_id, fase, status, temperatura,
+            valor_mensalidade, previsao_fechamento, descricao, observacoes,
+            origem_id, finder_conta_id, proxima_acao_em, proxima_acao_tipo,
+            criado_por
+        ) VALUES (
+            'OPP-' || EXTRACT(YEAR FROM NOW())::int || '-'
+                   || lpad(nextval('oportunidade_numero_seq')::text, 5, '0'),
+            $1, $2, $3, 'ativa', $4, $5, $6, $7, $8, $9, $10, $11, $12, $13
+        )
+        RETURNING id
+        """,
+        conta_id, contato_id, fase, temperatura,
+        valor_mensalidade, previsao_fechamento,
+        descricao, observacoes, origem_id,
+        finder_conta_id, proxima_acao_em,
+        proxima_acao_tipo, criado_por,
+    )
+    await _substituir_envolvidos(conn, novo_id, envolvidos or [])
+    await _substituir_concorrentes(conn, novo_id, concorrentes or [])
+    await _marcar_finder(conn, finder_conta_id)
+    await conn.execute(
+        """
+        INSERT INTO oportunidade_eventos (oportunidade_id, tipo, para, usuario_id)
+        VALUES ($1, 'criacao', $2, $3)
+        """,
+        novo_id, fase, criado_por,
+    )
+    return novo_id
+
+
 # ── Escrita ──────────────────────────────────────────────────────────
 
 @router.post("", response_model=OportunidadeDetalhe, status_code=http.HTTP_201_CREATED)
@@ -1176,37 +1242,23 @@ async def criar(
     await _validar_prospeccao(conn, payload.conta_id)
 
     async with conn.transaction():
-        # Numeração gerada dentro do INSERT: ler a sequence antes abriria
-        # janela para duas requisições pegarem o mesmo número.
-        novo_id = await conn.fetchval(
-            """
-            INSERT INTO oportunidades (
-                numero, conta_id, contato_id, fase, status, temperatura,
-                valor_mensalidade, previsao_fechamento, descricao, observacoes,
-                origem_id, finder_conta_id, proxima_acao_em, proxima_acao_tipo,
-                criado_por
-            ) VALUES (
-                'OPP-' || EXTRACT(YEAR FROM NOW())::int || '-'
-                       || lpad(nextval('oportunidade_numero_seq')::text, 5, '0'),
-                $1, $2, $3, 'ativa', $4, $5, $6, $7, $8, $9, $10, $11, $12, $13
-            )
-            RETURNING id
-            """,
-            payload.conta_id, payload.contato_id, payload.fase, payload.temperatura,
-            payload.valor_mensalidade, payload.previsao_fechamento,
-            payload.descricao, payload.observacoes, payload.origem_id,
-            payload.finder_conta_id, payload.proxima_acao_em,
-            payload.proxima_acao_tipo, user["id"],
-        )
-        await _substituir_envolvidos(conn, novo_id, payload.envolvidos)
-        await _substituir_concorrentes(conn, novo_id, payload.concorrentes)
-        await _marcar_finder(conn, payload.finder_conta_id)
-        await conn.execute(
-            """
-            INSERT INTO oportunidade_eventos (oportunidade_id, tipo, para, usuario_id)
-            VALUES ($1, 'criacao', $2, $3)
-            """,
-            novo_id, payload.fase, user["id"],
+        novo_id = await inserir_oportunidade(
+            conn,
+            conta_id=payload.conta_id,
+            contato_id=payload.contato_id,
+            fase=payload.fase,
+            temperatura=payload.temperatura,
+            valor_mensalidade=payload.valor_mensalidade,
+            previsao_fechamento=payload.previsao_fechamento,
+            descricao=payload.descricao,
+            observacoes=payload.observacoes,
+            origem_id=payload.origem_id,
+            finder_conta_id=payload.finder_conta_id,
+            proxima_acao_em=payload.proxima_acao_em,
+            proxima_acao_tipo=payload.proxima_acao_tipo,
+            envolvidos=payload.envolvidos,
+            concorrentes=payload.concorrentes,
+            criado_por=user["id"],
         )
     return await _detalhe(conn, novo_id)
 

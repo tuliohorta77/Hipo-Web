@@ -28,6 +28,7 @@ from routers import (
     crm_oportunidades,
     crm_parceiros,
     crm_propostas,
+    crm_prospeccao,
     crm_relatorios,
     crm_tarefas,
     monitor,
@@ -36,7 +37,11 @@ from routers import (
     uc,
     uc_estudio,
 )
-from routers.permissions import requer_modulo, requer_qualquer_modulo
+from routers.permissions import (
+    requer_modulo,
+    requer_prospeccao,
+    requer_qualquer_modulo,
+)
 
 @asynccontextmanager
 async def ciclo_de_vida(app: FastAPI):
@@ -259,6 +264,18 @@ app.include_router(
     dependencies=[Depends(requer_modulo("crm"))],
 )
 
+
+
+# Prospeccao: fatia da base de Dados Abertos do CNPJ (022) e o "puxar para
+# o HIPO". Modulo 'crm' + restricao por CARGO (SDR e gestao), sem modulo
+# novo -- modulo novo so reflete depois de relogin e quebraria os asserts de
+# modulos_do_cargo. A base e fonte de consulta; o que entra no CRM entra
+# pelo POST /puxar, com autoria. Ver routers/crm_prospeccao.py.
+app.include_router(
+    crm_prospeccao.router,
+    prefix="/crm/prospeccao", tags=["CRM - Prospecção"],
+    dependencies=[Depends(requer_modulo("crm")), Depends(requer_prospeccao)],
+)
 
 # Relatorios: tabela dinamica sobre a base + relatorios salvos no perfil.
 # Modulo 'crm' e nao um modulo proprio: todo cargo monta relatorio, e o que

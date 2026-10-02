@@ -16,6 +16,7 @@ import Tarefas from './pages/crm/Tarefas';
 import Agenda from './pages/crm/Agenda';
 import ReuniaoAoVivo from './pages/crm/ReuniaoAoVivo';
 import Relatorios from './pages/crm/Relatorios';
+import Prospeccao from './pages/crm/Prospeccao';
 import Monitor from './pages/Monitor';
 import MinhaUC from './pages/uc/MinhaUC';
 import TrilhaUC from './pages/uc/Trilha';
@@ -42,6 +43,12 @@ export default function App() {
           }
         >
           <Route index element={<RedirectPrimeiraRota />} />
+          {/*
+            Prospecção: fatia da base da Receita e "puxar para o HIPO". A
+            rota existe para todo mundo; quem barra é a API (SDR e gestão), e
+            a nav só mostra o item para esses cargos. Mesmo arranjo de CNAEs.
+          */}
+          <Route path="crm/prospeccao" element={<Prospeccao />} />
           <Route path="crm/oportunidades" element={<Oportunidades />} />
           <Route path="crm/tarefas" element={<Tarefas />} />
           <Route path="crm/agenda" element={<Agenda />} />

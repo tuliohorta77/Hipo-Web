@@ -541,6 +541,13 @@ async def _inserir(conn, dados, oportunidade_id: UUID | None,
     )
 
 
+
+# Nome publico do INSERT de tarefa aberta, para quem cria tarefa fora deste
+# router (a Prospeccao abre a tarefa de primeiro contato junto com a
+# oportunidade). Alias e nao copia: o INSERT continua tendo uma versao so.
+inserir_tarefa = _inserir
+
+
 async def inserir_tarefa_concluida(
     conn,
     dados: TarefaDeFinalizacao,
