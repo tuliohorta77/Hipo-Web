@@ -207,7 +207,10 @@ class TestReunioes:
             )
             assert resp.status_code == 200, resp.text
 
-        corpo = await painel(client, h)
+        # fim_do_mes() como ?hoje=: as reunioes caem nos 3 primeiros dias
+        # uteis, e no dia 1 a janela MTD so vai ate hoje -- a do dia 2 ficava
+        # de fora e o teste caia todo comeco de mes.
+        corpo = await painel(client, h, hoje=fim_do_mes())
         assert indicador(corpo, "apre")["resultado"] == 1
         assert indicador(corpo, "agen")["resultado"] == 2      # a desmarcada sai
         assert indicador(corpo, "agendamentos_mes")["resultado"] == 3

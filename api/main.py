@@ -31,6 +31,8 @@ from routers import (
     monitor,
     rper,
     telemetria,
+    uc,
+    uc_estudio,
 )
 from routers.permissions import requer_modulo, requer_qualquer_modulo
 
@@ -249,6 +251,26 @@ app.include_router(
 app.include_router(
     rper.router,
     prefix="/rper", tags=["RPeR"],
+    dependencies=[Depends(requer_modulo("crm"))],
+)
+
+
+# Universidade Corporativa: trilhas por pilar (Tecnica, Metodo, Energia), o
+# manual da funcao e o andamento de cada pessoa. Modulo 'crm' e nao um
+# modulo proprio -- todo cargo valido aprende, e modulo novo so valeria
+# depois de todo mundo relogar. Mesma escolha do Monitor e do RPeR.
+#
+# Dois routers: /uc e a tela de quem aprende; /uc/estudio e o conteudo e a
+# visao do time, barrados por gestao DENTRO do router (requer_gestao_uc).
+# Ver claude/universidade-corporativa.md.
+app.include_router(
+    uc_estudio.router,
+    prefix="/uc/estudio", tags=["UC - Estudio"],
+    dependencies=[Depends(requer_modulo("crm"))],
+)
+app.include_router(
+    uc.router,
+    prefix="/uc", tags=["UC - Universidade Corporativa"],
     dependencies=[Depends(requer_modulo("crm"))],
 )
 

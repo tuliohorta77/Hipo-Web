@@ -55,6 +55,7 @@ GRUPOS = (
     "Contas e contatos",
     "Parceiros",
     "Anexos",
+    "Universidade",
     "Cadastros",
     "Outras alterações",
 )
@@ -123,6 +124,19 @@ CATALOGO: dict[tuple[str, str], Tipo] = {
     # Anexos
     ("POST", "/crm/tarefas/{tarefa_id}/anexos"): _t("Anexos", "Anexo enviado", 70),
     ("DELETE", "/crm/anexos/{anexo_id}"): _t("Anexos", "Anexo excluído", 71),
+
+    # Universidade Corporativa. Concluir aula e atividade de quem aprende;
+    # o resto e o estudio, onde a gestao escreve o conteudo.
+    ("POST", "/uc/aulas/{aula_id}/concluir"): _t("Universidade", "Aula da UC concluída", 100),
+    ("POST", "/uc/estudio/trilhas"): _t("Universidade", "Trilha da UC criada", 101),
+    ("PATCH", "/uc/estudio/trilhas/{trilha_id}"): _t("Universidade", "Trilha da UC editada", 102),
+    ("PUT", "/uc/estudio/trilhas/{trilha_id}/cargos"): _t("Universidade", "Manual da função alterado", 103),
+    ("PUT", "/uc/estudio/trilhas/{trilha_id}/ordem"): _t("Universidade", "Aulas da UC reordenadas", 104),
+    ("POST", "/uc/estudio/trilhas/{trilha_id}/aulas"): _t("Universidade", "Aula da UC criada", 105),
+    ("PATCH", "/uc/estudio/aulas/{aula_id}"): _t("Universidade", "Aula da UC editada", 106),
+    ("DELETE", "/uc/estudio/aulas/{aula_id}"): _t("Universidade", "Aula da UC excluída", 107),
+    ("POST", "/uc/estudio/aulas/{aula_id}/materiais"): _t("Universidade", "Material de aula enviado", 108),
+    ("DELETE", "/uc/estudio/materiais/{material_id}"): _t("Universidade", "Material de aula excluído", 109),
 
     # Monitor (metas e feriados)
     ("PUT", "/monitor/metas"): _t("Cadastros", "Metas do monitor definidas", 83),

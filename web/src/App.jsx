@@ -17,6 +17,10 @@ import Agenda from './pages/crm/Agenda';
 import ReuniaoAoVivo from './pages/crm/ReuniaoAoVivo';
 import Relatorios from './pages/crm/Relatorios';
 import Monitor from './pages/Monitor';
+import MinhaUC from './pages/uc/MinhaUC';
+import TrilhaUC from './pages/uc/Trilha';
+import AulaUC from './pages/uc/Aula';
+import EstudioUC from './pages/uc/Estudio';
 import { primeiraRotaAcessivel } from './api';
 
 function RedirectPrimeiraRota() {
@@ -67,6 +71,16 @@ export default function App() {
             'crm', que todo cargo válido tem.
           */}
           <Route path="monitor" element={<Monitor />} />
+          {/*
+            Universidade Corporativa. Módulo 'crm' na API, como o Monitor:
+            todo cargo aprende. O estúdio é rota de todo mundo e quem barra é
+            a API (requer_gestao_uc) — mesmo arranjo de Parceiros e CNAEs.
+            ?usuario_id= em /uc, trilhas e aulas é o modo leitura da gestão.
+          */}
+          <Route path="uc" element={<MinhaUC />} />
+          <Route path="uc/estudio" element={<EstudioUC />} />
+          <Route path="uc/trilhas/:trilhaId" element={<TrilhaUC />} />
+          <Route path="uc/aulas/:aulaId" element={<AulaUC />} />
           {/*
             A rota existe para todo mundo; quem barra é o guard do módulo na
             API, e a nav não mostra o item para quem não tem 'parceiros'.

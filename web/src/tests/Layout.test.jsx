@@ -71,7 +71,9 @@ describe('Layout — nav com o módulo crm', () => {
       // e só aparece para gestão, que é o cargo deste teste.
       '/crm/contas', '/crm/cnaes', '/crm/parceiros',
       // Relatórios e Monitor são as telas de olhar o todo; o Monitor fecha.
-      '/crm/relatorios', '/monitor',
+      // A Universidade fica entre os dois: é de todo mundo, não é trabalho
+      // do funil e não é a TV.
+      '/crm/relatorios', '/uc', '/monitor',
     ]);
   });
 
@@ -106,8 +108,9 @@ describe('Layout — nav com o módulo crm', () => {
       '/crm/cnaes',
       // Relatórios e Monitor ficam com todo mundo: são do módulo 'crm',
       // como as quatro telas de trabalho. O recorte dos dados do relatório
-      // é do servidor, não da nav.
-      '/crm/relatorios', '/monitor',
+      // é do servidor, não da nav. A Universidade também é 'crm': todo
+      // cargo aprende.
+      '/crm/relatorios', '/uc', '/monitor',
     ]);
     expect(screen.queryByText('Parceiros')).not.toBeInTheDocument();
   });

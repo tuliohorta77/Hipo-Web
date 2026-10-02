@@ -67,6 +67,11 @@ const NAV_ITEMS = [
   // do servidor. Fica antes do Monitor porque os dois sao as telas de
   // olhar o todo -- e o Monitor segue fechando a barra, como a TV da sala.
   { to: '/crm/relatorios', label: 'Relatórios', modulo: 'crm' },
+  // Universidade Corporativa: manual da função, trilhas por pilar
+  // (Técnica, Método, Energia). Módulo 'crm' -- todo cargo aprende, e
+  // módulo novo só valeria depois de cada um relogar. Fica antes do Monitor,
+  // que continua fechando a barra como a TV da sala.
+  { to: '/uc', label: 'Universidade', modulo: 'crm' },
   // 'crm' OU 'monitor': o segundo é exclusivo da conta de TV (cargo
   // Monitor), que enxerga só este item.
   { to: '/monitor', label: 'Monitor', modulo: ['crm', 'monitor'] },
