@@ -287,9 +287,13 @@ def percentual(concluidas: int, total: int) -> int | None:
 PRIORIDADE = {
     "atrasada": 0,
     "vence_logo": 1,
-    "atualizada": 2,     # aula concluída que mudou de versão
-    "em_andamento": 3,   # trilha começada
-    "obrigatoria": 4,
+    # Toda obrigatória em dia cai nesta faixa, começada ou não, e o PRAZO
+    # decide entre elas. É o que faz o manual andar na ordem em que a gestão
+    # o montou (01 com prazo de 10 dias antes da 03 com 30), mesmo que a
+    # pessoa já tenha adiantado uma aula da 03.
+    "obrigatoria": 2,
+    "atualizada": 3,     # aula concluída que mudou de versão (trilha livre)
+    "em_andamento": 4,   # trilha livre começada
     "nova": 5,
 }
 
@@ -348,10 +352,15 @@ def proxima_aula(pendentes: list[AulaPendente]) -> tuple[AulaPendente, str] | No
         if atual is None or p.aula_ordem < atual.aula_ordem:
             primeira_por_trilha[p.trilha_id] = p
 
-    def chave(p: AulaPendente):
+    def faixa(p: AulaPendente) -> int:
         m = motivo(p)
+        if p.obrigatoria and m not in ("atrasada", "vence_logo"):
+            return PRIORIDADE["obrigatoria"]
+        return PRIORIDADE[m]
+
+    def chave(p: AulaPendente):
         return (
-            PRIORIDADE[m],
+            faixa(p),
             p.prazo or date.max,
             0 if p.obrigatoria else 1,
             p.trilha_titulo.lower(),

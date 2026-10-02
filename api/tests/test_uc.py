@@ -570,33 +570,96 @@ class TestMateriais:
         assert "S3_BUCKET_ANEXOS" in resp.json()["detail"]
 
 
-# ── Carga da trilha de NR (scripts/semear_uc_nr.py) ──────────────────
+# ── Carga das trilhas iniciais (scripts/semear_uc.py) ────────────────
 
-class TestCargaNr:
-    async def test_carga_publica_e_entra_no_manual(self, time, client, s3_falso, tmp_path):
-        from scripts import semear_uc_nr as nr
-        pdf = tmp_path / "nr01.pdf"
-        pdf.write_bytes(b"%PDF-1.4 norma")
-        await nr._carregar(time["conn"], {"nr01": pdf}, atualizar=False, simular=False)
+def _pdfs(tmp_path):
+    from scripts.uc_conteudo import PDFS
+    for _, arquivo in PDFS.values():
+        (tmp_path / arquivo).write_bytes(b"%PDF-1.4 teste")
+    return tmp_path
+
+
+class TestCargaInicial:
+    async def test_tres_trilhas_no_manual_na_ordem(self, time, client, s3_falso, tmp_path):
+        from scripts import semear_uc
+        from scripts.uc_conteudo import TRILHAS
+        await semear_uc.carregar(time["conn"], _pdfs(tmp_path), atualizar=False, simular=False)
         p = await painel(client, time["ev"])
-        [trilha] = p["manual"]["trilhas"]
-        assert trilha["titulo"] == nr.TRILHA["titulo"]
-        assert trilha["aulas_total"] == 6
-        assert p["proxima"]["aula_titulo"] == nr.AULAS[0]["titulo"]
-        aula = (await client.get(f"/uc/aulas/{nr.AULAS[0]['id']}", headers=time["ev"]["headers"])).json()
-        assert [m["nome_original"] for m in aula["materiais"]] == ["NR-01-texto-oficial-atualizado-2025.pdf"]
+        assert [t["titulo"] for t in p["manual"]["trilhas"]] == [t["titulo"] for t in TRILHAS]
+        # A primeira aula da trilha 01 é a próxima: prazo mais curto.
+        assert p["proxima"]["aula_titulo"] == TRILHAS[0]["aulas"][0]["titulo"]
+        assert [t["prazo"] is not None for t in p["manual"]["trilhas"]] == [True] * 3
+        assert len(s3_falso) == 3
+
+    async def test_franqueado_ve_as_trilhas_sem_obrigacao(self, time, client, s3_falso, tmp_path):
+        from scripts import semear_uc
+        await semear_uc.carregar(time["conn"], _pdfs(tmp_path), atualizar=False, simular=False)
+        p = await painel(client, time["g"])
+        assert p["manual"]["trilhas"] == []
+        assert len(p["outras"]) == 3
+
+    async def test_trilha_de_nr_da_029_vira_a_03_sem_perder_progresso(self, time, client, s3_falso, tmp_path):
+        """
+        Produção já tem a trilha de NR (029), com alguém tendo concluído a
+        aula de NR-01. A carga com --atualizar renomeia, põe a aula de
+        produto na frente e a conclusão continua valendo.
+        """
+        from scripts import semear_uc
+        from scripts.uc_conteudo import TRILHA_03
+        conn = time["conn"]
+        nr01 = TRILHA_03["aulas"][1]
+        await conn.execute(
+            "INSERT INTO uc_trilhas (id, titulo, pilar, status) VALUES ($1, 'Normas Regulamentadoras: NR-01 e NR-04', 'tecnica', 'publicada')",
+            TRILHA_03["id"],
+        )
+        for ordem, a in enumerate(TRILHA_03["aulas"][1:], start=1):
+            await conn.execute(
+                "INSERT INTO uc_aulas (id, trilha_id, ordem, titulo, conteudo_md) VALUES ($1, $2, $3, $4, 'x')",
+                a["id"], TRILHA_03["id"], ordem, a["titulo"],
+            )
+        extra = await conn.fetchval(
+            "INSERT INTO uc_aulas (trilha_id, ordem, titulo) VALUES ($1, 7, 'Aula criada no estudio') RETURNING id",
+            TRILHA_03["id"],
+        )
+        await conn.execute(
+            "INSERT INTO uc_trilha_cargos (trilha_id, cargo, obrigatoria, prazo_dias) VALUES ($1, 'EV', TRUE, 45)",
+            TRILHA_03["id"],
+        )
+        await conn.execute(
+            "INSERT INTO uc_progresso (usuario_id, aula_id, aula_versao, aberta_em, concluida_em) "
+            "VALUES ($1, $2, 1, NOW() - interval '1 hour', NOW())",
+            UUID(time["ev"]["id"]), nr01["id"],
+        )
+
+        await semear_uc.carregar(conn, _pdfs(tmp_path), atualizar=True, simular=False)
+
+        titulos = [r["titulo"] for r in await conn.fetch(
+            "SELECT titulo FROM uc_aulas WHERE trilha_id = $1 ORDER BY ordem", TRILHA_03["id"],
+        )]
+        assert titulos[0] == TRILHA_03["aulas"][0]["titulo"]
+        assert titulos[1] == nr01["titulo"]
+        assert titulos[-1] == "Aula criada no estudio"
+        assert await conn.fetchval("SELECT ordem FROM uc_aulas WHERE id = $1", extra) == 8
+        # Prazo que a gestão mudou no estúdio fica.
+        assert await conn.fetchval(
+            "SELECT prazo_dias FROM uc_trilha_cargos WHERE trilha_id = $1 AND cargo = 'EV'", TRILHA_03["id"],
+        ) == 45
+        p = await painel(client, time["ev"])
+        t3 = next(t for t in p["manual"]["trilhas"] if t["id"] == str(TRILHA_03["id"]))
+        assert t3["titulo"] == "03 · Produto e normas"
+        assert t3["aulas_concluidas"] == 1
 
     async def test_carga_de_novo_nao_duplica(self, time, client, s3_falso, tmp_path):
-        from scripts import semear_uc_nr as nr
-        pdf = tmp_path / "nr01.pdf"
-        pdf.write_bytes(b"%PDF-1.4 norma")
+        from scripts import semear_uc
+        pasta = _pdfs(tmp_path)
         for _ in range(2):
-            await nr._carregar(time["conn"], {"nr01": pdf}, atualizar=True, simular=False)
-        assert await time["conn"].fetchval("SELECT count(*) FROM uc_aulas") == 6
-        assert await time["conn"].fetchval("SELECT count(*) FROM uc_materiais") == 1
-        assert len(s3_falso) == 1
+            await semear_uc.carregar(time["conn"], pasta, atualizar=True, simular=False)
+        assert await time["conn"].fetchval("SELECT count(*) FROM uc_trilhas") == 3
+        assert await time["conn"].fetchval("SELECT count(*) FROM uc_aulas") == 15
+        assert await time["conn"].fetchval("SELECT count(*) FROM uc_materiais") == 3
+        assert len(s3_falso) == 3
 
     async def test_simular_nao_grava(self, time, client, s3_falso):
-        from scripts import semear_uc_nr as nr
-        await nr._carregar(time["conn"], {}, atualizar=False, simular=True)
+        from scripts import semear_uc
+        await semear_uc.carregar(time["conn"], None, atualizar=False, simular=True)
         assert await time["conn"].fetchval("SELECT count(*) FROM uc_trilhas") == 0

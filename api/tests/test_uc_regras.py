@@ -243,6 +243,26 @@ class TestProximaAula:
         ])
         assert (p.aula_id, motivo) == ("obrig", "obrigatoria")
 
+    def test_obrigatoria_de_prazo_menor_antes_de_obrigatoria_comecada(self):
+        """
+        O manual anda na ordem da gestao: a 01 (prazo curto) vem antes da 03,
+        mesmo que a pessoa ja tenha adiantado uma aula da 03.
+        """
+        p, motivo = r.proxima_aula([
+            _p("t3a1", "t3", obrig=True, sit="em_dia", prazo=date(2026, 11, 1),
+               iniciada=True, titulo="03 Produto"),
+            _p("t1a1", "t1", obrig=True, sit="em_dia", prazo=date(2026, 10, 12),
+               titulo="01 Boas-vindas"),
+        ])
+        assert (p.aula_id, motivo) == ("t1a1", "obrigatoria")
+
+    def test_obrigatoria_atualizada_respeita_o_prazo(self):
+        p, motivo = r.proxima_aula([
+            _p("t3a1", "t3", obrig=True, sit="em_dia", prazo=date(2026, 11, 1), anterior=True),
+            _p("t1a1", "t1", obrig=True, sit="em_dia", prazo=date(2026, 10, 12)),
+        ])
+        assert p.aula_id == "t1a1"
+
     def test_todo_motivo_tem_texto(self):
         assert set(r.PRIORIDADE) == set(r.MOTIVOS)
 
