@@ -33,6 +33,7 @@ const DICA_FORMATO = {
   moeda: 'em reais',
   percentual: 'em %',
   inteiro: 'quantidade',
+  pontos: 'média de 0 a 20',
 };
 
 function dataCurta(iso) {
@@ -197,7 +198,11 @@ export default function ConfigMonitor({ aberto, onFechar, ano, mes, onSalvo }) {
                     hint={DICA_FORMATO[m.formato]}
                     inputMode="decimal"
                     value={m.texto}
-                    placeholder="sem meta"
+                    placeholder={
+                      m.padrao === null || m.padrao === undefined
+                        ? 'sem meta'
+                        : `padrão ${String(m.padrao).replace('.', ',')}`
+                    }
                     onChange={(e) => setMetas((atual) => atual.map((x) => (
                       x.indicador === m.indicador ? { ...x, texto: e.target.value } : x
                     )))}

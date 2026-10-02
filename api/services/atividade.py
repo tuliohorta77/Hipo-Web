@@ -83,6 +83,12 @@ CATALOGO: dict[tuple[str, str], Tipo] = {
     ("POST", "/crm/agenda/tarefas/{tarefa_id}/transcricao/buscar"): _t("Reuniões", "Transcrição buscada", 25),
     ("POST", "/crm/agenda/tarefas/{tarefa_id}/transcricao/resumo"): _t("Reuniões", "Resumo de reunião gerado", 26),
     ("POST", "/crm/agenda/tarefas/{tarefa_id}/ao-vivo"): _t("Reuniões", "Transcrição ao vivo ligada", 27),
+    # Scorecard da reuniao (030). Gerar e coisa do vendedor ou da gestao;
+    # ajustar e validar, so da gestao -- e as duas aparecem no fechamento.
+    ("POST", "/crm/agenda/tarefas/{tarefa_id}/avaliacao/gerar"): _t("Reuniões", "Scorecard de reunião gerado", 28),
+    ("PATCH", "/crm/agenda/tarefas/{tarefa_id}/avaliacao/itens/{item}"): _t("Reuniões", "Nota do scorecard ajustada", 29),
+    ("POST", "/crm/agenda/tarefas/{tarefa_id}/avaliacao/validar"): _t("Reuniões", "Scorecard validado", 29),
+    ("DELETE", "/crm/agenda/tarefas/{tarefa_id}/avaliacao/validar"): _t("Reuniões", "Validação do scorecard desfeita", 29),
 
     # Oportunidades
     ("POST", "/crm/oportunidades"): _t("Oportunidades", "Oportunidade criada", 30),

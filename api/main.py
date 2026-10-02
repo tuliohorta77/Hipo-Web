@@ -19,6 +19,7 @@ from routers import (
     crm_agenda,
     crm_anexos,
     crm_ao_vivo,
+    crm_avaliacao,
     crm_contas,
     crm_contatos,
     crm_dominio,
@@ -157,6 +158,15 @@ app.include_router(
 app.include_router(
     crm_ao_vivo.router,
     prefix="/crm/agenda", tags=["CRM - Reuniao ao vivo"],
+    dependencies=[Depends(requer_modulo("crm"))],
+)
+
+# Scorecard da reuniao contra o Roteiro de Vendas (030). Mesmo prefixo e
+# mesmo modulo: e a mesma reuniao, avaliada depois da call. O ajuste e o
+# selo sao checados por cargo dentro do router (gestao).
+app.include_router(
+    crm_avaliacao.router,
+    prefix="/crm/agenda", tags=["CRM - Scorecard da reuniao"],
     dependencies=[Depends(requer_modulo("crm"))],
 )
 

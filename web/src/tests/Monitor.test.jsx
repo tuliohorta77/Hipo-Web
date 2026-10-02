@@ -64,7 +64,7 @@ function ind(chave, extra = {}) {
 
 const CHAVES = [
   'lead', 'agen', 'apre', 'nmrr', 'ticket_medio',
-  'reunioes_parceria', 'agendamentos_mes', 'noshow', 'contratos', 'treinamento',
+  'reunioes_parceria', 'agendamentos_mes', 'noshow', 'contratos', 'scorecard',
 ];
 
 function painel(extra = {}) {
@@ -95,6 +95,7 @@ function responder(corpo) {
             indicador: c, sigla: c.toUpperCase(), rotulo: c,
             formato: 'inteiro', natureza: 'acumulativo',
             valor: c === 'lead' ? 276 : null,
+            padrao: c === 'scorecard' ? 15 : null,
             atualizado_em: null, atualizado_por_nome: null,
           })),
         },
@@ -140,8 +141,24 @@ const DETALHES = {
     tipo: 'reunioes', ano: 2026, mes: 9, rotulo_mes: 'setembro de 2026',
     resultado: 2, resumo: '2 reuniões de cliente realizadas',
     itens: [
-      reuniaoItem(),
-      reuniaoItem({ reuniao_id: 'r2', empresa: 'Padaria Beta', pessoa: 'Bruno Gonçalo' }),
+      reuniaoItem({ nota: 12, nota_status: 'ia' }),
+      reuniaoItem({
+        reuniao_id: 'r2', empresa: 'Padaria Beta', pessoa: 'Bruno Gonçalo',
+        nota: 16, nota_status: 'validada',
+      }),
+    ],
+  },
+  scorecard: {
+    chave: 'scorecard', sigla: 'SCORECARD', rotulo: 'Scorecard das reunioes',
+    fonte: 'Media da nota do scorecard.', formato: 'pontos',
+    tipo: 'reunioes', ano: 2026, mes: 9, rotulo_mes: 'setembro de 2026',
+    resultado: 14, resumo: 'média de 2 reuniões avaliadas (de 3 realizadas), nota de 0 a 20',
+    itens: [
+      reuniaoItem({ nota: 12, nota_status: 'ia' }),
+      reuniaoItem({ reuniao_id: 'r2', empresa: 'Padaria Beta', nota: 16, nota_status: 'validada' }),
+      reuniaoItem({
+        reuniao_id: 'r3', empresa: 'Sem Nota SA', nota: null, nota_status: 'avaliando', conta: false,
+      }),
     ],
   },
   noshow: {
@@ -342,6 +359,8 @@ describe('Monitor — metas e calendário', () => {
     fireEvent.click(await screen.findByText('Metas e calendário'));
 
     expect(await screen.findByLabelText('LEAD — lead')).toHaveValue('276');
+    // Scorecard sem meta gravada mostra a meta padrão do roteiro.
+    expect(screen.getByLabelText('SCORECARD — scorecard')).toHaveAttribute('placeholder', 'padrão 15');
     expect(screen.getByText('07/09/2026')).toBeInTheDocument();
     expect(screen.getByText('Independência do Brasil')).toBeInTheDocument();
     expect(mockGet).toHaveBeenCalledWith('/monitor/metas', { params: { ano: 2026, mes: 9 } });
@@ -464,19 +483,57 @@ describe('Monitor — a carinha abre a lista do que está sendo contado', () => 
     expect(await screen.findByText('2 reuniões de cliente realizadas')).toBeInTheDocument();
   });
 
-  it('quadro sem fonte (Treinamento) não clica', async () => {
+  it('quadro sem fonte (natureza aberto) não clica', async () => {
     const p = painel();
     p.indicadores = p.indicadores.map((i) => (
-      i.chave === 'treinamento' ? { ...i, natureza: 'aberto', resultado: null } : i
+      i.chave === 'scorecard' ? { ...i, natureza: 'aberto', resultado: null } : i
     ));
     responder(p);
     render(<Monitor />);
-    await screen.findByRole('region', { name: 'treinamento' });
-    expect(screen.queryByRole('button', { name: 'Ver o que compõe treinamento' })).toBeNull();
-    fireEvent.click(screen.getByRole('region', { name: 'treinamento' }));
+    await screen.findByRole('region', { name: 'scorecard' });
+    expect(screen.queryByRole('button', { name: 'Ver o que compõe scorecard' })).toBeNull();
+    fireEvent.click(screen.getByRole('region', { name: 'scorecard' }));
     expect(mockGet).not.toHaveBeenCalledWith(
-      '/monitor/detalhe/treinamento', expect.anything(),
+      '/monitor/detalhe/scorecard', expect.anything(),
     );
+  });
+
+  it('APRE ganha a coluna Nota do scorecard', async () => {
+    render(<Monitor />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Ver o que compõe apre' }));
+    const modal = await screen.findByRole('dialog');
+    expect(await within(modal).findByText('Nota')).toBeInTheDocument();
+    expect(within(modal).getByText('12/20')).toBeInTheDocument();
+    expect(within(modal).getByText('16/20')).toBeInTheDocument();
+    expect(within(modal).getByLabelText('Validada pela gestão')).toBeInTheDocument();
+  });
+
+  it('SCORECARD: média com uma casa, pior nota primeiro e sem nota fora', async () => {
+    const p = painel();
+    p.indicadores = p.indicadores.map((i) => (
+      i.chave === 'scorecard'
+        ? { ...i, natureza: 'taxa', formato: 'pontos', resultado: 15.5, meta: 15 }
+        : i
+    ));
+    responder(p);
+    render(<Monitor />);
+    const q = await quadro('scorecard');
+    expect(q.getByText('15,5')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Ver o que compõe scorecard' }));
+    const modal = await screen.findByRole('dialog');
+    expect(await within(modal).findByText(/média de 2 reuniões avaliadas/)).toBeInTheDocument();
+    expect(within(modal).getByText('14,0')).toBeInTheDocument();
+    expect(within(modal).getByText(/as sem nota ficam fora da média/)).toBeInTheDocument();
+    expect(within(modal).getByText('avaliando…')).toBeInTheDocument();
+  });
+
+  it('% NOSHOW não tem coluna Nota', async () => {
+    render(<Monitor />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Ver o que compõe noshow' }));
+    const modal = await screen.findByRole('dialog');
+    await within(modal).findByText('Faltou LTDA');
+    expect(within(modal).queryByText('Nota')).toBeNull();
   });
 
   it('% NOSHOW mostra numerador e denominador, no-shows primeiro', async () => {

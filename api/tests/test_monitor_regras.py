@@ -54,7 +54,7 @@ class TestAtingimento:
         assert regras.atingimento(10, None) is None
 
     def test_indicador_aberto_nao_tem_atingimento(self):
-        """O treinamento: existe o quadro, nao existe a fonte."""
+        """Quadro sem fonte: existe o quadro, nao existe o numero."""
         assert regras.atingimento(10, 10, regras.ABERTO) is None
 
     def test_taxa_inversa_bate_a_meta_ficando_abaixo(self):
@@ -109,13 +109,25 @@ class TestCatalogo:
         assert chaves == [
             "lead", "agen", "apre", "nmrr", "ticket_medio",
             "reunioes_parceria", "agendamentos_mes", "noshow",
-            "contratos", "treinamento",
+            "contratos", "scorecard",
         ]
 
     def test_natureza_de_cada_um_e_valida(self):
         for ind in regras.INDICADORES:
             assert ind.natureza in regras.NATUREZAS
-            assert ind.formato in ("inteiro", "moeda", "percentual")
+            assert ind.formato in ("inteiro", "moeda", "percentual", "pontos")
+
+    def test_scorecard_e_taxa_com_meta_padrao_do_roteiro(self):
+        """Tomou o lugar do TREINAMENTO (030): media de 0 a 20, meta 15."""
+        sc = regras.POR_CHAVE["scorecard"]
+        assert sc.natureza == regras.TAXA
+        assert sc.formato == "pontos"
+        assert regras.META_PADRAO == {"scorecard": 15.0}
+        assert regras.TETO_META["pontos"] == 20.0
+        # Taxa: a meta nao proporcionaliza pelo mes corrido.
+        assert regras.meta_mtd(15, 2, 21, sc.natureza) == 15.0
+        assert regras.carinha(regras.atingimento(16.5, 15, sc.natureza)) == "muito_feliz"
+        assert regras.carinha(regras.atingimento(9, 15, sc.natureza)) == "triste"
 
     def test_indicador_desconhecido_e_recusado(self):
         with pytest.raises(regras.MonitorInvalido):

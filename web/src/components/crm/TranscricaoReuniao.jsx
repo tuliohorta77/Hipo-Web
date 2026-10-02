@@ -20,6 +20,10 @@
 // agenda a próxima continua sendo a pessoa, no painel de desfecho logo
 // abaixo. A tela diz isso em uma linha.
 //
+// ── O scorecard vem junto ────────────────────────────────────────────
+// Com a transcrição pronta, logo abaixo do resumo, o scorecard da reunião
+// contra o Roteiro de Vendas (AvaliacaoRoteiro, entrega 030).
+//
 // ── Some quando não tem o que dizer ──────────────────────────────────
 // Reunião sem Meet (presencial, Zoom) ou servidor sem o Google ligado:
 // nenhum bloco. Um "sem transcrição" em toda visita presencial ensinaria
@@ -32,6 +36,7 @@ import {
 
 import api from '../../api';
 import AlertMessage from '../ui/AlertMessage';
+import AvaliacaoRoteiro from './AvaliacaoRoteiro';
 import { mensagemDeErro } from './tarefaComum';
 
 const COR_STATUS = {
@@ -236,6 +241,10 @@ export default function TranscricaoReuniao({ tarefa }) {
               {ocupado === 'resumo' ? 'Gerando…' : 'Gerar resumo'}
             </button>
           )}
+
+          {/* O scorecard (030) nasce da conversa e mora ao lado dela. Busca
+              o proprio estado; reuniao de parceiro ou no-show nao mostra nada. */}
+          <AvaliacaoRoteiro tarefa={tarefa} />
 
           <button
             type="button"

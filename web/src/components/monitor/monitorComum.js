@@ -21,7 +21,7 @@ export const CARINHAS = {
 };
 
 // Sem carinha o quadro não é neutro por estética: é "não há como comparar"
-// — falta a meta, ou falta a fonte do dado (o treinamento).
+// — falta a meta, ou falta o dado (o SCORECARD sem reunião avaliada).
 export const SEM_CARINHA = { emoji: '—', rotulo: 'sem meta definida', tom: 'neutro' };
 
 export function carinhaDe(chave) {
@@ -55,6 +55,13 @@ export function inteiro(valor) {
   return Number(valor || 0).toLocaleString('pt-BR', { maximumFractionDigits: 1 });
 }
 
+/** Nota do scorecard (0 a 20): uma casa, que é onde a média mexe. */
+export function pontos(valor) {
+  return Number(valor || 0).toLocaleString('pt-BR', {
+    minimumFractionDigits: 1, maximumFractionDigits: 1,
+  });
+}
+
 export function percentual(valor) {
   const n = Number(valor || 0);
   return `${n.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%`;
@@ -70,6 +77,7 @@ export function formatar(valor, formato) {
   if (valor === null || valor === undefined) return '—';
   if (formato === 'moeda') return moedaCurta(valor);
   if (formato === 'percentual') return percentual(valor);
+  if (formato === 'pontos') return pontos(valor);
   return inteiro(valor);
 }
 

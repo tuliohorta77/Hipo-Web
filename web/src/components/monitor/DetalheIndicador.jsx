@@ -23,7 +23,7 @@
 // número. Depois de salvar, a lista e o painel atrás recarregam.
 
 import { useCallback, useEffect, useState } from 'react';
-import { ExternalLink } from 'lucide-react';
+import { ExternalLink, ShieldCheck } from 'lucide-react';
 
 import api, { getUser } from '../../api';
 import Modal from '../ui/Modal';
@@ -35,6 +35,41 @@ import ModalReuniao from '../crm/ModalReuniao';
 import { POR_DESFECHO } from '../crm/agendaComum';
 import { dataCompleta, mensagemDeErro } from '../crm/tarefaComum';
 import { formatar } from './monitorComum';
+
+// Os quadros em que a lista de reuniões ganha a coluna Nota (scorecard do
+// roteiro, 0 a 20): o APRE, que é de onde a média sai, e o próprio
+// SCORECARD.
+const COM_NOTA = ['apre', 'scorecard'];
+
+const TOM_NOTA = (n) => {
+  if (n >= 15) return 'success';
+  if (n >= 10) return 'warning';
+  return 'danger';
+};
+
+function SeloNota({ item }) {
+  if (item.nota === null || item.nota === undefined) {
+    const texto = {
+      avaliando: 'avaliando…',
+      erro: 'falhou',
+    }[item.nota_status] || '—';
+    return <span className="text-xs text-hipo-muted">{texto}</span>;
+  }
+  return (
+    <span className="inline-flex items-center gap-1">
+      <Badge tone={TOM_NOTA(item.nota)}>
+        <span className="tabular-nums">{formatar(item.nota, 'inteiro')}/20</span>
+      </Badge>
+      {item.nota_status === 'validada' && (
+        <ShieldCheck
+          size={13}
+          className="text-hipo-success"
+          aria-label="Validada pela gestão"
+        />
+      )}
+    </span>
+  );
+}
 
 function moeda(valor) {
   if (valor === null || valor === undefined) return '—';
@@ -61,6 +96,7 @@ function TabelaReunioes({ itens, chave, onAbrirReuniao }) {
   // Em AGEND MÊS a data que conta é a da MARCAÇÃO; a da reunião vira coluna
   // de apoio. Nos outros quadros é o contrário, e a coluna extra sobra.
   const pelaMarcacao = chave === 'agendamentos_mes';
+  const comNota = COM_NOTA.includes(chave);
   return (
     <Table>
       <thead>
@@ -71,6 +107,7 @@ function TabelaReunioes({ itens, chave, onAbrirReuniao }) {
           <Th>Anfitrião</Th>
           <Th>Agendado por</Th>
           <Th>Desfecho</Th>
+          {comNota && <Th>Nota</Th>}
         </tr>
       </thead>
       <tbody>
@@ -78,7 +115,8 @@ function TabelaReunioes({ itens, chave, onAbrirReuniao }) {
           <Tr
             key={`${i.reuniao_id}-${n}`}
             onClick={() => onAbrirReuniao(i.reuniao_id)}
-            // No % NOSHOW, a linha que é só denominador fica em segundo plano.
+            // No % NOSHOW (denominador) e no SCORECARD (reunião ainda sem
+            // nota), a linha que não entra na conta fica em segundo plano.
             className={i.conta ? '' : 'opacity-60'}
             aria-label={`Abrir reunião com ${i.empresa || 'empresa sem nome'}`}
           >
@@ -105,6 +143,7 @@ function TabelaReunioes({ itens, chave, onAbrirReuniao }) {
             <Td className="text-hipo-slate">{i.pessoa || '—'}</Td>
             <Td className="text-hipo-slate">{i.agendado_por_nome || '—'}</Td>
             <Td><SeloDesfecho item={i} /></Td>
+            {comNota && <Td className="whitespace-nowrap"><SeloNota item={i} /></Td>}
           </Tr>
         ))}
       </tbody>
@@ -231,6 +270,11 @@ export default function DetalheIndicador({
               {chave === 'noshow' && itens.length > 0 && (
                 <span className="text-xs text-hipo-muted">
                   No-shows primeiro; as demais são o denominador.
+                </span>
+              )}
+              {chave === 'scorecard' && itens.length > 0 && (
+                <span className="text-xs text-hipo-muted">
+                  Pior nota primeiro; as sem nota ficam fora da média. Clique para ver o scorecard.
                 </span>
               )}
             </div>

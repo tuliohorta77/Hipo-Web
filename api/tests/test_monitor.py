@@ -88,7 +88,7 @@ class TestPainel:
         assert [i["chave"] for i in corpo["indicadores"]] == [
             "lead", "agen", "apre", "nmrr", "ticket_medio",
             "reunioes_parceria", "agendamentos_mes", "noshow",
-            "contratos", "treinamento",
+            "contratos", "scorecard",
         ]
         # O mes corrente, sem ninguem escolher: e a TV.
         assert corpo["ano"] == hoje_op().year
@@ -108,11 +108,18 @@ class TestPainel:
         assert lead["carinha"] is None
         assert lead["resultado"] == 0
 
-    async def test_treinamento_fica_aberto(self, cenario, client):
-        """Nao existe treinamento neste negocio ainda: quadro reservado."""
-        t = indicador(await painel(client, cenario["headers"]), "treinamento")
-        assert t["natureza"] == "aberto"
+    async def test_scorecard_sem_avaliacao_tem_meta_padrao_e_sem_carinha(
+        self, cenario, client,
+    ):
+        """
+        O quadro que tomou o lugar do TREINAMENTO (030). Sem reuniao avaliada
+        a media e indefinida -- nao zero -- e a meta e a do roteiro (15).
+        """
+        t = indicador(await painel(client, cenario["headers"]), "scorecard")
+        assert t["natureza"] == "taxa"
+        assert t["formato"] == "pontos"
         assert t["resultado"] is None
+        assert t["meta"] == 15.0
         assert t["carinha"] is None
 
     async def test_ano_sem_mes_e_422(self, cenario, client):
@@ -773,9 +780,9 @@ class TestDetalhe:
         assert (await detalhe(client, h, "nmrr"))["resultado"] == 1500
         assert (await detalhe(client, h, "nmrr"))["resumo"] == "soma da mensalidade de 1 contrato"
 
-    async def test_treinamento_devolve_lista_vazia(self, cenario, client):
-        d = await detalhe(client, cenario["headers"], "treinamento")
-        assert d["tipo"] == "nenhum"
+    async def test_scorecard_sem_reuniao_devolve_lista_vazia(self, cenario, client):
+        d = await detalhe(client, cenario["headers"], "scorecard")
+        assert d["tipo"] == "reunioes"
         assert d["itens"] == []
         assert d["resultado"] is None
 

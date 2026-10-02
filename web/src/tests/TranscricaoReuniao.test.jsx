@@ -71,6 +71,10 @@ const PRONTA = estado({
 function montar(dados) {
   mockGet.mockImplementation((url) => {
     if (url === URL) return Promise.resolve({ data: dados });
+    // O scorecard (030) busca o proprio estado; aqui ele nao se aplica.
+    if (url === '/crm/agenda/tarefas/t1/avaliacao') {
+      return Promise.resolve({ data: { status: 'nao_elegivel' } });
+    }
     return Promise.reject(new Error(`GET inesperado: ${url}`));
   });
   return render(<TranscricaoReuniao tarefa={{ id: 't1' }} />);

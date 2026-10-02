@@ -45,6 +45,7 @@ from routers.permissions import requer_gestao
 from services import agenda as regras_agenda
 from services import dias_uteis
 from services import monitor as regras
+from services import roteiro_scorecard
 from services.monitor import MonitorInvalido
 from services.tarefa import FUSO_OPERACAO, janela_utc
 
@@ -119,6 +120,11 @@ class ItemDetalheOut(BaseModel):
     desfecho: str | None = None
     desfecho_rotulo: str | None = None
     valor: float | None = None
+    # Scorecard da reuniao (030), 0 a 20: a soma da IA ou da gestao. Vem em
+    # toda lista de reuniao; a tela mostra a coluna no APRE e no SCORECARD.
+    nota: float | None = None
+    # 'ia' | 'validada' | 'avaliando' | 'erro' | None (sem avaliacao).
+    nota_status: str | None = None
     # No % NOSHOW a lista e o DENOMINADOR (as fechadas) e `conta` marca o
     # numerador (os no-shows). Nos outros quadros toda linha conta.
     conta: bool = True
@@ -163,6 +169,8 @@ class MetaOut(BaseModel):
     formato: str
     natureza: str
     valor: float | None
+    # A meta que vale quando `valor` e null (so o scorecard tem: 15).
+    padrao: float | None = None
     atualizado_em: datetime | None
     atualizado_por_nome: str | None
 
@@ -277,7 +285,10 @@ SELECT r.id AS reuniao_id, r.desfecho, r.duracao_min, r.criado_em AS agendada_em
        COALESCE(c.nome_fantasia, c.razao_social) AS empresa,
        tr.sigla AS tipo_sigla,
        ua.nome AS pessoa,
-       ag.nome AS agendado_por_nome
+       ag.nome AS agendado_por_nome,
+       av.status AS av_status, av.nota_total AS av_nota,
+       av.versao_roteiro AS av_versao,
+       (av.validada_em IS NOT NULL) AS av_validada
   FROM reunioes r
   JOIN tarefas t            ON t.id = r.tarefa_id
   LEFT JOIN oportunidades o ON o.id = t.oportunidade_id
@@ -285,7 +296,41 @@ SELECT r.id AS reuniao_id, r.desfecho, r.duracao_min, r.criado_em AS agendada_em
   LEFT JOIN tipos_reuniao tr ON tr.id = r.tipo_id
   LEFT JOIN usuarios ua     ON ua.id = t.responsavel_id
   LEFT JOIN usuarios ag     ON ag.id = r.agendado_por
+  LEFT JOIN reuniao_avaliacoes av ON av.reuniao_id = r.id
 """
+
+
+def _nota(r: dict) -> tuple[float | None, str | None]:
+    """
+    A nota do scorecard da reuniao e a situacao dela.
+
+    So conta avaliacao PRONTA e da versao CORRENTE do roteiro: nota dada
+    contra outro roteiro nao se compara (services/roteiro_scorecard.py).
+    """
+    status = r.get("av_status")
+    if status is None:
+        return None, None
+    if status == "aguardando":
+        return None, "avaliando"
+    if status == "erro":
+        return None, "erro"
+    if r.get("av_versao") != roteiro_scorecard.VERSAO or r.get("av_nota") is None:
+        return None, None
+    return float(r["av_nota"]), ("validada" if r.get("av_validada") else "ia")
+
+
+def _media_scorecard(linhas: list[dict]) -> tuple[float | None, int]:
+    """
+    A media das notas das reunioes avaliadas, e quantas eram.
+
+    Reuniao realizada ainda sem nota fica FORA da media, e nao entra como
+    zero: a transcricao pode nao ter chegado, e zero seria uma nota que
+    ninguem deu.
+    """
+    notas = [n for n, _ in (_nota(r) for r in linhas) if n is not None]
+    if not notas:
+        return None, 0
+    return round(sum(notas) / len(notas), 1), len(notas)
 
 
 def _com_desfecho(rows) -> list[dict]:
@@ -383,6 +428,7 @@ async def _reunioes(conn, inicio: datetime, fim: datetime) -> dict:
     agendadas = await _linhas_agendadas(conn, inicio, fim)
     no_show = sum(1 for r in grupos["fechadas"] if r["efetivo"] == "no_show")
     return {
+        "scorecard": _media_scorecard(grupos["apre"])[0],
         "agen": len(grupos["agen"]),
         "apre": len(grupos["apre"]),
         "reunioes_parceria": len(grupos["reunioes_parceria"]),
@@ -496,13 +542,12 @@ async def painel(
     }
     resultados.update(await _reunioes(conn, inicio, fim))
     resultados.update(await _vendas(conn, inicio, fim))
-    resultados["treinamento"] = None
 
     metas = await _metas_do_mes(conn, ano, mes)
 
     indicadores = []
     for ind in sorted(regras.INDICADORES, key=lambda i: i.ordem):
-        meta = metas.get(ind.chave)
+        meta = metas.get(ind.chave, regras.META_PADRAO.get(ind.chave))
         resultado = resultados.get(ind.chave)
         alvo_hoje = regras.meta_mtd(meta, corridos, len(uteis), ind.natureza)
         indicadores.append({
@@ -550,7 +595,7 @@ TIPO_DO_DETALHE = {
     "nmrr": "oportunidades",
     "ticket_medio": "oportunidades",
     "contratos": "oportunidades",
-    "treinamento": "nenhum",
+    "scorecard": "reunioes",
 }
 
 
@@ -559,6 +604,7 @@ def _plural(n: int, singular: str, plural: str) -> str:
 
 
 def _item_reuniao(r: dict, *, pela_marcacao: bool = False, conta: bool = True) -> dict:
+    nota, nota_status = _nota(r)
     return {
         "data": r["agendada_em"] if pela_marcacao else r["inicio"],
         "empresa": r["empresa"],
@@ -575,6 +621,8 @@ def _item_reuniao(r: dict, *, pela_marcacao: bool = False, conta: bool = True) -
             regras_agenda.ROTULO_DESFECHO.get(r["efetivo"]) if r["efetivo"]
             else "Sem desfecho"
         ),
+        "nota": nota,
+        "nota_status": nota_status,
         "conta": conta,
     }
 
@@ -664,6 +712,23 @@ async def detalhe(
             if chave == "agen":
                 resumo += ", sem as desmarcadas"
 
+    elif chave == "scorecard":
+        apre = _separar_reunioes(await _linhas_reunioes(conn, inicio, fim))["apre"]
+        resultado, avaliadas = _media_scorecard(apre)
+        # As avaliadas primeiro, da pior nota para a melhor: e onde o gestor
+        # tem o que fazer. As sem nota ficam abaixo, fora da conta.
+        com_nota = sorted(
+            (r for r in apre if _nota(r)[0] is not None), key=lambda r: _nota(r)[0],
+        )
+        sem_nota = [r for r in apre if _nota(r)[0] is None]
+        itens = [_item_reuniao(r) for r in com_nota] + [
+            _item_reuniao(r, conta=False) for r in sem_nota
+        ]
+        resumo = (
+            f"média de {_plural(avaliadas, 'reunião avaliada', 'reuniões avaliadas')}"
+            f" (de {_plural(len(apre), 'realizada', 'realizadas')}), nota de 0 a 20"
+        )
+
     elif chave == "agendamentos_mes":
         linhas = await _linhas_agendadas(conn, inicio, fim)
         itens = [_item_reuniao(r, pela_marcacao=True) for r in linhas]
@@ -685,7 +750,7 @@ async def detalhe(
             "ticket_medio": f"NMRR dividido por {_plural(n, 'contrato', 'contratos')}",
         }[chave]
 
-    else:  # treinamento: quadro reservado, sem fonte
+    else:  # indicador sem fonte (nenhum hoje)
         resumo = "Quadro reservado: ainda não há fonte de dado."
 
     return {
@@ -748,6 +813,7 @@ async def listar_metas(
                     float(gravadas[ind.chave]["valor"])
                     if ind.chave in gravadas else None
                 ),
+                "padrao": regras.META_PADRAO.get(ind.chave),
                 "atualizado_em": (
                     gravadas[ind.chave]["atualizado_em"]
                     if ind.chave in gravadas else None
@@ -784,6 +850,12 @@ async def gravar_metas(
             regras.validar_indicador(m.indicador)
         except MonitorInvalido as e:
             raise HTTPException(422, str(e))
+        ind = regras.POR_CHAVE[m.indicador]
+        teto = regras.TETO_META.get(ind.formato)
+        if m.valor is not None and teto is not None and m.valor > teto:
+            raise HTTPException(
+                422, f"A meta de {ind.sigla} vai de 0 a {teto:g}.",
+            )
 
     async with conn.transaction():
         for m in payload.metas:

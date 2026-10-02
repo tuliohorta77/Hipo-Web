@@ -41,9 +41,16 @@ Regua definida pelo Tulio (17/09), sobre o atingimento da meta MTD:
     >=  50%  triste
     <   50%  bravo
 
-Indicador sem meta ou sem fonte de dado (o caso do treinamento, que nao
-existe neste negocio ainda) nao ganha carinha: carinha sobre denominador
-inventado e pior do que celula vazia.
+Indicador sem meta ou sem resultado nao ganha carinha: carinha sobre
+denominador inventado e pior do que celula vazia.
+
+── SCORECARD (030) ──────────────────────────────────────────────────
+
+Tomou o lugar do quadro TREINAMENTO, que nunca teve fonte. E a MEDIA, de 0
+a 20, da nota do scorecard (services/roteiro_scorecard.py) das reunioes do
+APRE do mes que ja foram avaliadas. Taxa, e nao acumulativo: media 15 no
+dia 5 e media 15 no dia 25 valem o mesmo. A meta tem padrao (15, a meta do
+roteiro) enquanto a gestao nao gravar outra no mes — `META_PADRAO`.
 """
 from __future__ import annotations
 
@@ -51,7 +58,7 @@ from dataclasses import dataclass
 
 __all__ = [
     "INDICADORES", "POR_CHAVE", "CHAVES", "ACUMULATIVO", "TAXA", "TAXA_INVERSA",
-    "ABERTO", "CARINHAS", "MonitorInvalido",
+    "ABERTO", "CARINHAS", "META_PADRAO", "TETO_META", "MonitorInvalido",
     "meta_mtd", "atingimento", "carinha", "media",
 ]
 
@@ -77,7 +84,7 @@ class Indicador:
     sigla: str
     rotulo: str
     natureza: str
-    # 'inteiro' | 'moeda' | 'percentual'
+    # 'inteiro' | 'moeda' | 'percentual' | 'pontos'
     formato: str
     ordem: int
     # Uma linha explicando de onde o numero vem. Vai para o title do quadro:
@@ -130,10 +137,20 @@ INDICADORES: tuple[Indicador, ...] = (
         "Oportunidades conquistadas no mes.",
     ),
     Indicador(
-        "treinamento", "TREINAMENTO", "Treinamento", ABERTO, "inteiro", 100,
-        "Ainda sem fonte de dado neste negocio — o quadro fica reservado.",
+        "scorecard", "SCORECARD", "Scorecard das reunioes", TAXA, "pontos", 100,
+        "Media da nota do scorecard (0 a 20, roteiro de vendas) das reunioes "
+        "do APRE ja avaliadas. A nota e a da IA, ou a da gestao quando ajustada.",
     ),
 )
+
+# Meta que vale quando a gestao nao gravou nenhuma no mes. So o scorecard
+# tem: a meta dele vem do proprio roteiro (media 15+), e nao de um numero
+# de vendas que muda todo mes.
+META_PADRAO: dict[str, float] = {"scorecard": 15.0}
+
+# Teto da meta por formato. Meta 30 num quadro que vai ate 20 nunca daria
+# carinha feliz, e e erro de digitacao, nao ambicao.
+TETO_META: dict[str, float] = {"pontos": 20.0}
 
 POR_CHAVE = {i.chave: i for i in INDICADORES}
 CHAVES = tuple(i.chave for i in INDICADORES)
