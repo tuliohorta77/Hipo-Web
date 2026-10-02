@@ -580,7 +580,7 @@ def _pdfs(tmp_path):
 
 
 class TestCargaInicial:
-    async def test_tres_trilhas_no_manual_na_ordem(self, time, client, s3_falso, tmp_path):
+    async def test_trilhas_no_manual_na_ordem(self, time, client, s3_falso, tmp_path):
         from scripts import semear_uc
         from scripts.uc_conteudo import TRILHAS
         await semear_uc.carregar(time["conn"], _pdfs(tmp_path), atualizar=False, simular=False)
@@ -588,15 +588,35 @@ class TestCargaInicial:
         assert [t["titulo"] for t in p["manual"]["trilhas"]] == [t["titulo"] for t in TRILHAS]
         # A primeira aula da trilha 01 é a próxima: prazo mais curto.
         assert p["proxima"]["aula_titulo"] == TRILHAS[0]["aulas"][0]["titulo"]
-        assert [t["prazo"] is not None for t in p["manual"]["trilhas"]] == [True] * 3
-        assert len(s3_falso) == 3
+        assert all(t["prazo"] is not None for t in p["manual"]["trilhas"])
+        assert len(s3_falso) == 4
+        metodo = next(x for x in p["pilares"] if x["pilar"] == "metodo")
+        assert metodo["trilhas"] == 1
+
+    async def test_trilhas_comerciais_sao_opcionais_para_ep(self, time, client, s3_falso, tmp_path, db_conn):
+        from scripts import semear_uc
+        from scripts.uc_conteudo import METODO_01, TRILHA_04
+        ep = await _me(client, await criar_usuario(db_conn, client, "EP", "ep-uc@teste.com"))
+        await semear_uc.carregar(time["conn"], _pdfs(tmp_path), atualizar=False, simular=False)
+        p = await painel(client, ep)
+        assert len(p["manual"]["trilhas"]) == 3
+        assert {t["titulo"] for t in p["outras"]} == {TRILHA_04["titulo"], METODO_01["titulo"]}
+
+    async def test_trilha_de_metodo_reforca_o_roteiro(self, time, client, s3_falso, tmp_path):
+        from scripts import semear_uc
+        from scripts.uc_conteudo import METODO_01
+        await semear_uc.carregar(time["conn"], _pdfs(tmp_path), atualizar=False, simular=False)
+        linha = await time["conn"].fetchrow(
+            "SELECT pilar, reforca FROM uc_trilhas WHERE id = $1", METODO_01["id"],
+        )
+        assert (linha["pilar"], linha["reforca"]) == ("metodo", "roteiro")
 
     async def test_franqueado_ve_as_trilhas_sem_obrigacao(self, time, client, s3_falso, tmp_path):
         from scripts import semear_uc
         await semear_uc.carregar(time["conn"], _pdfs(tmp_path), atualizar=False, simular=False)
         p = await painel(client, time["g"])
         assert p["manual"]["trilhas"] == []
-        assert len(p["outras"]) == 3
+        assert len(p["outras"]) == 5
 
     async def test_trilha_de_nr_da_029_vira_a_03_sem_perder_progresso(self, time, client, s3_falso, tmp_path):
         """
@@ -654,10 +674,11 @@ class TestCargaInicial:
         pasta = _pdfs(tmp_path)
         for _ in range(2):
             await semear_uc.carregar(time["conn"], pasta, atualizar=True, simular=False)
-        assert await time["conn"].fetchval("SELECT count(*) FROM uc_trilhas") == 3
-        assert await time["conn"].fetchval("SELECT count(*) FROM uc_aulas") == 15
-        assert await time["conn"].fetchval("SELECT count(*) FROM uc_materiais") == 3
-        assert len(s3_falso) == 3
+        from scripts.uc_conteudo import TRILHAS
+        assert await time["conn"].fetchval("SELECT count(*) FROM uc_trilhas") == len(TRILHAS)
+        assert await time["conn"].fetchval("SELECT count(*) FROM uc_aulas") == sum(len(t["aulas"]) for t in TRILHAS)
+        assert await time["conn"].fetchval("SELECT count(*) FROM uc_materiais") == 4
+        assert len(s3_falso) == 4
 
     async def test_simular_nao_grava(self, time, client, s3_falso):
         from scripts import semear_uc

@@ -9,8 +9,8 @@
 #
 # Rodar NA EC2, como ec2-user, com terminal (ssh -t):
 #   bash /tmp/semear-uc.sh
-# com os PDFs ja em /tmp/uc/ (o deploy-032 manda):
-#   apresentacao-controller.pdf, nr-01.pdf, nr-04.pdf
+# com os PDFs ja em /tmp/uc/ (o deploy da UC manda):
+#   apresentacao-controller.pdf, nr-01.pdf, nr-04.pdf, roteiro-vendas.pdf
 #
 # IDEMPOTENTE: ids fixos. Roda com --atualizar: textos e ordem das aulas
 # do conteudo sao reescritos SEM subir versao (ninguem perde conclusao);

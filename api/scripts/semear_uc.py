@@ -46,7 +46,19 @@ def conferir() -> list[str]:
     ids = [t["id"] for t in TRILHAS] + [a["id"] for t in TRILHAS for a in t["aulas"]]
     if len(ids) != len(set(ids)):
         erros.append("id repetido entre trilhas e aulas")
+    from services import uc as regras
+
     for t in TRILHAS:
+        try:
+            regras.validar_pilar(t["pilar"])
+            regras.validar_reforca(t.get("reforca"))
+            for cargo in (*t.get("obrigatorios", CARGOS_OBRIGATORIOS),
+                          *t.get("opcionais", CARGOS_OPCIONAIS)):
+                regras.validar_cargo(cargo)
+        except regras.ConteudoInvalido as e:
+            erros.append(f"{t['titulo']}: {e}")
+        if set(t.get("obrigatorios", CARGOS_OBRIGATORIOS)) & set(t.get("opcionais", CARGOS_OPCIONAIS)):
+            erros.append(f"{t['titulo']}: cargo obrigatório e opcional ao mesmo tempo")
         if not t["titulo"].strip() or len(t["titulo"]) > 160:
             erros.append(f"{t['titulo']!r}: título vazio ou acima de 160")
         if not t["aulas"]:
@@ -113,7 +125,7 @@ async def _gravar_aulas(conn, t: dict) -> None:
 
 
 async def _gravar_cargos(conn, t: dict) -> None:
-    for cargo in CARGOS_OBRIGATORIOS:
+    for cargo in t.get("obrigatorios", CARGOS_OBRIGATORIOS):
         await conn.execute(
             """
             INSERT INTO uc_trilha_cargos (trilha_id, cargo, obrigatoria, prazo_dias)
@@ -121,7 +133,7 @@ async def _gravar_cargos(conn, t: dict) -> None:
             """,
             t["id"], cargo, t["prazo_dias"],
         )
-    for cargo in CARGOS_OPCIONAIS:
+    for cargo in t.get("opcionais", CARGOS_OPCIONAIS):
         await conn.execute(
             """
             INSERT INTO uc_trilha_cargos (trilha_id, cargo, obrigatoria, prazo_dias)
@@ -151,13 +163,13 @@ async def carregar(conn, pasta_pdfs: Path | None, atualizar: bool, simular: bool
             async with conn.transaction():
                 await conn.execute(
                     """
-                    INSERT INTO uc_trilhas (id, titulo, descricao, pilar, status)
-                    VALUES ($1, $2, $3, $4, 'rascunho')
+                    INSERT INTO uc_trilhas (id, titulo, descricao, pilar, reforca, status)
+                    VALUES ($1, $2, $3, $4, $5, 'rascunho')
                     ON CONFLICT (id) DO UPDATE
                        SET titulo = EXCLUDED.titulo, descricao = EXCLUDED.descricao,
-                           atualizado_em = NOW()
+                           reforca = EXCLUDED.reforca, atualizado_em = NOW()
                     """,
-                    t["id"], t["titulo"], t["descricao"], t["pilar"],
+                    t["id"], t["titulo"], t["descricao"], t["pilar"], t.get("reforca"),
                 )
                 await _gravar_aulas(conn, t)
                 await _gravar_cargos(conn, t)

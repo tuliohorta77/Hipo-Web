@@ -1,12 +1,24 @@
 """
 HIPO — UC: conteúdo das três primeiras trilhas da Universidade Corporativa.
 
-  01 · Boas-vindas à Controller    (prazo 10 dias)
-  02 · Conceitos gerais de SST     (prazo 20 dias)
-  03 · Produto e normas            (prazo 30 dias)
+  01 · Boas-vindas à Controller           Técnica  (prazo 10 dias)
+  02 · Conceitos gerais de SST            Técnica  (prazo 20 dias)
+  03 · Produto e normas                   Técnica  (prazo 30 dias)
+  04 · Técnicas de venda consultiva       Técnica  (prazo 40 dias)
+  Método 01 · Roteiro de vendas Controller Método  (prazo 45 dias)
 
-Todas no pilar Técnica, obrigatórias para SDR, EV, EC, EP e ADM e abertas
-(sem obrigação) ao Franqueado, para a gestão conseguir fazer e revisar.
+01 a 03 são obrigatórias para SDR, EV, EC, EP e ADM. 04 e Método 01 são
+do time comercial (SDR, EV, EC); EP e ADM podem fazer, sem obrigação. O
+Franqueado vê todas, sem obrigação, para a gestão conseguir fazer e
+revisar. Cada trilha pode declarar `obrigatorios` e `opcionais`; sem
+isso valem CARGOS_OBRIGATORIOS e CARGOS_OPCIONAIS.
+
+A divisão entre os pilares segue o pedido do Tulio (02/10/2026): a 04
+ensina as técnicas em profundidade (SPIN, GPCT + BA/C&I, LAER, Sandler,
+Challenger, escuta e fechamento); a Método 01 ensina a aplicá-las na
+Controller, com o resto da metodologia (preparação, apresentação
+reordenada, objeções, follow-up, scorecard e métricas), a partir do
+"Roteiro de Vendas — Controller Med Seg".
 
 Fontes:
   * trilha 01: a apresentação institucional "Controller Med Seg -
@@ -39,6 +51,7 @@ PDFS: dict[str, tuple[str, str]] = {
     "apresentacao": ("Apresentação institucional Controller.pdf", "apresentacao-controller.pdf"),
     "nr01": ("NR-01 (texto oficial, atualizado 2025).pdf", "nr-01.pdf"),
     "nr04": ("NR-04 (texto oficial, atualizado 2023).pdf", "nr-04.pdf"),
+    "roteiro": ("Roteiro de Vendas - Controller Med Seg.pdf", "roteiro-vendas.pdf"),
 }
 
 # ═════════════════════════════════════════════════════════════════════
@@ -1188,4 +1201,1333 @@ TRILHA_03 = {
 }
 
 
-TRILHAS: list[dict] = [TRILHA_01, TRILHA_02, TRILHA_03]
+
+
+# ═════════════════════════════════════════════════════════════════════
+# TRILHA 04 — Técnicas de venda consultiva (pilar Técnica)
+# ═════════════════════════════════════════════════════════════════════
+# A teoria, com profundidade: de onde vem cada técnica, o que ela diz e
+# por que funciona. A APLICAÇÃO na Controller (falas, perguntas, regras,
+# scorecard) está na trilha de Método "Roteiro de vendas Controller".
+
+TRILHA_04 = {
+    "id": UUID("7c1d0f4e-5a01-4c0e-9b11-0000000a0400"),
+    "titulo": "04 · Técnicas de venda consultiva",
+    "pilar": "tecnica",
+    "descricao": (
+        "As técnicas que sustentam o roteiro de vendas da Controller, em "
+        "profundidade: venda consultiva, contrato de abertura (Sandler), SPIN "
+        "Selling, GPCT + BA/C&I, o insight Challenger, LAER para objeções, "
+        "escuta ativa e fechamento."
+    ),
+    "prazo_dias": 40,
+    "obrigatorios": ("SDR", "EV", "EC"),
+    "opcionais": ("EP", "ADM", "Franqueado"),
+    "aulas": [
+        {
+            "id": UUID("7c1d0f4e-5a01-4c0e-9b11-0000000a0411"),
+            "titulo": "Venda consultiva: diagnosticar antes de apresentar",
+            "resumo": "Por que a reunião começa pelo problema do cliente e não pela empresa, e como as técnicas se encaixam.",
+            "duracao_min": 8,
+            "conteudo_md": """\
+## A ideia central
+
+**Venda consultiva** é vender como um médico atende: primeiro o diagnóstico, depois a receita. Um médico que receita antes de examinar perde a confiança do paciente, mesmo que acerte o remédio. Um vendedor que apresenta antes de entender o problema do cliente faz o mesmo: mostra um catálogo, e o cliente compara preço.
+
+A regra que resume tudo: **diagnosticar antes de apresentar**.
+
+## Por que isso pesa tanto em SST
+
+Em Saúde e Segurança do Trabalho o cliente raramente **sente** a dor. Ela é invisível até o dia em que chega um fiscal, um processo trabalhista ou um afastamento. Até lá, SST parece um custo obrigatório, e custo obrigatório se compra pelo menor preço.
+
+O trabalho do vendedor consultivo é tornar esse risco **concreto e visível** antes de falar de solução. Quando o próprio cliente diz em voz alta quanto o problema custa, a conversa muda de "quanto custa o exame" para "quanto custa não resolver".
+
+## Quem fala na reunião
+
+Numa reunião consultiva **o cliente fala mais que o vendedor**. A referência que usamos: o vendedor fala no máximo **30%** do tempo na conversa e até **40%** medidos na transcrição inteira. Cada minuto que você fala é um minuto em que você não está aprendendo nada sobre o cliente.
+
+## As técnicas e o papel de cada uma
+
+Nenhuma técnica sozinha cobre a reunião inteira. Cada uma resolve um momento:
+
+- **Contrato de abertura (Sandler)**: abre a reunião combinando tempo, pauta e o que acontece no final.
+- **SPIN Selling (Rackham)**: conduz o diagnóstico com quatro tipos de pergunta.
+- **GPCT + BA/C&I (HubSpot)**: qualifica, para saber se a oportunidade merece proposta.
+- **Insight Challenger (Dixon e Adamson)**: traz algo que o cliente não sabia e posiciona o vendedor como especialista.
+- **LAER (Carew International)**: trata objeções sem brigar com o cliente.
+- **Escuta ativa e fechamento**: amarram tudo e transformam a conversa em próximo passo.
+
+As próximas aulas explicam cada uma em profundidade. A trilha de **Método · Roteiro de vendas Controller** mostra como aplicamos todas elas, com as nossas falas e perguntas.
+""",
+            "quiz": [
+                {
+                    "enunciado": "Qual é a regra central da venda consultiva?",
+                    "alternativas": [
+                        ("Apresentar a empresa logo no início para gerar confiança", False),
+                        ("Diagnosticar antes de apresentar", True),
+                        ("Dar o preço antes de qualquer pergunta", False),
+                        ("Mostrar o portfólio completo em toda reunião", False),
+                    ],
+                },
+                {
+                    "enunciado": "Por que o diagnóstico pesa tanto na venda de SST?",
+                    "alternativas": [
+                        ("Porque SST é barato", False),
+                        ("Porque o cliente raramente sente a dor até ser autuado, processado ou ter um afastamento", True),
+                        ("Porque o cliente sempre sabe exatamente o que precisa", False),
+                        ("Porque a norma obriga o vendedor a perguntar", False),
+                    ],
+                },
+                {
+                    "enunciado": "Qual técnica é usada para tratar objeções?",
+                    "alternativas": [
+                        ("SPIN", False),
+                        ("GPCT", False),
+                        ("LAER", True),
+                        ("Contrato de abertura", False),
+                    ],
+                },
+            ],
+        },
+        {
+            "id": UUID("7c1d0f4e-5a01-4c0e-9b11-0000000a0412"),
+            "titulo": "Contrato de abertura (Sandler)",
+            "resumo": "O combinado do início da reunião: tempo, pauta, papéis e o que se decide no final.",
+            "duracao_min": 8,
+            "conteudo_md": """\
+## De onde vem
+
+O **contrato de abertura** (em inglês, *up-front contract*) é uma das bases do **Sandler Selling System**, o método criado por David Sandler nos anos 1960. A ideia é simples: muitas reuniões fracassam não pelo que é dito, mas pelo que **não foi combinado**. O vendedor acha que vai sair com uma decisão; o cliente acha que só veio ouvir. A reunião acaba em "vou pensar".
+
+O contrato de abertura resolve isso **no primeiro minuto**, combinando as regras do jogo antes de jogar.
+
+## Os quatro elementos
+
+Um contrato de abertura completo combina:
+
+1. **Tempo**: quanto dura a conversa. "Combinamos 45 minutos, ainda está bom?" Confirmar o tempo mostra respeito e evita que o cliente saia no meio.
+2. **Propósito e pauta**: o que vai acontecer. Primeiro o vendedor entende a realidade do cliente; depois, se fizer sentido, mostra como pode ajudar.
+3. **Papéis**: o que se espera de cada um. O cliente vai responder perguntas; o vendedor vai ouvir e, se tiver solução, apresentar.
+4. **Desfecho**: o que acontece no final. Este é o elemento mais importante e o mais esquecido: **no final, decidimos juntos se há um próximo passo ou não**.
+
+## Por que o "não" é uma resposta boa
+
+Sandler insistia que o vendedor deve dar ao cliente permissão explícita para dizer **não**. Parece contraintuitivo, mas tem efeito duplo:
+
+- **Tira a pressão**: o cliente relaxa porque sabe que não vai ser empurrado, e por isso responde as perguntas com mais franqueza.
+- **Acaba com o "vou pensar"**: se ficou combinado que haveria uma decisão, "vou pensar" deixa de ser uma saída aceita. Um "não" claro libera o vendedor para a próxima oportunidade; um "talvez" eterno ocupa o funil e a agenda.
+
+## Sinais de que o contrato funcionou
+
+- O cliente concorda com a pauta e com o tempo ("pode ser").
+- O cliente aceita responder perguntas antes de ver a apresentação.
+- No final, quando você retoma "combinamos que decidiríamos o próximo passo", o cliente reconhece o combinado.
+
+## Erros comuns
+
+- Pular o desfecho e combinar só tempo e pauta.
+- Fazer o contrato de forma burocrática, como um termo a ser assinado. Ele é uma conversa, dita com naturalidade.
+- Esquecer de retomar o contrato no fechamento. O contrato do início só vale se for lembrado no final.
+""",
+            "quiz": [
+                {
+                    "enunciado": "Qual elemento do contrato de abertura é o mais esquecido e o mais importante?",
+                    "alternativas": [
+                        ("O tempo da reunião", False),
+                        ("O desfecho: decidir juntos no final se há próximo passo", True),
+                        ("A apresentação da empresa", False),
+                        ("O preço", False),
+                    ],
+                },
+                {
+                    "enunciado": "Por que dar ao cliente permissão explícita para dizer \"não\"?",
+                    "alternativas": [
+                        ("Para encerrar a reunião mais cedo", False),
+                        ("Porque tira a pressão, deixa o cliente mais franco e acaba com o \"vou pensar\"", True),
+                        ("Porque é exigência da LGPD", False),
+                        ("Para parecer desinteressado", False),
+                    ],
+                },
+                {
+                    "enunciado": "Quando o contrato de abertura deve ser retomado?",
+                    "alternativas": [
+                        ("Nunca, basta fazê-lo no início", False),
+                        ("No fechamento, ao propor o próximo passo", True),
+                        ("Só se o cliente pedir desconto", False),
+                        ("No e-mail de proposta", False),
+                    ],
+                },
+            ],
+        },
+        {
+            "id": UUID("7c1d0f4e-5a01-4c0e-9b11-0000000a0413"),
+            "titulo": "SPIN Selling: a pesquisa e os quatro tipos de pergunta",
+            "resumo": "O que Neil Rackham descobriu estudando milhares de visitas de venda, e o papel de Situação, Problema, Implicação e Necessidade.",
+            "duracao_min": 15,
+            "conteudo_md": """\
+## De onde vem
+
+**SPIN Selling** é o resultado de uma pesquisa conduzida por **Neil Rackham** e pela Huthwaite, publicada no livro *SPIN Selling* (1988). A equipe observou cerca de **35 mil visitas de venda** ao longo de vários anos para descobrir o que os vendedores de melhor resultado faziam de diferente em **vendas complexas**: as de ticket alto, ciclo longo e mais de um decisor. É o caso de um contrato de SST.
+
+A descoberta principal: nas vendas complexas, quem mais vende **não é quem apresenta melhor, é quem pergunta melhor**, e na ordem certa.
+
+## Necessidade implícita × necessidade explícita
+
+Rackham separa dois tipos de necessidade:
+
+- **Implícita**: uma insatisfação vaga. "O admissional às vezes demora." O cliente reconhece o incômodo, mas não quer gastar para resolvê-lo.
+- **Explícita**: um desejo claro de mudança. "Preciso que o admissional saia em 24 horas, porque cada dia de atraso me custa uma loja desfalcada." Aqui o cliente já quer comprar.
+
+Em vendas pequenas, uma necessidade implícita às vezes basta. Em vendas complexas, **só a explícita fecha negócio**. O papel das perguntas SPIN é transformar uma em outra.
+
+## S · Situação
+
+Perguntas sobre **fatos** da realidade do cliente: quantos funcionários, quem cuida de SST hoje, quando foi a última revisão do PGR.
+
+- São necessárias, mas **não vendem**. A pesquisa mostrou que vendedores de pior resultado fazem perguntas de Situação demais, e o cliente se cansa delas.
+- Regra: pergunte só o que a pesquisa prévia **não respondeu**. Tudo o que está no cartão CNPJ, no site ou no LinkedIn não se pergunta.
+
+## P · Problema
+
+Perguntas que exploram **dificuldades, insatisfações e incômodos**: "O que te incomoda no modelo atual?", "Já aconteceu de…?".
+
+- Revelam as **necessidades implícitas**.
+- Vendedores experientes fazem mais perguntas de Problema que os iniciantes.
+
+## I · Implicação
+
+Perguntas sobre as **consequências e os efeitos** do problema: "Quanto custa um dia de funcionário parado?", "Se o fiscal chegasse amanhã, o que encontraria?".
+
+- É o tipo de pergunta **mais ligado ao sucesso** nas vendas complexas, e o mais difícil de fazer bem.
+- Pegam um problema que parece pequeno e mostram o tamanho real dele. Um admissional atrasado vira dias de loja desfalcada, venda perdida, hora extra de outro funcionário.
+- Em SST, é aqui que o risco invisível fica concreto: autuação, ação trabalhista, aposentadoria especial errada, horas do RH conferindo eSocial.
+
+## N · Necessidade de solução (*need-payoff*)
+
+Perguntas sobre o **valor e a utilidade** de resolver: "Se você tivesse todos os vencimentos num lugar só, o que mudaria na sua rotina?".
+
+- O ponto genial do SPIN: quem diz o benefício **é o cliente**, não o vendedor. Um benefício dito pelo cliente convence muito mais do que o mesmo benefício dito pelo vendedor.
+- Transformam a necessidade implícita em **explícita**.
+- Preparam a apresentação: depois delas, você só mostra o que o cliente já disse que quer.
+
+## A sequência não é rígida
+
+S → P → I → N é a lógica natural, mas a conversa vai e volta. O que não pode acontecer é **pular a Implicação**: sem ela, o cliente tem um problema pequeno e uma solução cara.
+
+## Erros comuns
+
+- Interrogatório: disparar as perguntas da lista uma atrás da outra, sem ouvir.
+- Apresentar a solução assim que aparece o primeiro problema. Rackham mostrou que oferecer solução cedo demais, quando a necessidade ainda é implícita, gera objeção.
+- Fazer Situação demais e Implicação de menos.
+""",
+            "quiz": [
+                {
+                    "enunciado": "Qual tipo de pergunta SPIN a pesquisa de Rackham mais associou ao sucesso em vendas complexas?",
+                    "alternativas": [
+                        ("Situação", False),
+                        ("Problema", False),
+                        ("Implicação", True),
+                        ("Nenhuma, o que importa é a apresentação", False),
+                    ],
+                },
+                {
+                    "enunciado": "O que é uma necessidade explícita?",
+                    "alternativas": [
+                        ("Uma insatisfação vaga com a situação atual", False),
+                        ("Um desejo claro de mudança, que o cliente quer resolver", True),
+                        ("Uma necessidade que só o vendedor enxerga", False),
+                        ("Uma exigência da norma", False),
+                    ],
+                },
+                {
+                    "enunciado": "Qual é a grande vantagem das perguntas de Necessidade de solução (need-payoff)?",
+                    "alternativas": [
+                        ("Elas dispensam a apresentação", False),
+                        ("O próprio cliente verbaliza o benefício de resolver", True),
+                        ("Elas descobrem o orçamento", False),
+                        ("Elas encurtam a reunião", False),
+                    ],
+                },
+                {
+                    "enunciado": "Qual é o erro típico com perguntas de Situação?",
+                    "alternativas": [
+                        ("Fazer poucas", False),
+                        ("Fazer demais, inclusive sobre o que a pesquisa já respondia", True),
+                        ("Fazer no início da reunião", False),
+                        ("Anotar as respostas", False),
+                    ],
+                },
+            ],
+        },
+        {
+            "id": UUID("7c1d0f4e-5a01-4c0e-9b11-0000000a0414"),
+            "titulo": "Qualificação GPCT + BA/C&I (HubSpot)",
+            "resumo": "Os oito critérios que dizem se uma oportunidade merece proposta: metas, planos, desafios, prazo, orçamento, autoridade, consequências e implicações.",
+            "duracao_min": 12,
+            "conteudo_md": """\
+## De onde vem
+
+**GPCT + BA/C&I** é um modelo de qualificação de oportunidades popularizado pela **HubSpot** como evolução do antigo **BANT** (*Budget, Authority, Need, Timeline*). O BANT perguntava primeiro sobre dinheiro e poder de decisão; o GPCT começa pelo que o cliente **quer alcançar**, que é por onde uma venda consultiva deve começar.
+
+Qualificar não é burocracia: é decidir **onde investir o seu tempo**. Uma proposta feita para quem não tem prazo, verba ou poder de decisão ocupa horas e quase nunca fecha.
+
+## GPCT: o lado do cliente
+
+- **G · Goals (Metas)**: o que o cliente quer alcançar. Uma meta concreta ("regularizar antes da fiscalização", "padronizar as unidades") é sinal de compra; "só quero cotar" não é.
+- **P · Plans (Planos)**: o que ele já tentou ou planeja fazer. Quem tentou e não conseguiu tem dor real; quem nunca pensou no assunto ainda não está pronto.
+- **C · Challenges (Desafios)**: o que impediu de resolver até agora. O obstáculo importa: se é algo que a sua solução remove, ótimo; se é interno e sem solução, a venda trava.
+- **T · Timeline (Prazo)**: quando precisa estar resolvido. Uma data ou um gatilho (vencimento de contrato, nova unidade, fiscalização) mostra urgência; "sem pressa" mostra que não é prioridade.
+
+## BA: o lado da compra
+
+- **B · Budget (Orçamento)**: quanto investe hoje e se aceita discutir **valor**, não só preço. Quem decide exclusivamente pelo menor preço por exame raramente valoriza um serviço consultivo.
+- **A · Authority (Autoridade)**: quem decide e como a empresa aprova um fornecedor. Falar só com quem não decide é o motivo mais comum de oportunidade parada.
+
+## C&I: o que está em jogo
+
+- **C · Negative Consequences (Consequências)**: o que acontece se nada mudar. Se o cliente nomeia um risco real, há motivo para agir; se a resposta é "nada", não há.
+- **I · Positive Implications (Implicações)**: o que muda, para ele e para a empresa, se der certo. Inclui o ganho **pessoal** do interlocutor: menos retrabalho, reconhecimento, tranquilidade.
+
+## A ordem importa
+
+Pergunte **orçamento depois das consequências e implicações**. Com o custo do problema já dito pelo cliente, o investimento é comparado ao **risco**, e não ao preço do concorrente.
+
+## Ligação com o SPIN
+
+O GPCT não é um segundo interrogatório. Boa parte dele já aparece no diagnóstico SPIN: as Implicações do SPIN alimentam as Consequências do GPCT; as perguntas de Necessidade de solução alimentam as Implicações positivas. A etapa de qualificação só completa o que faltou: principalmente **prazo, autoridade e orçamento**.
+""",
+            "quiz": [
+                {
+                    "enunciado": "O GPCT + BA/C&I é uma evolução de qual modelo de qualificação?",
+                    "alternativas": [
+                        ("SPIN", False),
+                        ("BANT", True),
+                        ("LAER", False),
+                        ("AIDA", False),
+                    ],
+                },
+                {
+                    "enunciado": "Por que perguntar orçamento depois das consequências e implicações?",
+                    "alternativas": [
+                        ("Para o cliente esquecer o preço", False),
+                        ("Para que o investimento seja comparado ao risco que o cliente já verbalizou, e não ao preço do concorrente", True),
+                        ("Porque orçamento não importa", False),
+                        ("Porque o HubSpot exige essa ordem", False),
+                    ],
+                },
+                {
+                    "enunciado": "O que o critério A (Authority) investiga?",
+                    "alternativas": [
+                        ("Quem decide e como a empresa aprova um fornecedor", True),
+                        ("Se o cliente tem certificação ISO", False),
+                        ("Qual é o grau de risco da empresa", False),
+                        ("Quem é o médico do PCMSO", False),
+                    ],
+                },
+            ],
+        },
+        {
+            "id": UUID("7c1d0f4e-5a01-4c0e-9b11-0000000a0415"),
+            "titulo": "O insight Challenger",
+            "resumo": "Ensinar algo novo ao cliente, adaptar a mensagem e conduzir a conversa: por que o especialista vence o vendedor simpático.",
+            "duracao_min": 10,
+            "conteudo_md": """\
+## De onde vem
+
+*The Challenger Sale* (2011), de **Matthew Dixon e Brent Adamson**, saiu de uma pesquisa do **CEB** (hoje parte do Gartner) com milhares de vendedores B2B. Eles agruparam os vendedores em perfis e compararam o desempenho de cada um. O perfil **Challenger** foi o que mais se destacou entre os de alto desempenho, principalmente em vendas complexas; o perfil que só constrói relacionamento (*Relationship Builder*) foi o que menos apareceu entre os melhores.
+
+A conclusão incomodou muita gente: ser simpático e disponível **não basta**. O cliente B2B quer um vendedor que o faça pensar diferente sobre o próprio negócio.
+
+## Os três movimentos do Challenger
+
+1. **Ensinar (*Teach*)**: trazer um **insight**, algo que o cliente não sabia sobre o próprio risco ou oportunidade, e que muda a forma como ele vê o problema.
+2. **Adaptar (*Tailor*)**: ajustar a mensagem a quem está na sala. O RH, o financeiro, o dono e o técnico de segurança têm dores diferentes.
+3. **Conduzir (*Take control*)**: conduzir a conversa com firmeza, inclusive sobre preço e próximos passos, sem ser agressivo.
+
+## O que é um bom insight
+
+Um insight comercial não é uma informação qualquer. Ele precisa:
+
+- ser **novo** para o cliente;
+- ser **relevante** para o negócio dele;
+- levar naturalmente a algo que **você resolve melhor**.
+
+Exemplo em SST: "Desde 26/05/2026 a nova redação da NR-01 exige que o PGR trate os fatores de risco psicossociais, e ela mesma manda revisar o PGR quando a lei muda. Muitas empresas ainda não revisaram." O cliente não sabia, é relevante (risco de autuação) e leva a um serviço da Controller.
+
+## Toque, não palestra
+
+Na Controller usamos um **toque** Challenger, não o método inteiro. O insight entra no diagnóstico como uma pergunta ou um comentário curto, e o cliente é quem tira a conclusão. Um insight dito em tom de sermão gera defesa; dito como pergunta, gera reflexão.
+
+## O que muda na posição do vendedor
+
+O insight posiciona a Controller como **consultoria** e não como "clínica de exame". Clínica de exame se compara por preço por exame; consultoria se compara pelo risco que evita.
+""",
+            "quiz": [
+                {
+                    "enunciado": "Quais são os três movimentos do vendedor Challenger?",
+                    "alternativas": [
+                        ("Ouvir, acolher e responder", False),
+                        ("Ensinar, adaptar e conduzir", True),
+                        ("Situação, problema e implicação", False),
+                        ("Prospectar, apresentar e fechar", False),
+                    ],
+                },
+                {
+                    "enunciado": "Qual destas características NÃO é exigida de um bom insight comercial?",
+                    "alternativas": [
+                        ("Ser novo para o cliente", False),
+                        ("Ser relevante para o negócio dele", False),
+                        ("Levar a algo que você resolve melhor", False),
+                        ("Ser dito em tom de sermão, para impor autoridade", True),
+                    ],
+                },
+                {
+                    "enunciado": "Qual perfil a pesquisa do Challenger encontrou menos entre os vendedores de alto desempenho?",
+                    "alternativas": [
+                        ("Challenger", False),
+                        ("O que só constrói relacionamento (Relationship Builder)", True),
+                        ("Todos apareceram igualmente", False),
+                        ("O vendedor técnico", False),
+                    ],
+                },
+            ],
+        },
+        {
+            "id": UUID("7c1d0f4e-5a01-4c0e-9b11-0000000a0416"),
+            "titulo": "LAER: tratamento de objeções",
+            "resumo": "Listen, Acknowledge, Explore, Respond: por que nunca responder uma objeção antes de explorá-la.",
+            "duracao_min": 10,
+            "conteudo_md": """\
+## De onde vem
+
+**LAER** é um modelo de tratamento de objeções associado à **Carew International**. O nome vem das quatro etapas em inglês: ***Listen, Acknowledge, Explore, Respond***. Em português: **Ouvir, Acolher, Explorar e Responder**.
+
+A premissa: a objeção que o cliente **diz** quase nunca é a objeção **real**. "Está caro" pode significar "não entendi o valor", "não tenho verba este mês" ou "o outro fornecedor me deu um desconto e quero o mesmo". Responder à frase errada é perder a venda com um argumento certo.
+
+## L · Ouvir (*Listen*)
+
+Ouça a objeção **até o fim, sem interromper**. Interromper passa a mensagem de que você já sabe o que ele vai dizer e está pronto para rebater, o que coloca o cliente na defensiva.
+
+## A · Acolher (*Acknowledge*)
+
+Mostre que entendeu e que a preocupação é legítima: "Faz sentido você pensar nisso." Acolher **não é concordar**: é reconhecer que o cliente tem direito à dúvida. Isso baixa a tensão e abre espaço para a próxima etapa.
+
+## E · Explorar (*Explore*)
+
+É a etapa que diferencia o método, e a mais pulada. Faça **uma pergunta** para descobrir a objeção real e o que está por trás dela:
+
+- "Caro comparado a quê?"
+- "O que exatamente você quer avaliar melhor: preço, escopo ou o momento?"
+- "O que te preocupa mais na troca?"
+
+Explorar costuma revelar que a objeção é outra, menor ou mais fácil de resolver do que parecia. Às vezes o próprio cliente resolve a objeção ao respondê-la.
+
+## R · Responder (*Respond*)
+
+Só agora responda, e responda à **objeção real**, com um **fato ligado ao diagnóstico**. A melhor resposta usa as palavras que o cliente disse antes: "Você me contou que o RH gasta horas conferindo eSocial…".
+
+Depois de responder, **confirme**: "Isso responde à sua preocupação?" Se não, volte a explorar.
+
+## A regra de ouro
+
+**Nunca responda antes de explorar.** A resposta pronta, por melhor que seja, soa como discurso decorado e gera uma nova objeção.
+
+## Objeção é bom sinal
+
+Cliente sem objeção nenhuma geralmente não está considerando comprar de verdade. A objeção mostra que ele está imaginando como seria fechar, e o que o impede. O pior cenário não é a objeção dita; é a objeção **escondida**, que só aparece depois, como silêncio.
+""",
+            "quiz": [
+                {
+                    "enunciado": "O que significam as letras do LAER?",
+                    "alternativas": [
+                        ("Listar, Argumentar, Explicar, Repetir", False),
+                        ("Ouvir, Acolher, Explorar, Responder", True),
+                        ("Ligar, Agendar, Enviar, Retornar", False),
+                        ("Levantar, Analisar, Executar, Revisar", False),
+                    ],
+                },
+                {
+                    "enunciado": "Qual é a regra de ouro do LAER?",
+                    "alternativas": [
+                        ("Sempre dar desconto na primeira objeção", False),
+                        ("Nunca responder antes de explorar", True),
+                        ("Responder rápido para não perder o ritmo", False),
+                        ("Ignorar objeções de preço", False),
+                    ],
+                },
+                {
+                    "enunciado": "Acolher a objeção significa:",
+                    "alternativas": [
+                        ("Concordar com o cliente", False),
+                        ("Reconhecer que a dúvida é legítima, sem necessariamente concordar", True),
+                        ("Mudar de assunto", False),
+                        ("Pedir para o cliente repetir", False),
+                    ],
+                },
+            ],
+        },
+        {
+            "id": UUID("7c1d0f4e-5a01-4c0e-9b11-0000000a0417"),
+            "titulo": "Escuta ativa, benefício e fechamento",
+            "resumo": "Como ouvir de verdade, transformar recurso em benefício e conduzir a conversa até um próximo passo com data.",
+            "duracao_min": 10,
+            "conteudo_md": """\
+## Escuta ativa
+
+Ouvir é a habilidade que faz as outras técnicas funcionarem. Três práticas simples:
+
+- **Anote as palavras exatas do cliente.** Não o que você entendeu, mas o que ele disse. Elas vão voltar no resumo, na apresentação e na proposta, e o cliente se reconhece nelas.
+- **Peça profundidade.** Depois de uma resposta, "como assim?" ou "me dá um exemplo". A primeira resposta costuma ser genérica; a segunda traz o problema real.
+- **Use o silêncio.** Espere cerca de **3 segundos** antes de seguir. O silêncio incomoda, e o cliente tende a completar a resposta com o que tinha de mais importante.
+
+## O resumo de confirmação
+
+Antes de apresentar qualquer solução, devolva ao cliente o que ouviu, nas palavras dele, e peça confirmação: "Deixa eu ver se entendi…". O resumo:
+
+- prova que você ouviu;
+- corrige mal-entendidos antes que virem uma proposta errada;
+- faz o cliente ouvir o próprio problema de uma vez só, o que aumenta a percepção de urgência.
+
+## Recurso × benefício
+
+Um **recurso** é o que o produto tem; um **benefício** é o que muda na vida do cliente.
+
+- Recurso: "Temos o SOC."
+- Benefício: "Você vê todos os vencimentos em tempo real e para de ser pego de surpresa."
+
+Cliente compra benefício. E o benefício mais forte é o que ele mesmo disse que queria no diagnóstico.
+
+## Pequenos fechamentos
+
+Fechar não é um momento único no fim da reunião. A cada bloco da apresentação, uma pergunta de confirmação ("Isso resolveria o que você comentou sobre…?") produz um pequeno "sim". Uma sequência de pequenos "sim" torna o "sim" final natural.
+
+## Tipos de fechamento
+
+- **Direto**: com decisor presente e qualificação forte, pede-se a decisão. "Podemos começar no dia X?"
+- **Alternativa**: oferecem-se duas opções de próximo passo, ambas positivas. "Quinta às 10h ou sexta às 15h?"
+- **Reunião com o decisor**: quando quem decide não está, o próximo passo é levá-lo à mesa.
+- **Passo de baixo risco**: para o cliente inseguro, um compromisso menor (como um diagnóstico) que prova valor.
+- **Fechamento futuro**: quando há contrato vigente com outro fornecedor, agenda-se agora a conversa para antes do vencimento.
+
+## O que não é próximo passo
+
+"Vou pensar" e "me manda por e-mail" **não são** próximos passos. Um próximo passo tem **data e hora**, aceitas pelo cliente e marcadas na agenda dele.
+
+## A pergunta final
+
+"Tem alguma coisa que possa impedir a gente de avançar que eu ainda não sei?" Ela revela objeções escondidas enquanto ainda dá para tratá-las.
+""",
+            "quiz": [
+                {
+                    "enunciado": "Qual destas é uma forma de benefício, e não de recurso?",
+                    "alternativas": [
+                        ("Temos o sistema SOC", False),
+                        ("Você vê todos os vencimentos em tempo real e para de ser pego de surpresa", True),
+                        ("Temos 30 anos de mercado", False),
+                        ("Temos médicos do trabalho", False),
+                    ],
+                },
+                {
+                    "enunciado": "Qual destas respostas é um próximo passo válido?",
+                    "alternativas": [
+                        ("\"Vou pensar e te retorno\"", False),
+                        ("\"Me manda a proposta por e-mail\"", False),
+                        ("\"Quinta às 10h apresentamos a proposta ao diretor\"", True),
+                        ("\"Fica à vontade para me ligar\"", False),
+                    ],
+                },
+                {
+                    "enunciado": "Para que serve o silêncio de cerca de 3 segundos depois de uma resposta?",
+                    "alternativas": [
+                        ("Para anotar com calma", False),
+                        ("Para o cliente completar a resposta, muitas vezes com o que tinha de mais importante", True),
+                        ("Para mostrar autoridade", False),
+                        ("Para encerrar o assunto", False),
+                    ],
+                },
+            ],
+        },
+    ],
+}
+
+
+
+# ═════════════════════════════════════════════════════════════════════
+# MÉTODO 01 — Roteiro de vendas Controller (pilar Método)
+# ═════════════════════════════════════════════════════════════════════
+# Fonte: "Roteiro de Vendas — Controller Med Seg" (30/09/2026, anexado à
+# aula 1). Aqui as técnicas da trilha 04 viram as nossas falas, perguntas,
+# regras e métricas. Reforça a medida "roteiro" (elo com o PDI).
+
+METODO_01 = {
+    "id": UUID("7c1d0f4e-5a01-4c0e-9b11-0000000b0100"),
+    "titulo": "Método 01 · Roteiro de vendas Controller",
+    "pilar": "metodo",
+    "reforca": "roteiro",
+    "descricao": (
+        "Como a Controller conduz uma reunião comercial do começo ao fim: "
+        "preparação, abertura, diagnóstico SPIN, qualificação GPCT, "
+        "apresentação reordenada, objeções com LAER, fechamento, follow-up e "
+        "o scorecard que mede tudo isso."
+    ),
+    "prazo_dias": 45,
+    "obrigatorios": ("SDR", "EV", "EC"),
+    "opcionais": ("EP", "ADM", "Franqueado"),
+    "aulas": [
+        {
+            "id": UUID("7c1d0f4e-5a01-4c0e-9b11-0000000b0111"),
+            "titulo": "A reunião Controller em 45 minutos",
+            "resumo": "As seis etapas, o tempo de cada uma, o método por trás e a mudança principal: a apresentação não abre mais a reunião.",
+            "duracao_min": 8,
+            "pdf": "roteiro",
+            "conteudo_md": """\
+## A regra única
+
+Toda reunião comercial da Controller segue a mesma regra: **diagnosticar antes de apresentar**. O vendedor fala no máximo **30%** do tempo, e a apresentação só entra depois que o cliente disse, **com as próprias palavras**, qual é o problema e quanto ele custa.
+
+As técnicas estão explicadas em profundidade na trilha **04 · Técnicas de venda consultiva**. Esta trilha mostra como elas viram a nossa reunião.
+
+## As seis etapas
+
+1. **Abertura · 5 min.** Rapport e contrato de abertura (Sandler).
+2. **Diagnóstico · 15 min.** O cliente verbaliza o problema e o custo (SPIN).
+3. **Qualificação · 5 min.** Confirmar prazo, orçamento e decisor (GPCT + BA/C&I).
+4. **Solução · 12 min.** Mostrar só o que resolve o que foi dito (apresentação reordenada).
+5. **Objeções · 5 min.** Tratar as dúvidas reais (LAER).
+6. **Fechamento · 3 min.** Próximo passo com data (compromisso).
+
+Repare na proporção: **20 minutos** de abertura e diagnóstico antes de qualquer slide. Se o diagnóstico render, a apresentação encolhe; nunca o contrário.
+
+## A mudança principal
+
+Antes, a reunião abria com a apresentação institucional: 30 anos, 100 mil vidas, 500 clientes. Agora, **a apresentação deixa de abrir a reunião**. Os slides de credenciais viram **prova**, usados **depois** do diagnóstico, para confirmar que a Controller resolve o que o cliente acabou de dizer.
+
+## O toque Challenger da Controller
+
+O insight do momento: **desde 26/05/2026 está em vigor a redação da NR-01 que exige os fatores de risco psicossociais no PGR**, e a própria norma manda revisar o PGR quando a lei muda. Toda empresa deveria ter revisado; muitas não revisaram. Use como pergunta no diagnóstico, não como sermão.
+
+## O roteiro completo
+
+O documento **Roteiro de Vendas · Controller Med Seg** está em **Material de apoio**. Ele é a referência oficial; estas aulas o explicam etapa por etapa.
+""",
+            "quiz": [
+                {
+                    "enunciado": "Quanto tempo da reunião de 45 minutos vem ANTES de qualquer slide?",
+                    "alternativas": [
+                        ("5 minutos", False),
+                        ("20 minutos (abertura e diagnóstico)", True),
+                        ("Nenhum: a apresentação abre a reunião", False),
+                        ("40 minutos", False),
+                    ],
+                },
+                {
+                    "enunciado": "Qual é o papel dos slides de credenciais (30 anos, 100 mil vidas, 500 clientes) no novo roteiro?",
+                    "alternativas": [
+                        ("Abrir a reunião", False),
+                        ("Servir de prova, depois do diagnóstico", True),
+                        ("Substituir o diagnóstico", False),
+                        ("Não são mais usados", False),
+                    ],
+                },
+                {
+                    "enunciado": "No máximo quanto do tempo o vendedor deve falar na reunião?",
+                    "alternativas": [
+                        ("30%", True),
+                        ("50%", False),
+                        ("70%", False),
+                        ("Não há limite", False),
+                    ],
+                },
+            ],
+        },
+        {
+            "id": UUID("7c1d0f4e-5a01-4c0e-9b11-0000000b0112"),
+            "titulo": "Antes da reunião: pesquisa e hipóteses de dor",
+            "resumo": "Os 15 minutos de preparação obrigatória, as três hipóteses de dor por perfil e o checklist pré-reunião.",
+            "duracao_min": 10,
+            "conteudo_md": """\
+## A regra
+
+**Nenhuma reunião começa sem 15 minutos de preparação e três hipóteses de dor escritas.** O vendedor chega sabendo mais sobre o risco da empresa do que o próprio interlocutor. É o que permite fazer poucas perguntas de Situação e ir direto ao que importa.
+
+## A pesquisa obrigatória
+
+- **CNAE principal e grau de risco (NR-04).** Onde: cartão CNPJ, e a conta no HIPO já mostra o grau de risco. Por quê: define exigências, exames complementares e preço.
+- **Número de funcionários e de unidades.** Onde: LinkedIn, site, cadastro. Por quê: dimensiona as vidas; várias unidades puxam o argumento do atendimento nacional.
+- **Segmento e atividades de risco.** Onde: site, Google Maps, vagas abertas. Por quê: altura, ruído, químico, turno noturno, alimentação mudam tudo.
+- **Contratações recentes.** Onde: vagas no LinkedIn e no Indeed. Por quê: volume de admissionais; turnover alto é dor de agilidade.
+- **Fornecedor atual de SST.** Onde: pergunta do SDR na qualificação. Por quê: prepara a comparação sem falar mal do concorrente.
+- **Quem vai estar na reunião.** Onde: agendamento. Por quê: RH, DP, financeiro, dono ou técnico de segurança, cada um tem uma dor.
+
+## As três hipóteses de dor
+
+Escreva três hipóteses antes de entrar. Exemplos por perfil:
+
+- **Rede de alimentação ou varejo com várias lojas**: turnover alto, admissional demorado atrasando o início do funcionário, cada loja com um fornecedor diferente.
+- **Indústria ou construção**: PGR e LTCAT desatualizados, exames complementares por risco (audiometria, espirometria), NR-35 (altura) e NR-10 (eletricidade).
+- **Escritório ou serviços**: acha que "não tem risco"; não incluiu os riscos psicossociais no PGR; eventos S-2220 e S-2240 do eSocial enviados com erro pelo contador.
+
+As hipóteses não são para afirmar ao cliente: são para escolher **quais perguntas** fazer no diagnóstico.
+
+## Checklist pré-reunião
+
+- CNAE, grau de risco e porte levantados.
+- Três hipóteses de dor escritas.
+- Participantes e cargo de cada um confirmados.
+- Lembrete enviado 24h antes, com a pauta.
+- Apresentação aberta no slide 1, mas **não compartilhada** na abertura.
+- Registro da oportunidade atualizado no HIPO.
+
+## O papel do SDR
+
+Boa parte da pesquisa nasce na qualificação do SDR: fornecedor atual, número de unidades, quem participa da decisão. O que o SDR descobre e não registra no HIPO, o vendedor vai perguntar de novo, e o cliente percebe.
+""",
+            "quiz": [
+                {
+                    "enunciado": "Quanto tempo de preparação é obrigatório antes de toda reunião?",
+                    "alternativas": [
+                        ("Nenhum, a reunião é para descobrir tudo", False),
+                        ("15 minutos, com três hipóteses de dor escritas", True),
+                        ("Um dia inteiro", False),
+                        ("5 minutos para abrir a apresentação", False),
+                    ],
+                },
+                {
+                    "enunciado": "Para um escritório que \"acha que não tem risco\", qual é uma boa hipótese de dor?",
+                    "alternativas": [
+                        ("NR-35 e trabalho em altura", False),
+                        ("PGR sem riscos psicossociais e eventos de SST do eSocial com erro", True),
+                        ("Falta de EPI", False),
+                        ("Audiometria vencida", False),
+                    ],
+                },
+                {
+                    "enunciado": "Na abertura da reunião, a apresentação deve estar:",
+                    "alternativas": [
+                        ("Compartilhada na tela desde o início", False),
+                        ("Aberta no slide 1, mas não compartilhada", True),
+                        ("Enviada por e-mail antes da reunião", False),
+                        ("Fechada: não é usada", False),
+                    ],
+                },
+            ],
+        },
+        {
+            "id": UUID("7c1d0f4e-5a01-4c0e-9b11-0000000b0113"),
+            "titulo": "Abertura: rapport e contrato de abertura",
+            "resumo": "Os 5 primeiros minutos: rapport ligado à pesquisa, a fala padrão do contrato, a credencial em uma frase e a transição.",
+            "duracao_min": 8,
+            "conteudo_md": """\
+## O objetivo
+
+Sair da abertura com **permissão para fazer perguntas** e com o combinado de que **haverá uma decisão sobre o próximo passo no final**.
+
+## Rapport (1 minuto)
+
+Curto e específico, ligado à pesquisa, **nunca ao clima**:
+
+> "Vi que vocês abriram a unidade de Campinas este ano. Como está sendo essa expansão?"
+
+Um rapport que usa a pesquisa mostra preparo e já abre um tema de negócio.
+
+## Contrato de abertura (2 minutos)
+
+A fala padrão:
+
+> "Obrigado pelo tempo, [nome]. Combinamos 45 minutos, ainda está bom para você? A ideia é eu entender primeiro como vocês cuidam hoje da saúde e segurança dos colaboradores. Depois, se fizer sentido, mostro como a Controller pode ajudar. No final, a gente decide junto se vale um próximo passo ou se não é o momento: as duas respostas são boas para mim. Pode ser?"
+
+Repare nos quatro elementos de Sandler: **tempo** (45 minutos), **pauta** (entender primeiro, mostrar depois), **papéis** (eu pergunto, você conta) e **desfecho** (decidimos juntos, e "não" é uma resposta aceita).
+
+## Credencial em uma frase (1 minuto)
+
+Sem slide, só para dar contexto:
+
+> "Rapidamente sobre nós: a Controller nasceu em Guarulhos em 1991, com o Dr. Paulo Dick. Hoje atendemos mais de 500 empresas e mais de 100 mil vidas no Brasil todo, de redes como Bob's e Subway até indústrias. Mas quero entender a realidade de vocês primeiro."
+
+## Transição para o diagnóstico
+
+> "Para eu não te mostrar coisa que não serve, posso te fazer algumas perguntas?"
+
+## Erros a evitar
+
+- Abrir compartilhando a tela.
+- Falar da empresa por mais de 1 minuto.
+- Pular o combinado sobre o final da reunião.
+
+No scorecard, o item **Contrato de abertura** só ganha nota máxima com tempo, pauta **e** o combinado de decidir o próximo passo no final.
+""",
+            "quiz": [
+                {
+                    "enunciado": "Qual destes é um bom rapport, segundo o roteiro?",
+                    "alternativas": [
+                        ("\"Que calor hoje, né?\"", False),
+                        ("\"Vi que vocês abriram a unidade de Campinas este ano. Como está sendo essa expansão?\"", True),
+                        ("\"Deixa eu te mostrar nossa apresentação\"", False),
+                        ("\"Quanto vocês pagam hoje por exame?\"", False),
+                    ],
+                },
+                {
+                    "enunciado": "Quanto tempo, no máximo, o vendedor fala da Controller na abertura?",
+                    "alternativas": [
+                        ("1 minuto, sem slide", True),
+                        ("5 minutos, com a apresentação", False),
+                        ("O tempo que for preciso", False),
+                        ("Não fala da Controller", False),
+                    ],
+                },
+                {
+                    "enunciado": "Para o item Contrato de abertura ganhar nota 2 no scorecard, o vendedor precisa:",
+                    "alternativas": [
+                        ("Só confirmar o tempo", False),
+                        ("Combinar tempo, pauta e que no final se decide o próximo passo", True),
+                        ("Apresentar a empresa", False),
+                        ("Pedir o orçamento", False),
+                    ],
+                },
+            ],
+        },
+        {
+            "id": UUID("7c1d0f4e-5a01-4c0e-9b11-0000000b0114"),
+            "titulo": "Diagnóstico SPIN na Controller",
+            "resumo": "As perguntas de Situação, Problema, Implicação e Necessidade para SST, o resumo de confirmação e as técnicas de escuta.",
+            "duracao_min": 15,
+            "conteudo_md": """\
+## Quando o diagnóstico termina
+
+O diagnóstico termina quando o cliente disse, **em voz alta, um problema e o custo dele**. Escolha 2 ou 3 perguntas de cada bloco conforme as suas hipóteses. **Não use o roteiro como interrogatório.**
+
+## S · Situação (no máximo 4, só o que a pesquisa não respondeu)
+
+- Quantos colaboradores vocês têm hoje, e em quantas unidades?
+- Quem cuida de medicina e segurança do trabalho hoje: fornecedor externo, equipe interna ou o contador?
+- Como funciona hoje quando entra um funcionário novo? Quanto tempo leva do pedido ao ASO na mão?
+- Quando foi a última revisão do PGR e do PCMSO?
+- Quem envia os eventos de SST do eSocial (S-2210, S-2220, S-2240)?
+
+No scorecard: **até 4 perguntas de Situação antes da primeira de Problema vale 2**; 5 ou 6 vale 1; mais de 6 vale 0.
+
+## P · Problema
+
+- O que te incomoda no modelo atual? Se pudesse mudar uma coisa, o que seria?
+- Já aconteceu de um funcionário atrasar o início por causa do exame admissional?
+- Você consegue saber hoje, em 5 minutos, quais exames periódicos vencem no próximo mês?
+- As unidades fora de Guarulhos/SP são atendidas pelo mesmo padrão? Como você controla isso?
+- O PGR de vocês já inclui os riscos psicossociais que a NR-01 passou a exigir?
+- Já receberam alguma notificação de divergência no eSocial ou visita de fiscalização?
+
+## I · Implicação (o bloco que mais converte: não pule)
+
+- Quando um admissional atrasa, quanto custa um dia de funcionário parado ou de loja desfalcada?
+- Se um fiscal chegasse amanhã e pedisse PGR, PCMSO e ASOs, o que ele encontraria?
+- Se houver um acidente ou afastamento e o PGR estiver desatualizado, como isso fica numa ação trabalhista?
+- Um laudo (LTCAT) errado afeta a aposentadoria especial e o recolhimento ao INSS. Alguém já conferiu isso?
+- Quantas horas por mês o RH gasta cobrando fornecedor, conferindo ASO e corrigindo eSocial? O que essa pessoa poderia fazer nesse tempo?
+- Quem responde internamente se der problema: você, o dono, o contador?
+
+## N · Necessidade de solução (o cliente vende para si mesmo)
+
+- Se você tivesse todos os exames, vencimentos e documentos num lugar só, em tempo real, o que mudaria na sua rotina?
+- Quanto valeria ter um único parceiro para todas as unidades, com o mesmo padrão?
+- Se o eSocial de SST saísse sem você ter que conferir, isso ajudaria?
+- O que precisaria acontecer para você dormir tranquilo com relação à fiscalização?
+
+## Resumo de confirmação (obrigatório antes de apresentar)
+
+> "Deixa eu ver se entendi: hoje vocês têm [situação], o que mais pesa é [problema 1] e [problema 2], e isso está custando [implicação nas palavras do cliente]. O ideal seria [necessidade]. É isso? Faltou alguma coisa?"
+
+Só vale nota máxima no scorecard com o **"sim" do cliente**.
+
+## Técnicas de escuta
+
+- Anote as **palavras exatas** do cliente: elas vão para a proposta.
+- Depois de uma resposta, pergunte "como assim?" ou "me dá um exemplo".
+- **Silêncio de 3 segundos** antes de seguir.
+
+## Onde registrar
+
+As dores, **nas palavras do cliente**, vão para a oportunidade no HIPO no mesmo dia. É delas que nascem o e-mail de resumo e a primeira página da proposta.
+""",
+            "quiz": [
+                {
+                    "enunciado": "Quando termina o diagnóstico?",
+                    "alternativas": [
+                        ("Quando acabam as perguntas da lista", False),
+                        ("Quando o cliente disse em voz alta um problema e o custo dele", True),
+                        ("Depois de exatamente 15 minutos, aconteça o que acontecer", False),
+                        ("Quando o cliente pede o preço", False),
+                    ],
+                },
+                {
+                    "enunciado": "\"Se um fiscal chegasse amanhã e pedisse PGR, PCMSO e ASOs, o que ele encontraria?\" é uma pergunta de:",
+                    "alternativas": [
+                        ("Situação", False),
+                        ("Problema", False),
+                        ("Implicação", True),
+                        ("Necessidade de solução", False),
+                    ],
+                },
+                {
+                    "enunciado": "Quantas perguntas de Situação antes da primeira de Problema valem nota 2 no scorecard?",
+                    "alternativas": [
+                        ("Até 4", True),
+                        ("5 a 6", False),
+                        ("Mais de 6", False),
+                        ("Nenhuma", False),
+                    ],
+                },
+            ],
+        },
+        {
+            "id": UUID("7c1d0f4e-5a01-4c0e-9b11-0000000b0115"),
+            "titulo": "Qualificação GPCT na Controller",
+            "resumo": "As perguntas modelo, os sinais verde e vermelho de cada critério e a regra de avanço que decide se há proposta.",
+            "duracao_min": 10,
+            "conteudo_md": """\
+## A regra
+
+**Uma oportunidade só recebe proposta se tiver Prazo, Autoridade e Consequência respondidos.** Sem isso, ela vira **nutrição**, não proposta.
+
+## As perguntas modelo e os sinais
+
+- **G · Metas.** "O que vocês querem alcançar em SST nos próximos 6 meses?" Verde: meta concreta (regularizar, padronizar unidades, reduzir custo). Vermelho: "só cotar".
+- **P · Planos.** "O que já tentaram para resolver isso?" Verde: tentou e não funcionou. Vermelho: nunca pensou no assunto.
+- **C · Desafios.** "O que impediu de resolver até agora?" Verde: obstáculo que a Controller remove. Vermelho: obstáculo interno sem solução.
+- **T · Prazo.** "Quando isso precisa estar resolvido? O contrato atual vence quando?" Verde: data definida ou gatilho (fiscalização, vencimento, nova unidade). Vermelho: "sem pressa".
+- **B · Orçamento.** "Quanto vocês investem hoje por mês em SST, somando exames e programas?" Verde: sabe o valor e aceita discutir valor, não só preço. Vermelho: decide só pelo menor preço por exame.
+- **A · Autoridade.** "Além de você, quem participa dessa decisão? Como vocês costumam aprovar um fornecedor novo?" Verde: decisor presente ou próxima reunião com ele. Vermelho: decisor inacessível.
+- **C · Consequências.** "O que acontece se nada mudar nos próximos 6 meses?" Verde: o cliente nomeia um risco real. Vermelho: "nada".
+- **I · Implicações.** "E se der certo, o que isso muda para você e para a empresa?" Verde: benefício pessoal e para o negócio. Vermelho: sem ganho percebido.
+
+## A regra de avanço
+
+- **6 ou mais verdes**: apresentar e propor.
+- **4 ou 5 verdes**: apresentar e agendar reunião com o decisor.
+- **3 ou menos**: enviar material, marcar retorno e registrar como **nutrição**.
+
+## A dica da ordem
+
+Pergunte **orçamento depois das implicações**. Com o custo do problema na mesa, o investimento é comparado ao **risco**, não ao preço do concorrente.
+
+## No scorecard e no HIPO
+
+O item 7 do scorecard verifica se o cliente respondeu **quando** (prazo), **quem decide** (autoridade) e **o que acontece se nada mudar** (consequência): os três valem 2. O GPCT preenchido vai para a oportunidade no HIPO junto com o decisor.
+""",
+            "quiz": [
+                {
+                    "enunciado": "Quais três critérios precisam estar respondidos para uma oportunidade receber proposta?",
+                    "alternativas": [
+                        ("Metas, Planos e Desafios", False),
+                        ("Prazo, Autoridade e Consequência", True),
+                        ("Orçamento, Metas e Implicações", False),
+                        ("Nenhum, toda reunião gera proposta", False),
+                    ],
+                },
+                {
+                    "enunciado": "Uma oportunidade com 4 sinais verdes deve:",
+                    "alternativas": [
+                        ("Receber proposta imediatamente", False),
+                        ("Apresentar e agendar reunião com o decisor", True),
+                        ("Ir para nutrição", False),
+                        ("Ser descartada", False),
+                    ],
+                },
+                {
+                    "enunciado": "\"Só quero cotar\" é sinal de que cor no critério Metas?",
+                    "alternativas": [
+                        ("Verde", False),
+                        ("Vermelho", True),
+                        ("Não influencia", False),
+                        ("Amarelo", False),
+                    ],
+                },
+            ],
+        },
+        {
+            "id": UUID("7c1d0f4e-5a01-4c0e-9b11-0000000b0116"),
+            "titulo": "Apresentação reordenada: dor, solução e prova",
+            "resumo": "A ordem dos slides na reunião, a fala-ponte de cada um e as regras de apresentação.",
+            "duracao_min": 10,
+            "conteudo_md": """\
+## A mudança de ordem
+
+A apresentação institucional (11 slides) segue a ordem "quem somos → o que fazemos → por que nós". Na reunião, a ordem muda para **dor → solução → prova**, e cada slide só aparece se conecta a algo que o cliente disse.
+
+## A ordem na reunião
+
+1. **Slide 10 · O custo de não ter uma gestão especializada.** Abrir por aqui. Apontar na coluna laranja os itens que o cliente citou. Fala-ponte: "Você me falou de [documentos vencidos / retrabalho]. É exatamente o que a gente mais encontra."
+2. **Slide 6 · Serviços: Medicina e Segurança.** Mostrar só os itens ligados à dor e citar o resto em uma frase. Fala-ponte: "Para o seu caso, o que resolve é [PGR com psicossociais + periódicos]. Além disso fazemos o ciclo completo."
+3. **Slide 7 · Gestão, compliance e bem-estar.** eSocial e indicadores para quem citou retrabalho; campanhas para quem citou afastamentos. Fala-ponte: "Você disse que o RH gasta [X horas] conferindo eSocial. Aqui isso sai da sua mão."
+4. **Slides 8 e 9 · Por que escolhem a Controller.** Cada diferencial ligado a uma dor: nacional → várias unidades; SOC e tempo real → falta de controle; consultivo → insegurança jurídica. Fala-ponte: "Lembra que você não consegue ver os vencimentos em 5 minutos? Com o SOC…"
+5. **Slides 2, 3 e 5 · +30 anos, +100 mil vidas, +500 clientes.** Prova social. Citar um logo do mesmo segmento do cliente. Fala-ponte: "Atendemos redes como a [marca do mesmo setor], com o mesmo desafio de várias unidades."
+6. **Slide 4 · Nossa história.** Opcional: só se o cliente valoriza tradição ou empresa local de Guarulhos.
+7. **Slide 11 · Conte conosco.** Deixar na tela durante o fechamento.
+
+## As regras
+
+- **Benefício, não recurso.** Não "temos o SOC"; sim "você vê todos os vencimentos em tempo real e para de ser pego de surpresa".
+- **Use as palavras do cliente.** Repita os termos anotados no diagnóstico.
+- **Pergunta de confirmação a cada bloco**: "Isso resolveria o que você comentou sobre [X]?" Cada "sim" é um pequeno fechamento.
+- **Uma história de cliente** do mesmo porte ou setor: situação antes, o que fizemos, resultado.
+
+## No scorecard
+
+O item 8 (**Apresentação ligada às dores**) vale 2 quando **toda** solução mostrada é ligada a uma dor dita pelo cliente; mostrar o deck inteiro sem ligação vale 0.
+""",
+            "quiz": [
+                {
+                    "enunciado": "Por qual slide a apresentação começa na reunião?",
+                    "alternativas": [
+                        ("Slide 1, a capa", False),
+                        ("Slide 10, o custo de não ter uma gestão especializada", True),
+                        ("Slide 4, nossa história", False),
+                        ("Slide 2, os 30 anos", False),
+                    ],
+                },
+                {
+                    "enunciado": "Quando o slide de história (slide 4) deve ser usado?",
+                    "alternativas": [
+                        ("Sempre, para abrir", False),
+                        ("Só se o cliente valoriza tradição ou empresa local de Guarulhos", True),
+                        ("Nunca", False),
+                        ("Só no fechamento", False),
+                    ],
+                },
+                {
+                    "enunciado": "Para cada bloco apresentado, o que o vendedor deve fazer?",
+                    "alternativas": [
+                        ("Passar rápido para o próximo slide", False),
+                        ("Perguntar se aquilo resolve o que o cliente comentou", True),
+                        ("Mostrar o preço daquele item", False),
+                        ("Pedir para o cliente ler o slide", False),
+                    ],
+                },
+            ],
+        },
+        {
+            "id": UUID("7c1d0f4e-5a01-4c0e-9b11-0000000b0117"),
+            "titulo": "Objeções da Controller com LAER",
+            "resumo": "As nove objeções mais comuns, a pergunta para explorar cada uma, a resposta-base e o que fazer com a objeção de preço.",
+            "duracao_min": 12,
+            "conteudo_md": """\
+## O método
+
+Ouvir até o fim → Acolher ("faz sentido você pensar isso") → **Explorar** com uma pergunta → Responder com fato ligado ao diagnóstico. **Nunca responda antes de explorar.**
+
+## As objeções
+
+### "Está caro" / "O outro cobra menos por exame"
+
+- **Explorar:** "Caro comparado a quê? Nessa comparação estão inclusos PGR, eSocial e gestão dos vencimentos?"
+- **Responder:** comparar **custo total**, não preço de exame. Retomar a implicação: "Uma autuação ou uma ação trabalhista sem PGR válido custa mais que um ano de contrato."
+
+### "Já temos fornecedor"
+
+- **Explorar:** "E como está sendo? Se pudesse melhorar uma coisa nele, o que seria?"
+- **Responder:** **não falar mal do concorrente**. Oferecer auditoria ou diagnóstico da documentação atual como próximo passo de baixo risco.
+
+### "Nosso contador cuida disso"
+
+- **Explorar:** "Ele cuida dos exames e do PGR ou só do envio do eSocial?"
+- **Responder:** o contador envia o evento; quem responde pelo **conteúdo técnico** (PGR, PCMSO, LTCAT) é SST. Propor trabalhar **junto** com o contador.
+
+### "Somos pequenos / escritório, não temos risco"
+
+- **Explorar:** "Vocês têm PGR e PCMSO hoje? E o PGR já inclui riscos psicossociais?"
+- **Responder:** a NR-01 vale para todas as empresas com empregados CLT; risco psicossocial (estresse, sobrecarga) existe em qualquer escritório. As dispensas para pequenas empresas são estreitas (trilha 03).
+
+### "Preciso pensar"
+
+- **Explorar:** "Claro. O que exatamente você quer avaliar melhor: preço, escopo ou o momento?"
+- **Responder:** tratar a objeção real que aparecer. Fechar com data: "Posso te ligar quinta às 10h para a gente decidir?"
+
+### "Manda uma proposta por e-mail"
+
+- **Explorar:** "Mando sim. Para ela vir certa, posso confirmar três pontos?"
+- **Responder:** **nunca enviar proposta sem reunião de apresentação marcada.** "Prefiro te apresentar em 20 minutos, para não ficar dúvida."
+
+### "Trocar dá muito trabalho"
+
+- **Explorar:** "O que te preocupa mais na troca?"
+- **Responder:** explicar a implantação: a Controller migra histórico e documentos, e o RH não precisa refazer nada.
+
+### "Tenho unidades em outros estados"
+
+- **Explorar:** "Quantas e onde? Como é feito hoje?"
+- **Responder:** transformar em vantagem: atendimento nacional com um único parceiro e padrão único (slide 8).
+
+### "O dono/diretor precisa aprovar"
+
+- **Explorar:** "O que ele vai querer ver para aprovar? Como a gente te ajuda a levar isso?"
+- **Responder:** propor reunião de 20 minutos com o decisor, com você presente. Preparar um resumo de uma página com dor, custo e solução.
+
+## A objeção de preço que persiste
+
+Antes de dar desconto, **reduza o escopo**: "Se o foco agora é regularizar, podemos começar por PGR e PCMSO." Desconto, quando houver, **sempre em troca de algo**: prazo de contrato maior, pagamento antecipado ou indicação.
+
+## No scorecard
+
+O item 9 (**Objeções com LAER**) vale 2 quando há pergunta de exploração **antes** da resposta; rebater direto vale 0.
+""",
+            "quiz": [
+                {
+                    "enunciado": "O cliente diz \"Nosso contador cuida disso\". Qual é a pergunta para explorar?",
+                    "alternativas": [
+                        ("\"Quanto ele cobra?\"", False),
+                        ("\"Ele cuida dos exames e do PGR ou só do envio do eSocial?\"", True),
+                        ("\"Posso falar com ele?\"", False),
+                        ("\"Por que vocês não trocam de contador?\"", False),
+                    ],
+                },
+                {
+                    "enunciado": "Diante de uma objeção de preço que persiste, o que fazer antes de dar desconto?",
+                    "alternativas": [
+                        ("Encerrar a reunião", False),
+                        ("Reduzir o escopo, começando pelo essencial (por exemplo, PGR e PCMSO)", True),
+                        ("Dar o desconto máximo de uma vez", False),
+                        ("Falar mal do concorrente", False),
+                    ],
+                },
+                {
+                    "enunciado": "O cliente pede \"manda a proposta por e-mail\". Qual é a regra?",
+                    "alternativas": [
+                        ("Enviar na hora para não perder o cliente", False),
+                        ("Nunca enviar proposta sem reunião de apresentação marcada", True),
+                        ("Enviar só a tabela de preços", False),
+                        ("Pedir para ele pedir de novo depois", False),
+                    ],
+                },
+            ],
+        },
+        {
+            "id": UUID("7c1d0f4e-5a01-4c0e-9b11-0000000b0118"),
+            "titulo": "Fechamento: próximo passo com data",
+            "resumo": "O resumo de valor, o tipo de fechamento para cada situação, o convite na hora e a pergunta final.",
+            "duracao_min": 8,
+            "conteudo_md": """\
+## A regra
+
+**Nenhuma reunião termina sem próximo passo com data e hora na agenda do cliente.** "Vou pensar" e "me manda por e-mail" não são próximos passos.
+
+## 1. Resumo de valor (retomando o contrato de abertura)
+
+> "Você me contou que [dor 1] e [dor 2] estão custando [implicação]. Vimos que com [solução] isso se resolve. Combinamos no início que decidiríamos juntos o próximo passo. Faz sentido seguirmos?"
+
+## 2. O fechamento conforme a qualificação
+
+- **Decisor presente, 6 ou mais verdes → fechamento direto.** "Podemos começar a implantação no dia [X]? Preciso só dos dados para o contrato."
+- **Decisor presente, mas quer ver números → alternativa.** "Te apresento a proposta na quinta às 10h ou na sexta às 15h?"
+- **Decisor ausente → reunião com o decisor.** "Vamos marcar 20 minutos com o [diretor] esta semana? Eu levo a proposta pronta."
+- **Cliente inseguro sobre trocar → passo de baixo risco.** "Que tal começarmos com um diagnóstico da documentação atual? Em [X] dias você sabe exatamente onde está exposto."
+- **Contrato atual vigente → fechamento futuro.** "Seu contrato vence em [mês]. Vamos marcar agora a revisão para 60 dias antes?"
+
+## 3. Confirmação
+
+Mande o **convite de calendário ainda na reunião**, com pauta e participantes. Confirme quem mais precisa estar.
+
+## 4. A pergunta final
+
+> "Tem alguma coisa que possa impedir a gente de avançar que eu ainda não sei?"
+
+Ela revela objeções ocultas enquanto ainda dá para tratá-las.
+
+## No HIPO
+
+O próximo passo combinado vira a **próxima tarefa** da oportunidade, com a data e a hora que o cliente aceitou. É a regra da casa: oportunidade viva nunca fica sem próximo passo aberto.
+
+## No scorecard
+
+O item 10 (**Próximo passo com data**) vale 2 com **dia e hora** falados e aceitos pelo cliente; próximo passo sem data vale 1.
+""",
+            "quiz": [
+                {
+                    "enunciado": "O cliente tem contrato vigente com outro fornecedor até março. Qual fechamento usar?",
+                    "alternativas": [
+                        ("Fechamento direto", False),
+                        ("Fechamento futuro: marcar agora a revisão para 60 dias antes do vencimento", True),
+                        ("Desistir da oportunidade", False),
+                        ("Enviar a proposta por e-mail", False),
+                    ],
+                },
+                {
+                    "enunciado": "Quando o convite de calendário do próximo passo deve ser enviado?",
+                    "alternativas": [
+                        ("Ainda na reunião", True),
+                        ("No dia seguinte", False),
+                        ("Só depois da proposta aceita", False),
+                        ("Quando o cliente pedir", False),
+                    ],
+                },
+                {
+                    "enunciado": "Qual é o objetivo da pergunta final \"Tem alguma coisa que possa impedir a gente de avançar que eu ainda não sei?\"",
+                    "alternativas": [
+                        ("Encerrar a reunião com educação", False),
+                        ("Revelar objeções ocultas enquanto ainda dá para tratá-las", True),
+                        ("Pedir desconto", False),
+                        ("Confirmar o e-mail do cliente", False),
+                    ],
+                },
+            ],
+        },
+        {
+            "id": UUID("7c1d0f4e-5a01-4c0e-9b11-0000000b0119"),
+            "titulo": "Pós-reunião, proposta e follow-up",
+            "resumo": "O que fazer nas 2 horas seguintes, a estrutura da proposta em 48h e a cadência quando o cliente some.",
+            "duracao_min": 8,
+            "conteudo_md": """\
+## A regra
+
+O registro e o resumo saem **no mesmo dia**; a proposta sai em **até 48h** e é sempre **apresentada**, nunca só enviada.
+
+## Em até 2 horas
+
+- **Registrar no HIPO**: o desfecho da reunião, as dores **nas palavras do cliente**, o GPCT preenchido, o decisor e o próximo passo com data (como próxima tarefa).
+- **Enviar o e-mail de resumo ao cliente**:
+
+> "[Nome], obrigado pela conversa. Resumindo o que entendi: hoje [situação]; os pontos críticos são [dor 1] e [dor 2]; o impacto é [implicação]. Combinamos [próximo passo] em [data/hora]. Se algo ficou diferente do que você pensou, me avise."
+
+## A proposta (até 48h)
+
+A **primeira página repete o diagnóstico do cliente**, antes de qualquer preço. A estrutura:
+
+1. O que ouvimos.
+2. O que propomos, item por item ligado à dor.
+3. Implantação em etapas.
+4. Investimento.
+5. Próximos passos.
+
+## Quando o cliente some: a cadência
+
+- **D+2 · WhatsApp**: confirmar recebimento da proposta e o horário combinado.
+- **D+5 · Ligação**: tirar dúvidas; perguntar se surgiu algo novo.
+- **D+9 · E-mail**: conteúdo útil, como um checklist da NR-01 psicossocial ou dos vencimentos do eSocial.
+- **D+14 · Ligação**: retomar a implicação do diagnóstico.
+- **D+21 · WhatsApp**: mensagem de encerramento: "Entendo que não é prioridade agora. Posso retomar em [mês]?"
+
+A mensagem de encerramento costuma gerar resposta. Sem retorno, a oportunidade vai para **nutrição com data de retomada**, e nunca fica aberta indefinidamente.
+
+## No HIPO
+
+Cada toque da cadência é uma tarefa, e cada tarefa concluída pede a próxima. Assim a cadência anda sozinha, e o gestor enxerga no funil quem está em follow-up e há quanto tempo.
+""",
+            "quiz": [
+                {
+                    "enunciado": "Em quanto tempo o registro no HIPO e o e-mail de resumo devem sair?",
+                    "alternativas": [
+                        ("Em até 2 horas", True),
+                        ("Em até 1 semana", False),
+                        ("Só quando a proposta for enviada", False),
+                        ("No fim do mês", False),
+                    ],
+                },
+                {
+                    "enunciado": "O que vem na primeira página da proposta?",
+                    "alternativas": [
+                        ("A tabela de preços", False),
+                        ("O diagnóstico do cliente: o que ouvimos", True),
+                        ("A história da Controller", False),
+                        ("O contrato para assinatura", False),
+                    ],
+                },
+                {
+                    "enunciado": "O que acontece com a oportunidade se o cliente não responder nem à mensagem de encerramento do D+21?",
+                    "alternativas": [
+                        ("Fica aberta até ele responder", False),
+                        ("Vai para nutrição com data de retomada", True),
+                        ("É apagada do HIPO", False),
+                        ("O vendedor recomeça a cadência do zero", False),
+                    ],
+                },
+            ],
+        },
+        {
+            "id": UUID("7c1d0f4e-5a01-4c0e-9b11-0000000b0120"),
+            "titulo": "Scorecard, métricas e rotina de melhoria",
+            "resumo": "Como cada reunião é avaliada pela transcrição, os 10 itens do scorecard, as métricas de funil e a rotina de implantação do roteiro.",
+            "duracao_min": 10,
+            "conteudo_md": """\
+## O roteiro só vira padrão se for medido
+
+Toda reunião é avaliada pela sua **transcrição**, com o scorecard abaixo (0 a 2 por item, máximo de 20 pontos).
+
+## Como funciona
+
+1. A reunião acontece pelo **link do Meet do evento**, com o vendedor logado na conta **@controllermedseg.com**. Sem isso não há transcrição.
+2. Com a transcrição pronta, o HIPO a envia à IA, que preenche o scorecard item a item com a nota e o **trecho literal** que a justifica. O **gestor revisa** e pode ajustar qualquer nota; a avaliação é sugestão até ele validar.
+3. O vendedor recebe a nota com dois trechos da transcrição: **um que funcionou e um para melhorar**.
+4. Reunião presencial sem transcrição é avaliada pelo registro no HIPO e marcada como "sem transcrição", para não distorcer a média.
+
+## O scorecard (0 / 1 / 2)
+
+1. **Preparação**: cita dado da empresa que pesquisou. Nenhum / 1 dado / rapport e perguntas usam a pesquisa.
+2. **Contrato de abertura**: tempo, pauta e o combinado do final. Não fez / sem o combinado / completo.
+3. **Perguntas de Situação** antes da primeira de Problema: mais de 6 / 5 a 6 / até 4.
+4. **Perguntas de Problema**: nenhuma / 1 / 2 ou mais.
+5. **Perguntas de Implicação**: nenhuma / 1 / 2 ou mais.
+6. **Resumo de confirmação**: não fez / sem validação / cliente confirmou.
+7. **GPCT: prazo, decisor e consequência**: nenhum / 1 ou 2 / os 3.
+8. **Apresentação ligada às dores**: deck inteiro sem ligação / parcial / toda solução ligada a uma dor.
+9. **Objeções com LAER**: rebateu direto / explorou pouco / explorou antes de responder.
+10. **Próximo passo com data**: nenhum / sem data / data e hora combinadas.
+
+Fora da nota, como indicador: **tempo de fala do vendedor**, com meta de **até 40%** da transcrição.
+
+## A meta
+
+**Média de 15 ou mais por vendedor em 60 dias.** Com todas as reuniões avaliadas, dá para comparar o scorecard das reuniões que avançaram com o das que morreram e descobrir quais itens mais pesam na conversão. Os itens mais fracos do mês viram o tema do treinamento semanal.
+
+## As métricas de funil (no HIPO, por vendedor e por mês)
+
+- Reuniões realizadas ÷ agendadas (comparecimento).
+- Reuniões com próximo passo marcado ÷ realizadas.
+- Propostas apresentadas ÷ reuniões.
+- Fechamentos ÷ propostas apresentadas.
+- Ciclo médio de venda (dias do 1º contato ao fechamento).
+- Ticket médio e número de vidas por contrato.
+- Motivos de perda (preço, timing, concorrente, sem decisor).
+
+## A rotina de implantação
+
+1. **Semana 1**: leitura do roteiro e role-play da abertura e do SPIN.
+2. **Semana 2**: role-play de objeções e fechamento, com o gestor como cliente.
+3. **Semana 3 em diante**: scorecard em toda reunião e, uma vez por semana, leitura em grupo de trechos de transcrições (os melhores e os que perderam a venda).
+4. **A cada 90 dias**: revisão do roteiro com as perguntas e respostas a objeções que mais aparecem nas reuniões que fecharam.
+
+## O elo com a Universidade
+
+A nota de roteiro validada é um dos componentes do pilar **Método** na avaliação mensal. Quando ela fica baixa, o PDI aponta de volta para esta trilha.
+""",
+            "quiz": [
+                {
+                    "enunciado": "Sem o que não há transcrição da reunião?",
+                    "alternativas": [
+                        ("Sem o vendedor logado na conta @controllermedseg.com, usando o link do Meet do evento", True),
+                        ("Sem a apresentação compartilhada", False),
+                        ("Sem o cliente autorizar por escrito", False),
+                        ("Sem o gestor presente", False),
+                    ],
+                },
+                {
+                    "enunciado": "Qual é a meta de nota média no scorecard por vendedor?",
+                    "alternativas": [
+                        ("10 ou mais em 30 dias", False),
+                        ("15 ou mais em 60 dias", True),
+                        ("20 em todas as reuniões", False),
+                        ("Não há meta", False),
+                    ],
+                },
+                {
+                    "enunciado": "Qual é a meta de tempo de fala do vendedor medida na transcrição?",
+                    "alternativas": [
+                        ("Até 40%", True),
+                        ("Pelo menos 60%", False),
+                        ("Exatamente 50%", False),
+                        ("Não é medido", False),
+                    ],
+                },
+            ],
+        },
+    ],
+}
+
+
+TRILHAS: list[dict] = [TRILHA_01, TRILHA_02, TRILHA_03, TRILHA_04, METODO_01]

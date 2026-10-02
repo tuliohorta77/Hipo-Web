@@ -12,11 +12,34 @@ def test_conteudo_sem_problema_de_forma():
     assert semear_uc.conferir() == []
 
 
-def test_tres_trilhas_na_ordem_com_prazos_crescentes():
-    assert [t["titulo"][:2] for t in c.TRILHAS] == ["01", "02", "03"]
+def test_trilhas_na_ordem_com_prazos_crescentes():
+    """O prazo é o que ordena a próxima aula entre obrigatórias em dia."""
+    assert [t["titulo"][:2] for t in c.TRILHAS] == ["01", "02", "03", "04", "Mé"]
     prazos = [t["prazo_dias"] for t in c.TRILHAS]
-    assert prazos == sorted(prazos)
-    assert all(t["pilar"] == "tecnica" for t in c.TRILHAS)
+    assert prazos == sorted(prazos) and len(set(prazos)) == len(prazos)
+
+
+def test_tecnica_ensina_e_metodo_aplica():
+    """Pedido do Tulio: teoria em profundidade na Técnica, aplicação no Método."""
+    assert c.TRILHA_04["pilar"] == "tecnica"
+    assert c.METODO_01["pilar"] == "metodo" and c.METODO_01["reforca"] == "roteiro"
+    teoria = " ".join(a["conteudo_md"] for a in c.TRILHA_04["aulas"])
+    for tecnica in ("SPIN", "GPCT", "LAER", "Sandler", "Challenger"):
+        assert tecnica in teoria
+    pratica = " ".join(a["conteudo_md"] for a in c.METODO_01["aulas"])
+    for regra in ("45 minutos", "scorecard", "D+21", "6 ou mais verdes", "Deixa eu ver se entendi"):
+        assert regra in pratica
+
+
+def test_scorecard_do_metodo_bate_com_o_do_hipo():
+    """Os 10 itens ensinados são os mesmos que a avaliação de roteiro usa."""
+    aula = c.METODO_01["aulas"][-1]["conteudo_md"]
+    for item in ("Preparação", "Contrato de abertura", "Perguntas de Situação",
+                 "Perguntas de Problema", "Perguntas de Implicação",
+                 "Resumo de confirmação", "GPCT: prazo, decisor e consequência",
+                 "Apresentação ligada às dores", "Objeções com LAER",
+                 "Próximo passo com data"):
+        assert item in aula
 
 
 def test_boas_vindas_traz_a_historia_da_apresentacao():
@@ -33,7 +56,7 @@ def test_trilha_03_reaproveita_a_trilha_de_nr_da_029():
     assert [str(a["id"])[-4:] for a in nr] == ["0201", "0206"]
 
 
-def test_os_tres_pdfs_estao_em_alguma_aula():
+def test_todos_os_pdfs_estao_em_alguma_aula():
     usados = {a.get("pdf") for t in c.TRILHAS for a in t["aulas"]}
     assert usados >= set(c.PDFS)
 
