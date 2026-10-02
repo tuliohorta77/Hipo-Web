@@ -1,4 +1,4 @@
-﻿name: HIPO CI/CD
+name: HIPO CI/CD
 
 concurrency:
   group: deploy-${{ github.ref }}
@@ -235,8 +235,7 @@ jobs:
             --exclude='.env' \
             api/ $EC2_USER@$EC2_HOST:/home/hipo/app/api/
           ssh $EC2_USER@$EC2_HOST "sudo systemctl restart hipo-api"
-          sleep 5
-          ssh $EC2_USER@$EC2_HOST "curl -sf http://localhost:8001/health || exit 1"
+          ssh $EC2_USER@$EC2_HOST 'for i in $(seq 1 30); do curl -sf http://localhost:8001/health && exit 0; sleep 2; done; echo "API nao respondeu em 60 s"; sudo journalctl -u hipo-api -n 40 --no-pager; exit 1'
 
       - name: Deploy do Frontend
         env:
