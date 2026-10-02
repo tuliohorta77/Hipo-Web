@@ -12,7 +12,8 @@ from contextlib import asynccontextmanager, suppress
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from config import settings
+from config import resolver_origens_cors, settings
+from database import criar_pool
 from middleware.telemetria import TelemetriaMiddleware, buffer, descarga_periodica
 from routers import (
     auth,
@@ -60,6 +61,21 @@ async def ciclo_de_vida(app: FastAPI):
     com o TRUNCATE CASCADE da fixture db_conn. Os testes exercitam
     `descarga_periodica` direto, com um buffer próprio.
     """
+    # POOL ASYNCPG. Um por worker. Se nao subir (banco fora no boot, rede
+    # travada), fica None e database.get_conn cai no connect-por-request --
+    # o modo que foi padrao ate esta versao. Degradar e melhor que recusar
+    # subir: com a API fora, o nginx devolve 502 para tudo, login incluso.
+    log_db = logging.getLogger("hipo.db")
+    app.state.pool = None
+    try:
+        app.state.pool = await criar_pool()
+        log_db.info(
+            "pool asyncpg criado: min=%d max=%d",
+            settings.DB_POOL_MIN, settings.DB_POOL_MAX,
+        )
+    except Exception as e:
+        log_db.warning("pool asyncpg nao subiu (%s); usando connect por request", e)
+
     tarefa = None
     if settings.TELEMETRIA_ATIVA:
         tarefa = asyncio.create_task(descarga_periodica(buffer))
@@ -81,6 +97,15 @@ async def ciclo_de_vida(app: FastAPI):
             "descarga no desligamento falhou: %s", e
         )
 
+    # Pool fecha POR ULTIMO, depois da descarga final da telemetria. E volta
+    # para None: o `app` e o mesmo objeto durante toda a suite de testes, e
+    # um pool fechado esquecido em app.state faria todo teste seguinte
+    # tentar `acquire` num pool morto em vez de cair no fallback.
+    pool, app.state.pool = app.state.pool, None
+    if pool is not None:
+        await pool.close()
+        log_db.info("pool asyncpg fechado")
+
 
 app = FastAPI(
     title="HIPO API",
@@ -88,6 +113,9 @@ app = FastAPI(
     version="2.5.0",
     lifespan=ciclo_de_vida,
 )
+# Sem lifespan (suite de testes) ninguem cria o pool; o atributo existe
+# desde o import para o estado ser explicito, e nao um getattr que adivinha.
+app.state.pool = None
 
 # Telemetria ANTES do CORS na lista = camada mais externa da pilha (o
 # Starlette monta os middlewares na ordem inversa do add_middleware). Assim a
@@ -96,9 +124,16 @@ app = FastAPI(
 if settings.TELEMETRIA_ATIVA:
     app.add_middleware(TelemetriaMiddleware)
 
+# CORS. Ver `resolver_origens_cors` em config.py: em producao vale o dominio
+# do HIPO (ou a lista do .env, sem curinga); fora dela, "*". O front chama a
+# API pela mesma origem, entao isto so afeta cliente de OUTRA origem.
+_cors_bruto = settings.CORS_ORIGINS
+if settings.ENVIRONMENT == "production" and "*" in [o.strip() for o in _cors_bruto.split(",")]:
+    logging.getLogger("hipo").warning("CORS_ORIGINS com '*' em producao: curinga ignorado")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=resolver_origens_cors(_cors_bruto, settings.ENVIRONMENT),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -296,4 +331,13 @@ app.include_router(
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "sistema": "HIPO", "versao": app.version}
+    # `pool`: True quando este worker usa o pool asyncpg; False quando caiu
+    # no connect-por-request (banco fora no boot). E a conferencia do deploy:
+    # o log INFO de "pool criado" nao chega ao journal, porque o uvicorn so
+    # configura os proprios loggers.
+    return {
+        "status": "ok",
+        "sistema": "HIPO",
+        "versao": app.version,
+        "pool": app.state.pool is not None,
+    }

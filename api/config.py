@@ -67,6 +67,11 @@ class Settings(BaseSettings):
     # casos. Config de recurso acessorio nao pode impedir o sistema de subir.
     ANTHROPIC_API_KEY: str = ""
     ANTHROPIC_MODEL: str = "claude-haiku-4-5"
+    # Modelo do Scorecard da reuniao (deploy 030). Vazio = o padrao de
+    # services/avaliacao_roteiro.py. Declarado aqui porque o Settings e
+    # extra="forbid": sem esta linha, por ANTHROPIC_MODEL_AVALIACAO no .env
+    # derrubaria a API inteira no import, em vez de trocar o modelo.
+    ANTHROPIC_MODEL_AVALIACAO: str = ""
     SES_REMETENTE: str = ""
     RELATORIO_DESTINATARIOS: str = ""
     AWS_REGION: str = "eu-central-1"
@@ -158,8 +163,63 @@ class Settings(BaseSettings):
     # `{cnpj}` e substituido em tempo de chamada.
     OPORTUNIDADOS_CAMINHO: str = "brazilian_companies/{cnpj}/company"
 
+    # -- CORS ------------------------------------------------------------
+    # Lista separada por virgula. VAZIO e o valor normal, e NAO derruba a API:
+    # quem decide o que vazio significa e `resolver_origens_cors`, abaixo --
+    # em producao vira o dominio do HIPO, fora dela vira "*".
+    #
+    # Por que nao travar a subida quando vem vazio: o front fala com a API
+    # pela MESMA origem (nginx em producao, proxy do Vite em dev; ver
+    # web/vite.config.js e o baseURL "/api" de web/src/api.js). O navegador
+    # nem consulta CORS para essas chamadas. Uma trava aqui so serviria para
+    # tirar o sistema do ar por uma config que nao afeta nenhum usuario --
+    # e, com o `extra="forbid"`, nao existiria ordem de deploy que a
+    # satisfizesse (ver claude/env-ordem-de-deploy-e-extra-forbid.md).
+    CORS_ORIGINS: str = ""
+
+    # -- Pool asyncpg -----------------------------------------------------
+    # Um pool POR WORKER, criado no lifespan de main.py. O uvicorn roda
+    # --workers 4, entao o teto real de conexoes da API no RDS e
+    # 4 x DB_POOL_MAX (20 com o padrao), fora telemetria e fechamento, que
+    # abrem conexao propria.
+    DB_POOL_MIN: int = 1
+    DB_POOL_MAX: int = 5
+    # Teto por comando, em segundos. 0 = sem teto, que e o comportamento de
+    # antes do pool. Relatorio e RPeR fazem consulta pesada; um teto curto
+    # aqui viraria erro 500 onde hoje so ha lentidao.
+    DB_COMMAND_TIMEOUT_S: int = 0
+
     class Config:
         env_file = _ENV_FILE
+
+
+# Origens do HIPO em producao. Usadas quando CORS_ORIGINS vem vazio e
+# ENVIRONMENT e production -- ou seja, o caso normal do servidor.
+ORIGENS_PRODUCAO = (
+    "https://hipogestao.com.br",
+    "https://www.hipogestao.com.br",
+)
+
+
+def resolver_origens_cors(valor: str, ambiente: str) -> list[str]:
+    """
+    Converte CORS_ORIGINS na lista que vai para o CORSMiddleware.
+
+    - Itens separados por virgula; espaco e barra final caem fora (origem
+      nunca tem barra final, e "https://x.com/" nao casaria com nada).
+    - PRODUCAO: "*" e descartado -- curinga em producao e recurso de teste
+      copiado por engano, mesma logica da trava do BCRYPT_ROUNDS. Se nao
+      sobrar nada, vale ORIGENS_PRODUCAO.
+    - FORA DE PRODUCAO: vazio vira ["*"]; lista explicita vale como veio.
+
+    Pura, sem ler `settings`, para ser testada sem mexer no ambiente.
+    """
+    itens = [o.strip().rstrip("/") for o in (valor or "").split(",")]
+    itens = [o for o in itens if o]
+    if ambiente == "production":
+        itens = [o for o in itens if o != "*"]
+        return itens or list(ORIGENS_PRODUCAO)
+    return itens or ["*"]
 
 
 settings = Settings()
