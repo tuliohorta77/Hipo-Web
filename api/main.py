@@ -330,10 +330,13 @@ app.include_router(
     prefix="/uc/estudio", tags=["UC - Estudio"],
     dependencies=[Depends(requer_modulo("crm"))],
 )
+#
+# /uc aceita 'crm' OU 'uc': o modulo 'uc' e exclusivo do cargo UC, a conta
+# que so estuda. O estudio continua so no 'crm' (e requer_gestao_uc dentro).
 app.include_router(
     uc.router,
     prefix="/uc", tags=["UC - Universidade Corporativa"],
-    dependencies=[Depends(requer_modulo("crm"))],
+    dependencies=[Depends(requer_qualquer_modulo(["crm", "uc"]))],
 )
 
 

@@ -22,6 +22,11 @@ describe('primeiraRotaAcessivel', () => {
     expect(primeiraRotaAcessivel()).toBe('/monitor');
   });
 
+  it('a conta da UC cai na Universidade', () => {
+    logarCom(['uc']);
+    expect(primeiraRotaAcessivel()).toBe('/uc');
+  });
+
   it('sem módulo nenhum cai no Perfil', () => {
     logarCom([]);
     expect(primeiraRotaAcessivel()).toBe('/perfil');

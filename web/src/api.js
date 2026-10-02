@@ -76,9 +76,11 @@ export function podeAcessar(modulo) {
 // Rotas candidatas para o redirect inicial, em ordem de prioridade.
 // Cada entrada é [módulo, rota].
 // 'monitor' só existe no cargo Monitor (conta de TV): cai direto no painel.
+// 'uc' só existe no cargo UC (conta que só estuda): cai direto na Universidade.
 const ROTAS_INICIAIS = [
   ["crm", "/crm/oportunidades"],
   ["monitor", "/monitor"],
+  ["uc", "/uc"],
 ];
 
 // Primeira rota acessível pelo cargo. Todo cargo válido tem 'crm', então cai

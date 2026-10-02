@@ -77,7 +77,9 @@ const NAV_ITEMS = [
   // (Técnica, Método, Energia). Módulo 'crm' -- todo cargo aprende, e
   // módulo novo só valeria depois de cada um relogar. Fica antes do Monitor,
   // que continua fechando a barra como a TV da sala.
-  { to: '/uc', label: 'Universidade', modulo: 'crm' },
+  // 'crm' OU 'uc': o segundo é exclusivo da conta que só estuda (cargo UC),
+  // que enxerga só este item.
+  { to: '/uc', label: 'Universidade', modulo: ['crm', 'uc'] },
   // 'crm' OU 'monitor': o segundo é exclusivo da conta de TV (cargo
   // Monitor), que enxerga só este item.
   { to: '/monitor', label: 'Monitor', modulo: ['crm', 'monitor'] },

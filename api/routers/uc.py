@@ -33,7 +33,7 @@ from pydantic import BaseModel
 
 from database import get_conn
 from routers.auth import usuario_atual
-from routers.permissions import CARGOS_GESTAO
+from routers.permissions import CARGO_UC, CARGOS_GESTAO
 from services import uc as regras
 from services import uc_material as material
 from services.tarefa import FUSO_OPERACAO
@@ -218,7 +218,10 @@ async def _pessoa_alvo(conn, user: dict, usuario_id: UUID | None) -> tuple[dict,
 
 # Trilhas publicadas visíveis para um cargo, com a linha do manual quando
 # existir. `NOT EXISTS` = trilha sem cargo nenhum é aberta a todos.
-_SQL_TRILHAS_VISIVEIS = """
+# Cargo UC (conta que só estuda) vê TODAS as publicadas, nenhuma como
+# obrigatória: `validar_cargo` não deixa a UC entrar em uc_trilha_cargos,
+# então o LEFT JOIN nunca casa e `obrigatoria` sai FALSE.
+_SQL_TRILHAS_VISIVEIS = f"""
     SELECT t.id, t.titulo, t.descricao, t.pilar,
            COALESCE(tc.obrigatoria, FALSE) AS obrigatoria,
            tc.prazo_dias, tc.desde
@@ -227,6 +230,7 @@ _SQL_TRILHAS_VISIVEIS = """
              ON tc.trilha_id = t.id AND tc.cargo = $1
      WHERE t.status = 'publicada'
        AND (tc.cargo IS NOT NULL
+            OR $1 = '{CARGO_UC}'
             OR NOT EXISTS (SELECT 1 FROM uc_trilha_cargos x WHERE x.trilha_id = t.id))
 """
 

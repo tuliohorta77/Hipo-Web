@@ -22,7 +22,7 @@ from pydantic import BaseModel, Field
 
 from database import get_conn
 from routers.auth import usuario_atual
-from routers.permissions import CARGO_MONITOR
+from routers.permissions import CARGOS_DE_TELA
 from services.texto import limpar_nome, slugify
 
 router = APIRouter()
@@ -130,15 +130,15 @@ async def listar_usuarios(
 
     Devolve só id, nome e cargo — nada de e-mail nem hash de senha.
 
-    A conta de TV (cargo Monitor) fica de fora: não é gente, não pode ser
-    envolvida nem responsável por nada.
+    As contas de tela (cargos Monitor e UC) ficam de fora: não operam, não
+    podem ser envolvidas nem responsáveis por nada.
     """
     rows = await conn.fetch(
         """
         SELECT id::text, nome, cargo
           FROM usuarios
          WHERE ativo
-           AND cargo IS DISTINCT FROM $3
+           AND COALESCE(cargo, '') <> ALL($3::text[])
            AND ($1::text IS NULL OR nome ILIKE $1)
            AND ($2::text IS NULL OR cargo = $2)
          ORDER BY nome
@@ -146,7 +146,7 @@ async def listar_usuarios(
         """,
         f"%{q.strip()}%" if q else None,
         cargo,
-        CARGO_MONITOR,
+        list(CARGOS_DE_TELA),
     )
     return [dict(r) for r in rows]
 

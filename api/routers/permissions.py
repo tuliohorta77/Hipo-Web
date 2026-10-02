@@ -22,6 +22,9 @@ Módulos:
   'monitor'    — SÓ o painel de parede; exclusivo do cargo Monitor (conta de
                  TV). Os demais cargos chegam ao Monitor pelo 'crm' — o router
                  aceita qualquer um dos dois (requer_qualquer_modulo).
+  'uc'         — SÓ a Universidade Corporativa; exclusivo do cargo UC (quem
+                 estuda o conteúdo sem operar o CRM). Os demais cargos chegam
+                 à UC pelo 'crm', do mesmo jeito que no Monitor.
 
 Por que 'parceiros' NÃO é de todo mundo: cultivar a relação com o escritório
 de contabilidade que indica é trabalho do EC, e a diretriz é uma tela por
@@ -64,6 +67,17 @@ CARGOS_VALIDOS = CARGOS_GESTAO | CARGOS_OPERACIONAIS
 # oportunidade). A TV não é ninguém — vê o painel e mais nada.
 CARGO_MONITOR = "Monitor"
 
+# Conta de leitura da Universidade Corporativa: alguém de fora da operação
+# (sócio, parceiro, candidato) que assiste às trilhas e nada mais. Mesmo
+# arranjo do Monitor: fora de CARGOS_VALIDOS, porque não opera — não recebe a
+# base, não é envolvido, não entra na visão do time da UC. Vê todas as
+# trilhas publicadas, nenhuma como obrigatória (routers/uc.py).
+CARGO_UC = "UC"
+
+# Contas que existem para UMA tela e não são gente da operação. Ficam fora
+# do seletor de envolvidos e da lista de ausentes da telemetria.
+CARGOS_DE_TELA = (CARGO_MONITOR, CARGO_UC)
+
 # Módulos que todo cargo válido enxerga.
 MODULOS_BASE = {"perfil", "crm"}
 
@@ -90,6 +104,11 @@ def modulos_do_cargo(cargo: str | None) -> set[str]:
     # barra contas, oportunidades, tarefas e relatórios no guard do router.
     if cargo == CARGO_MONITOR:
         return {"monitor"}
+
+    # Conta da UC: só as trilhas. A tela /perfil (troca de senha) não depende
+    # de módulo — vive em /auth, que é de todo usuário autenticado.
+    if cargo == CARGO_UC:
+        return {"uc"}
 
     if cargo not in CARGOS_VALIDOS:
         return set()

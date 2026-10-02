@@ -264,6 +264,20 @@ describe('Layout — conta de TV (cargo Monitor)', () => {
   });
 });
 
+describe('Layout — conta da UC (cargo UC)', () => {
+  beforeEach(() => {
+    mockGetUser.mockReturnValue({ nome: 'Marcelo', email: 'marcelo@teste.com', cargo: 'UC' });
+    mockGetModulos.mockReturnValue(['uc']);
+  });
+
+  it('a nav mostra só a Universidade', () => {
+    renderLayout();
+    const nav = screen.getByLabelText('Navegação principal');
+    const links = Array.from(nav.querySelectorAll('a')).map((a) => a.textContent);
+    expect(links).toEqual(['Universidade']);
+  });
+});
+
 describe('Layout — Monitor segue visível para quem tem crm', () => {
   it('SDR vê o Monitor pelo módulo crm', () => {
     mockGetUser.mockReturnValue({ nome: 'SDR', email: 'sdr@teste.com', cargo: 'SDR' });
