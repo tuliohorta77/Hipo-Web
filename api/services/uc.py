@@ -17,6 +17,7 @@ Especificação: claude/universidade-corporativa.md.
 """
 from __future__ import annotations
 
+import json
 import math
 import re
 from dataclasses import dataclass
@@ -99,6 +100,87 @@ def validar_cargo(cargo: str | None) -> str:
             f"Cargo '{c or 'vazio'}' não recebe trilha. Use: " + ", ".join(CARGOS_UC) + "."
         )
     return c
+
+
+# ── Tour guiado ──────────────────────────────────────────────────────
+#
+# Passos que abrem a tela real do HIPO e destacam o que a aula explica.
+# O tour só olha: o front bloqueia o clique na tela enquanto ele roda, e
+# `clicar` só serve para abrir o que mostra (um cartão, uma aba, um
+# formulário em branco) — nunca para gravar. Quem escolhe o que clicar é
+# o conteúdo da carga, conferido pelos testes contra as âncoras do front.
+
+# Telas onde um tour pode passar. Rota com parâmetro (aula, reunião ao
+# vivo) fica de fora: o tour não sabe o id de nada.
+ROTAS_TOUR = (
+    "/crm/prospeccao", "/crm/oportunidades", "/crm/tarefas", "/crm/agenda",
+    "/crm/contas", "/crm/parceiros", "/crm/relatorios", "/monitor", "/uc", "/perfil",
+)
+MAX_PASSOS_TOUR = 15
+MAX_CLIQUES_TOUR = 3
+_ID_ANCORA = re.compile(r"^[a-z][a-z0-9-]{1,59}$")
+
+
+def validar_tour(passos) -> list[dict] | None:
+    """Normaliza o tour da aula. None ou lista vazia = aula sem tour."""
+    if passos is None:
+        return None
+    if not isinstance(passos, list):
+        raise ConteudoInvalido("O tour é uma lista de passos.")
+    if not passos:
+        return None
+    if len(passos) > MAX_PASSOS_TOUR:
+        raise ConteudoInvalido(f"O tour tem no máximo {MAX_PASSOS_TOUR} passos.")
+    saida: list[dict] = []
+    for i, p in enumerate(passos, start=1):
+        if not isinstance(p, dict):
+            raise ConteudoInvalido(f"Passo {i} do tour: formato inválido.")
+        sobra = set(p) - {"rota", "alvo", "titulo", "texto", "clicar"}
+        if sobra:
+            raise ConteudoInvalido(f"Passo {i} do tour: campo desconhecido ({', '.join(sorted(sobra))}).")
+        rota = (p.get("rota") or "").strip()
+        if rota not in ROTAS_TOUR:
+            raise ConteudoInvalido(f"Passo {i} do tour: tela '{rota or 'vazia'}' não aceita tour.")
+        alvo = p.get("alvo")
+        if alvo is not None:
+            alvo = str(alvo).strip()
+            if not _ID_ANCORA.match(alvo):
+                raise ConteudoInvalido(f"Passo {i} do tour: alvo '{alvo}' inválido.")
+        titulo = (p.get("titulo") or "").strip()
+        texto = (p.get("texto") or "").strip()
+        if not titulo or len(titulo) > 80:
+            raise ConteudoInvalido(f"Passo {i} do tour: título vazio ou acima de 80 caracteres.")
+        if not texto or len(texto) > 600:
+            raise ConteudoInvalido(f"Passo {i} do tour: texto vazio ou acima de 600 caracteres.")
+        clicar = p.get("clicar") or []
+        if not isinstance(clicar, (list, tuple)) or len(clicar) > MAX_CLIQUES_TOUR:
+            raise ConteudoInvalido(
+                f"Passo {i} do tour: 'clicar' é uma lista de até {MAX_CLIQUES_TOUR} âncoras."
+            )
+        clicar = [str(c).strip() for c in clicar]
+        for c in clicar:
+            if not _ID_ANCORA.match(c):
+                raise ConteudoInvalido(f"Passo {i} do tour: âncora de clique '{c}' inválida.")
+        passo = {"rota": rota, "alvo": alvo, "titulo": titulo, "texto": texto}
+        if clicar:
+            passo["clicar"] = clicar
+        saida.append(passo)
+    return saida
+
+
+def ler_tour(valor) -> list[dict] | None:
+    """O JSONB chega do asyncpg como texto. Tour quebrado no banco = sem tour."""
+    if valor is None:
+        return None
+    if isinstance(valor, str):
+        try:
+            valor = json.loads(valor)
+        except ValueError:
+            return None
+    try:
+        return validar_tour(valor)
+    except ConteudoInvalido:
+        return None
 
 
 # ── Vídeo ────────────────────────────────────────────────────────────

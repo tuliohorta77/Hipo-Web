@@ -14,9 +14,18 @@ def test_conteudo_sem_problema_de_forma():
 
 def test_trilhas_na_ordem_com_prazos_crescentes():
     """O prazo é o que ordena a próxima aula entre obrigatórias em dia."""
-    assert [t["titulo"][:2] for t in c.TRILHAS] == ["01", "02", "03", "04", "Mé"]
-    prazos = [t["prazo_dias"] for t in c.TRILHAS]
+    base = c.TRILHAS[:5]
+    assert [t["titulo"][:2] for t in base] == ["01", "02", "03", "04", "Mé"]
+    prazos = [t["prazo_dias"] for t in base]
     assert prazos == sorted(prazos) and len(set(prazos)) == len(prazos)
+
+
+def test_cada_cargo_tem_prazos_distintos_no_manual():
+    """Duas obrigatórias com o mesmo prazo empatariam na próxima aula."""
+    for cargo in ("SDR", "EV", "EC", "EP", "ADM"):
+        prazos = [t["prazo_dias"] for t in c.TRILHAS
+                  if cargo in t.get("obrigatorios", c.CARGOS_OBRIGATORIOS)]
+        assert len(set(prazos)) == len(prazos), cargo
 
 
 def test_tecnica_ensina_e_metodo_aplica():

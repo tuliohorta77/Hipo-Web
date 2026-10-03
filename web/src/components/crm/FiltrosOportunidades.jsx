@@ -251,11 +251,12 @@ export default function FiltrosOportunidades({ valor, usuarios = [], onAplicar }
   }
 
   return (
-    <div ref={raiz} className="relative">
+    <div data-tour="opo-filtros" ref={raiz} className="relative">
       <button
         type="button"
         onClick={() => setAberto((a) => !a)}
         aria-expanded={aberto}
+        data-tour="opo-filtros-botao"
         aria-haspopup="dialog"
         aria-label={ativos ? `Filtros (${ativos} ativos)` : 'Filtros'}
         className={

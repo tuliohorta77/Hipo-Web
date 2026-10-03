@@ -8,7 +8,8 @@
 // A vertical existe porque num modal a aba horizontal come uma faixa da
 // altura, que é o recurso escasso; à esquerda ela come largura, que sobra.
 // O `data-testid` é o mesmo nos dois, então teste que troca de aba não sabe
-// nem precisa saber qual está em uso.
+// nem precisa saber qual está em uso. O `data-tour` (aba-<key>) é a âncora
+// do tour guiado da Universidade, que abre a aba para mostrar o conteúdo.
 
 export default function Tabs({
   items, value, onChange, className = '', orientacao = 'horizontal',
@@ -33,6 +34,7 @@ export default function Tabs({
             role="tab"
             aria-selected={isActive}
             data-testid={`tab-${key}`}
+            data-tour={`aba-${key}`}
             onClick={() => onChange(key)}
             className={
               vertical

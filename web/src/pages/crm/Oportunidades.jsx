@@ -626,7 +626,7 @@ export default function Oportunidades() {
           clicável — o drilldown é o que faz a diretriz "dashboard
           operacional" valer — mas custa 44px em vez de 110.
         */}
-        <div className="flex items-center gap-2">
+        <div data-tour="opo-kpis" className="flex items-center gap-2">
           <KpiInline
             label="Em aberto"
             valor={resumo?.abertas ?? '—'}
@@ -653,7 +653,7 @@ export default function Oportunidades() {
         </div>
 
         <div className="ml-auto flex flex-wrap items-center gap-2">
-          <div className="relative">
+          <div data-tour="opo-busca" className="relative">
             <Search
               size={14}
               className="absolute left-2.5 top-1/2 -translate-y-1/2 text-hipo-muted pointer-events-none"
@@ -703,7 +703,7 @@ export default function Oportunidades() {
             </button>
           )}
 
-          <div className="flex rounded-lg border border-hipo-border overflow-hidden">
+          <div data-tour="opo-visoes" className="flex rounded-lg border border-hipo-border overflow-hidden">
             <button
               type="button"
               onClick={() => trocarVisao('kanban')}
@@ -754,7 +754,7 @@ export default function Oportunidades() {
             </button>
           </div>
 
-          <Button size="sm" icon={Plus} onClick={() => setNovaAberta(true)}>
+          <Button data-tour="opo-nova" size="sm" icon={Plus} onClick={() => setNovaAberta(true)}>
             Nova oportunidade
           </Button>
         </div>
@@ -769,7 +769,7 @@ export default function Oportunidades() {
         cada coluna já tem sua própria borda, e um card externo custaria ~60px
         de cabeçalho e padding sem informar nada.
       */}
-      <div className="flex-1 min-h-0">
+      <div data-tour="opo-area-visao" className="flex-1 min-h-0">
         {visao === 'kanban' ? (
           <KanbanOportunidades
             colunas={colunas}
@@ -833,7 +833,7 @@ export default function Oportunidades() {
                       </thead>
                       <tbody>
                         {lista.itens.map((o) => (
-                          <Tr key={o.id} onClick={() => abrir(o.id)}>
+                          <Tr data-tour="opo-cartao-abrir" key={o.id} onClick={() => abrir(o.id)}>
                             <Td className="font-mono text-sm">{o.numero}</Td>
                             <Td>
                               <span className="font-medium text-hipo-ink">{o.conta_razao_social}</span>

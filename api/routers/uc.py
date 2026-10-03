@@ -160,6 +160,14 @@ class AulaVizinha(BaseModel):
     titulo: str
 
 
+class PassoTour(BaseModel):
+    rota: str
+    alvo: str | None
+    titulo: str
+    texto: str
+    clicar: list[str] = []
+
+
 class AulaDetalhe(BaseModel):
     id: UUID
     trilha_id: UUID
@@ -184,6 +192,7 @@ class AulaDetalhe(BaseModel):
     concluiu_versao_anterior: bool
     segundos_para_liberar: int
     modo_leitura: bool
+    tour: list[PassoTour] | None = None
 
 
 class UrlMaterial(BaseModel):
@@ -522,6 +531,7 @@ async def _estado_aula(conn, aula: dict, trilha: dict, pessoa: dict, leitura: bo
         "concluiu_versao_anterior": bool(anterior),
         "segundos_para_liberar": falta,
         "modo_leitura": leitura,
+        "tour": regras.ler_tour(aula.get("tour")),
     }
 
 

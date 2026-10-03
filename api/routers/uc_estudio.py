@@ -150,6 +150,9 @@ class AulaEstudio(BaseModel):
     status: str
     concluintes: int
     materiais: list[MaterialEstudio]
+    # O tour vem da carga do conteúdo (scripts/semear_uc.py); o estúdio só
+    # mostra quantos passos a aula tem. Editar a aula não mexe nele.
+    tour_passos: int = 0
 
 
 class TrilhaEstudioDetalhe(TrilhaEstudio):
@@ -251,6 +254,7 @@ async def _aula_out(conn, a: dict) -> dict:
         "video_url": regras.url_do_video(a["video_provedor"], a["video_ref"]),
         "duracao_min": a["duracao_min"], "versao": a["versao"], "status": a["status"],
         "concluintes": concluintes,
+        "tour_passos": len(regras.ler_tour(a.get("tour")) or []),
         "materiais": [
             {**dict(m), "eh_imagem": m["tipo_mime"].startswith("image/")} for m in materiais
         ],

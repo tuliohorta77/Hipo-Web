@@ -299,7 +299,7 @@ export default function Parceiros() {
       <div className="shrink-0 flex flex-wrap items-center gap-x-2 gap-y-2">
         <h1 className="sr-only">Parceiros — carteira de indicadores</h1>
 
-        <div className="flex items-center gap-2">
+        <div data-tour="par-kpis" className="flex items-center gap-2">
           <KpiInline
             label="Parceiros"
             valor={resumo?.parceiros ?? '—'}
@@ -353,7 +353,7 @@ export default function Parceiros() {
           />
         </div>
 
-        <div className="ml-auto flex flex-wrap items-center gap-2">
+        <div data-tour="par-filtros" className="ml-auto flex flex-wrap items-center gap-2">
           <div className="relative">
             <Search
               size={14}
@@ -370,6 +370,7 @@ export default function Parceiros() {
           </div>
 
           <select
+            data-tour="par-filtro-ec"
             aria-label="EC responsável"
             value={filtros.sem_ec ? '' : filtros.ec_responsavel_id}
             onChange={(e) => {
@@ -418,7 +419,7 @@ export default function Parceiros() {
             </button>
           )}
 
-          <Button size="sm" icon={ArrowLeftRight} onClick={() => setTransferindo(true)}>
+          <Button data-tour="par-transferir" size="sm" icon={ArrowLeftRight} onClick={() => setTransferindo(true)}>
             Transferir carteira
           </Button>
         </div>
@@ -429,7 +430,7 @@ export default function Parceiros() {
       )}
 
       <div className="flex-1 min-h-0 flex gap-2">
-        <div className="flex-1 min-w-0 h-full min-h-0 flex flex-col rounded-xl border border-hipo-border bg-hipo-card">
+        <div data-tour="par-lista" className="flex-1 min-w-0 h-full min-h-0 flex flex-col rounded-xl border border-hipo-border bg-hipo-card">
           <div className="shrink-0 flex items-baseline justify-between gap-2 px-3 py-1.5 border-b border-hipo-border">
             <h2 className="text-xs font-semibold text-hipo-ink">
               {lista.total} parceiro{lista.total === 1 ? '' : 's'}
@@ -476,7 +477,7 @@ export default function Parceiros() {
                     </thead>
                     <tbody>
                       {lista.itens.map((p) => (
-                        <Tr key={p.id} onClick={() => abrir(p.id)}>
+                        <Tr data-tour="par-linha" key={p.id} onClick={() => abrir(p.id)}>
                           <Td>
                             <span className="font-medium text-hipo-ink">{p.razao_social}</span>
                             <span className="block text-xs font-mono text-hipo-slate">

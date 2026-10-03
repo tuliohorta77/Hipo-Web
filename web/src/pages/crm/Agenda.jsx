@@ -92,6 +92,7 @@ function Cartao({ reuniao, onAbrir }) {
   return (
     <button
       type="button"
+      data-tour="age-cartao"
       onClick={() => onAbrir(reuniao)}
       title={
         (desfecho
@@ -196,6 +197,7 @@ function Celula({ dia, slot, reunioes, ocupadoOculto, onAbrir, onMarcar }) {
   return (
     <button
       type="button"
+      data-tour="age-celula-livre"
       onClick={() => onMarcar(dia, slot)}
       aria-label={`Marcar reunião em ${diaCurto(dia)} às ${slot}`}
       className={
@@ -359,7 +361,7 @@ export default function Agenda() {
       <div className="shrink-0 flex flex-wrap items-center gap-x-2 gap-y-2">
         <h1 className="sr-only">Agenda de reuniões</h1>
 
-        <div className="flex items-center gap-1">
+        <div data-tour="age-navegacao" className="flex items-center gap-1">
           <button
             type="button"
             aria-label="Semana anterior"
@@ -387,7 +389,7 @@ export default function Agenda() {
           </span>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div data-tour="age-kpis" className="flex items-center gap-2">
           <KpiInline
             label="Marcadas"
             valor={semana?.total ?? '—'}
@@ -488,6 +490,7 @@ export default function Agenda() {
           */}
           <div
             role="group"
+            data-tour="age-assunto"
             aria-label="Assunto das reuniões"
             className="inline-flex items-center rounded-lg border border-hipo-border overflow-hidden"
           >
@@ -528,6 +531,7 @@ export default function Agenda() {
           */}
           <button
             type="button"
+            data-tour="age-produtividade"
             aria-label="Produtividade da agenda"
             title="Produtividade da semana: agendamentos por SDR e reuniões por EV"
             onClick={() => setVerProdutividade(true)}
@@ -536,6 +540,7 @@ export default function Agenda() {
             <BarChart3 size={15} />
           </button>
           <select
+            data-tour="age-agenda-de"
             aria-label="Agenda de"
             value={anfitriao}
             onChange={(e) => setAnfitriao(e.target.value)}
@@ -554,6 +559,7 @@ export default function Agenda() {
             dele.
           */}
           <select
+            data-tour="age-agendado-por"
             aria-label="Agendado por"
             value={agendadoPor}
             onChange={(e) => setAgendadoPor(e.target.value)}
@@ -601,7 +607,7 @@ export default function Agenda() {
       )}
 
       {/* ── A grade ── */}
-      <div className="flex-1 min-h-0 flex flex-col border border-hipo-border rounded-xl overflow-hidden bg-hipo-card">
+      <div data-tour="age-grade" className="flex-1 min-h-0 flex flex-col border border-hipo-border rounded-xl overflow-hidden bg-hipo-card">
         {carregando && !semana ? (
           <p className="py-16 text-center text-sm text-hipo-slate">
             Carregando a agenda…

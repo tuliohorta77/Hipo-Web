@@ -221,7 +221,7 @@ function Inicio({ catalogo, onComecar }) {
       </p>
 
       <h3 className="text-xs font-semibold uppercase tracking-wide text-hipo-muted mb-2">1. O que você quer analisar?</h3>
-      <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4 mb-5" role="radiogroup" aria-label="Fonte de dados">
+      <div data-tour="rel-fontes" className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4 mb-5" role="radiogroup" aria-label="Fonte de dados">
         {catalogo.fontes.map((f) => (
           <button
             key={f.chave}
@@ -251,7 +251,7 @@ function Inicio({ catalogo, onComecar }) {
       )}
 
       <div className="flex justify-end mt-5">
-        <Button icon={Sparkles} disabled={!valido} onClick={() => onComecar(novaConfig(fonte, periodo))}>
+        <Button data-tour="rel-montar" icon={Sparkles} disabled={!valido} onClick={() => onComecar(novaConfig(fonte, periodo))}>
           Montar relatório
         </Button>
       </div>
@@ -523,7 +523,7 @@ export default function Relatorios() {
       {aviso && <AlertMessage tipo="info" className="mb-4">{aviso}</AlertMessage>}
 
       <div className="grid grid-cols-[minmax(0,1fr)] gap-4 lg:grid-cols-[16rem_minmax(0,1fr)]">
-        <aside>
+        <aside data-tour="rel-salvos">
           <Card padding="sm">
             <ListaSalvos
               salvos={salvos}

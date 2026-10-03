@@ -250,7 +250,7 @@ export default function EditorTrilha({ trilhaId, vocab, onFechar, onMudou }) {
                       <p className="text-xs text-hipo-slate">
                         {a.duracao_min ? `${a.duracao_min} min · ` : ''}
                         {a.video_provedor ? 'vídeo · ' : ''}
-                        {a.materiais.length} material(is) · v{a.versao} · {a.concluintes} concluíram
+                        {a.materiais.length} material(is) · v{a.versao} · {a.concluintes} concluíram{a.tour_passos ? ` · tour de ${a.tour_passos} passos` : ''}
                       </p>
                     </div>
                     {a.status !== 'publicada' && <Badge tone="warning">Rascunho</Badge>}

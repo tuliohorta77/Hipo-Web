@@ -307,7 +307,7 @@ export default function Prospeccao() {
 
       {/* ── Recorte ── */}
       <Card padding="sm">
-        <div className="grid gap-3 lg:grid-cols-[auto_minmax(0,2fr)_minmax(0,1.3fr)]">
+        <div data-tour="pro-recorte" className="grid gap-3 lg:grid-cols-[auto_minmax(0,2fr)_minmax(0,1.3fr)]">
           <div>
             <span className="block text-xs font-medium text-hipo-slate mb-1">UF</span>
             <div className="flex flex-wrap gap-1.5" role="group" aria-label="UF">
@@ -351,7 +351,7 @@ export default function Prospeccao() {
         <div className="mt-3 flex flex-wrap items-end gap-x-4 gap-y-3">
           <div>
             <span className="block text-xs font-medium text-hipo-slate mb-1">Porte</span>
-            <div className="flex gap-1" role="group" aria-label="Porte">
+            <div data-tour="pro-porte" className="flex gap-1" role="group" aria-label="Porte">
               {PORTES.map((p) => {
                 const ativo = filtros.portes.includes(p.valor);
                 return (
@@ -418,7 +418,7 @@ export default function Prospeccao() {
           </label>
         </div>
 
-        <div className="mt-3 flex flex-wrap gap-x-5 gap-y-2 text-sm text-hipo-ink">
+        <div data-tour="pro-opcoes" className="mt-3 flex flex-wrap gap-x-5 gap-y-2 text-sm text-hipo-ink">
           {[
             ['secundarios', 'Incluir CNAE secundário'],
             ['comTelefone', 'Com telefone'],
@@ -454,7 +454,7 @@ export default function Prospeccao() {
         <>
           {/* ── O que é a fatia ── */}
           {resumo && (
-            <div className="flex flex-wrap gap-2" aria-label="Resumo da fatia">
+            <div data-tour="pro-resumo" className="flex flex-wrap gap-2" aria-label="Resumo da fatia">
               <KpiInline label="Na fatia" valor={inteiro.format(resumo.total)}
                 icone={Building2} tom="bg-hipo-bg text-hipo-slate" />
               <KpiInline label="Puxáveis" valor={inteiro.format(resumo.puxaveis)}
@@ -603,7 +603,7 @@ export default function Prospeccao() {
 
       {/* ── Ação ── */}
       {selecao.size > 0 && (
-        <div className="fixed bottom-0 inset-x-0 z-40 bg-hipo-card border-t border-hipo-border shadow-soft">
+        <div data-tour="pro-barra-acao" className="fixed bottom-0 inset-x-0 z-40 bg-hipo-card border-t border-hipo-border shadow-soft">
           <div className="max-w-7xl mx-auto px-4 py-3 flex flex-wrap items-center gap-3">
             <p className="text-sm text-hipo-ink">
               <strong>{selecao.size}</strong> {selecao.size === 1 ? 'empresa selecionada' : 'empresas selecionadas'}

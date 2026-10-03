@@ -1361,6 +1361,9 @@ CREATE TABLE IF NOT EXISTS uc_aulas (
     -- Nota minima do quiz (UC-2). Ja nasce aqui para a aula nao mudar de
     -- forma quando o quiz chegar.
     nota_minima   SMALLINT NOT NULL DEFAULT 70,
+    -- Tour guiado (023): passos que abrem a tela real do HIPO e destacam
+    -- os elementos explicados na aula. Validado por services/uc.validar_tour.
+    tour          JSONB,
     versao        SMALLINT NOT NULL DEFAULT 1,
     status        VARCHAR(10) NOT NULL DEFAULT 'publicada',
     criado_em     TIMESTAMPTZ NOT NULL DEFAULT NOW(),

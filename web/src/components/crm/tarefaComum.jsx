@@ -398,7 +398,7 @@ export function PainelAcoesTarefa({
 
   if (!painel) {
     return (
-      <div className="flex flex-wrap items-center gap-2">
+      <div data-tour="tar-acoes" className="flex flex-wrap items-center gap-2">
         <Button
           size="sm" icon={Check}
           aria-label={`Concluir ${tarefa.titulo}`}

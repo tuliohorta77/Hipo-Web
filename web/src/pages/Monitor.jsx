@@ -208,7 +208,7 @@ export default function Monitor() {
     >
 
       {/* ── Barra: o mês, o ritmo e a hora da leitura ── */}
-      <div className="shrink-0 flex flex-wrap items-center gap-x-4 gap-y-2 px-1">
+      <div data-tour="mon-barra" className="shrink-0 flex flex-wrap items-center gap-x-4 gap-y-2 px-1">
         <h1 className="text-lg font-semibold text-hipo-ink">Monitor</h1>
 
         {painel && (
@@ -310,7 +310,7 @@ export default function Monitor() {
         {!painel ? (
           <p className="py-16 text-center text-sm text-hipo-slate">Carregando painel…</p>
         ) : (
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-2 auto-rows-fr h-full">
+          <div data-tour="mon-quadros" className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-2 auto-rows-fr h-full">
             {painel.indicadores.map((i) => (
               <QuadroIndicador
                 key={i.chave}

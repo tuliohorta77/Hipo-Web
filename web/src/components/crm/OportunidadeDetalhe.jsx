@@ -505,7 +505,7 @@ export default function OportunidadeDetalhe({
     <div className="flex h-full min-h-0">
 
       {/* ── Trilho: estado, navegação e ações ── */}
-      <aside className="shrink-0 w-52 border-r border-hipo-border bg-hipo-bg/40 flex flex-col min-h-0">
+      <aside data-tour="opo-det-trilho" className="shrink-0 w-52 border-r border-hipo-border bg-hipo-bg/40 flex flex-col min-h-0">
         <div className="px-3 pt-3 pb-3 space-y-2">
           {/*
             A empresa, no topo do trilho e clicável.
@@ -547,6 +547,7 @@ export default function OportunidadeDetalhe({
           <CampoInline id="opp-fase" rotulo="Fase">
             <select
               id="opp-fase"
+              data-tour="opo-det-fase"
               aria-label="Fase"
               className={CLASSE_INLINE}
               value={oportunidade.fase}
@@ -576,7 +577,7 @@ export default function OportunidadeDetalhe({
         </div>
 
         {/* Navegação. Rola sozinha se um dia houver abas demais. */}
-        <div className="flex-1 min-h-0 overflow-y-auto px-2 py-2 border-t border-hipo-border">
+        <div data-tour="opo-det-abas" className="flex-1 min-h-0 overflow-y-auto px-2 py-2 border-t border-hipo-border">
           <Tabs items={abas} value={aba} onChange={setAba} orientacao="vertical" />
         </div>
 
@@ -590,7 +591,7 @@ export default function OportunidadeDetalhe({
           </div>
         )}
 
-      <div className="px-5 py-5 flex-1 min-h-0 overflow-y-auto">
+      <div data-tour="opo-det-conteudo" className="px-5 py-5 flex-1 min-h-0 overflow-y-auto">
         {aba === 'dados' && (
           // Três colunas e sem max-w: com dois campos a menos (a próxima ação
           // virou a tabela `tarefas`), tudo cabe na altura do modal sem rolar.
@@ -748,6 +749,7 @@ export default function OportunidadeDetalhe({
         */}
         <AcoesDoModal>
         <div
+          data-tour="opo-det-acoes"
           aria-label="Ações da oportunidade"
           className="flex flex-wrap items-center gap-2"
         >
@@ -773,6 +775,7 @@ export default function OportunidadeDetalhe({
                 size="sm"
                 variant="secondary"
                 icon={CalendarPlus}
+                data-tour="opo-det-agendar"
                 onClick={() => onAgendarReuniao(oportunidade)}
               >
                 Agendar reunião
@@ -808,6 +811,7 @@ export default function OportunidadeDetalhe({
                   {oportunidade.status === 'ativa' ? 'Suspender' : 'Reativar'}
                 </Button>
                 <Button size="sm" variant="secondary" icon={Flag}
+                  data-tour="opo-det-finalizar"
                   onClick={() => onDesfecho(oportunidade)}>
                   Finalizar
                 </Button>

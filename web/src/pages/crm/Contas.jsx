@@ -293,6 +293,7 @@ function FormNovaConta({ aberto, onFechar, onCriada, onAbrirExistente, verticais
         />
         <div className="flex gap-2 items-start">
           <Input
+            data-tour="con-cnpj"
             label="CNPJ *"
             className="flex-1"
             value={form.cnpj}
@@ -305,6 +306,7 @@ function FormNovaConta({ aberto, onFechar, onCriada, onAbrirExistente, verticais
           <div className="pt-[26px]">
             <Button
               variant="secondary"
+              data-tour="con-buscar-receita"
               icon={Landmark}
               loading={buscando}
               disabled={!cnpjValido(form.cnpj)}
@@ -560,6 +562,7 @@ export default function Contas() {
             <Button
               variant="secondary"
               icon={Tag}
+              data-tour="con-btn-cnaes"
               onClick={() => setDeParaAberto(true)}
             >
               CNAEs
@@ -567,7 +570,7 @@ export default function Contas() {
                 <Badge tone="warning">{resumoEnriq.cnaes_a_confirmar}</Badge>
               )}
             </Button>
-            <Button icon={Plus} onClick={() => setNovaAberta(true)}>Nova conta</Button>
+            <Button data-tour="con-btn-nova" icon={Plus} onClick={() => setNovaAberta(true)}>Nova conta</Button>
           </div>
         }
       />
@@ -575,7 +578,7 @@ export default function Contas() {
       {erro && <AlertMessage tipo="erro">{erro}</AlertMessage>}
 
       {/* KPIs clicáveis: cada um aplica o filtro que o compõe. */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+      <div data-tour="con-kpis" className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
         <KpiBotao
           ativo={kpiAtivo === 'ativas'}
           onClick={() => alternarKpi('ativas', { ativo: 'true' })}
@@ -659,7 +662,7 @@ export default function Contas() {
           className="px-5 pt-5"
         />
 
-        <div className="px-5 py-4 grid grid-cols-1 md:grid-cols-4 gap-3">
+        <div data-tour="con-filtros" className="px-5 py-4 grid grid-cols-1 md:grid-cols-4 gap-3">
           <Input
             label="Buscar"
             icon={Search}
@@ -721,7 +724,7 @@ export default function Contas() {
               </thead>
               <tbody>
                 {dados.itens.map((c) => (
-                  <Tr key={c.id} onClick={() => abrirConta(c.id)}>
+                  <Tr data-tour="con-linha" key={c.id} onClick={() => abrirConta(c.id)}>
                     <Td>
                       <div className="font-medium text-hipo-ink">{c.razao_social}</div>
                       {c.nome_fantasia && (

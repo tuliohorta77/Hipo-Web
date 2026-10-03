@@ -429,7 +429,7 @@ export default function AbaTarefas({ oportunidade, parceiro, onMudou, versao = 0
       {erro && <AlertMessage tipo="erro">{erro}</AlertMessage>}
 
       {/* ── Cabeçalho: o estado em números, e a ação ── */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      <div data-tour="aba-tarefas-topo" className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <Badge tone={dados.atrasadas > 0 ? 'danger' : 'neutral'}>
             {dados.atrasadas} atrasada{dados.atrasadas === 1 ? '' : 's'}

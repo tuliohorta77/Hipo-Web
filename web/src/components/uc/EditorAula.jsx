@@ -189,6 +189,13 @@ export default function EditorAula({ aberto, trilhaId, aula, onFechar, onSalvo, 
           )}
         </div>
 
+        {atual && atual.tour_passos > 0 && (
+          <p className="text-xs text-hipo-slate bg-hipo-blueSoft rounded-lg px-3 py-2">
+            Esta aula tem um tour guiado de {atual.tour_passos} passos ("Me mostra no HIPO").
+            Ele vem do conteúdo carregado pelo sistema; editar a aula aqui não mexe nele.
+          </p>
+        )}
+
         {atual && atual.concluintes > 0 && (
           <label className="flex items-start gap-2 text-sm text-hipo-ink bg-hipo-warningSoft border border-hipo-warningBorder rounded-lg px-3 py-2">
             <input

@@ -21,11 +21,12 @@
 // Acessibilidade: NavLink renderiza <a>, dropdown e hamburger fecham ao
 // clicar fora ou pressionar Esc.
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Outlet, NavLink, useNavigate } from 'react-router-dom';
 import { Menu, X, LogOut, User as UserIcon, ChevronDown } from 'lucide-react';
 import { getUser, getModulos, logout } from '../api';
 import Logo, { LogoWordmark } from './Logo';
+import TourGuiado from './uc/TourGuiado';
 
 // Nav principal, na ordem em que o dia acontece: o funil é onde se trabalha,
 // Tarefas é o que está pendente nele, Agenda é o que tem hora marcada, e
@@ -55,34 +56,34 @@ const NAV_ITEMS = [
   // contato aparecem em Tarefas). Modulo 'crm' + restricao por CARGO, como
   // CNAEs: a API barra o resto (CARGOS_PROSPECCAO), e modulo novo so
   // refletiria depois de relogin.
-  { to: '/crm/prospeccao', label: 'Prospecção', modulo: 'crm', cargos: ['Franqueado', 'ADM', 'SDR'] },
-  { to: '/crm/oportunidades', label: 'Oportunidades', modulo: 'crm' },
-  { to: '/crm/tarefas', label: 'Tarefas', modulo: 'crm' },
-  { to: '/crm/agenda', label: 'Agenda', modulo: 'crm' },
-  { to: '/crm/contas', label: 'Contas', modulo: 'crm' },
+  { to: '/crm/prospeccao', tour: 'nav-prospeccao', label: 'Prospecção', modulo: 'crm', cargos: ['Franqueado', 'ADM', 'SDR'] },
+  { to: '/crm/oportunidades', tour: 'nav-oportunidades', label: 'Oportunidades', modulo: 'crm' },
+  { to: '/crm/tarefas', tour: 'nav-tarefas', label: 'Tarefas', modulo: 'crm' },
+  { to: '/crm/agenda', tour: 'nav-agenda', label: 'Agenda', modulo: 'crm' },
+  { to: '/crm/contas', tour: 'nav-contas', label: 'Contas', modulo: 'crm' },
   // CNAEs e o de-para que decide a vertical de TODAS as contas de um
   // codigo. Modulo 'crm' (nao vale criar modulo novo, que so refletiria
   // depois de cada um relogar) + restricao por CARGO: classificar a base
   // inteira e decisao comercial, como liberar prospeccao. Quem e
   // operacional continua classificando o CNAE da conta que estiver
   // abrindo, pela aba Dados publicos.
-  { to: '/crm/cnaes', label: 'CNAEs', modulo: 'crm', cargos: ['Franqueado', 'ADM'] },
-  { to: '/crm/parceiros', label: 'Parceiros', modulo: 'parceiros' },
+  { to: '/crm/cnaes', tour: 'nav-cnaes', label: 'CNAEs', modulo: 'crm', cargos: ['Franqueado', 'ADM'] },
+  { to: '/crm/parceiros', tour: 'nav-parceiros', label: 'Parceiros', modulo: 'parceiros' },
   // Relatorios: a tabela dinamica sobre a base. Modulo 'crm' (todo cargo
   // monta relatorio); o que muda entre cargos e o RECORTE dos dados, que e
   // do servidor. Fica antes do Monitor porque os dois sao as telas de
   // olhar o todo -- e o Monitor segue fechando a barra, como a TV da sala.
-  { to: '/crm/relatorios', label: 'Relatórios', modulo: 'crm' },
+  { to: '/crm/relatorios', tour: 'nav-relatorios', label: 'Relatórios', modulo: 'crm' },
   // Universidade Corporativa: manual da função, trilhas por pilar
   // (Técnica, Método, Energia). Módulo 'crm' -- todo cargo aprende, e
   // módulo novo só valeria depois de cada um relogar. Fica antes do Monitor,
   // que continua fechando a barra como a TV da sala.
   // 'crm' OU 'uc': o segundo é exclusivo da conta que só estuda (cargo UC),
   // que enxerga só este item.
-  { to: '/uc', label: 'Universidade', modulo: ['crm', 'uc'] },
+  { to: '/uc', tour: 'nav-universidade', label: 'Universidade', modulo: ['crm', 'uc'] },
   // 'crm' OU 'monitor': o segundo é exclusivo da conta de TV (cargo
   // Monitor), que enxerga só este item.
-  { to: '/monitor', label: 'Monitor', modulo: ['crm', 'monitor'] },
+  { to: '/monitor', tour: 'nav-monitor', label: 'Monitor', modulo: ['crm', 'monitor'] },
 ];
 
 // Itens do dropdown do usuário (não da nav principal).
@@ -103,10 +104,11 @@ function itemVisivel(item, modulos, cargo) {
 
 // ── Subcomponentes ───────────────────────────────────────────────────
 
-function NavItemDesktop({ to, label }) {
+function NavItemDesktop({ to, label, tour }) {
   return (
     <NavLink
       to={to}
+      data-tour={tour}
       className={({ isActive }) =>
         'h-full flex items-center px-3 text-sm font-medium transition-colors ' +
         (isActive
@@ -179,6 +181,7 @@ function UserDropdown({ user }) {
     <div className="relative" ref={wrapperRef}>
       <button
         onClick={() => setOpen((v) => !v)}
+        data-tour="usuario-menu"
         className="flex items-center gap-2 p-1 pr-2 rounded-lg hover:bg-hipo-bg transition-colors"
         aria-label="Menu do usuário"
         aria-expanded={open}
@@ -239,6 +242,11 @@ export default function Layout() {
   const modulos = getModulos();
   const cargo = user?.cargo;
   const [mobileOpen, setMobileOpen] = useState(false);
+  // Tour guiado da Universidade: quando um passo precisa da tela "limpa"
+  // (sem o cartão ou a aba que o passo anterior abriu), ele pede para
+  // remontar a página — trocar a chave do <Outlet> faz exatamente isso.
+  const [chaveTela, setChaveTela] = useState(0);
+  const remontarTela = useCallback(() => setChaveTela((k) => k + 1), []);
 
   const itensVisiveis = NAV_ITEMS.filter((item) => itemVisivel(item, modulos, cargo));
   const temNav = itensVisiveis.length > 0;
@@ -282,6 +290,7 @@ export default function Layout() {
           {temNav && (
             <nav
               className="hidden lg:flex items-center h-full ml-4"
+              data-tour="nav-principal"
               aria-label="Navegação principal"
             >
               {itensVisiveis.map((item) => (
@@ -332,9 +341,11 @@ export default function Layout() {
       */}
       <main className="flex-1 min-h-0 overflow-y-auto">
         <div className="px-3 lg:px-5 py-3 h-full">
-          <Outlet />
+          <Outlet key={chaveTela} />
         </div>
       </main>
+
+      <TourGuiado chaveTela={chaveTela} onRemontar={remontarTela} />
     </div>
   );
 }

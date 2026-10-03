@@ -585,13 +585,16 @@ class TestCargaInicial:
         from scripts.uc_conteudo import TRILHAS
         await semear_uc.carregar(time["conn"], _pdfs(tmp_path), atualizar=False, simular=False)
         p = await painel(client, time["ev"])
-        assert [t["titulo"] for t in p["manual"]["trilhas"]] == [t["titulo"] for t in TRILHAS]
+        do_ev = [t["titulo"] for t in TRILHAS if "EV" in t.get("obrigatorios", ("EV",))]
+        # O manual lista por título; a próxima aula é que segue o prazo.
+        assert [t["titulo"] for t in p["manual"]["trilhas"]] == sorted(do_ev, key=str.lower)
+        assert "HIPO - EV" in do_ev and "HIPO - SDR" not in do_ev
         # A primeira aula da trilha 01 é a próxima: prazo mais curto.
         assert p["proxima"]["aula_titulo"] == TRILHAS[0]["aulas"][0]["titulo"]
         assert all(t["prazo"] is not None for t in p["manual"]["trilhas"])
         assert len(s3_falso) == 4
         metodo = next(x for x in p["pilares"] if x["pilar"] == "metodo")
-        assert metodo["trilhas"] == 1
+        assert metodo["trilhas"] == 2  # Método 01 + HIPO - EV
 
     async def test_trilhas_comerciais_sao_opcionais_para_ep(self, time, client, s3_falso, tmp_path, db_conn):
         from scripts import semear_uc
@@ -616,7 +619,7 @@ class TestCargaInicial:
         await semear_uc.carregar(time["conn"], _pdfs(tmp_path), atualizar=False, simular=False)
         p = await painel(client, time["g"])
         assert p["manual"]["trilhas"] == []
-        assert len(p["outras"]) == 5
+        assert len(p["outras"]) == 8
 
     async def test_trilha_de_nr_da_029_vira_a_03_sem_perder_progresso(self, time, client, s3_falso, tmp_path):
         """
@@ -679,6 +682,44 @@ class TestCargaInicial:
         assert await time["conn"].fetchval("SELECT count(*) FROM uc_aulas") == sum(len(t["aulas"]) for t in TRILHAS)
         assert await time["conn"].fetchval("SELECT count(*) FROM uc_materiais") == 4
         assert len(s3_falso) == 4
+
+    async def test_trilha_de_uso_traz_o_tour_na_aula(self, time, client, s3_falso, tmp_path):
+        from scripts import semear_uc
+        from scripts.uc_conteudo_hipo import HIPO_EV
+        await semear_uc.carregar(time["conn"], _pdfs(tmp_path), atualizar=False, simular=False)
+        aula = HIPO_EV["aulas"][1]
+        r = (await client.get(f"/uc/aulas/{aula['id']}", headers=time["ev"]["headers"])).json()
+        assert [p["titulo"] for p in r["tour"]] == [p["titulo"] for p in aula["tour"]]
+        assert r["tour"][2]["clicar"] == ["opo-filtros-botao"]
+        # Aula sem tour devolve null, não lista vazia.
+        from scripts.uc_conteudo import TRILHA_01
+        r = (await client.get(f"/uc/aulas/{TRILHA_01['aulas'][0]['id']}", headers=time["ev"]["headers"])).json()
+        assert r["tour"] is None
+
+    async def test_cada_funcao_tem_a_sua_trilha_de_uso(self, time, client, s3_falso, tmp_path, db_conn):
+        from scripts import semear_uc
+        sdr = time["sdr"]
+        ec = await _me(client, await criar_usuario(db_conn, client, "EC", "ec-uc@teste.com"))
+        await semear_uc.carregar(time["conn"], _pdfs(tmp_path), atualizar=False, simular=False)
+        for pessoa, minha in ((sdr, "HIPO - SDR"), (time["ev"], "HIPO - EV"), (ec, "HIPO - EC")):
+            p = await painel(client, pessoa)
+            manual = {t["titulo"] for t in p["manual"]["trilhas"]}
+            outras = {t["titulo"] for t in p["outras"]}
+            assert minha in manual
+            assert not ({"HIPO - SDR", "HIPO - EV", "HIPO - EC"} - {minha}) & (manual | outras)
+
+    async def test_estudio_mostra_quantos_passos_e_editar_nao_apaga(self, time, client, s3_falso, tmp_path):
+        from scripts import semear_uc
+        from scripts.uc_conteudo_hipo import HIPO_SDR
+        await semear_uc.carregar(time["conn"], _pdfs(tmp_path), atualizar=False, simular=False)
+        h = time["g"]["headers"]
+        aula = HIPO_SDR["aulas"][0]
+        t = (await client.get(f"/uc/estudio/trilhas/{HIPO_SDR['id']}", headers=h)).json()
+        assert t["aulas"][0]["tour_passos"] == len(aula["tour"])
+        resp = await client.patch(f"/uc/estudio/aulas/{aula['id']}", headers=h, json={"resumo": "Novo resumo."})
+        assert resp.status_code == 200, resp.text
+        r = (await client.get(f"/uc/aulas/{aula['id']}", headers=h)).json()
+        assert len(r["tour"]) == len(aula["tour"])
 
     async def test_simular_nao_grava(self, time, client, s3_falso):
         from scripts import semear_uc

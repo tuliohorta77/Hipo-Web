@@ -526,6 +526,7 @@ export default function ModalReuniao({
               {!oportunidade && !parceiro && (
                 <div
                   role="radiogroup"
+                  data-tour="reuniao-com-quem"
                   aria-label="Reunião com"
                   className="inline-flex rounded-lg border border-hipo-border p-0.5 bg-hipo-bg"
                 >
@@ -628,6 +629,7 @@ export default function ModalReuniao({
           </Select>
 
           <Select
+            data-tour="reuniao-anfitriao"
             id="reuniao-anfitriao"
             label="Anfitrião"
             value={form.anfitriao_id}
@@ -648,6 +650,7 @@ export default function ModalReuniao({
             de agendamentos do dia dele.
           */}
           <Select
+            data-tour="reuniao-agendado-por"
             id="reuniao-agendado-por"
             label="Agendado por"
             value={form.agendado_por}

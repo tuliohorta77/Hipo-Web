@@ -73,6 +73,7 @@ function Cartao({
 
   return (
     <li
+      data-tour="opo-cartao"
       draggable={!somenteLeitura}
       onDragStart={somenteLeitura ? undefined : (e) => {
         e.dataTransfer.setData('text/plain', item.id);
@@ -93,6 +94,7 @@ function Cartao({
         )}
         <button
           type="button"
+          data-tour="opo-cartao-abrir"
           onClick={() => onAbrir(item.id)}
           className="min-w-0 flex-1 text-left"
         >
@@ -138,7 +140,7 @@ function Cartao({
         reabrir é decisão consciente, feita na tela da oportunidade.
       */}
       {!somenteLeitura && (
-        <div className="flex items-center gap-1.5 pt-1 border-t border-hipo-border">
+        <div data-tour="opo-cartao-acoes" className="flex items-center gap-1.5 pt-1 border-t border-hipo-border">
           {/* Alternativa por teclado ao arrastar. */}
           <select
             aria-label={`Mover ${item.numero} para outra fase`}
@@ -214,13 +216,14 @@ export default function KanbanOportunidades({
   }
 
   return (
-    <div className="h-full flex gap-2 overflow-x-auto overflow-y-hidden pb-1">
+    <div data-tour="opo-kanban" className="h-full flex gap-2 overflow-x-auto overflow-y-hidden pb-1">
       {colunas.map((coluna) => (
         <section
           key={coluna.fase}
           onDragOver={(e) => { e.preventDefault(); setAlvo(coluna.fase); }}
           onDragLeave={() => setAlvo((a) => (a === coluna.fase ? null : a))}
           onDrop={(e) => soltar(e, coluna)}
+          data-tour="opo-coluna"
           aria-label={`Fase ${coluna.rotulo}`}
           className={
             'flex-1 min-w-[11.5rem] h-full flex flex-col rounded-xl border p-1.5 transition-colors ' +

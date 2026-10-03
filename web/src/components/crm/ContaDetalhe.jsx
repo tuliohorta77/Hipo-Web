@@ -484,7 +484,7 @@ export default function ContaDetalhe({
   return (
     <div className="flex flex-col h-full min-h-0">
       {/* ── Bloco fixo: identificação (não rola) ── */}
-      <div className="shrink-0 px-5 pt-3 pb-3 border-b border-hipo-border bg-hipo-bg/40">
+      <div data-tour="con-360-topo" className="shrink-0 px-5 pt-3 pb-3 border-b border-hipo-border bg-hipo-bg/40">
         {erro && <div className="mb-3"><AlertMessage tipo="erro">{erro}</AlertMessage></div>}
         {avisoBloqueio && (
           <div className="mb-3"><AlertMessage tipo="aviso">{avisoBloqueio}</AlertMessage></div>
@@ -645,7 +645,7 @@ export default function ContaDetalhe({
 
           <Campo className="md:col-span-3">
             <label className="block text-sm font-medium text-hipo-ink mb-1.5">Situação</label>
-            <div className="h-10 flex items-center gap-4">
+            <div data-tour="con-360-situacao" className="h-10 flex items-center gap-4">
               <label className="flex items-center gap-2 text-sm text-hipo-ink">
                 <input
                   type="checkbox"

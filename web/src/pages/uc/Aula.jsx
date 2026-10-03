@@ -10,13 +10,19 @@
 //
 // O VÍDEO entra por urlDeEmbed(provedor, ref), que monta o endereço a partir
 // de uma tabela fechada. Nenhum texto da API vira src de iframe direto.
+//
+// O TOUR GUIADO. Aula de uso do HIPO traz passos (`tour`). "Me mostra no
+// HIPO" abre a tela real e o TourGuiado (montado no Layout) destaca cada
+// elemento; no fim volta para cá com ?tour=fim. Conta sem o módulo 'crm'
+// (cargo UC) não abre as telas do CRM, então não vê o botão.
 
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
   ArrowLeft, ArrowRight, CheckCircle2, ExternalLink, FileText, Image as ImageIcon, RefreshCw, Clock,
+  MousePointerClick,
 } from 'lucide-react';
-import api from '../../api';
+import api, { getModulos } from '../../api';
 import PageHeader from '../../components/ui/PageHeader';
 import Card, { CardHeader } from '../../components/ui/Card';
 import Badge from '../../components/ui/Badge';
@@ -24,14 +30,17 @@ import Button from '../../components/ui/Button';
 import AlertMessage from '../../components/ui/AlertMessage';
 import { mensagemDeErro } from '../../components/crm/tarefaComum';
 import TextoAula from '../../components/uc/TextoAula';
+import { iniciarTour } from '../../components/uc/tour';
 import {
   tamanhoArquivo, tempoRestante, tomDoPilar, urlDeEmbed,
 } from '../../components/uc/ucComum';
 
 export default function Aula() {
   const { aulaId } = useParams();
-  const [params] = useSearchParams();
+  const [params, setParams] = useSearchParams();
   const usuarioId = params.get('usuario_id');
+  const voltouDoTour = params.get('tour') === 'fim';
+  const podeTour = getModulos().includes('crm');
   const sufixo = usuarioId ? `?usuario_id=${usuarioId}` : '';
   const navigate = useNavigate();
 
@@ -113,6 +122,17 @@ export default function Aula() {
   if (!aula) return <p className="text-sm text-hipo-slate p-4">Carregando…</p>;
 
   const embed = urlDeEmbed(aula.video_provedor, aula.video_ref);
+  const passos = aula.tour || [];
+
+  function mostrarNoHipo() {
+    iniciarTour({ aulaId: aula.id, aulaTitulo: aula.titulo, passos });
+  }
+
+  function fecharAvisoTour() {
+    const p = new URLSearchParams(params);
+    p.delete('tour');
+    setParams(p, { replace: true });
+  }
   const concluida = !!aula.concluida_em;
 
   return (
@@ -166,6 +186,39 @@ export default function Aula() {
       {aula.conteudo_md && (
         <Card>
           <TextoAula md={aula.conteudo_md} />
+        </Card>
+      )}
+
+      {passos.length > 0 && (
+        <Card data-tour="uc-tour">
+          <CardHeader
+            title="Veja na prática"
+            hint={`${passos.length} passos na tela real do HIPO`}
+          />
+          {voltouDoTour && (
+            <AlertMessage tipo="ok" className="mb-3">
+              <span className="flex flex-wrap items-center gap-2">
+                Tour concluído. Agora faça você mesmo: abra a tela e repita os passos no seu dia a dia.
+                <button type="button" onClick={fecharAvisoTour} className="underline text-xs">ok</button>
+              </span>
+            </AlertMessage>
+          )}
+          <ol className="list-decimal pl-5 space-y-1 text-sm text-hipo-ink mb-3">
+            {passos.map((p, i) => <li key={i}>{p.titulo}</li>)}
+          </ol>
+          {podeTour ? (
+            <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+              <Button icon={MousePointerClick} onClick={mostrarNoHipo}>Me mostra no HIPO</Button>
+              <p className="text-xs text-hipo-slate">
+                O tour só mostra: nada é criado nem alterado. Use as setas ou Enter para
+                avançar e Esc para sair.
+              </p>
+            </div>
+          ) : (
+            <p className="text-xs text-hipo-slate">
+              O tour abre as telas do CRM, que esta conta não acessa.
+            </p>
+          )}
         </Card>
       )}
 

@@ -173,6 +173,7 @@ export function PainelDesfecho({
 
       <div
         role="radiogroup"
+        data-tour="reuniao-desfecho"
         aria-label="Desfecho da reunião"
         className="grid grid-cols-1 sm:grid-cols-3 gap-2"
       >

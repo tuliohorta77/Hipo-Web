@@ -2,7 +2,9 @@
 HIPO — UC: carga das trilhas iniciais (scripts/uc_conteudo.py).
 
 Substitui o scripts/semear_uc_nr.py da entrega 029, que carregava só a
-trilha de NR. Agora são três trilhas, e a de NR vira a 03.
+trilha de NR. Hoje carrega todas as trilhas de scripts/uc_conteudo.py,
+inclusive as de uso do HIPO por função (scripts/uc_conteudo_hipo.py), cujas
+aulas trazem o tour guiado (coluna uc_aulas.tour, migration 023).
 
 O QUE A CARGA GARANTE
 
@@ -29,6 +31,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 import re
 import sys
 from pathlib import Path
@@ -78,6 +81,10 @@ def conferir() -> list[str]:
                 erros.append(f"{rot}: tabela não é suportada pelo texto da aula")
             if a.get("pdf") and a["pdf"] not in PDFS:
                 erros.append(f"{rot}: pdf desconhecido")
+            try:
+                regras.validar_tour(a.get("tour"))
+            except regras.ConteudoInvalido as e:
+                erros.append(f"{rot}: {e}")
             for j, q in enumerate(a.get("quiz", []), start=1):
                 certas = sum(1 for _, c in q["alternativas"] if c)
                 if certas != 1:
@@ -93,6 +100,13 @@ def _mascarar(url: str) -> str:
 
 # ── Carga ────────────────────────────────────────────────────────────
 
+def _tour_json(a: dict) -> str | None:
+    from services import uc as regras
+
+    tour = regras.validar_tour(a.get("tour"))
+    return json.dumps(tour, ensure_ascii=False) if tour else None
+
+
 async def _gravar_aulas(conn, t: dict) -> None:
     """Upsert das aulas e posições 1..n; aulas de fora do conteúdo vão para o fim."""
     ids = [a["id"] for a in t["aulas"]]
@@ -100,15 +114,16 @@ async def _gravar_aulas(conn, t: dict) -> None:
         await conn.execute(
             """
             INSERT INTO uc_aulas (id, trilha_id, ordem, titulo, resumo,
-                                  conteudo_md, duracao_min, status)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, 'publicada')
+                                  conteudo_md, duracao_min, tour, status)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, 'publicada')
             ON CONFLICT (id) DO UPDATE
                SET ordem = EXCLUDED.ordem, titulo = EXCLUDED.titulo,
                    resumo = EXCLUDED.resumo, conteudo_md = EXCLUDED.conteudo_md,
-                   duracao_min = EXCLUDED.duracao_min, atualizado_em = NOW()
+                   duracao_min = EXCLUDED.duracao_min, tour = EXCLUDED.tour,
+                   atualizado_em = NOW()
             """,
             a["id"], t["id"], ordem, a["titulo"], a["resumo"],
-            a["conteudo_md"], a["duracao_min"],
+            a["conteudo_md"], a["duracao_min"], _tour_json(a),
         )
     # A UNIQUE (trilha_id, ordem) é DEFERRABLE INITIALLY DEFERRED: dentro da
     # transação as posições podem colidir de passagem; o que vale é o fim.

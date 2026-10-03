@@ -262,7 +262,7 @@ export default function ParceiroDetalhe({
     <div className="flex h-full min-h-0">
 
       {/* ── Trilho: estado, navegação e ações ── */}
-      <aside className="shrink-0 w-52 border-r border-hipo-border bg-hipo-bg/40 flex flex-col min-h-0">
+      <aside data-tour="par-det-trilho" className="shrink-0 w-52 border-r border-hipo-border bg-hipo-bg/40 flex flex-col min-h-0">
         <div className="px-3 pt-3 pb-3 space-y-2">
           {/*
             O EC responsável ocupa aqui o lugar que a Fase ocupa na
@@ -310,7 +310,7 @@ export default function ParceiroDetalhe({
           </div>
         )}
 
-        <div className="px-5 py-5 flex-1 min-h-0 overflow-y-auto">
+        <div data-tour="par-det-conteudo" className="px-5 py-5 flex-1 min-h-0 overflow-y-auto">
           {aba === 'dados' && (
             <div className="space-y-5">
               {/*
@@ -319,7 +319,7 @@ export default function ParceiroDetalhe({
                 indicação com quatro semanas verdes é problema de mercado;
                 com quatro vermelhas é abandono.
               */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div data-tour="par-det-farol-funil" className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div className="rounded-lg border border-hipo-border bg-hipo-card p-3">
                   <span className="flex items-center justify-between gap-2">
                     <span className="text-xs font-medium text-hipo-slate">
@@ -422,6 +422,7 @@ export default function ParceiroDetalhe({
           gravam evento na hora.
         */}
         <div
+          data-tour="par-det-acoes"
           aria-label="Ações do parceiro"
           className="shrink-0 flex flex-wrap items-center gap-2 px-5 py-3 border-t border-hipo-border bg-hipo-bg/40"
         >

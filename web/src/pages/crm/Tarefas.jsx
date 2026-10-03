@@ -110,6 +110,7 @@ function Cartao({ tarefa, onAbrir }) {
     <li>
       <button
         type="button"
+        data-tour="tar-cartao"
         onClick={() => onAbrir(tarefa)}
         className={
           'w-full text-left bg-hipo-card border border-hipo-border rounded-lg ' +
@@ -168,6 +169,7 @@ function Coluna({ coluna, onAbrir, onCarregarMais, carregandoMais }) {
 
   return (
     <section
+      data-tour="tar-coluna"
       aria-label={coluna.rotulo}
       className={
         'flex-1 min-w-[13rem] h-full flex flex-col rounded-xl border p-2 ' +
@@ -674,7 +676,7 @@ export default function Tarefas() {
       <div className="shrink-0 flex flex-wrap items-center gap-x-2 gap-y-2">
         <h1 className="sr-only">Tarefas — gestão</h1>
 
-        <div className="flex items-center gap-2">
+        <div data-tour="tar-contadores" className="flex items-center gap-2">
           <Badge tone={atrasadas > 0 ? 'danger' : 'neutral'}>
             {atrasadas} atrasada{atrasadas === 1 ? '' : 's'}
           </Badge>
@@ -704,6 +706,7 @@ export default function Tarefas() {
               aria-hidden="true"
             />
             <input
+              data-tour="tar-busca"
               aria-label="Buscar"
               placeholder="Empresa, número ou tarefa"
               value={busca}
@@ -713,6 +716,7 @@ export default function Tarefas() {
           </div>
 
           <select
+            data-tour="tar-responsavel"
             aria-label="Responsável"
             value={responsavel}
             onChange={(e) => setResponsavel(e.target.value)}
@@ -747,7 +751,7 @@ export default function Tarefas() {
         <div className="shrink-0"><AlertMessage tipo="erro">{erro}</AlertMessage></div>
       )}
 
-      <div className="flex-1 min-h-0">
+      <div data-tour="tar-area" className="flex-1 min-h-0">
         {carregando ? (
           <p className="py-16 text-center text-sm text-hipo-slate">Carregando tarefas…</p>
         ) : colunas.every((c) => c.quantidade === 0) ? (
@@ -848,7 +852,7 @@ export default function Tarefas() {
               </button>
             )}
 
-            <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1 text-xs">
+            <dl data-tour="tar-modal-dados" className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1 text-xs">
               <div>
                 <dt className="inline text-hipo-slate">Tipo: </dt>
                 <dd className="inline text-hipo-ink">

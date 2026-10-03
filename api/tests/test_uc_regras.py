@@ -299,3 +299,55 @@ class TestMaterial:
 
     def test_nome_de_norma_sai_limpo(self):
         assert m.nome_seguro("NR-01 atualizada 2025.pdf", ".pdf") == "NR-01-atualizada-2025.pdf"
+
+
+# ── Tour guiado ──────────────────────────────────────────────────────
+
+class TestTour:
+    PASSO = {"rota": "/crm/tarefas", "alvo": "tar-area", "titulo": "Colunas", "texto": "As colunas."}
+
+    def test_sem_tour(self):
+        assert r.validar_tour(None) is None
+        assert r.validar_tour([]) is None
+
+    def test_normaliza_e_omite_clicar_vazio(self):
+        out = r.validar_tour([{**self.PASSO, "titulo": "  Colunas ", "clicar": []}])
+        assert out == [{"rota": "/crm/tarefas", "alvo": "tar-area", "titulo": "Colunas", "texto": "As colunas."}]
+
+    def test_alvo_pode_faltar(self):
+        out = r.validar_tour([{**self.PASSO, "alvo": None}])
+        assert out[0]["alvo"] is None
+
+    def test_mantem_cliques(self):
+        out = r.validar_tour([{**self.PASSO, "clicar": ["tar-cartao"]}])
+        assert out[0]["clicar"] == ["tar-cartao"]
+
+    @pytest.mark.parametrize("passo, trecho", [
+        ({"rota": "/uc/aulas/1"}, "não aceita tour"),
+        ({"alvo": "Tar Area"}, "alvo"),
+        ({"titulo": ""}, "título"),
+        ({"titulo": "x" * 81}, "título"),
+        ({"texto": " "}, "texto"),
+        ({"texto": "x" * 601}, "texto"),
+        ({"clicar": ["a-b", "c-d", "e-f", "g-h"]}, "clicar"),
+        ({"clicar": ["<script>"]}, "clique"),
+        ({"acao": "salvar"}, "campo desconhecido"),
+    ])
+    def test_recusa(self, passo, trecho):
+        with pytest.raises(r.ConteudoInvalido, match=trecho):
+            r.validar_tour([{**self.PASSO, **passo}])
+
+    def test_limite_de_passos(self):
+        with pytest.raises(r.ConteudoInvalido, match="no máximo"):
+            r.validar_tour([self.PASSO] * (r.MAX_PASSOS_TOUR + 1))
+
+    def test_nao_e_lista(self):
+        with pytest.raises(r.ConteudoInvalido, match="lista"):
+            r.validar_tour({"rota": "/crm/tarefas"})
+
+    def test_ler_do_banco(self):
+        import json
+        assert r.ler_tour(json.dumps([self.PASSO])) == [self.PASSO]
+        assert r.ler_tour(None) is None
+        assert r.ler_tour("{quebrado") is None
+        assert r.ler_tour(json.dumps([{"rota": "/x"}])) is None

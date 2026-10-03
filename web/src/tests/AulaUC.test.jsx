@@ -6,15 +6,20 @@
 //      habilita; o 409 do servidor aparece com o texto dele
 //   3. concluir troca a tela para "Aula concluída"
 //   4. modo leitura não oferece Concluí
+//   5. aula com tour mostra os passos e "Me mostra no HIPO" (que grava o
+//      tour no sessionStorage); conta sem 'crm' não vê o botão; ?tour=fim
+//      mostra o aviso de tour concluído
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, cleanup, waitFor } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 
 const mockGet = vi.fn();
 const mockPost = vi.fn();
+let modulos = ['perfil', 'crm'];
 vi.mock('../api', () => ({
   default: { get: (...a) => mockGet(...a), post: (...a) => mockPost(...a) },
   getUser: () => null,
+  getModulos: () => modulos,
 }));
 
 import Aula from '../pages/uc/Aula';
@@ -50,7 +55,17 @@ function erroHttp(status, detail) {
   return Object.assign(new Error(`HTTP ${status}`), { response: { status, data: { detail } } });
 }
 
-beforeEach(() => { mockGet.mockReset(); mockPost.mockReset(); });
+beforeEach(() => {
+  mockGet.mockReset();
+  mockPost.mockReset();
+  modulos = ['perfil', 'crm'];
+  sessionStorage.clear();
+});
+
+const TOUR = [
+  { rota: '/crm/tarefas', alvo: 'tar-area', titulo: 'As colunas', texto: 'Atrasadas primeiro.' },
+  { rota: '/crm/agenda', alvo: null, titulo: 'A agenda', texto: 'Clique num horário livre.' },
+];
 afterEach(cleanup);
 
 describe('Aula da UC', () => {
@@ -114,5 +129,47 @@ describe('Aula da UC', () => {
     expect(await screen.findByText('Modo leitura')).toBeInTheDocument();
     expect(mockGet).toHaveBeenCalledWith('/uc/aulas/a1', { params: { usuario_id: 'u9' } });
     expect(screen.queryByRole('button', { name: /Concluí/ })).not.toBeInTheDocument();
+  });
+
+  it('aula sem tour não mostra o bloco do tour', async () => {
+    mockGet.mockResolvedValue({ data: aula({ tour: null }) });
+    renderizar();
+    await screen.findByText('Resumo da aula');
+    expect(screen.queryByText('Veja na prática')).toBeNull();
+    expect(screen.queryByRole('button', { name: /Me mostra no HIPO/ })).toBeNull();
+  });
+
+  it('aula com tour lista os passos e inicia o tour', async () => {
+    mockGet.mockResolvedValue({ data: aula({ tour: TOUR }) });
+    renderizar();
+    expect(await screen.findByText('Veja na prática')).toBeTruthy();
+    expect(screen.getByText('2 passos na tela real do HIPO')).toBeTruthy();
+    expect(screen.getByText('As colunas')).toBeTruthy();
+    expect(screen.getByText('A agenda')).toBeTruthy();
+    const ouvinte = vi.fn();
+    window.addEventListener('hipo-tour', ouvinte);
+    fireEvent.click(screen.getByRole('button', { name: /Me mostra no HIPO/ }));
+    window.removeEventListener('hipo-tour', ouvinte);
+    expect(ouvinte).toHaveBeenCalled();
+    const salvo = JSON.parse(sessionStorage.getItem('hipo_tour'));
+    expect(salvo).toMatchObject({ aulaId: 'a1', aulaTitulo: 'NR-01: a base', indice: 0 });
+    expect(salvo.passos).toHaveLength(2);
+  });
+
+  it('conta sem o módulo crm vê os passos, mas não o botão', async () => {
+    modulos = ['uc'];
+    mockGet.mockResolvedValue({ data: aula({ tour: TOUR }) });
+    renderizar();
+    expect(await screen.findByText('Veja na prática')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /Me mostra no HIPO/ })).toBeNull();
+    expect(screen.getByText(/que esta conta não acessa/)).toBeTruthy();
+  });
+
+  it('volta do tour com o aviso de concluído', async () => {
+    mockGet.mockResolvedValue({ data: aula({ tour: TOUR }) });
+    renderizar('/uc/aulas/a1?tour=fim');
+    expect(await screen.findByText(/Tour concluído/)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'ok' }));
+    await waitFor(() => expect(screen.queryByText(/Tour concluído/)).toBeNull());
   });
 });

@@ -268,7 +268,7 @@ export default function ModalDesfecho({
       <div className="space-y-4">
         {erro && <AlertMessage tipo="erro">{erro}</AlertMessage>}
 
-        <div className="space-y-2">
+        <div data-tour="opo-desfecho-opcoes" className="space-y-2">
           {OPCOES.map(({ status: s, rotulo, Icone, tom, explicacao }) => (
             <button
               key={s}

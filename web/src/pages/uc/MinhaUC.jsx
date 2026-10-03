@@ -190,7 +190,7 @@ export default function MinhaUC() {
       {erro && <AlertMessage tipo="erro">{erro}</AlertMessage>}
 
       <div className="grid gap-4 grid-cols-1 lg:grid-cols-5">
-        <Card className="lg:col-span-2" padding="md">
+        <Card data-tour="uc-proxima" className="lg:col-span-2" padding="md">
           <p className="text-xs font-semibold uppercase tracking-wide text-hipo-slate mb-3">
             {leitura ? 'Próxima aula da pessoa' : 'Sua próxima aula'}
           </p>
@@ -235,7 +235,7 @@ export default function MinhaUC() {
       </div>
 
       <div className="grid gap-4 grid-cols-1 lg:grid-cols-3">
-        <Card className="lg:col-span-2">
+        <Card data-tour="uc-manual" className="lg:col-span-2">
           <CardHeader
             title="Manual da função"
             hint={
