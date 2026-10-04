@@ -25,7 +25,7 @@ from services import google_meet, resumo_reuniao
 from services.google_meet import Download, Levantamento, ResultadoMeet
 from services.resumo_reuniao import Resumo
 from services.transcricao import Conferencia, Fala, Transcricao
-from tests.test_crm_agenda import nova_reuniao
+from tests.test_crm_agenda import as_horas, nova_reuniao, proxima_segunda
 
 LINK = "https://meet.google.com/abc-defg-hij"
 UTC = timezone.utc
@@ -356,8 +356,11 @@ class TestResumo:
 class TestPendentes:
     async def test_quem_entra_e_quem_sai(self, base, client, monkeypatch):
         acabou = await reuniao_com_meet(base, client)
+        # Daqui a duas segundas, 10h: sempre futura, sempre em dia util e
+        # fora do horario que os outros helpers usam. "Hoje + 7 dias" caia
+        # no sabado quando o CI rodava num sabado.
         futura = await nova_reuniao(client, base["h"], base["opp"]["id"], base["uid"],
-                                    inicio=(agora() + timedelta(days=7)).isoformat())
+                                    inicio=as_horas(proxima_segunda(2), 10))
         await base["conn"].execute("UPDATE reunioes SET google_link=$2 WHERE id=$1",
                                    UUID(futura["id"]), LINK)
         velha = await reuniao_com_meet(base, client, client_fim_ha=timedelta(days=4))
