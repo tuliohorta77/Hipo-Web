@@ -1399,7 +1399,9 @@ class TestDesfecho:
         tempo?" sem reconstruir nada.
         """
         h, opp, uid = cenario["headers"], cenario["oportunidade"]["id"], cenario["usuario_id"]
-        r = await nova_reuniao(client, h, opp, uid)
+        # Daqui a duas segundas: "dias de antecedencia" mesmo quando a suite
+        # roda no domingo a noite (a proxima segunda seria amanha, <24h).
+        r = await nova_reuniao(client, h, opp, uid, inicio=as_horas(proxima_segunda(2), 9))
         resp = await client.post(
             f"/crm/agenda/reunioes/{r['id']}/desfecho",
             json={"desfecho": "cancelada"}, headers=h,
@@ -1416,7 +1418,9 @@ class TestDesfecho:
         e é isso que fica: ela sabe de algo que o relógio não sabe.
         """
         h, opp, uid = cenario["headers"], cenario["oportunidade"]["id"], cenario["usuario_id"]
-        r = await nova_reuniao(client, h, opp, uid)
+        # Daqui a duas segundas: "dias de antecedencia" mesmo quando a suite
+        # roda no domingo a noite (a proxima segunda seria amanha, <24h).
+        r = await nova_reuniao(client, h, opp, uid, inicio=as_horas(proxima_segunda(2), 9))
         resp = await client.post(
             f"/crm/agenda/reunioes/{r['id']}/desfecho",
             json={"desfecho": "no_show"}, headers=h,
@@ -1487,7 +1491,9 @@ class TestDesfecho:
 
     async def test_sugere_o_desfecho_enquanto_esta_em_aberto(self, cenario, client):
         h, opp, uid = cenario["headers"], cenario["oportunidade"]["id"], cenario["usuario_id"]
-        r = await nova_reuniao(client, h, opp, uid)
+        # Daqui a duas segundas: "dias de antecedencia" mesmo quando a suite
+        # roda no domingo a noite (a proxima segunda seria amanha, <24h).
+        r = await nova_reuniao(client, h, opp, uid, inicio=as_horas(proxima_segunda(2), 9))
         # marcada para dias à frente: quem abrir o formulário agora está
         # desmarcando, e com essa antecedência isso é cancelamento.
         assert r["desfecho_sugerido"] == "cancelada"
@@ -1843,7 +1849,8 @@ class TestReuniaoPelaTarefa:
         self, cenario, client, db_conn,
     ):
         h, opp, uid = cenario["headers"], cenario["oportunidade"]["id"], cenario["usuario_id"]
-        t = await tarefa_solta(client, h, opp, uid, tipo="visita")
+        t = await tarefa_solta(client, h, opp, uid, tipo="visita",
+                             prazo=as_horas(proxima_segunda(2), 14))
         assert t["reuniao_id"] is None
         assert t["agendavel"] is True
         assert t["desfecho_sugerido"] == "cancelada"   # dias à frente
