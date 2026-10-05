@@ -219,6 +219,9 @@ class OportunidadeResumo(BaseModel):
     envolvidos: list[Envolvido]
     criado_em: datetime
     atualizado_em: datetime
+    # 042: quantos CNPJs além do principal estão nesta negociação. O cartão
+    # e o cabeçalho mostram "+N CNPJs" sem uma segunda chamada.
+    cnpjs_adicionais: int = 0
 
 
 class OportunidadeDetalhe(OportunidadeResumo):
@@ -276,7 +279,10 @@ _SELECT_BASE = """
            o.origem_id, org.nome AS origem_nome,
            o.finder_conta_id, f.razao_social AS finder_razao_social,
            o.descricao, o.observacoes, o.criado_em, o.atualizado_em,
-           env.envolvidos
+           env.envolvidos,
+           (SELECT count(*) FROM oportunidade_contas oc_n
+             WHERE oc_n.oportunidade_id = o.id AND oc_n.removido_em IS NULL
+           ) AS cnpjs_adicionais
       FROM oportunidades o
       JOIN contas c            ON c.id = o.conta_id
       LEFT JOIN contatos ct    ON ct.id = o.contato_id
@@ -416,6 +422,66 @@ async def _validar_prospeccao(conn, conta_id: UUID | None) -> None:
             "motivo": motivo,
         },
     )
+
+
+# ── 042: CNPJ adicional de outra oportunidade ───────────────────────
+
+_ABERTAS = ("ativa", "suspensa")
+
+
+async def vinculo_adicional_aberto(conn, conta_id: UUID,
+                                   exceto_oportunidade_id: UUID | None = None):
+    """
+    A oportunidade ABERTA em que esta conta está como CNPJ ADICIONAL, ou
+    None. Usada para recusar uma oportunidade própria para um CNPJ que já
+    está sendo negociado dentro de outra (decisão do Tulio, 05/10/2026):
+    duas negociações do mesmo cliente dividiriam o ticket e confundiriam
+    quem atende.
+    """
+    return await conn.fetchrow(
+        """
+        SELECT o.id, o.numero, c.razao_social AS principal_razao_social,
+               ca.razao_social AS conta_razao_social
+          FROM oportunidade_contas oc
+          JOIN oportunidades o ON o.id = oc.oportunidade_id
+          JOIN contas c        ON c.id = o.conta_id
+          JOIN contas ca       ON ca.id = oc.conta_id
+         WHERE oc.conta_id = $1
+           AND oc.removido_em IS NULL
+           AND o.status = ANY($2::text[])
+           AND ($3::uuid IS NULL OR o.id <> $3)
+         ORDER BY oc.criado_em
+         LIMIT 1
+        """,
+        conta_id, list(_ABERTAS), exceto_oportunidade_id,
+    )
+
+
+def erro_conta_vinculada(vinculo) -> HTTPException:
+    """409 estruturado: o front mostra a mensagem e pode abrir a outra."""
+    return HTTPException(
+        409,
+        detail={
+            "erro": "conta_vinculada_a_oportunidade",
+            "mensagem": (
+                f"{vinculo['conta_razao_social']} já está na oportunidade "
+                f"{vinculo['numero']} ({vinculo['principal_razao_social']}) "
+                "como CNPJ adicional. Trabalhe por aquela oportunidade, ou "
+                "tire o CNPJ de lá antes de abrir outra."
+            ),
+            "oportunidade_id": str(vinculo["id"]),
+            "numero": vinculo["numero"],
+        },
+    )
+
+
+async def _validar_cnpj_adicional(conn, conta_id: UUID | None,
+                                  oportunidade_id: UUID | None = None) -> None:
+    if conta_id is None:
+        return
+    vinculo = await vinculo_adicional_aberto(conn, conta_id, oportunidade_id)
+    if vinculo is not None:
+        raise erro_conta_vinculada(vinculo)
 
 
 async def _validar_referencias(conn, conta_id, contato_id, origem_id,
@@ -853,6 +919,14 @@ def _montar_filtros(
             f" OR c.nome_fantasia ILIKE ${i_texto}"
             f" OR o.descricao ILIKE ${i_texto}"
             f" OR (${i_cnpj}::text IS NOT NULL AND c.cnpj LIKE ${i_cnpj})"
+            # 042: os CNPJs adicionais também acham a oportunidade — quem
+            # procura pela filial precisa cair na negociação do grupo.
+            f" OR EXISTS (SELECT 1 FROM oportunidade_contas oc_q"
+            f" JOIN contas ca_q ON ca_q.id = oc_q.conta_id"
+            f" WHERE oc_q.oportunidade_id = o.id AND oc_q.removido_em IS NULL"
+            f" AND (ca_q.razao_social ILIKE ${i_texto}"
+            f" OR ca_q.nome_fantasia ILIKE ${i_texto}"
+            f" OR (${i_cnpj}::text IS NOT NULL AND ca_q.cnpj LIKE ${i_cnpj})))"
             # Contato da própria oportunidade: é por ele que o vendedor lembra
             # da negociação ("aquela da Maria").
             f" OR EXISTS (SELECT 1 FROM contatos ct_o"
@@ -1240,6 +1314,7 @@ async def criar(
         payload.origem_id, payload.finder_conta_id,
     )
     await _validar_prospeccao(conn, payload.conta_id)
+    await _validar_cnpj_adicional(conn, payload.conta_id)
 
     async with conn.transaction():
         novo_id = await inserir_oportunidade(
@@ -1297,6 +1372,21 @@ async def editar(
     # a edição de qualquer oportunidade já aberta numa conta bloqueada.
     if "conta_id" in dados:
         await _validar_prospeccao(conn, dados["conta_id"])
+        await _validar_cnpj_adicional(conn, dados["conta_id"], oportunidade_id)
+        # A conta que vira principal não pode continuar listada como
+        # adicional da mesma oportunidade: o CNPJ apareceria duas vezes.
+        if dados["conta_id"] is not None and await conn.fetchval(
+            """
+            SELECT 1 FROM oportunidade_contas
+             WHERE oportunidade_id = $1 AND conta_id = $2 AND removido_em IS NULL
+            """,
+            oportunidade_id, dados["conta_id"],
+        ):
+            raise HTTPException(
+                422,
+                "Esta conta já é um CNPJ adicional desta oportunidade. Tire-a "
+                "da lista de CNPJs da proposta antes de torná-la a principal.",
+            )
 
     async with conn.transaction():
         sets = [f"{col} = ${i}" for i, col in enumerate(dados, start=1)]

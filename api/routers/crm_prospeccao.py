@@ -87,8 +87,17 @@ FROM_FATIA = """
     LEFT JOIN LATERAL (
         SELECT bool_or(op.status IN ('ativa', 'suspensa')) AS aberta,
                bool_or(op.status = 'conquistado')          AS conquistada
-          FROM oportunidades op
-         WHERE op.conta_id = c.id
+          FROM (
+                SELECT status FROM oportunidades WHERE conta_id = c.id
+                UNION ALL
+                -- 042: CNPJ adicional de uma oportunidade conta como a
+                -- própria conta estar nela (filial de grupo em negociação
+                -- não é lead frio).
+                SELECT o2.status
+                  FROM oportunidade_contas oc
+                  JOIN oportunidades o2 ON o2.id = oc.oportunidade_id
+                 WHERE oc.conta_id = c.id AND oc.removido_em IS NULL
+               ) op
     ) o ON TRUE
 """
 
@@ -535,7 +544,14 @@ async def _puxar_um(conn, cnpj: str, user, origem_id: int, prazo: datetime,
                 """
                 SELECT COALESCE(bool_or(status IN ('ativa', 'suspensa')), FALSE) AS aberta,
                        COALESCE(bool_or(status = 'conquistado'), FALSE)          AS conquistada
-                  FROM oportunidades WHERE conta_id = $1
+                  FROM (
+                        SELECT status FROM oportunidades WHERE conta_id = $1
+                        UNION ALL
+                        SELECT o2.status
+                          FROM oportunidade_contas oc
+                          JOIN oportunidades o2 ON o2.id = oc.oportunidade_id
+                         WHERE oc.conta_id = $1 AND oc.removido_em IS NULL
+                       ) op
                 """,
                 conta_id,
             )

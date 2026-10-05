@@ -536,6 +536,14 @@ export default function OportunidadeDetalhe({
             >
               <Building2 size={13} className="shrink-0 text-hipo-blue" aria-hidden="true" />
               <span className="truncate font-medium">{oportunidade.conta_razao_social}</span>
+              {oportunidade.cnpjs_adicionais > 0 && (
+                <span
+                  className="shrink-0 text-[11px] text-hipo-blueDark bg-hipo-blueSoft rounded px-1"
+                  title="CNPJs adicionais nesta negociação (aba Proposta)"
+                >
+                  +{oportunidade.cnpjs_adicionais} CNPJ{oportunidade.cnpjs_adicionais === 1 ? '' : 's'}
+                </span>
+              )}
               <Maximize2 size={12} className="ml-auto shrink-0 text-hipo-slate" aria-hidden="true" />
             </button>
           )}
@@ -699,8 +707,8 @@ export default function OportunidadeDetalhe({
               A mensalidade continua digitável aqui para as oportunidades
               que ainda não têm proposta gerada — negociação que começou no
               telefone tem valor antes de ter documento. Gerar uma proposta
-              sobrescreve este campo com vidas x valor por vida: o funil não
-              pode somar um ticket diferente do que foi enviado ao cliente.
+              sobrescreve este campo com a soma dos CNPJs da proposta: o funil
+              não pode somar um ticket diferente do que foi enviado ao cliente.
             */}
             <div className="max-w-md">
               <Input
@@ -710,13 +718,16 @@ export default function OportunidadeDetalhe({
                 step="0.01"
                 value={form.valor_mensalidade ?? ''}
                 onChange={(e) => set('valor_mensalidade', e.target.value)}
-                hint="Gerar uma proposta recalcula este valor a partir das vidas."
+                hint="Gerar uma proposta recalcula este valor (soma dos CNPJs)."
               />
             </div>
 
             <div className="border-t border-hipo-border pt-5">
               <AbaProposta
                 oportunidade={oportunidade}
+                // Vincular/desvincular CNPJ muda o "+N CNPJs" do cabeçalho
+                // e do cartão do funil.
+                onCnpjsMudaram={() => onRecarregar?.()}
                 onGerada={(proposta) => {
                   // O backend já gravou a mensalidade nova. Refletir no
                   // form evita o campo acima mostrar o valor velho até

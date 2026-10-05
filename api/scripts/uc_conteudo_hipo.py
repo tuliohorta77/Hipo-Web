@@ -1525,12 +1525,15 @@ No kanban, clique no nome da empresa no cartão; na tabela, na linha. A oportuni
 
 Na aba **Proposta** da oportunidade:
 
-- **Qtde. de vidas** e **Valor por vida (R$)**: obrigatórios.
+- **Modalidade**: **Tabela por faixa** (até 5 vidas R$ 180, 6 a 10 R$ 220, 11 a 15 R$ 260, 16 a 20 R$ 300, acima de 20 R$ 15 por vida) ou **Valor por vida**.
+- **CNPJs da proposta**: o CNPJ da oportunidade já vem. Cliente com vários CNPJs é **uma oportunidade só**: use **Adicionar CNPJ do mesmo cliente**. Cada CNPJ tem as suas **vidas**; na tabela, o valor vem sugerido e pode ser negociado (a tela mostra o desconto).
 - **Treinamentos (R$)** e **Laudos / outros (R$)**.
 - **Data da proposta** e **Válida até** (não pode ser antes da data).
 - **Cidade** e o **Escopo**: pelo menos um item (**+ Item**).
 
-**Gerar proposta** cria uma nova versão, baixa o PPTX e recalcula a mensalidade da oportunidade. Em **Versões geradas** ficam todas, com **PPTX** e **PDF**. O seu telefone no slide de fechamento vem do **Perfil**.
+**Gerar proposta** cria uma nova versão, baixa o PPTX consolidado e recalcula a mensalidade da oportunidade (soma dos CNPJs). Em **Versões geradas** ficam todas, com **PPTX** e **PDF**; em **Proposta por CNPJ**, cada CNPJ baixa a sua. O seu telefone no slide de fechamento vem do **Perfil**.
+
+O CNPJ adicionado fica **vinculado** à oportunidade: a conta dele mostra o aviso com o número da oportunidade, e o HIPO não deixa abrir outra oportunidade para ele enquanto esta estiver aberta.
 
 Pelo roteiro de vendas, a proposta sai em **até 48h** depois da reunião e é **apresentada**, nunca só enviada.
 
@@ -1552,8 +1555,9 @@ Finalizada por engano? **Reabrir** no topo da oportunidade. Fica registrado no H
 """,
             "tour": [
                 _passo("/crm/oportunidades", "opo-det-conteudo", "A aba Proposta",
-                       "Vidas, valor por vida, treinamentos, laudos, datas, cidade e escopo. **Gerar proposta** cria a versão "
-                       "nova em PPTX e PDF e recalcula a mensalidade. (O tour não gera nada.)",
+                       "Modalidade (tabela por faixa ou valor por vida), os CNPJs com as vidas de cada um, extras, datas e "
+                       "escopo. **Gerar proposta** cria a versão nova (consolidada ou por CNPJ) e recalcula a mensalidade. "
+                       "(O tour não gera nada.)",
                        clicar=["opo-cartao-abrir", "aba-proposta"]),
                 _passo("/crm/oportunidades", "opo-det-finalizar", "Finalizar",
                        "Abre o desfecho da oportunidade.",
@@ -1580,7 +1584,7 @@ Finalizada por engano? **Reabrir** no topo da oportunidade. Fica registrado no H
                     "enunciado": "O que a geração da proposta exige?",
                     "alternativas": [
                         ("Só o nome do cliente", False),
-                        ("Vidas, valor por vida, datas válidas e pelo menos um item de escopo", True),
+                        ("Pelo menos um CNPJ com vidas, datas válidas e pelo menos um item de escopo", True),
                         ("Aprovação do gestor", False),
                         ("A oportunidade em Negociação", False),
                     ],

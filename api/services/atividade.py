@@ -102,6 +102,10 @@ CATALOGO: dict[tuple[str, str], Tipo] = {
 
     # Propostas
     ("POST", "/crm/oportunidades/{oportunidade_id}/propostas"): _t("Propostas", "Proposta gerada", 40),
+    # 042: CNPJs adicionais da oportunidade e tabela de preço.
+    ("POST", "/crm/oportunidades/{oportunidade_id}/cnpjs"): _t("Propostas", "CNPJ adicionado à oportunidade", 41),
+    ("DELETE", "/crm/oportunidades/{oportunidade_id}/cnpjs/{conta_id}"): _t("Propostas", "CNPJ retirado da oportunidade", 42),
+    ("PUT", "/crm/tabela-precos"): _t("Propostas", "Tabela de preços alterada", 43),
 
     # Contas e contatos
     ("POST", "/crm/contas"): _t("Contas e contatos", "Conta criada", 50),

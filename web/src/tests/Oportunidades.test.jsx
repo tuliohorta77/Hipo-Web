@@ -696,7 +696,8 @@ describe('Oportunidades — o drill da oportunidade', () => {
     */
     await abrir();
     fireEvent.click(screen.getByTestId('tab-proposta'));
-    expect(await screen.findByLabelText('Qtde. de vidas')).toBeInTheDocument();
+    // 042: a proposta é por CNPJ (lista de CNPJs da oportunidade).
+    expect(await screen.findByLabelText('CNPJs da proposta')).toBeInTheDocument();
     expect(screen.getByLabelText('Válida até')).toBeInTheDocument();
     expect(screen.getByText('Gerar proposta')).toBeInTheDocument();
   });

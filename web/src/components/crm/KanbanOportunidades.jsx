@@ -101,7 +101,12 @@ function Cartao({
           <span className="block text-sm font-medium text-hipo-ink truncate">
             {item.conta_razao_social}
           </span>
-          <span className="block text-xs font-mono text-hipo-slate">{item.numero}</span>
+          <span className="block text-xs font-mono text-hipo-slate">
+            {item.numero}
+            {item.cnpjs_adicionais > 0 && (
+              <span className="font-sans text-hipo-blueDark"> · +{item.cnpjs_adicionais} CNPJ{item.cnpjs_adicionais === 1 ? '' : 's'}</span>
+            )}
+          </span>
         </button>
       </div>
 

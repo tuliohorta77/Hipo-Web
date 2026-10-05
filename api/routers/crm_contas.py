@@ -239,6 +239,14 @@ class OportunidadeDaConta(BaseModel):
     valor_mensalidade: float | None
     temperatura: int | None
     previsao_fechamento: date | None
+    # 042: 'principal' = a oportunidade é DESTA conta; 'adicional' = esta
+    # conta é um dos CNPJs de uma oportunidade de outra conta (grupo com
+    # vários CNPJs). Nesse caso principal_* diz de quem é a negociação e
+    # outros_cnpjs, quantos CNPJs ela tem além do principal.
+    vinculo: str = "principal"
+    principal_conta_id: UUID | None = None
+    principal_razao_social: str | None = None
+    cnpjs_adicionais: int = 0
 
 
 class ContaDetalhe(ContaResumo):
@@ -599,13 +607,29 @@ async def obter(conta_id: UUID, conn=Depends(get_conn), user=Depends(usuario_atu
         """,
         conta_id,
     )
+    # As da própria conta e, desde a 042, aquelas em que ela entra como
+    # CNPJ adicional — é assim que a filial sabe que está na negociação do
+    # grupo, e não parece uma conta esquecida sem oportunidade nenhuma.
     oportunidades = await conn.fetch(
         """
-        SELECT id, numero, fase, status, valor_mensalidade, temperatura,
-               previsao_fechamento
-        FROM oportunidades
-        WHERE conta_id = $1
-        ORDER BY criado_em DESC
+        SELECT o.id, o.numero, o.fase, o.status, o.valor_mensalidade,
+               o.temperatura, o.previsao_fechamento,
+               CASE WHEN o.conta_id = $1 THEN 'principal' ELSE 'adicional' END AS vinculo,
+               o.conta_id AS principal_conta_id,
+               p.razao_social AS principal_razao_social,
+               (SELECT count(*) FROM oportunidade_contas n
+                 WHERE n.oportunidade_id = o.id AND n.removido_em IS NULL
+               ) AS cnpjs_adicionais,
+               o.criado_em
+        FROM oportunidades o
+        JOIN contas p ON p.id = o.conta_id
+        WHERE o.conta_id = $1
+           OR EXISTS (
+                SELECT 1 FROM oportunidade_contas oc
+                 WHERE oc.oportunidade_id = o.id AND oc.conta_id = $1
+                   AND oc.removido_em IS NULL
+              )
+        ORDER BY o.criado_em DESC
         """,
         conta_id,
     )
@@ -674,6 +698,28 @@ async def historico(
               JOIN oportunidades o ON o.id = oe.oportunidade_id
               LEFT JOIN usuarios u ON u.id = oe.usuario_id
              WHERE o.conta_id = $1
+
+            UNION ALL
+
+            -- 042: entrada e saída da conta como CNPJ adicional de uma
+            -- oportunidade de outra conta.
+            SELECT 'cnpj_vinculado', oc.criado_em, u.nome, o.numero,
+                   'CNPJ adicional de ' || p.razao_social
+              FROM oportunidade_contas oc
+              JOIN oportunidades o ON o.id = oc.oportunidade_id
+              JOIN contas p        ON p.id = o.conta_id
+              LEFT JOIN usuarios u ON u.id = oc.criado_por
+             WHERE oc.conta_id = $1
+
+            UNION ALL
+
+            SELECT 'cnpj_desvinculado', oc.removido_em, u.nome, o.numero,
+                   'Saiu da oportunidade de ' || p.razao_social
+              FROM oportunidade_contas oc
+              JOIN oportunidades o ON o.id = oc.oportunidade_id
+              JOIN contas p        ON p.id = o.conta_id
+              LEFT JOIN usuarios u ON u.id = oc.removido_por
+             WHERE oc.conta_id = $1 AND oc.removido_em IS NOT NULL
 
             UNION ALL
 

@@ -95,6 +95,8 @@ const ROTULO_EVENTO = {
   oportunidade_fase: 'Mudança de fase',
   oportunidade_status: 'Mudança de status',
   oportunidade_reabertura: 'Oportunidade reaberta',
+  cnpj_vinculado: 'Entrou como CNPJ adicional',
+  cnpj_desvinculado: 'Saiu da oportunidade do grupo',
 };
 
 function mensagemDeErro(err, padrao) {
@@ -167,7 +169,11 @@ function AbaOportunidades({ oportunidades }) {
   }
 
   const ativas = oportunidades.filter((o) => o.status === 'ativa');
-  const totalAtivo = ativas.reduce((s, o) => s + Number(o.valor_mensalidade || 0), 0);
+  // A mensalidade de uma oportunidade do grupo é do GRUPO: somá-la em cada
+  // filial multiplicaria o ticket pelo número de CNPJs.
+  const totalAtivo = ativas
+    .filter((o) => o.vinculo !== 'adicional')
+    .reduce((s, o) => s + Number(o.valor_mensalidade || 0), 0);
 
   return (
     <div className="space-y-4">
@@ -181,7 +187,7 @@ function AbaOportunidades({ oportunidades }) {
           <p className="text-lg font-semibold text-hipo-ink">{ativas.length}</p>
         </div>
         <div>
-          <p className="text-xs text-hipo-slate">Mensalidade em aberto</p>
+          <p className="text-xs text-hipo-slate">Mensalidade em aberto (própria)</p>
           <p className="text-lg font-semibold text-hipo-ink">{formatarMoeda(totalAtivo)}</p>
         </div>
       </div>
@@ -191,6 +197,7 @@ function AbaOportunidades({ oportunidades }) {
           <thead>
             <tr>
               <Th>Número</Th>
+              <Th>Vínculo</Th>
               <Th>Fase</Th>
               <Th>Status</Th>
               <Th align="right">Mensalidade</Th>
@@ -202,6 +209,21 @@ function AbaOportunidades({ oportunidades }) {
             {oportunidades.map((o) => (
               <Tr key={o.id}>
                 <Td className="font-mono text-sm">{o.numero}</Td>
+                <Td>
+                  {o.vinculo === 'adicional' ? (
+                    <span className="text-xs text-hipo-slate">
+                      <Badge tone="info">CNPJ adicional</Badge>
+                      <span className="block truncate max-w-[14rem]" title={o.principal_razao_social}>
+                        de {o.principal_razao_social}
+                      </span>
+                    </span>
+                  ) : (
+                    <span className="text-xs text-hipo-slate">
+                      Principal
+                      {o.cnpjs_adicionais > 0 && ` · +${o.cnpjs_adicionais} CNPJ${o.cnpjs_adicionais === 1 ? '' : 's'}`}
+                    </span>
+                  )}
+                </Td>
                 <Td>{FASES[o.fase] || o.fase}</Td>
                 <Td>
                   <Badge tone={TOM_STATUS[o.status] || 'neutral'}>{o.status}</Badge>
@@ -290,6 +312,13 @@ export default function ContaDetalhe({
   const [salvandoBloqueio, setSalvandoBloqueio] = useState(false);
   const [avisoBloqueio, setAvisoBloqueio] = useState(null);
   const idCarregado = useRef(null);
+
+  const gruposAbertos = useMemo(
+    () => (conta.oportunidades || []).filter(
+      (o) => o.vinculo === 'adicional' && ['ativa', 'suspensa'].includes(o.status)
+    ),
+    [conta.oportunidades]
+  );
 
   // Bloquear e liberar são ações de gestão — a API recusa com 403 para os
   // demais. Esconder o botão evita oferecer o que vai dar erro; o backend
@@ -517,6 +546,24 @@ export default function ContaDetalhe({
             </AlertMessage>
           </div>
         )}
+
+        {/*
+          042: esta conta é um CNPJ ADICIONAL de uma negociação aberta de
+          outra conta (grupo com vários CNPJs). Sem este aviso, a filial
+          parecia uma conta esquecida — e alguém abria outra oportunidade
+          para ela, que o sistema agora recusa.
+        */}
+        {gruposAbertos.map((o) => (
+          <div key={o.id} className="mb-3" data-testid="aviso-cnpj-adicional">
+            <AlertMessage tipo="info">
+              <strong>CNPJ da oportunidade {o.numero}</strong>{' '}
+              de {o.principal_razao_social}
+              {o.cnpjs_adicionais > 1
+                && ` — negociada junto com mais ${o.cnpjs_adicionais} CNPJs`}
+              . A proposta e o funil são dessa oportunidade.
+            </AlertMessage>
+          </div>
+        ))}
 
         {formBloqueio && (
           <div className="mb-3 p-3 rounded-lg border border-hipo-border bg-hipo-card">

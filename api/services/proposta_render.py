@@ -11,6 +11,12 @@ regras e a formatação ficam lá, testáveis sem nada disso.
 os campos variáveis trocados por marcadores `{{ASSIM}}`. Os slides 1 a 4
 são institucionais e não têm marcador nenhum — o código nem os visita.
 
+Desde a 042 o modelo tem os slides das DUAS modalidades (5: escopo com
+quadro de investimento, por vida; 6 e 7: tabela de preços e escopo com
+mensalidade, tabela). Cada um leva a etiqueta `hipo-modalidade:<x>` no
+nome de um shape, e `montar_pptx` apaga os da modalidade que não foi
+escolhida antes de preencher.
+
 Cada marcador vive num run ÚNICO dentro do parágrafo. Isso não é detalhe:
 o PowerPoint quebra texto em runs por corretor ortográfico e formatação, e
 um `{{VALOR_VIDA}}` digitado à mão costuma virar três runs ('{{VALOR', '_',
@@ -52,6 +58,12 @@ from pathlib import Path
 CAMINHO_MODELO = Path(__file__).resolve().parent.parent / "templates" / "proposta_modelo.pptx"
 
 MARCADOR_ESCOPO = "{{ESCOPO_ITEM}}"
+MARCADOR_FAIXA = "{{FAIXA_ITEM}}"
+
+# Os slides que só valem para uma modalidade levam esta etiqueta no nome de
+# um shape (ver scripts/gerar_modelo_proposta_tabela.py). Slide sem
+# etiqueta vale para todas.
+ETIQUETA_MODALIDADE = "hipo-modalidade:"
 
 # Nomes do binário no PATH, conforme a distribuição.
 BINARIOS_LIBREOFFICE = ("soffice", "libreoffice")
@@ -130,16 +142,45 @@ def _substituir_no_texto(shape, mapa: dict[str, str]) -> None:
             run.text = texto
 
 
-def _preencher_escopo(slide, itens: list[str]) -> bool:
+# Tamanho da fonte da lista quando o run não diz (herdado do mestre) e a
+# entrelinha do material — base da redução quando a lista não cabe.
+FONTE_LISTA_CENTESIMOS = 1800
+ENTRELINHA_LISTA_CENTESIMOS = 3639
+
+
+def _aplicar_escala(p_xml, escala) -> None:
+    """
+    Encolhe fonte e entrelinha do parágrafo pelo mesmo fator.
+
+    As duas juntas: só a fonte menor deixaria o mesmo vão entre linhas e a
+    lista continuaria transbordando; só a entrelinha menor encavalaria as
+    letras.
+    """
+    from pptx.oxml.ns import qn
+    fator = float(escala)
+    ppr = p_xml.find(qn("a:pPr"))
+    if ppr is not None:
+        spc = ppr.find(f"{qn('a:lnSpc')}/{qn('a:spcPts')}")
+        if spc is not None:
+            spc.set("val", str(round(int(spc.get("val", ENTRELINHA_LISTA_CENTESIMOS)) * fator)))
+    for rpr in p_xml.iter(qn("a:rPr")):
+        base = int(rpr.get("sz") or FONTE_LISTA_CENTESIMOS)
+        rpr.set("sz", str(round(base * fator)))
+
+
+def _preencher_lista(slide, marcador: str, itens: list[str], escala=None) -> bool:
     """
     Clona o parágrafo-molde uma vez por item. Devolve True se achou o molde.
+
+    `escala` (< 1) encolhe fonte e entrelinha de todos os itens — é o que
+    faz uma proposta com muitos CNPJs caber na caixa do material.
     """
     for shape in slide.shapes:
         if not shape.has_text_frame:
             continue
         molde = None
         for par in shape.text_frame.paragraphs:
-            if MARCADOR_ESCOPO in par.text:
+            if marcador in par.text:
                 molde = par
                 break
         if molde is None:
@@ -154,16 +195,49 @@ def _preencher_escopo(slide, itens: list[str]) -> bool:
             # lista de paragraphs muda a cada inserção.
             from pptx.text.text import _Paragraph  # import local: detalhe interno
             _Paragraph(novo, shape.text_frame).runs[0].text = item
+            if escala is not None and escala < 1:
+                _aplicar_escala(novo, escala)
 
         pai.remove(molde._p)
         return True
     return False
 
 
+def _preencher_escopo(slide, itens: list[str], escala=None) -> bool:
+    return _preencher_lista(slide, MARCADOR_ESCOPO, itens, escala)
+
+
+def _modalidade_do_slide(slide) -> str | None:
+    """A etiqueta `hipo-modalidade:<x>` no nome de um shape, se houver."""
+    for shape in slide.shapes:
+        if shape.name.startswith(ETIQUETA_MODALIDADE):
+            return shape.name[len(ETIQUETA_MODALIDADE):]
+    return None
+
+
+def _remover_slide(prs, slide) -> None:
+    """
+    Tira o slide da apresentação. Some da lista E perde a relação: sem
+    relação, o python-pptx não grava a parte, e o arquivo não leva o slide
+    escondido junto (cliente que abre o painel de seleção acharia).
+    """
+    lista = prs.slides._sldIdLst
+    for sld in list(lista):
+        if prs.part.related_part(sld.rId) is slide.part:
+            lista.remove(sld)
+            prs.part.drop_rel(sld.rId)
+            return
+
+
 def montar_pptx(
     substituicoes: dict[str, str],
     escopo: list[str],
     caminho_modelo: Path | str | None = None,
+    *,
+    modalidade: str = "por_vida",
+    faixas: list[str] | None = None,
+    escala_escopo=None,
+    escala_faixas=None,
 ) -> bytes:
     """
     Devolve o .pptx preenchido, em memória.
@@ -182,8 +256,15 @@ def montar_pptx(
     Presentation = _presentation()
     prs = Presentation(str(modelo))
 
+    # Primeiro sai o que não é desta modalidade; depois se preenche o resto.
+    for slide in list(prs.slides):
+        etiqueta = _modalidade_do_slide(slide)
+        if etiqueta is not None and etiqueta != modalidade:
+            _remover_slide(prs, slide)
+
     for slide in prs.slides:
-        _preencher_escopo(slide, escopo)
+        _preencher_escopo(slide, escopo, escala_escopo)
+        _preencher_lista(slide, MARCADOR_FAIXA, faixas or [], escala_faixas)
         for shape in slide.shapes:
             _substituir_no_texto(shape, substituicoes)
 

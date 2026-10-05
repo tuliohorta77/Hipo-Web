@@ -15,7 +15,7 @@ cliente receber.
 
 Este script é chamado pelo deploy ANTES do push. Ele faz duas perguntas:
 
-  1. os 14 marcadores estão no arquivo?
+  1. os marcadores estão no arquivo?
   2. preenchendo com números conhecidos, sai o que deveria sair?
 
 A segunda pega o que a primeira não pega: marcador presente mas em runs
@@ -45,6 +45,8 @@ MARCADORES = {
     "{{TREINAMENTOS}}", "{{LAUDOS}}", "{{INVESTIMENTO}}", "{{CLIENTE}}",
     "{{EXECUTIVO_NOME}}", "{{EXECUTIVO_EMAIL}}", "{{EXECUTIVO_TELEFONE}}",
     "{{CIDADE}}", "{{DATA_EXTENSO}}", "{{VALIDADE}}",
+    # 042: slides da modalidade tabela.
+    "{{FAIXA_ITEM}}", "{{TABELA_RODAPE}}",
 }
 
 # Os números do material original. Se a conta mudar, é para doer aqui.
@@ -91,7 +93,8 @@ def conferir() -> list[str]:
         data_proposta=date(2026, 8, 26), validade=date(2026, 9, 5),
     )
     escopo = regras.ESCOPO_PADRAO + ["Item extra de conferência"]
-    texto = _texto(Presentation(BytesIO(render.montar_pptx(subs, escopo))))
+    texto = _texto(Presentation(BytesIO(
+        render.montar_pptx(subs, escopo, modalidade="por_vida"))))
 
     sobrou = sorted(set(re.findall(r"\{\{\w+\}\}", texto)))
     if sobrou:
@@ -115,7 +118,65 @@ def conferir() -> list[str]:
     for rotulo, trecho in esperado.items():
         if trecho not in texto:
             problemas.append(f"{rotulo}: esperava encontrar {trecho!r} no arquivo")
+    if "TABELA DE PREÇOS" in texto:
+        problemas.append("modalidade por vida: o slide da tabela de preços não foi removido")
 
+    problemas += _conferir_tabela(Presentation)
+    return problemas
+
+
+def _conferir_tabela(Presentation) -> list[str]:
+    """
+    042: a modalidade tabela, com os cinco CNPJs do material "VARIOS
+    CNPJs" (4, 5, 11, 23 e 27 vidas; os dois últimos negociados). A soma
+    tem que dar os R$ 1.270,00 do material.
+    """
+    problemas = []
+    faixas = regras.normalizar_tabela(regras.TABELA_PADRAO)
+    itens = regras.calcular_itens(
+        modalidade="tabela",
+        itens=[
+            {"cnpj": "11222333000181", "razao_social": "CNPJ UM LTDA", "vidas": 4},
+            {"cnpj": "11222333000262", "razao_social": "CNPJ DOIS LTDA", "vidas": 5},
+            {"cnpj": "11222333000343", "razao_social": "CNPJ TRES LTDA", "vidas": 11},
+            {"cnpj": "11222333000424", "razao_social": "CNPJ QUATRO LTDA", "vidas": 23,
+             "mensalidade": Decimal("299")},
+            {"cnpj": "11222333000505", "razao_social": "CNPJ CINCO LTDA", "vidas": 27,
+             "mensalidade": Decimal("351")},
+        ],
+        valor_por_vida=None, faixas=faixas,
+    )
+    mensal = regras.total_itens(itens)
+    linhas = regras.linhas_da_lista(modalidade="tabela", escopo=regras.ESCOPO_PADRAO,
+                                    itens=itens)
+    subs = regras.substituicoes(
+        cliente=CLIENTE, vidas=regras.vidas_itens(itens), valor_por_vida=None,
+        treinamentos=Decimal(0), laudos=Decimal(0),
+        executivo_nome="Fulano de Tal", executivo_email="fulano@exemplo.com",
+        executivo_telefone="11 90000-0000",
+        data_proposta=date(2026, 9, 4), validade=date(2026, 9, 25),
+        mensal=mensal, faixas=faixas,
+    )
+    arquivo = render.montar_pptx(
+        subs, linhas, modalidade="tabela", faixas=regras.linhas_tabela(faixas),
+        escala_escopo=regras.escala_da_lista(linhas, regras.CAPACIDADE_LINHAS["tabela"]),
+    )
+    texto = _texto(Presentation(BytesIO(arquivo)))
+    sobrou = sorted(set(re.findall(r"\{\{\w+\}\}", texto)))
+    if sobrou:
+        problemas.append(f"tabela: marcador não substituído: {sobrou}")
+    for rotulo, trecho in {
+        "mensalidade do material": "R$ 1.270,00",
+        "quantidade de vidas": "QTDE. VIDAS: 70",
+        "primeira faixa": "CNPJs até 05 funcionários registrados – R$ 180,00 mensais",
+        "faixa aberta": "R$ 15,00 por funcionário/mês",
+        "linha de CNPJ": "CNPJ QUATRO LTDA (11.222.333/0004-24) - 23 vidas - Mensalidade R$ 299,00",
+        "rodapé": "limite de 20 funcionários",
+    }.items():
+        if trecho not in texto:
+            problemas.append(f"tabela, {rotulo}: esperava encontrar {trecho!r}")
+    if "INVESTIMENTO" in texto:
+        problemas.append("modalidade tabela: o slide por vida não foi removido")
     return problemas
 
 

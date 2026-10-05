@@ -203,6 +203,51 @@ describe('ContaDetalhe — aba Oportunidades', () => {
   });
 });
 
+// 042: a conta que é CNPJ adicional de uma oportunidade de outra conta.
+describe('ContaDetalhe — CNPJ de oportunidade do grupo', () => {
+  const DO_GRUPO = {
+    id: 'o9', numero: 'OPP-2026-00009', fase: 'negociacao', status: 'ativa',
+    valor_mensalidade: 1270, temperatura: 60, previsao_fechamento: null,
+    vinculo: 'adicional', principal_conta_id: 'cx',
+    principal_razao_social: 'PATIMIRIM PARTICIPACOES LTDA', cnpjs_adicionais: 4,
+  };
+
+  it('avisa no topo que a conta está na negociação do grupo', () => {
+    montar({ conta: { ...CONTA, oportunidades: [DO_GRUPO] } });
+    const aviso = screen.getByTestId('aviso-cnpj-adicional');
+    expect(aviso.textContent).toContain('OPP-2026-00009');
+    expect(aviso.textContent).toContain('PATIMIRIM PARTICIPACOES LTDA');
+    expect(aviso.textContent).toContain('mais 4 CNPJs');
+  });
+
+  it('a tabela diz o vínculo', () => {
+    montar({ conta: { ...CONTA, oportunidades: [DO_GRUPO] } });
+    expect(screen.getByText('CNPJ adicional')).toBeInTheDocument();
+    expect(screen.getByText('de PATIMIRIM PARTICIPACOES LTDA')).toBeInTheDocument();
+  });
+
+  it('a mensalidade do grupo não soma na conta', () => {
+    montar({ conta: { ...CONTA, oportunidades: [DO_GRUPO] } });
+    expect(screen.queryByText(/R\$\s*1\.270,00/)).toBeInTheDocument();  // na linha
+    expect(screen.getAllByText(/R\$\s*0,00/).length).toBeGreaterThan(0); // no resumo
+  });
+
+  it('oportunidade do grupo já fechada não gera aviso', () => {
+    montar({ conta: { ...CONTA, oportunidades: [
+      { ...DO_GRUPO, status: 'conquistado', fase: 'finalizado' },
+    ] } });
+    expect(screen.queryByTestId('aviso-cnpj-adicional')).not.toBeInTheDocument();
+  });
+
+  it('a oportunidade própria mostra quantos CNPJs ela tem', () => {
+    montar({ conta: { ...CONTA, oportunidades: [
+      { ...CONTA.oportunidades[0], vinculo: 'principal', cnpjs_adicionais: 2 },
+    ] } });
+    expect(screen.getByText(/Principal · \+2 CNPJs/)).toBeInTheDocument();
+    expect(screen.queryByTestId('aviso-cnpj-adicional')).not.toBeInTheDocument();
+  });
+});
+
 describe('ContaDetalhe — form único', () => {
   it('começa sem alterações pendentes', () => {
     const { registrarSalvar } = montar();
