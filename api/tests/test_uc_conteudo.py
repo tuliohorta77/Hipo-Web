@@ -151,3 +151,33 @@ def test_energia_01_marca_os_numeros_como_exemplo():
     aula = e.ENERGIA_01["aulas"][1]["conteudo_md"]
     assert "exemplo ilustrativo" in aula and "Não são meta nem taxa oficial" in aula
 
+
+
+# ── Técnicas do SDR na prática (Método 04) ───────────────────────────
+
+def test_tecnicas_do_sdr_treinam_cada_tecnica_com_pratica():
+    """Pedido de 05/10/2026: cada técnica do roteiro, com exercício e role-play."""
+    from scripts import uc_conteudo_tecnicas_sdr as t
+    m = t.METODO_04
+    assert m in c.TRILHAS and m["pilar"] == "metodo"
+    assert m["obrigatorios"] == ("SDR",) and set(m["opcionais"]) == {"ADM", "Franqueado"}
+    assert len(m["aulas"]) == 9
+    for a in m["aulas"]:
+        md = a["conteudo_md"]
+        for secao in ("## O que é", "## Por que funciona", "## Exercício", "## Role-play"):
+            assert secao in md, (a["titulo"], secao)
+        assert "Critérios" in md, a["titulo"]
+
+
+def test_tecnicas_do_sdr_depois_do_roteiro_e_antes_da_energia():
+    from scripts import uc_conteudo_roteiros as r
+    from scripts import uc_conteudo_energia as e
+    from scripts import uc_conteudo_tecnicas_sdr as t
+    assert r.METODO_02["prazo_dias"] < t.METODO_04["prazo_dias"] < e.ENERGIA_01["prazo_dias"]
+
+
+def test_tecnicas_do_sdr_usam_os_fatos_do_roteiro():
+    from scripts import uc_conteudo_tecnicas_sdr as t
+    texto = " ".join(a["conteudo_md"] for a in t.METODO_04["aulas"])
+    for fato in ("26/05/2026", "mais de 500 empresas", "D12", "decisor", "Terça às 10h ou quarta às 15h"):
+        assert fato in texto, fato

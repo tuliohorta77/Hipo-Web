@@ -622,7 +622,8 @@ class TestCargaInicial:
         await semear_uc.carregar(time["conn"], _pdfs(tmp_path), atualizar=False, simular=False)
         p = await painel(client, time["g"])
         assert p["manual"]["trilhas"] == []
-        assert len(p["outras"]) == 11
+        from scripts.uc_conteudo import TRILHAS
+        assert len(p["outras"]) == len(TRILHAS)
 
     async def test_trilha_de_nr_da_029_vira_a_03_sem_perder_progresso(self, time, client, s3_falso, tmp_path):
         """

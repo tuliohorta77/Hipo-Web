@@ -3669,8 +3669,10 @@ from scripts.uc_conteudo_hipo import TRILHAS_HIPO  # noqa: E402
 from scripts.uc_conteudo_roteiros import TRILHAS_ROTEIROS  # noqa: E402
 # Primeira trilha do pilar Energia (entrega 037).
 from scripts.uc_conteudo_energia import TRILHAS_ENERGIA  # noqa: E402
+# Técnicas do SDR na prática (Método 04, entrega 042).
+from scripts.uc_conteudo_tecnicas_sdr import TRILHAS_TECNICAS_SDR  # noqa: E402
 
 TRILHAS: list[dict] = [
     TRILHA_01, TRILHA_02, TRILHA_03, TRILHA_04, METODO_01,
-    *TRILHAS_HIPO, *TRILHAS_ROTEIROS, *TRILHAS_ENERGIA,
+    *TRILHAS_HIPO, *TRILHAS_ROTEIROS, *TRILHAS_ENERGIA, *TRILHAS_TECNICAS_SDR,
 ]
