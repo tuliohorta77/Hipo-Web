@@ -150,7 +150,11 @@ describe('Prospeccao', () => {
     rotear();
     renderTela();
     expect(await screen.findByText('Escolha a UF e ao menos um CNAE')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'SP' })).toHaveAttribute('aria-pressed', 'true');
+    // O aviso aparece antes de /base responder; os botões de UF chegam com
+    // ela. Esperar o botão (e não buscá-lo na hora) tira a corrida que
+    // derrubava o teste quando o CI estava lento.
+    const sp = await screen.findByRole('button', { name: 'SP' });
+    await waitFor(() => expect(sp).toHaveAttribute('aria-pressed', 'true'));
     expect(mockGet).not.toHaveBeenCalledWith('/crm/prospeccao', expect.anything());
   });
 
