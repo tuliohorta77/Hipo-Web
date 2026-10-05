@@ -158,7 +158,7 @@ Franqueado e ADM escolhem a pessoa no seletor **Pessoa** e veem o seu Desempenho
 
 HIPO_SDR = {
     "id": _id("b0200"),
-    "titulo": "HIPO - SDR",
+    "titulo": "01 · HIPO - SDR",
     "pilar": "metodo",
     "reforca": "tarefas_no_prazo",
     "descricao": (
@@ -961,7 +961,7 @@ A gestão acompanha o squad de SDR por agendamentos e reuniões realizadas (os p
 
 ## Continuar estudando
 
-Em **Carreira**, a aba **Universidade** abre na sua próxima aula, e a aba **Desempenho** mostra os seus números contra a sua meta (a próxima aula). Depois desta trilha, a **Método 01 · Roteiro de vendas Controller** mostra o que fazer em cada contato.
+Em **Carreira**, a aba **Universidade** abre na sua próxima aula, e a aba **Desempenho** mostra os seus números contra a sua meta (a próxima aula). Depois desta trilha, a **02 · Roteiro do EV** mostra o que fazer em cada contato.
 """,
             "tour": [
                 _passo("/monitor", "mon-barra", "O mês e o ritmo",
@@ -1055,8 +1055,8 @@ Em **Carreira**, a aba **Universidade** abre na sua próxima aula, e a aba **Des
 
 O funil diz o que treinar:
 
-- **Muita tarefa, pouco contato**: cadência. Volte à **Energia 01** (rotina e mínimo diário).
-- **Muito contato, pouco agendamento**: abordagem. Revise o **Método 02 · Roteiro do SDR**.
+- **Muita tarefa, pouco contato**: cadência. Volte à **01 · Rotina, volume e metas**, do pilar Energia (rotina e mínimo diário).
+- **Muito contato, pouco agendamento**: abordagem. Revise o **02 · Roteiro do SDR**.
 - **Muito agendamento, pouca reunião realizada**: no-show. Confirme a reunião na véspera e registre o desfecho no mesmo dia.
 
 """ + TEXTO_CARREIRA_GESTAO,
@@ -1115,10 +1115,10 @@ O funil diz o que treinar:
                 {
                     "enunciado": "Seu funil mostra muitas tarefas de prospecção e poucas empresas contatadas. O que a aula manda treinar?",
                     "alternativas": [
-                        ("Abordagem: revisar o Método 02 · Roteiro do SDR", False),
+                        ("Abordagem: revisar o 02 · Roteiro do SDR", False),
                         ("No-show: confirmar a reunião na véspera", False),
-                        ("Cadência: voltar à Energia 01 (rotina e mínimo diário)", True),
-                        ("Proposta: rever o Método 01 com o EV", False),
+                        ("Cadência: voltar à Rotina, volume e metas, do pilar Energia", True),
+                        ("Proposta: rever o Roteiro do EV com o EV", False),
                     ],
                 },
                 {
@@ -1142,7 +1142,7 @@ O funil diz o que treinar:
 
 HIPO_EV = {
     "id": _id("b0300"),
-    "titulo": "HIPO - EV",
+    "titulo": "01 · HIPO - EV",
     "pilar": "metodo",
     "reforca": "desfecho_em_dia",
     "descricao": (
@@ -1996,7 +1996,7 @@ Na avaliação do squad de EV, os principais são **NMRR** e **pipeline**, junto
 
 ## O que fazer com isso
 
-- **Muita reunião, pouca proposta**: diagnóstico. Revise o **Método 01 · Roteiro de vendas Controller**, nas aulas de diagnóstico e proposta.
+- **Muita reunião, pouca proposta**: diagnóstico. Revise o **02 · Roteiro do EV**, nas aulas de diagnóstico e proposta.
 - **Muita proposta, pouca venda**: negociação e follow-up. Toda proposta com próximo passo marcado.
 - **Pipeline baixo**: falta reunião. Converse com o SDR e com a gestão sobre a agenda da semana.
 
@@ -2083,7 +2083,7 @@ Na avaliação do squad de EV, os principais são **NMRR** e **pipeline**, junto
 
 HIPO_EC = {
     "id": _id("b0400"),
-    "titulo": "HIPO - EC",
+    "titulo": "01 · HIPO - EC",
     "pilar": "metodo",
     "reforca": "tarefas_no_prazo",
     "descricao": (
@@ -2795,7 +2795,7 @@ Em **Relatórios**: fonte **Oportunidades**, período **Este ano**, **Montar rel
 
 ## O que fazer com isso
 
-- **Poucas reuniões por parceiro**: cadência da carteira. Comece a semana pelo **Sem contato** em Parceiros e revise o **Método 03 · Roteiro do EC**.
+- **Poucas reuniões por parceiro**: cadência da carteira. Comece a semana pelo **Sem contato** em Parceiros e revise o **02 · Roteiro do EC**.
 - **Muitas reuniões, poucas indicações**: o pedido de indicação. Toda reunião de carteira termina com um pedido concreto.
 - **Indicações que não viram venda**: acompanhe com o EV e confira se você está nos **Envolvidos** da oportunidade, com o papel EC.
 
@@ -2864,7 +2864,7 @@ Em **Relatórios**: fonte **Oportunidades**, período **Este ano**, **Montar rel
                 {
                     "enunciado": "Seu funil mostra poucas reuniões por parceiro. O que a aula manda fazer?",
                     "alternativas": [
-                        ("Começar a semana pelo Sem contato em Parceiros e revisar o Método 03 · Roteiro do EC", True),
+                        ("Começar a semana pelo Sem contato em Parceiros e revisar o 02 · Roteiro do EC", True),
                         ("Pedir indicação concreta no fim de toda reunião", False),
                         ("Conferir se você está nos Envolvidos das oportunidades", False),
                         ("Acompanhar as indicações com o EV", False),

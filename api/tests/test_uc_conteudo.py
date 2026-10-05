@@ -15,7 +15,8 @@ def test_conteudo_sem_problema_de_forma():
 def test_trilhas_na_ordem_com_prazos_crescentes():
     """O prazo é o que ordena a próxima aula entre obrigatórias em dia."""
     base = c.TRILHAS[:5]
-    assert [t["titulo"][:2] for t in base] == ["01", "02", "03", "04", "Mé"]
+    assert [t["titulo"][:2] for t in base] == ["01", "02", "03", "04", "02"]
+    assert [t["pilar"] for t in base] == ["tecnica"] * 4 + ["metodo"]
     prazos = [t["prazo_dias"] for t in base]
     assert prazos == sorted(prazos) and len(set(prazos)) == len(prazos)
 
@@ -159,7 +160,8 @@ def test_tecnicas_do_sdr_treinam_cada_tecnica_com_pratica():
     """Pedido de 05/10/2026: cada técnica do roteiro, com exercício e role-play."""
     from scripts import uc_conteudo_tecnicas_sdr as t
     m = t.METODO_04
-    assert m in c.TRILHAS and m["pilar"] == "metodo"
+    assert m in c.TRILHAS and m["pilar"] == "tecnica"
+    assert m["titulo"] == "04 · Técnicas do SDR na prática"
     assert m["obrigatorios"] == ("SDR",) and set(m["opcionais"]) == {"ADM", "Franqueado"}
     assert len(m["aulas"]) == 9
     for a in m["aulas"]:
@@ -181,3 +183,10 @@ def test_tecnicas_do_sdr_usam_os_fatos_do_roteiro():
     texto = " ".join(a["conteudo_md"] for a in t.METODO_04["aulas"])
     for fato in ("26/05/2026", "mais de 500 empresas", "D12", "decisor", "Terça às 10h ou quarta às 15h"):
         assert fato in texto, fato
+
+
+def test_titulos_sem_o_nome_do_pilar():
+    """Tulio, 05/10/2026: o número é a ordem no pilar; o pilar não vai no título."""
+    for t in c.TRILHAS:
+        assert not t["titulo"].startswith(("Método", "Energia", "Técnica", "HIPO")), t["titulo"]
+        assert t["titulo"][:2].isdigit() and t["titulo"][2:5] == " · ", t["titulo"]

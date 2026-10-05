@@ -7,7 +7,6 @@
 //   4. navegar de mês mexe na URL; não há próximo mês a partir do corrente
 //   5. gestão escolhe a pessoa (modo leitura, sem atalhos de ação)
 //   6. cargo sem squad explica, em vez de mostrar zeros
-//   7. PDI: aba "em breve" que leva ao Desempenho
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, cleanup, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
@@ -20,7 +19,6 @@ vi.mock('../api', () => ({
 }));
 
 import Desempenho, { mesVizinho, telaDoIndicador } from '../pages/carreira/Desempenho';
-import Pdi from '../pages/carreira/Pdi';
 
 function linha(extra = {}) {
   return {
@@ -73,7 +71,6 @@ function renderizar(caminho = '/carreira/desempenho') {
       <Onde />
       <Routes>
         <Route path="/carreira/desempenho" element={<Desempenho />} />
-        <Route path="/carreira/pdi" element={<Pdi />} />
         <Route path="/crm/oportunidades" element={<p>tela de oportunidades</p>} />
       </Routes>
     </MemoryRouter>,
@@ -183,15 +180,5 @@ describe('Desempenho', () => {
     renderizar('/carreira/desempenho?usuario_id=u9');
     expect(await screen.findByText('Só a gestão abre a UC de outra pessoa.')).toBeInTheDocument();
     expect(screen.getByRole('navigation', { name: 'Carreira' })).toBeInTheDocument();
-  });
-});
-
-describe('PDI', () => {
-  it('é a aba "em breve" que leva ao Desempenho', async () => {
-    mockGet.mockResolvedValue({ data: resposta() });
-    renderizar('/carreira/pdi');
-    expect(screen.getByText('O PDI chega na próxima entrega')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: /Ver o meu Desempenho/ }));
-    expect(screen.getByTestId('onde').textContent).toBe('/carreira/desempenho');
   });
 });

@@ -48,7 +48,7 @@ needs_web = pytest.mark.skipif(not WEB.is_dir(), reason="sem o código do front 
 
 
 def test_tres_trilhas_no_metodo_uma_por_funcao():
-    assert [t["titulo"] for t in h.TRILHAS_HIPO] == ["HIPO - SDR", "HIPO - EV", "HIPO - EC"]
+    assert [t["titulo"] for t in h.TRILHAS_HIPO] == ["01 · HIPO - SDR", "01 · HIPO - EV", "01 · HIPO - EC"]
     assert [t["obrigatorios"] for t in h.TRILHAS_HIPO] == [("SDR",), ("EV",), ("EC",)]
     for t in h.TRILHAS_HIPO:
         assert t["pilar"] == "metodo"

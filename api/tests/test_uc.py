@@ -588,13 +588,13 @@ class TestCargaInicial:
         do_ev = [t["titulo"] for t in TRILHAS if "EV" in t.get("obrigatorios", ("EV",))]
         # O manual lista por título; a próxima aula é que segue o prazo.
         assert [t["titulo"] for t in p["manual"]["trilhas"]] == sorted(do_ev, key=str.lower)
-        assert "HIPO - EV" in do_ev and "HIPO - SDR" not in do_ev
+        assert "01 · HIPO - EV" in do_ev and "01 · HIPO - SDR" not in do_ev
         # A primeira aula da trilha 01 é a próxima: prazo mais curto.
         assert p["proxima"]["aula_titulo"] == TRILHAS[0]["aulas"][0]["titulo"]
         assert all(t["prazo"] is not None for t in p["manual"]["trilhas"])
         assert len(s3_falso) == 5
         metodo = next(x for x in p["pilares"] if x["pilar"] == "metodo")
-        assert metodo["trilhas"] == 2  # Método 01 + HIPO - EV
+        assert metodo["trilhas"] == 2  # 02 · Roteiro do EV + 01 · HIPO - EV
 
     async def test_trilhas_comerciais_sao_opcionais_para_ep(self, time, client, s3_falso, tmp_path, db_conn):
         from scripts import semear_uc
@@ -676,6 +676,20 @@ class TestCargaInicial:
         assert t3["titulo"] == "03 · Produto e normas"
         assert t3["aulas_concluidas"] == 1
 
+    async def test_carga_devolve_titulo_e_pilar_do_conteudo(self, time, client, s3_falso, tmp_path):
+        """O conteúdo é a fonte: o que mudou à mão volta ao do arquivo."""
+        from scripts import semear_uc
+        from scripts.uc_conteudo_tecnicas_sdr import METODO_04
+        conn = time["conn"]
+        await semear_uc.carregar(conn, _pdfs(tmp_path), atualizar=False, simular=False)
+        await conn.execute(
+            "UPDATE uc_trilhas SET pilar = 'metodo', titulo = 'Método 04 · Técnicas do SDR na prática' WHERE id = $1",
+            METODO_04["id"],
+        )
+        await semear_uc.carregar(conn, _pdfs(tmp_path), atualizar=True, simular=False)
+        row = await conn.fetchrow("SELECT pilar, titulo FROM uc_trilhas WHERE id = $1", METODO_04["id"])
+        assert (row["pilar"], row["titulo"]) == ("tecnica", "04 · Técnicas do SDR na prática")
+
     async def test_carga_de_novo_nao_duplica(self, time, client, s3_falso, tmp_path):
         from scripts import semear_uc
         pasta = _pdfs(tmp_path)
@@ -705,12 +719,12 @@ class TestCargaInicial:
         sdr = time["sdr"]
         ec = await _me(client, await criar_usuario(db_conn, client, "EC", "ec-uc@teste.com"))
         await semear_uc.carregar(time["conn"], _pdfs(tmp_path), atualizar=False, simular=False)
-        for pessoa, minha in ((sdr, "HIPO - SDR"), (time["ev"], "HIPO - EV"), (ec, "HIPO - EC")):
+        for pessoa, minha in ((sdr, "01 · HIPO - SDR"), (time["ev"], "01 · HIPO - EV"), (ec, "01 · HIPO - EC")):
             p = await painel(client, pessoa)
             manual = {t["titulo"] for t in p["manual"]["trilhas"]}
             outras = {t["titulo"] for t in p["outras"]}
             assert minha in manual
-            assert not ({"HIPO - SDR", "HIPO - EV", "HIPO - EC"} - {minha}) & (manual | outras)
+            assert not ({"01 · HIPO - SDR", "01 · HIPO - EV", "01 · HIPO - EC"} - {minha}) & (manual | outras)
 
     async def test_estudio_mostra_quantos_passos_e_editar_nao_apaga(self, time, client, s3_falso, tmp_path):
         from scripts import semear_uc

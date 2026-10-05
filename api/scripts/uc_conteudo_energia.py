@@ -28,7 +28,7 @@ def _id(sufixo: str) -> UUID:
 
 ENERGIA_01 = {
     "id": _id("c0100"),
-    "titulo": "Energia 01 · Rotina, volume e metas",
+    "titulo": "01 · Rotina, volume e metas",
     "pilar": "energia",
     "reforca": "metas",
     "descricao": (

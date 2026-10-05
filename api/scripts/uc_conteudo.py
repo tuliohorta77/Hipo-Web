@@ -5,16 +5,23 @@ HIPO — UC: conteúdo das três primeiras trilhas da Universidade Corporativa.
   02 · Conceitos gerais de SST            Técnica  (prazo 20 dias)
   03 · Produto e normas                   Técnica  (prazo 30 dias)
   04 · Técnicas de venda consultiva       Técnica  (prazo 40 dias)
-  Método 01 · Roteiro de vendas Controller Método  (prazo 45 dias)
-  HIPO - SDR / HIPO - EV / HIPO - EC      Método  (prazo 15 dias, uma por
+  04 · Técnicas do SDR na prática         Técnica  (prazo 55 dias; em
+                                                   uc_conteudo_tecnicas_sdr.py)
+  01 · HIPO - SDR / EV / EC               Método   (prazo 15 dias, uma por
                                                    função; em uc_conteudo_hipo.py)
-  Método 02 · Roteiro do SDR / Método 03 · Roteiro do EC
-                                          Método  (prazo 50 dias; em
+  02 · Roteiro do EV                      Método   (prazo 45 dias; METODO_01)
+  02 · Roteiro do SDR / 02 · Roteiro do EC
+                                          Método   (prazo 50 dias; em
                                                    uc_conteudo_roteiros.py)
-  Energia 01 · Rotina, volume e metas     Energia (prazo 60 dias; em
+  01 · Rotina, volume e metas             Energia  (prazo 60 dias; em
                                                    uc_conteudo_energia.py)
 
-01 a 03 são obrigatórias para SDR, EV, EC, EP e ADM. 04 e Método 01 são
+TÍTULOS (Tulio, 05/10/2026): o número é a ordem DENTRO do pilar para cada
+função, sem o nome do pilar na frente. Por isso há dois "04" na Técnica e
+três "02" no Método: cada pessoa vê só um deles como obrigatório. Os
+nomes das variáveis (METODO_01, METODO_02...) ficaram os antigos.
+
+01 a 03 são obrigatórias para SDR, EV, EC, EP e ADM. 04 e o Roteiro do EV são
 do time comercial (SDR, EV, EC); EP e ADM podem fazer, sem obrigação. O
 Franqueado vê todas, sem obrigação, para a gestão conseguir fazer e
 revisar. Cada trilha pode declarar `obrigatorios` e `opcionais`; sem
@@ -22,7 +29,7 @@ isso valem CARGOS_OBRIGATORIOS e CARGOS_OPCIONAIS.
 
 A divisão entre os pilares segue o pedido do Tulio (02/10/2026): a 04
 ensina as técnicas em profundidade (SPIN, GPCT + BA/C&I, LAER, Sandler,
-Challenger, escuta e fechamento); a Método 01 ensina a aplicá-las na
+Challenger, escuta e fechamento); o Roteiro do EV ensina a aplicá-las na
 Controller, com o resto da metodologia (preparação, apresentação
 reordenada, objeções, follow-up, scorecard e métricas), a partir do
 "Roteiro de Vendas — Controller Med Seg".
@@ -1787,7 +1794,7 @@ Nenhuma técnica sozinha cobre a reunião inteira. Cada uma resolve um momento:
 - **LAER (Carew International)**: trata objeções sem brigar com o cliente.
 - **Escuta ativa e fechamento**: amarram tudo e transformam a conversa em próximo passo.
 
-As próximas aulas explicam cada uma em profundidade. A trilha de **Método · Roteiro de vendas Controller** mostra como aplicamos todas elas, com as nossas falas e perguntas.
+As próximas aulas explicam cada uma em profundidade. A trilha **02 · Roteiro do EV**, do pilar Método, mostra como aplicamos todas elas, com as nossas falas e perguntas.
 """,
             "quiz": [
                 {
@@ -2534,7 +2541,7 @@ Fechar não é um momento único no fim da reunião. A cada bloco da apresentaç
 
 METODO_01 = {
     "id": UUID("7c1d0f4e-5a01-4c0e-9b11-0000000b0100"),
-    "titulo": "Método 01 · Roteiro de vendas Controller",
+    "titulo": "02 · Roteiro do EV",
     "pilar": "metodo",
     "reforca": "roteiro",
     "descricao": (
@@ -3669,7 +3676,7 @@ from scripts.uc_conteudo_hipo import TRILHAS_HIPO  # noqa: E402
 from scripts.uc_conteudo_roteiros import TRILHAS_ROTEIROS  # noqa: E402
 # Primeira trilha do pilar Energia (entrega 037).
 from scripts.uc_conteudo_energia import TRILHAS_ENERGIA  # noqa: E402
-# Técnicas do SDR na prática (Método 04, entrega 042).
+# Técnicas do SDR na prática (pilar Técnica, entrega 042).
 from scripts.uc_conteudo_tecnicas_sdr import TRILHAS_TECNICAS_SDR  # noqa: E402
 
 TRILHAS: list[dict] = [

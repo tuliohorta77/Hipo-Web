@@ -51,7 +51,7 @@ def _passo(rota, alvo, titulo, texto, clicar=None):
 
 METODO_02 = {
     "id": _id("b0500"),
-    "titulo": "Método 02 · Roteiro do SDR",
+    "titulo": "02 · Roteiro do SDR",
     "pilar": "metodo",
     "reforca": "metas",
     "descricao": (
@@ -891,7 +891,7 @@ Registre como tarefa concluída. Se o cliente pedir para mudar, edite a reunião
 
 METODO_03 = {
     "id": _id("b0600"),
-    "titulo": "Método 03 · Roteiro do EC",
+    "titulo": "02 · Roteiro do EC",
     "pilar": "metodo",
     "reforca": "tarefas_no_prazo",
     "descricao": (

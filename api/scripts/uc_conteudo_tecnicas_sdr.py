@@ -1,7 +1,7 @@
 """
-HIPO — UC: Método 04 · Técnicas do SDR na prática (pilar Método).
+HIPO — UC: 04 · Técnicas do SDR na prática (pilar Técnica).
 
-  Método 04 · Técnicas do SDR na prática   obrigatória para SDR (prazo 55 dias)
+  04 · Técnicas do SDR na prática   obrigatória para SDR (prazo 55 dias)
 
 ADM e Franqueado veem sem obrigação.
 
@@ -201,7 +201,7 @@ AULA_2 = {
     "conteudo_md": """\
 ## O que é
 
-São as duas primeiras partes da ligação fria do Método 02:
+São as duas primeiras partes da ligação fria do Roteiro do SDR:
 
 1. **Abertura com permissão (15 s):** você se apresenta e **pede licença** para falar.
 2. **O motivo (20 s):** **uma** frase de credencial e **uma** frase de motivo, ligada à sua hipótese.
@@ -354,7 +354,7 @@ AULA_3 = {
     "conteudo_md": """\
 ## O que é
 
-É a terceira parte da ligação fria (30 s): **uma pergunta**, a escuta, e uma segunda pergunta **só se couber**. Junto vem a regra de ouro do Método 02: **quem pergunta conduz**. Se você está falando há mais de 30 segundos seguidos, pare e pergunte.
+É a terceira parte da ligação fria (30 s): **uma pergunta**, a escuta, e uma segunda pergunta **só se couber**. Junto vem a regra de ouro do Roteiro do SDR: **quem pergunta conduz**. Se você está falando há mais de 30 segundos seguidos, pare e pergunte.
 
 ## Por que funciona
 
@@ -504,7 +504,7 @@ São as duas últimas partes da ligação fria:
 - **O pedido (20 s):** você pede 30 minutos com o especialista, sem compromisso, e oferece **dois horários**.
 - **A confirmação (20 s):** antes de desligar, você fecha os dados que fazem a reunião acontecer.
 
-O critério para pedir é o do Método 02: **decisor + interesse**. Você não precisa saber tudo; precisa estar falando com quem decide (ou leva a conversa para quem decide) e ter percebido abertura.
+O critério para pedir é o do Roteiro do SDR: **decisor + interesse**. Você não precisa saber tudo; precisa estar falando com quem decide (ou leva a conversa para quem decide) e ter percebido abertura.
 
 ## Por que funciona
 
@@ -1100,7 +1100,7 @@ AULA_8 = {
     "conteudo_md": """\
 ## O que é
 
-Cadência é a **sequência planejada de toques** em uma empresa: ligação, WhatsApp e e-mail, em dias e horários definidos, até você falar com o decisor ou encerrar. No Método 02 são seis toques em menos de três semanas.
+Cadência é a **sequência planejada de toques** em uma empresa: ligação, WhatsApp e e-mail, em dias e horários definidos, até você falar com o decisor ou encerrar. No Roteiro do SDR são seis toques em menos de três semanas.
 
 ## Por que funciona
 
@@ -1425,11 +1425,11 @@ Pegue as **três últimas reuniões** que você marcou. Releia a Descrição de 
 
 METODO_04 = {
     "id": _id("b0700"),
-    "titulo": "Método 04 · Técnicas do SDR na prática",
-    "pilar": "metodo",
+    "titulo": "04 · Técnicas do SDR na prática",
+    "pilar": "tecnica",
     "reforca": "metas",
     "descricao": (
-        "O treino de cada técnica do Roteiro do SDR (Método 02): pesquisa e "
+        "O treino de cada técnica do 02 · Roteiro do SDR: pesquisa e "
         "hipótese de dor, abertura com permissão, perguntar e escutar, pedido "
         "com duas opções, recepção, LAER no telefone, mensagem escrita, "
         "cadência e o bastão para o EV. Cada aula ensina o passo a passo, "

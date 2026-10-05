@@ -68,6 +68,29 @@ async def _pessoas_para_gestao(conn) -> list[dict]:
     return [{"id": str(r["id"]), "nome": r["nome"], "cargo": r["cargo"]} for r in rows]
 
 
+async def mes_da_pessoa(conn, pessoa: dict, squad: str, ano: int, mes: int,
+                        referencia: date, agora: datetime) -> dict:
+    """
+    Os indicadores de uma pessoa num mês (o aberto vai até `referencia`).
+    Separado da rota porque o PDI usa a mesma conta para sugerir ações.
+    """
+    aberto = (ano, mes) == (referencia.year, referencia.month)
+    primeiro = date(ano, mes, 1)
+    ultimo = date(ano, mes, monthrange(ano, mes)[1])
+    ate = min(referencia, ultimo) if aberto else ultimo
+    nao_uteis = await _dias_nao_uteis(conn, ano, mes)
+    uteis = len(dias_uteis.dias_uteis_no_mes(primeiro, nao_uteis))
+    corridos = dias_uteis.dia_util_atual_no_mes(primeiro, nao_uteis, ate) if aberto else uteis
+    inicio, fim = janela_utc(primeiro, ate)
+    dados = await rper_dados.coletar_janela(conn, inicio, fim, agora)
+    bruto = rper.CALCULO[squad](dados, [pessoa["id"]])
+    metas = await _metas_da_pessoa(conn, squad, pessoa["id"], ano, mes)
+    linhas = regras.linhas(squad, bruto, metas, aberto=aberto,
+                           dia_util=corridos, dias_uteis=uteis)
+    return {"aberto": aberto, "dia_util": corridos, "dias_uteis": uteis,
+            "bruto": bruto, "metas": metas, "linhas": linhas}
+
+
 @router.get("/desempenho")
 async def desempenho(
     usuario_id: UUID | None = Query(None),
@@ -110,20 +133,10 @@ async def desempenho(
                 "ponto_de_atencao": None, "tem_meta": False,
                 "dia_util": None, "dias_uteis": None}
 
-    primeiro = date(ano, mes, 1)
-    ultimo = date(ano, mes, monthrange(ano, mes)[1])
-    ate = min(referencia, ultimo) if aberto else ultimo
-    nao_uteis = await _dias_nao_uteis(conn, ano, mes)
-    uteis = len(dias_uteis.dias_uteis_no_mes(primeiro, nao_uteis))
-    corridos = dias_uteis.dia_util_atual_no_mes(primeiro, nao_uteis, ate) if aberto else uteis
-
     agora = datetime.now(timezone.utc)
-    inicio, fim = janela_utc(primeiro, ate)
-    dados = await rper_dados.coletar_janela(conn, inicio, fim, agora)
-    bruto = rper.CALCULO[squad](dados, [pessoa["id"]])
-    metas = await _metas_da_pessoa(conn, squad, pessoa["id"], ano, mes)
-    linhas = regras.linhas(squad, bruto, metas, aberto=aberto,
-                           dia_util=corridos, dias_uteis=uteis)
+    m = await mes_da_pessoa(conn, pessoa, squad, ano, mes, referencia, agora)
+    bruto, metas, linhas = m["bruto"], m["metas"], m["linhas"]
+    corridos, uteis = m["dia_util"], m["dias_uteis"]
 
     historico = []
     for (a, m) in regras.meses_anteriores(ano, mes, regras.MESES_HISTORICO - 1):

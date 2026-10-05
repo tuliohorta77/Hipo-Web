@@ -11,11 +11,12 @@ O QUE A CARGA GARANTE
   * Ids fixos: rodar de novo não duplica trilha, aula nem PDF.
   * Trilha nova nasce em rascunho, recebe as aulas e os cargos e só então é
     publicada (a regra do estúdio: trilha não publica vazia).
-  * Trilha que já existe só é tocada com --atualizar: título, descrição e o
-    texto das aulas são reescritos SEM subir versão (correção de redação não
+  * Trilha que já existe só é tocada com --atualizar: título, descrição,
+    pilar e o texto das aulas são reescritos SEM subir versão (correção de redação não
     reabre aula para quem concluiu), e as aulas do conteúdo assumem as
     posições 1..n. Aula que a gestão criou pelo estúdio vai para o fim, na
-    ordem em que estava.
+    ordem em que estava. O conteúdo é a fonte: título ou pilar mudado à
+    mão no estúdio volta ao do arquivo na próxima carga.
   * Cargos: só acrescenta o que falta. Prazo e obrigação que a gestão mudou
     no estúdio ficam como estão.
   * PDFs: anexa o que não estiver anexado (pelo nome exibido).
@@ -208,7 +209,8 @@ async def carregar(conn, pasta_pdfs: Path | None, atualizar: bool, simular: bool
                     VALUES ($1, $2, $3, $4, $5, 'rascunho')
                     ON CONFLICT (id) DO UPDATE
                        SET titulo = EXCLUDED.titulo, descricao = EXCLUDED.descricao,
-                           reforca = EXCLUDED.reforca, atualizado_em = NOW()
+                           pilar = EXCLUDED.pilar, reforca = EXCLUDED.reforca,
+                           atualizado_em = NOW()
                     """,
                     t["id"], t["titulo"], t["descricao"], t["pilar"], t.get("reforca"),
                 )

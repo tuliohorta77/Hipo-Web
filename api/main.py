@@ -33,6 +33,7 @@ from routers import (
     crm_relatorios,
     crm_tarefas,
     monitor,
+    pdi,
     rper,
     telemetria,
     uc,
@@ -347,6 +348,13 @@ app.include_router(
 # (so a gestao, em modo leitura).
 app.include_router(
     carreira.router,
+    prefix="/carreira", tags=["Carreira"],
+    dependencies=[Depends(requer_modulo("crm"))],
+)
+# PDI (segunda aba da Carreira): mesmo prefixo e mesmo modulo. Quem monta
+# (gestao) e quem conclui (o dono) e decidido dentro de cada rota.
+app.include_router(
+    pdi.router,
     prefix="/carreira", tags=["Carreira"],
     dependencies=[Depends(requer_modulo("crm"))],
 )

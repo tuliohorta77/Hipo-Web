@@ -155,6 +155,10 @@ CATALOGO: dict[tuple[str, str], Tipo] = {
     ("DELETE", "/uc/estudio/materiais/{material_id}"): _t("Universidade", "Material de aula excluído", 109),
     # Quiz final da trilha (025): cada envio é uma atividade de estudo.
     ("POST", "/uc/trilhas/{trilha_id}/quiz"): _t("Universidade", "Quiz final de trilha respondido", 110),
+    # PDI (Carreira, 027): a gestao monta, o colaborador conclui.
+    ("POST", "/carreira/pdi/acoes"): _t("Universidade", "Ação de PDI criada", 112),
+    ("PATCH", "/carreira/pdi/acoes/{acao_id}"): _t("Universidade", "Ação de PDI atualizada", 113),
+    ("POST", "/carreira/pdi/sugestoes/descartar"): _t("Universidade", "Sugestão de PDI descartada", 114),
     ("PUT", "/uc/estudio/aulas/{aula_id}/quiz"): _t("Universidade", "Perguntas de aula editadas", 111),
 
     # Monitor (metas e feriados)
