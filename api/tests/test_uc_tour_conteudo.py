@@ -37,9 +37,10 @@ def _ancoras_do_front() -> set[str]:
 
 
 def _passos():
-    for t in h.TRILHAS_HIPO:
+    """Todo passo de tour de todas as trilhas (as de uso e as que só citam o HIPO)."""
+    for t in c.TRILHAS:
         for a in t["aulas"]:
-            for i, p in enumerate(a["tour"], start=1):
+            for i, p in enumerate(a.get("tour") or [], start=1):
                 yield t, a, i, p
 
 
@@ -79,7 +80,7 @@ def test_tour_so_passa_por_tela_que_o_cargo_enxerga():
     restritas = {"/crm/prospeccao": CARGOS_PROSPECCAO, "/crm/parceiros": CARGOS_COM_PARCEIROS}
     for t, a, i, p in _passos():
         if p["rota"] in restritas:
-            for cargo in t["obrigatorios"]:
+            for cargo in t.get("obrigatorios", c.CARGOS_OBRIGATORIOS):
                 assert cargo in restritas[p["rota"]], f"{t['titulo']} / {a['titulo']}, passo {i}"
 
 
@@ -107,3 +108,10 @@ def test_textos_curtos_para_o_balao():
 def test_ids_das_aulas_nao_colidem_com_o_resto():
     ids = [x["id"] for x in c.TRILHAS] + [a["id"] for x in c.TRILHAS for a in x["aulas"]]
     assert len(ids) == len(set(ids))
+
+
+def test_passos_de_outras_trilhas_entram_na_conferencia():
+    """Os roteiros (Método 02 e 03) também têm tour: o teste das âncoras os cobre."""
+    from scripts import uc_conteudo_roteiros as r
+    com_tour = {t["titulo"] for t, _a, _i, _p in _passos()}
+    assert {r.METODO_02["titulo"], r.METODO_03["titulo"]} <= com_tour

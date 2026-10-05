@@ -8,6 +8,9 @@ HIPO — UC: conteúdo das três primeiras trilhas da Universidade Corporativa.
   Método 01 · Roteiro de vendas Controller Método  (prazo 45 dias)
   HIPO - SDR / HIPO - EV / HIPO - EC      Método  (prazo 15 dias, uma por
                                                    função; em uc_conteudo_hipo.py)
+  Método 02 · Roteiro do SDR / Método 03 · Roteiro do EC
+                                          Método  (prazo 50 dias; em
+                                                   uc_conteudo_roteiros.py)
 
 01 a 03 são obrigatórias para SDR, EV, EC, EP e ADM. 04 e Método 01 são
 do time comercial (SDR, EV, EC); EP e ADM podem fazer, sem obrigação. O
@@ -2534,5 +2537,9 @@ A nota de roteiro validada é um dos componentes do pilar **Método** na avalia�
 
 # Trilhas de uso do HIPO por função (entrega 035), com tour guiado.
 from scripts.uc_conteudo_hipo import TRILHAS_HIPO  # noqa: E402
+# Roteiros do SDR e do EC (Método 02 e 03, entrega 036).
+from scripts.uc_conteudo_roteiros import TRILHAS_ROTEIROS  # noqa: E402
 
-TRILHAS: list[dict] = [TRILHA_01, TRILHA_02, TRILHA_03, TRILHA_04, METODO_01, *TRILHAS_HIPO]
+TRILHAS: list[dict] = [
+    TRILHA_01, TRILHA_02, TRILHA_03, TRILHA_04, METODO_01, *TRILHAS_HIPO, *TRILHAS_ROTEIROS,
+]

@@ -89,3 +89,35 @@ def test_conferir_pega_quiz_com_duas_corretas(monkeypatch):
 
 def test_senha_do_banco_sai_mascarada():
     assert semear_uc._mascarar("postgresql://u:segredo@host:5432/db") == "postgresql://u:****@host:5432/db"
+
+
+# ── Roteiros do SDR e do EC (Método 02 e 03) ─────────────────────────
+
+def test_roteiros_sdr_e_ec_um_por_cargo():
+    from scripts import uc_conteudo_roteiros as r
+    assert r.METODO_02["obrigatorios"] == ("SDR",)
+    assert r.METODO_03["obrigatorios"] == ("EC",)
+    for t in r.TRILHAS_ROTEIROS:
+        assert t["pilar"] == "metodo" and t in c.TRILHAS
+        assert set(t["opcionais"]) == {"ADM", "Franqueado"}
+
+
+def test_roteiro_do_sdr_segue_as_decisoes_do_tulio():
+    """Decisor + interesse marca a reunião; canais: ligação, WhatsApp e e-mail; SDR não fala preço."""
+    from scripts import uc_conteudo_roteiros as r
+    texto = " ".join(a["conteudo_md"] for a in r.METODO_02["aulas"])
+    for regra in ("Decisor", "Interesse", "Ligação", "WhatsApp", "E-mail",
+                  "Falar preço", "Agendado por", "Lead"):
+        assert regra in texto, regra
+
+
+def test_roteiro_do_ec_fala_de_comissao_recorrente_sem_numero():
+    """O percentual é da gestão: nenhum número de comissão pode virar promessa no texto."""
+    import re
+    from scripts import uc_conteudo_roteiros as r
+    texto = " ".join(a["conteudo_md"] for a in r.METODO_03["aulas"])
+    assert "omissão recorrente" in texto and "tabela vigente" in texto
+    assert not re.search(r"\d+\s*%", texto)
+    for termo in ("6920-6/01", "Finder", "S-2220", "S-2240", "devolutiva"):
+        assert termo in texto, termo
+
