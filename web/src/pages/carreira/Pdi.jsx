@@ -243,7 +243,7 @@ export default function Pdi() {
 
       {dados.pode_gerir && (
         <div className="flex flex-wrap items-center gap-3">
-          <label className="text-sm text-hipo-slate inline-flex items-center gap-2">
+          <label className="text-sm text-hipo-slate inline-flex items-center gap-2" data-tour="pdi-pessoa">
             Pessoa
             <select
               aria-label="Pessoa"
@@ -261,6 +261,7 @@ export default function Pdi() {
           </label>
           <Button
             className="ml-auto"
+            data-tour="pdi-nova"
             icon={Plus}
             onClick={() => setForm({ objetivo: '', o_que_fazer: '', prazo: '', trilha_id: '' })}
           >
@@ -271,7 +272,7 @@ export default function Pdi() {
 
       {aviso && <AlertMessage tipo="erro">{aviso}</AlertMessage>}
 
-      <Card padding="md" data-testid="pdi-proxima">
+      <Card padding="md" data-testid="pdi-proxima" data-tour="pdi-proxima">
         <p className="text-xs font-semibold uppercase tracking-wide text-hipo-slate mb-2">
           {dados.modo_leitura ? 'Próxima ação da pessoa' : 'Sua próxima ação'}
         </p>
@@ -310,14 +311,14 @@ export default function Pdi() {
         )}
       </Card>
 
-      <div className="grid gap-4 grid-cols-3">
+      <div className="grid gap-4 grid-cols-3" data-tour="pdi-numeros">
         <Numero rotulo="Abertas" valor={dados.resumo.abertas} />
         <Numero rotulo="Atrasadas" valor={dados.resumo.atrasadas} tom={dados.resumo.atrasadas ? 'text-hipo-danger' : undefined} />
         <Numero rotulo="Feitas no mês" valor={dados.resumo.feitas_no_mes} tom="text-hipo-success" />
       </div>
 
       {dados.pode_gerir && (
-        <Card padding="none" data-testid="pdi-sugestoes">
+        <Card padding="none" data-testid="pdi-sugestoes" data-tour="pdi-sugestoes">
           <div className="px-5 pt-4">
             <CardHeader title="Sugestões do HIPO" hint="Do Desempenho e da Universidade. Confirme ajustando, ou descarte." />
           </div>
@@ -358,7 +359,7 @@ export default function Pdi() {
         </AlertMessage>
       )}
 
-      <Card padding="none">
+      <Card padding="none" data-tour="pdi-abertas">
         <div className="px-5 pt-4"><CardHeader title="Ações abertas" hint="Por prazo." /></div>
         {dados.acoes_abertas.length === 0 ? (
           <p className="px-5 pb-4 text-sm text-hipo-slate">Nenhuma.</p>

@@ -602,7 +602,8 @@ class TestCargaInicial:
         ep = await _me(client, await criar_usuario(db_conn, client, "EP", "ep-uc@teste.com"))
         await semear_uc.carregar(time["conn"], _pdfs(tmp_path), atualizar=False, simular=False)
         p = await painel(client, ep)
-        assert len(p["manual"]["trilhas"]) == 3
+        # 01 a 03 e o curso de PDI (05), que é de todos os cargos.
+        assert len(p["manual"]["trilhas"]) == 4
         from scripts.uc_conteudo_energia import ENERGIA_01
         assert {t["titulo"] for t in p["outras"]} == {
             TRILHA_04["titulo"], METODO_01["titulo"], ENERGIA_01["titulo"],

@@ -190,3 +190,27 @@ def test_titulos_sem_o_nome_do_pilar():
     for t in c.TRILHAS:
         assert not t["titulo"].startswith(("Método", "Energia", "Técnica", "HIPO")), t["titulo"]
         assert t["titulo"][:2].isdigit() and t["titulo"][2:5] == " · ", t["titulo"]
+
+
+# ── 05 · PDI: criar e seguir um bom plano ────────────────────────────
+
+def test_curso_de_pdi_para_todos_com_aula_da_gestao():
+    """Pedido de 05/10/2026: para todos, com uma parte para a gestão; pilar Técnica."""
+    from scripts import uc_conteudo_pdi as p
+    t = p.TECNICA_05_PDI
+    assert t in c.TRILHAS and t["pilar"] == "tecnica" and t["titulo"].startswith("05 · ")
+    assert set(t["obrigatorios"]) == {"SDR", "EV", "EC", "EP", "ADM"}
+    assert t["opcionais"] == ("Franqueado",)
+    assert "gestão" in t["aulas"][-1]["titulo"].lower()
+
+
+def test_curso_de_pdi_descreve_as_regras_do_sistema():
+    """O texto tem que bater com services/pdi.py."""
+    from scripts import uc_conteudo_pdi as p
+    from services import pdi as regras
+    texto = " ".join(a["conteudo_md"] for a in p.TECNICA_05_PDI["aulas"])
+    assert f"{round(regras.CORTE_DESEMPENHO * 100)}%" in texto
+    assert f"{regras.DIA_UTIL_MINIMO - 1}º dia útil" in texto
+    assert f"até {regras.DIAS_ALERTA} dias" in texto
+    assert "três piores" in texto and regras.MAX_SUGESTOES_DESEMPENHO == 3
+    assert "duas ou mais vezes" in texto and regras.QUIZ_TENTATIVAS_SUGESTAO == 2

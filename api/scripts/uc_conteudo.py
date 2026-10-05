@@ -13,6 +13,8 @@ HIPO — UC: conteúdo das três primeiras trilhas da Universidade Corporativa.
   02 · Roteiro do SDR / 02 · Roteiro do EC
                                           Método   (prazo 50 dias; em
                                                    uc_conteudo_roteiros.py)
+  05 · PDI: criar e seguir um bom plano   Técnica  (prazo 35 dias, todos os
+                                                   cargos; em uc_conteudo_pdi.py)
   01 · Rotina, volume e metas             Energia  (prazo 60 dias; em
                                                    uc_conteudo_energia.py)
 
@@ -3678,8 +3680,10 @@ from scripts.uc_conteudo_roteiros import TRILHAS_ROTEIROS  # noqa: E402
 from scripts.uc_conteudo_energia import TRILHAS_ENERGIA  # noqa: E402
 # Técnicas do SDR na prática (pilar Técnica, entrega 042).
 from scripts.uc_conteudo_tecnicas_sdr import TRILHAS_TECNICAS_SDR  # noqa: E402
+# Como criar e seguir um bom PDI (pilar Técnica, entrega 044).
+from scripts.uc_conteudo_pdi import TRILHAS_PDI  # noqa: E402
 
 TRILHAS: list[dict] = [
     TRILHA_01, TRILHA_02, TRILHA_03, TRILHA_04, METODO_01,
-    *TRILHAS_HIPO, *TRILHAS_ROTEIROS, *TRILHAS_ENERGIA, *TRILHAS_TECNICAS_SDR,
+    *TRILHAS_HIPO, *TRILHAS_ROTEIROS, *TRILHAS_ENERGIA, *TRILHAS_TECNICAS_SDR, *TRILHAS_PDI,
 ]
