@@ -15,16 +15,11 @@ O QUE O ESTÚDIO GARANTE
     quem já concluiu; correção de vírgula não sobe;
   * aula com alguém que já concluiu não é apagada — vira rascunho. Apagar
     levaria junto a prova de que a pessoa fez;
-  * quiz (`PUT /aulas/{id}/quiz`): nenhuma pergunta (a aula conclui pelo
-    tempo) ou exatamente 7, cada uma com 3 a 5 alternativas e uma correta.
-    Substitui o quiz inteiro. Trocar o quiz não sobe a versão: quem já
-    concluiu continua concluído. As trilhas da carga (scripts/semear_uc.py)
-    têm o quiz regravado a cada carga com --atualizar.
-
-O MANUAL DA FUNÇÃO (`PUT /trilhas/{id}/cargos`)
-  Substitui a lista inteira. `desde` é preservado para o cargo que já era
-  obrigatório e renasce quando a trilha VIRA obrigatória — é de lá que o
-  prazo de quem já estava na equipe começa a contar.
+  * perguntas da aula (`PUT /aulas/{id}/quiz`): o banco de onde o quiz
+    final da trilha sorteia as 10 perguntas. De 0 a 10 por aula, cada uma
+    com 3 a 5 alternativas e uma correta. Substitui o banco inteiro; não
+    sobe a versão. As trilhas da carga (scripts/semear_uc.py) têm o banco
+    regravado a cada carga com --atualizar.
 """
 from __future__ import annotations
 
@@ -172,7 +167,8 @@ class AulaEstudio(BaseModel):
     # O tour vem da carga do conteúdo (scripts/semear_uc.py); o estúdio só
     # mostra quantos passos a aula tem. Editar a aula não mexe nele.
     tour_passos: int = 0
-    # Quiz COM gabarito: só a gestão vê. Vazio = aula sem quiz.
+    # Banco de perguntas da aula, COM gabarito: só a gestão vê. Vazio = a
+    # aula não entra no quiz final da trilha.
     quiz: list[PerguntaEstudio] = []
     nota_minima: int = regras.NOTA_MINIMA_QUIZ
 
@@ -628,8 +624,8 @@ async def gravar_quiz(conn, aula_id: UUID, perguntas: list[dict], ids=None) -> N
             dependencies=[Depends(requer_gestao_uc)])
 async def editar_quiz(aula_id: UUID, body: QuizIn, conn=Depends(get_conn)):
     """
-    O quiz inteiro de uma vez. Lista vazia tira o quiz: a aula volta a
-    concluir pelo botão "Concluí", com a trava de tempo.
+    O banco de perguntas da aula de uma vez. Lista vazia tira a aula do
+    sorteio do quiz final da trilha.
     """
     a = await _aula_ou_404(conn, aula_id)
     try:

@@ -10,8 +10,9 @@ O que mora aqui:
   * vídeo: de uma URL colada pela gestão para (provedor, id) — e só isso
     vai para o banco
   * conclusão de aula sem quiz: a trava de tempo mínimo
-  * quiz depois da aula: forma do quiz, correção, nota e espera entre
-    tentativas (a aula com quiz só conclui com aprovação)
+  * quiz final da trilha: banco de perguntas das aulas, sorteio,
+    correção, nota e espera entre tentativas (a trilha só conclui com
+    aprovação)
   * prazo e situação das trilhas obrigatórias (o "manual da função")
   * a PRÓXIMA AULA, que é o cartão que abre a tela
 
@@ -311,16 +312,26 @@ def segundos_para_liberar(aberta_em: datetime | None, duracao_min: int | None,
 
 # ── Quiz ─────────────────────────────────────────────────────────────
 #
-# A trava de tempo garante presença, não entendimento. Aula com quiz só
-# conclui com aprovação, e o quiz só abre depois da trava de tempo (as
-# duas valem). Decisões do Tulio (05/10/2026): 7 perguntas, 85% para
-# aprovar (6 de 7), nova tentativa 10 minutos depois de reprovar.
+# A trava de tempo garante presença, não entendimento. Decisões do Tulio
+# (05/10/2026): o quiz é UM SÓ, no FINAL DA TRILHA, numa tela própria. As
+# aulas concluem pela trava de tempo; o quiz abre quando todas estão
+# concluídas, e a trilha só conclui com aprovação (85%). Reprovou: nova
+# tentativa 10 minutos depois, com OUTRO sorteio.
+#
+# Cada aula guarda um BANCO de perguntas (as da carga têm 7). O quiz da
+# trilha sorteia QUIZ_TRILHA_PERGUNTAS delas, espalhadas pelas aulas
+# (rodízio: uma de cada aula, na ordem, até completar). O sorteio sai de
+# uma semente (pessoa + trilha + nº de tentativas): o F5 mostra o mesmo
+# quiz, e a correção refaz o mesmo sorteio — nada de estado entre o GET e
+# o POST.
 #
 # O gabarito nunca sai do servidor: a tela recebe as alternativas sem
-# `correta`, embaralhadas, e o resultado diz QUAIS perguntas errou, nunca
-# qual era a certa — senão a segunda tentativa vira cola.
+# `correta`, embaralhadas, e o resultado diz QUAIS perguntas errou (e de
+# qual aula), nunca qual era a certa.
 
-PERGUNTAS_POR_QUIZ = 7
+PERGUNTAS_POR_QUIZ = 7          # tamanho do banco de cada aula da CARGA
+MAX_PERGUNTAS_POR_AULA = 10     # banco que a gestão escreve no estúdio
+QUIZ_TRILHA_PERGUNTAS = 10      # perguntas sorteadas no quiz final
 NOTA_MINIMA_QUIZ = 85
 ALTERNATIVAS_MIN = 3
 ALTERNATIVAS_MAX = 5
@@ -329,23 +340,27 @@ MAX_ENUNCIADO = 300
 MAX_ALTERNATIVA = 200
 
 
-def validar_quiz(perguntas: list | None) -> list[dict]:
+def validar_quiz(perguntas: list | None, exatas: int | None = None) -> list[dict]:
     """
-    O quiz como a gestão escreveu no estúdio, normalizado. Lista vazia =
-    aula sem quiz (volta para o "Concluí" com a trava de tempo).
+    O banco de perguntas de uma aula, normalizado. Lista vazia = a aula
+    não entra no quiz final da trilha.
 
-    Recusa com mensagem pronta para a tela: quantidade diferente de 7,
-    pergunta sem texto, alternativas fora de 3..5, repetidas, ou sem
-    exatamente uma correta.
+    Recusa com mensagem pronta para a tela: mais de 10 perguntas (ou,
+    com `exatas`, quantidade diferente — a carga exige 7), pergunta sem
+    texto, alternativas fora de 3..5, repetidas, ou sem exatamente uma
+    correta.
     """
     if not perguntas:
         return []
     if not isinstance(perguntas, list):
-        raise ConteudoInvalido("O quiz precisa ser uma lista de perguntas.")
-    if len(perguntas) != PERGUNTAS_POR_QUIZ:
+        raise ConteudoInvalido("As perguntas precisam vir numa lista.")
+    if exatas is not None and len(perguntas) != exatas:
         raise ConteudoInvalido(
-            f"O quiz tem {len(perguntas)} pergunta(s); precisa de exatamente "
-            f"{PERGUNTAS_POR_QUIZ} (ou nenhuma, para a aula concluir pelo tempo)."
+            f"A aula tem {len(perguntas)} pergunta(s); precisa de exatamente {exatas}."
+        )
+    if len(perguntas) > MAX_PERGUNTAS_POR_AULA:
+        raise ConteudoInvalido(
+            f"A aula tem {len(perguntas)} perguntas; o banco vai até {MAX_PERGUNTAS_POR_AULA}."
         )
     saida, vistos = [], set()
     for i, p in enumerate(perguntas, start=1):
@@ -443,7 +458,7 @@ def corrigir(
         lista = ", ".join(str(n) for n in faltando)
         raise ConteudoInvalido(f"Responda todas as perguntas antes de enviar (falta: {lista}).")
     if set(recebidas) - set(ids):
-        raise ConteudoInvalido("Resposta para uma pergunta que não é desta aula.")
+        raise ConteudoInvalido("O quiz mudou desde que você abriu. Recarregue a página.")
     acertos, erradas = 0, []
     for p in perguntas:
         pid = str(p["id"])
@@ -468,6 +483,39 @@ def segundos_para_refazer(ultima_reprovada_em: datetime | None, agora: datetime)
         return 0
     libera = ultima_reprovada_em + timedelta(minutes=ESPERA_REPROVACAO_MIN)
     return max(0, math.ceil((libera - agora).total_seconds()))
+
+
+def acertos_para_aprovar(total: int, nota_minima: int) -> int:
+    """
+    >>> acertos_para_aprovar(10, 85), acertos_para_aprovar(7, 85)
+    (9, 6)
+    """
+    return -(-nota_minima * total // 100)
+
+
+def sortear_quiz(banco: list[dict], semente: str, quantas: int = QUIZ_TRILHA_PERGUNTAS) -> list[dict]:
+    """
+    As perguntas do quiz da trilha. `banco` traz cada pergunta com
+    `aula_ordem` (e o que mais a tela precisar). Rodízio pelas aulas na
+    ordem da trilha — uma de cada, depois a segunda de cada — para o quiz
+    cobrir a trilha inteira; dentro da aula, a escolha é sorteada. Sai na
+    ordem das aulas, para o resultado dizer "reveja a aula 3".
+    """
+    por_aula: dict[int, list[dict]] = {}
+    for p in banco:
+        por_aula.setdefault(p["aula_ordem"], []).append(p)
+    filas = [
+        embaralhar(sorted(lista, key=lambda x: str(x["id"])), f"{semente}:{ordem}")
+        for ordem, lista in sorted(por_aula.items())
+    ]
+    escolhidas: list[tuple[int, int, dict]] = []
+    rodada = 0
+    while len(escolhidas) < quantas and any(rodada < len(f) for f in filas):
+        for i, f in enumerate(filas):
+            if rodada < len(f) and len(escolhidas) < quantas:
+                escolhidas.append((i, rodada, f[rodada]))
+        rodada += 1
+    return [p for _, _, p in sorted(escolhidas, key=lambda x: (x[0], x[1]))]
 
 
 def embaralhar(itens: list, semente: str) -> list:
@@ -518,8 +566,9 @@ def prazo_da_obrigatoria(entrada_no_cargo: datetime | date | None,
 
 
 def situacao_trilha(total_aulas: int, concluidas: int, prazo: date | None,
-                    hoje: date) -> SituacaoTrilha:
-    if total_aulas > 0 and concluidas >= total_aulas:
+                    hoje: date, quiz_pendente: bool = False) -> SituacaoTrilha:
+    """`quiz_pendente`: a trilha tem quiz final e ele não foi aprovado."""
+    if total_aulas > 0 and concluidas >= total_aulas and not quiz_pendente:
         return SituacaoTrilha("concluida", "Concluída", prazo, None)
     if prazo is None:
         return SituacaoTrilha("sem_prazo", "Sem prazo", None, None)
@@ -551,6 +600,7 @@ PRIORIDADE = {
     # pessoa já tenha adiantado uma aula da 03.
     "obrigatoria": 2,
     "atualizada": 3,     # aula concluída que mudou de versão (trilha livre)
+    "quiz_final": 4,     # aulas feitas, falta o quiz (trilha livre)
     "em_andamento": 4,   # trilha livre começada
     "nova": 5,
 }
@@ -560,6 +610,7 @@ MOTIVOS = {
     "vence_logo": "Trilha obrigatória vence logo",
     "atualizada": "Aula atualizada desde que você concluiu",
     "em_andamento": "Continue de onde parou",
+    "quiz_final": "Falta o quiz final da trilha",
     "obrigatoria": "Do manual da sua função",
     "nova": "Trilha disponível para você",
 }
@@ -578,11 +629,14 @@ class AulaPendente:
     prazo: date | None
     trilha_iniciada: bool         # alguma aula da trilha já concluída
     concluiu_versao_anterior: bool
+    tipo: str = "aula"            # aula | quiz (o quiz final da trilha)
 
 
 def motivo(p: AulaPendente) -> str:
     if p.obrigatoria and p.situacao_trilha in ("atrasada", "vence_logo"):
         return p.situacao_trilha
+    if p.tipo == "quiz":
+        return "quiz_final"
     if p.concluiu_versao_anterior:
         return "atualizada"
     if p.trilha_iniciada:

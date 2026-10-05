@@ -1,11 +1,12 @@
 // web/src/components/uc/EditorQuiz.jsx
 //
-// Estúdio da UC: o quiz da aula. Nenhuma pergunta (a aula conclui pelo
-// "Concluí" com a trava de tempo) ou exatamente 7, cada uma com 3 a 5
-// alternativas e uma correta. Aprova com 85% (6 de 7).
+// Estúdio da UC: as perguntas da aula. São o BANCO de onde o quiz final da
+// trilha sorteia 10 perguntas (aprova com 85%). De 0 a 10 por aula, cada
+// uma com 3 a 5 alternativas e uma correta. A aula em si conclui pela
+// trava de tempo, com ou sem perguntas.
 //
-// Salva o quiz inteiro de uma vez (PUT), separado do "Salvar" da aula: é
-// outra rota, e um erro no quiz não pode segurar a correção do texto. A
+// Salva o banco inteiro de uma vez (PUT), separado do "Salvar" da aula: é
+// outra rota, e um erro aqui não pode segurar a correção do texto. A
 // regra que vale é a do servidor; o que a tela confere aqui é só para não
 // mandar o óbvio errado.
 
@@ -16,7 +17,8 @@ import Button from '../ui/Button';
 import AlertMessage from '../ui/AlertMessage';
 import { mensagemDeErro } from '../crm/tarefaComum';
 
-export const PERGUNTAS_POR_QUIZ = 7;
+export const PERGUNTAS_POR_QUIZ = 7;   // sugestão ao começar
+export const MAX_PERGUNTAS = 10;
 const ALT_MIN = 3;
 const ALT_MAX = 5;
 
@@ -30,7 +32,7 @@ export function quizEmBranco() {
 
 /** O que falta para o quiz poder ser salvo; '' = pronto. */
 export function problemaDoQuiz(perguntas) {
-  if (perguntas.length !== PERGUNTAS_POR_QUIZ) return `O quiz precisa de ${PERGUNTAS_POR_QUIZ} perguntas.`;
+  if (perguntas.length > MAX_PERGUNTAS) return `O banco vai até ${MAX_PERGUNTAS} perguntas por aula.`;
   for (let i = 0; i < perguntas.length; i += 1) {
     const p = perguntas[i];
     if (!p.enunciado.trim()) return `Pergunta ${i + 1}: escreva o enunciado.`;
@@ -60,10 +62,10 @@ export default function EditorQuiz({ aula, onSalvo }) {
     try {
       const { data } = await api.put(`/uc/estudio/aulas/${aula.id}/quiz`, { perguntas: lista });
       setPerguntas(data.quiz);
-      setOk(data.quiz.length ? 'Quiz salvo.' : 'Quiz removido: a aula volta a concluir pelo tempo.');
+      setOk(data.quiz.length ? 'Perguntas salvas.' : 'Perguntas removidas: a aula sai do sorteio do quiz final.');
       onSalvo?.(data);
     } catch (e) {
-      setErro(mensagemDeErro(e, 'Não foi possível salvar o quiz.'));
+      setErro(mensagemDeErro(e, 'Não foi possível salvar as perguntas.'));
     } finally {
       setSalvando(false);
     }
@@ -78,13 +80,13 @@ export default function EditorQuiz({ aula, onSalvo }) {
   return (
     <div data-testid="editor-quiz">
       <div className="flex items-center justify-between mb-1.5">
-        <p className="text-sm font-medium text-hipo-ink">Quiz</p>
+        <p className="text-sm font-medium text-hipo-ink">Perguntas para o quiz final</p>
         {perguntas.length > 0 && (
           <div className="flex gap-2">
             <Button size="sm" variant="ghost" icon={Trash2} onClick={() => gravar([])} disabled={salvando}>
-              Remover quiz
+              Remover todas
             </Button>
-            <Button size="sm" onClick={salvar} loading={salvando}>Salvar quiz</Button>
+            <Button size="sm" onClick={salvar} loading={salvando}>Salvar perguntas</Button>
           </div>
         )}
       </div>
@@ -94,20 +96,31 @@ export default function EditorQuiz({ aula, onSalvo }) {
       {perguntas.length === 0 ? (
         <div className="text-xs text-hipo-slate flex flex-col sm:flex-row sm:items-center gap-2">
           <span className="flex-1">
-            Sem quiz, a aula conclui pelo botão Concluí depois da metade da duração. Com quiz, só
-            conclui com {PERGUNTAS_POR_QUIZ} perguntas e 85% de acerto (6 de 7), e o quiz abre depois do mesmo tempo.
+            O quiz é um só, no final da trilha: sorteia 10 perguntas das aulas e aprova com 85%.
+            Sem perguntas, esta aula fica fora do sorteio. A aula conclui pelo botão Concluí,
+            depois da metade da duração.
           </span>
           <Button size="sm" variant="secondary" icon={ClipboardList} onClick={() => setPerguntas(quizEmBranco())}>
-            Criar quiz
+            Escrever perguntas
           </Button>
         </div>
       ) : (
         <ol className="space-y-4">
           {perguntas.map((p, i) => (
             <li key={i} className="border border-hipo-border rounded-lg p-3">
-              <label className="block text-xs font-medium text-hipo-slate mb-1" htmlFor={`quiz-p${i}`}>
-                Pergunta {i + 1}
-              </label>
+              <div className="flex items-center justify-between mb-1">
+                <label className="block text-xs font-medium text-hipo-slate" htmlFor={`quiz-p${i}`}>
+                  Pergunta {i + 1}
+                </label>
+                <button
+                  type="button"
+                  aria-label={`Tirar a pergunta ${i + 1}`}
+                  className="p-1 text-hipo-slate hover:text-hipo-danger"
+                  onClick={() => { setOk(''); setPerguntas((ps) => ps.filter((_, j) => j !== i)); }}
+                >
+                  <Trash2 size={14} />
+                </button>
+              </div>
               <input
                 id={`quiz-p${i}`}
                 className="w-full h-9 rounded-lg border border-hipo-border bg-hipo-card px-2 text-sm text-hipo-ink"
@@ -164,6 +177,18 @@ export default function EditorQuiz({ aula, onSalvo }) {
               )}
             </li>
           ))}
+          {perguntas.length < MAX_PERGUNTAS && (
+            <li>
+              <Button
+                size="sm"
+                variant="secondary"
+                icon={Plus}
+                onClick={() => { setOk(''); setPerguntas((ps) => [...ps, perguntaVazia()]); }}
+              >
+                Pergunta
+              </Button>
+            </li>
+          )}
         </ol>
       )}
     </div>

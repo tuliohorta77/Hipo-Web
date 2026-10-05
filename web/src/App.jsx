@@ -21,6 +21,7 @@ import Monitor from './pages/Monitor';
 import MinhaUC from './pages/uc/MinhaUC';
 import TrilhaUC from './pages/uc/Trilha';
 import AulaUC from './pages/uc/Aula';
+import QuizTrilhaUC from './pages/uc/QuizTrilha';
 import EstudioUC from './pages/uc/Estudio';
 import DesempenhoCarreira from './pages/carreira/Desempenho';
 import PdiCarreira from './pages/carreira/Pdi';
@@ -97,6 +98,7 @@ export default function App() {
           <Route path="uc" element={<MinhaUC />} />
           <Route path="uc/estudio" element={<EstudioUC />} />
           <Route path="uc/trilhas/:trilhaId" element={<TrilhaUC />} />
+          <Route path="uc/trilhas/:trilhaId/quiz" element={<QuizTrilhaUC />} />
           <Route path="uc/aulas/:aulaId" element={<AulaUC />} />
           {/*
             A rota existe para todo mundo; quem barra é o guard do módulo na

@@ -19,9 +19,10 @@ O QUE A CARGA GARANTE
   * Cargos: só acrescenta o que falta. Prazo e obrigação que a gestão mudou
     no estúdio ficam como estão.
   * PDFs: anexa o que não estiver anexado (pelo nome exibido).
-  * Quiz (024): as 7 perguntas de cada aula são regravadas, com ids fixos
-    (uuid5 da aula + posição), e a nota mínima vai para 85. Quiz que a
-    gestão mexeu no estúdio numa aula DESTA carga volta ao do conteúdo.
+  * Perguntas (024/025): o banco de 7 perguntas de cada aula é regravado,
+    com ids fixos (uuid5 da aula + posição). É dele que o quiz final da
+    trilha sorteia. Pergunta que a gestão mexeu no estúdio numa aula
+    DESTA carga volta à do conteúdo.
 
 USO (na EC2; o infra/semear-uc.sh prepara o ambiente):
   python -m scripts.semear_uc --simular --pdfs /tmp/uc
@@ -91,7 +92,7 @@ def conferir() -> list[str]:
             except regras.ConteudoInvalido as e:
                 erros.append(f"{rot}: {e}")
             try:
-                regras.validar_quiz(quiz_do_conteudo(a))
+                regras.validar_quiz(quiz_do_conteudo(a), exatas=regras.PERGUNTAS_POR_QUIZ)
             except regras.ConteudoInvalido as e:
                 erros.append(f"{rot}: {e}")
     return erros
@@ -148,7 +149,7 @@ async def _gravar_aulas(conn, t: dict) -> None:
         from routers.uc_estudio import gravar_quiz
         from services import uc as regras
 
-        await gravar_quiz(conn, a["id"], regras.validar_quiz(quiz_do_conteudo(a)),
+        await gravar_quiz(conn, a["id"], regras.validar_quiz(quiz_do_conteudo(a), exatas=regras.PERGUNTAS_POR_QUIZ),
                           ids=_ids_do_quiz(a["id"]))
     # A UNIQUE (trilha_id, ordem) é DEFERRABLE INITIALLY DEFERRED: dentro da
     # transação as posições podem colidir de passagem; o que vale é o fim.

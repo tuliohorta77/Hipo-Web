@@ -3,10 +3,16 @@
 // Uma trilha da UC: o andamento e as aulas, na ordem. Cada linha é uma
 // ação ("Abrir"), não só um item de lista. A gestão vê rascunho aqui antes
 // de publicar, com o selo de rascunho em cada aula que ainda não vale.
+//
+// O QUIZ FINAL (quando as aulas têm perguntas) é a última linha: trancado
+// até concluir as aulas, depois "Fazer o quiz", e a trilha só conclui com
+// ele aprovado.
 
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { ArrowLeft, CheckCircle2, Circle, RefreshCw, PlayCircle, Paperclip, Clock } from 'lucide-react';
+import {
+  ArrowLeft, CheckCircle2, Circle, RefreshCw, PlayCircle, Paperclip, Clock, ClipboardCheck, Lock,
+} from 'lucide-react';
 import api from '../../api';
 import PageHeader from '../../components/ui/PageHeader';
 import Card from '../../components/ui/Card';
@@ -55,6 +61,9 @@ export default function Trilha() {
 
   const proxima = trilha.aulas.find((a) => a.estado !== 'concluida' && a.status === 'publicada');
   const prazo = textoPrazo(trilha.situacao, trilha.prazo);
+  const quiz = trilha.quiz;
+  const quizAberto = !!quiz?.liberado && !quiz.aprovado;
+  const abrirQuiz = () => navigate(`/uc/trilhas/${trilha.id}/quiz${sufixo}`);
 
   return (
     <div className="max-w-4xl mx-auto space-y-4">
@@ -81,6 +90,9 @@ export default function Trilha() {
             <Button size="sm" icon={PlayCircle} onClick={() => navigate(`/uc/aulas/${proxima.id}`)}>
               {trilha.aulas.some((a) => a.estado === 'concluida') ? 'Continuar' : 'Começar'}
             </Button>
+          )}
+          {!proxima && quizAberto && !usuarioId && (
+            <Button size="sm" icon={ClipboardCheck} onClick={abrirQuiz}>Fazer o quiz final</Button>
           )}
         </div>
       </Card>
@@ -120,6 +132,31 @@ export default function Trilha() {
               </li>
             );
           })}
+          {quiz && (
+            <li>
+              <button
+                type="button"
+                onClick={abrirQuiz}
+                data-testid="trilha-quiz"
+                className="w-full text-left px-5 py-4 flex items-start gap-3 hover:bg-hipo-bg transition-colors"
+              >
+                {quiz.aprovado
+                  ? <CheckCircle2 size={20} className="mt-0.5 shrink-0 text-hipo-success" />
+                  : quiz.liberado
+                    ? <ClipboardCheck size={20} className="mt-0.5 shrink-0 text-hipo-blue" />
+                    : <Lock size={20} className="mt-0.5 shrink-0 text-hipo-muted" />}
+                <div className="flex-1 min-w-0">
+                  <p className="font-medium text-hipo-ink">Quiz final da trilha</p>
+                  <p className="text-sm text-hipo-slate mt-0.5">
+                    {quiz.perguntas} perguntas sorteadas das aulas. Aprova com 85%; a trilha só conclui com ele.
+                  </p>
+                </div>
+                <Badge tone={quiz.aprovado ? 'success' : quiz.liberado ? 'info' : 'neutral'}>
+                  {quiz.aprovado ? 'Aprovado' : quiz.liberado ? 'Disponível' : 'Depois das aulas'}
+                </Badge>
+              </button>
+            </li>
+          )}
         </ol>
       </Card>
     </div>

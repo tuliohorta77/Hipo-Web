@@ -1411,8 +1411,8 @@ CREATE INDEX IF NOT EXISTS idx_uc_progresso_aula ON uc_progresso (aula_id, aula_
 -- uc_perguntas / uc_alternativas / uc_tentativas
 --   (espelha api/migrations/024_uc_quiz.sql)
 -- ============================================================================
--- Quiz depois da aula: 7 perguntas, 85% para aprovar, nova tentativa 10 min
--- depois de reprovar. Regras em services/uc.py (secao Quiz).
+-- Banco de perguntas por aula (024). O quiz e o final da trilha (025):
+-- sorteia 10, aprova com 85%. Regras em services/uc.py (secao Quiz).
 CREATE TABLE IF NOT EXISTS uc_perguntas (
     id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     aula_id    UUID NOT NULL REFERENCES uc_aulas(id) ON DELETE CASCADE,
@@ -1461,6 +1461,32 @@ CREATE TABLE IF NOT EXISTS uc_tentativas (
 
 CREATE INDEX IF NOT EXISTS idx_uc_tentativas_pessoa
     ON uc_tentativas (usuario_id, aula_id, aula_versao, criado_em DESC);
+
+-- uc_tentativas_trilha (espelha api/migrations/025_uc_quiz_trilha.sql):
+-- o quiz final da trilha. uc_tentativas (acima, por aula) e historico.
+CREATE TABLE IF NOT EXISTS uc_tentativas_trilha (
+    id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    usuario_id   UUID NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
+    trilha_id    UUID NOT NULL REFERENCES uc_trilhas(id) ON DELETE CASCADE,
+    acertos      SMALLINT NOT NULL,
+    total        SMALLINT NOT NULL,
+    nota         SMALLINT NOT NULL,
+    nota_minima  SMALLINT NOT NULL,
+    aprovada     BOOLEAN NOT NULL,
+    -- ids das perguntas sorteadas, na ordem em que apareceram.
+    perguntas    JSONB NOT NULL,
+    -- {pergunta_id: alternativa_id} como foi enviado.
+    respostas    JSONB NOT NULL,
+    -- [{numero, aula_ordem, aula_titulo}] das erradas: a tela diz qual
+    -- aula rever, nunca a alternativa certa.
+    erradas      JSONB NOT NULL DEFAULT '[]'::jsonb,
+    criado_em    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT ck_uc_tent_trilha_conta CHECK (total >= 1 AND acertos BETWEEN 0 AND total),
+    CONSTRAINT ck_uc_tent_trilha_nota  CHECK (nota BETWEEN 0 AND 100 AND nota_minima BETWEEN 0 AND 100)
+);
+
+CREATE INDEX IF NOT EXISTS idx_uc_tent_trilha_pessoa
+    ON uc_tentativas_trilha (usuario_id, trilha_id, criado_em DESC);
 
 
 -- ============================================================================

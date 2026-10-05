@@ -21,13 +21,13 @@ PROGRESSO É POR VERSÃO DA AULA
   Aula que mudou de forma relevante sobe de versão e volta a ficar
   pendente para todos, sem apagar o registro da versão anterior.
 
-QUIZ (024)
-  Aula com perguntas só conclui pelo quiz: 7 perguntas, 85% para aprovar,
-  e ele só abre depois da trava de tempo. Reprovou, nova tentativa em 10
-  minutos. O gabarito nunca sai daqui: alternativas sem `correta`,
-  embaralhadas por pessoa e tentativa; o resultado marca as perguntas
-  erradas, nunca a alternativa certa. Aula sem pergunta segue no
-  "Concluí" com a trava de tempo.
+QUIZ FINAL DA TRILHA (024 + 025)
+  As aulas concluem pela trava de tempo. O quiz é um só, no fim da
+  trilha, numa tela própria (`/trilhas/{id}/quiz`): abre quando todas as
+  aulas publicadas estão concluídas, sorteia 10 perguntas do banco das
+  aulas e aprova com 85%. A trilha só fica "Concluída" com aprovação.
+  Reprovou: nova tentativa em 10 minutos, com outro sorteio. O gabarito
+  nunca sai daqui; o resultado diz quais perguntas errou e de qual aula.
 
 Especificação: claude/universidade-corporativa.md.
 """
@@ -81,10 +81,13 @@ class TrilhaResumo(BaseModel):
     aulas_concluidas: int
     percentual: int | None
     proxima_aula_id: UUID | None
+    quiz: QuizResumo | None = None
 
 
 class ProximaAula(BaseModel):
-    aula_id: UUID
+    # tipo "quiz": aulas feitas, falta o quiz final (aula_id vem nulo).
+    tipo: str = "aula"
+    aula_id: UUID | None
     aula_titulo: str
     trilha_id: UUID
     trilha_titulo: str
@@ -153,6 +156,7 @@ class TrilhaDetalhe(BaseModel):
     situacao: SituacaoOut
     percentual: int | None
     aulas: list[AulaItem]
+    quiz: QuizResumo | None = None
 
 
 class MaterialOut(BaseModel):
@@ -177,6 +181,13 @@ class PassoTour(BaseModel):
     clicar: list[str] = []
 
 
+class QuizResumo(BaseModel):
+    """O quiz final de uma trilha, visto de fora (painel, trilha, aula)."""
+    perguntas: int
+    aprovado: bool
+    liberado: bool
+
+
 class AlternativaQuiz(BaseModel):
     id: UUID
     texto: str
@@ -189,24 +200,40 @@ class PerguntaQuiz(BaseModel):
     alternativas: list[AlternativaQuiz]
 
 
+class ErradaOut(BaseModel):
+    numero: int
+    aula_ordem: int
+    aula_titulo: str
+
+
 class TentativaOut(BaseModel):
     acertos: int
     total: int
     nota: int
     aprovada: bool
-    erradas: list[UUID]
+    erradas: list[ErradaOut]
     em: datetime
 
 
-class QuizOut(BaseModel):
+class QuizTrilhaOut(BaseModel):
+    trilha_id: UUID
+    trilha_titulo: str
+    pilar: str
+    pilar_rotulo: str
     total: int
     nota_minima: int
     acertos_para_aprovar: int
     tentativas: int
     aprovado: bool
+    aprovado_em: datetime | None
+    liberado: bool
+    aulas_pendentes: int
     ultima: TentativaOut | None
     segundos_para_refazer: int
     espera_minutos: int
+    modo_leitura: bool
+    # Só vem quando há o que responder: liberado, não aprovado, fora da
+    # espera e fora do modo leitura.
     perguntas: list[PerguntaQuiz]
 
 
@@ -239,7 +266,7 @@ class AulaDetalhe(BaseModel):
     segundos_para_liberar: int
     modo_leitura: bool
     tour: list[PassoTour] | None = None
-    quiz: QuizOut | None = None
+    quiz_da_trilha: QuizResumo | None = None
 
 
 class UrlMaterial(BaseModel):
@@ -312,15 +339,37 @@ def _situacao_out(s: regras.SituacaoTrilha) -> dict:
     return {"codigo": s.codigo, "rotulo": s.rotulo, "dias_restantes": s.dias_restantes}
 
 
-def _resumir_trilha(t: dict, aulas: list[dict], entrada, hoje: date) -> tuple[dict, regras.SituacaoTrilha]:
+def _quiz_resumo(banco: int, aprovado: bool, aulas: list[dict]) -> dict | None:
+    if banco <= 0:
+        return None
+    return {
+        "perguntas": min(banco, regras.QUIZ_TRILHA_PERGUNTAS),
+        "aprovado": aprovado,
+        "liberado": bool(aulas) and all(a["concluida"] for a in aulas),
+    }
+
+
+def _resumir_trilha(t: dict, aulas: list[dict], entrada, hoje: date,
+                    quiz: dict | None = None) -> tuple[dict, regras.SituacaoTrilha]:
+    """
+    `quiz` = {"banco": nº de perguntas, "aprovado": bool}. Com banco, o
+    quiz final conta como um item a mais no percentual, e a trilha só
+    fica concluída com ele aprovado.
+    """
     total = len(aulas)
     feitas = sum(1 for a in aulas if a["concluida"])
     prazo = (
         regras.prazo_da_obrigatoria(entrada, t["desde"], t["prazo_dias"])
         if t["obrigatoria"] else None
     )
-    sit = regras.situacao_trilha(total, feitas, prazo, hoje)
+    resumo_quiz = _quiz_resumo((quiz or {}).get("banco", 0), (quiz or {}).get("aprovado", False), aulas)
+    pendente = resumo_quiz is not None and not resumo_quiz["aprovado"]
+    sit = regras.situacao_trilha(total, feitas, prazo, hoje, quiz_pendente=pendente)
     proxima = next((a["id"] for a in aulas if not a["concluida"]), None)
+    itens, itens_feitos = total, feitas
+    if resumo_quiz is not None and total:
+        itens += 1
+        itens_feitos += 1 if resumo_quiz["aprovado"] else 0
     return {
         "id": t["id"],
         "titulo": t["titulo"],
@@ -332,9 +381,33 @@ def _resumir_trilha(t: dict, aulas: list[dict], entrada, hoje: date) -> tuple[di
         "situacao": _situacao_out(sit),
         "aulas_total": total,
         "aulas_concluidas": feitas,
-        "percentual": regras.percentual(feitas, total),
+        "percentual": regras.percentual(itens_feitos, itens),
         "proxima_aula_id": proxima,
+        "quiz": resumo_quiz,
     }, sit
+
+
+async def _quiz_das_trilhas(conn, trilha_ids: list, pessoa_id) -> dict:
+    """{trilha_id: {"banco": n, "aprovado": bool}} — banco só de aula publicada."""
+    if not trilha_ids:
+        return {}
+    banco = await conn.fetch(
+        """
+        SELECT a.trilha_id, count(*) AS n
+          FROM uc_perguntas p JOIN uc_aulas a ON a.id = p.aula_id
+         WHERE a.trilha_id = ANY($1::uuid[]) AND a.status = 'publicada'
+         GROUP BY a.trilha_id
+        """,
+        trilha_ids,
+    )
+    aprovadas = {r["trilha_id"] for r in await conn.fetch(
+        """
+        SELECT DISTINCT trilha_id FROM uc_tentativas_trilha
+         WHERE usuario_id = $2 AND aprovada AND trilha_id = ANY($1::uuid[])
+        """,
+        trilha_ids, pessoa_id,
+    )}
+    return {r["trilha_id"]: {"banco": r["n"], "aprovado": r["trilha_id"] in aprovadas} for r in banco}
 
 
 async def _trilha_visivel_ou_404(conn, trilha_id: UUID, pessoa: dict, gestao: bool) -> dict:
@@ -381,13 +454,14 @@ async def montar_painel(conn, pessoa: dict, dia: date) -> dict:
     por_trilha: dict[UUID, list[dict]] = {t["id"]: [] for t in trilhas}
     for a in aulas:
         por_trilha[a["trilha_id"]].append(a)
+    quizzes = await _quiz_das_trilhas(conn, ids, pessoa["id"])
 
     manual, outras, pendentes = [], [], []
     for t in sorted(trilhas, key=lambda x: x["titulo"].lower()):
         lista = por_trilha[t["id"]]
         if not lista:
             continue  # trilha publicada sem aula publicada ainda não é trilha
-        resumo, sit = _resumir_trilha(t, lista, pessoa.get("created_at"), dia)
+        resumo, sit = _resumir_trilha(t, lista, pessoa.get("created_at"), dia, quizzes.get(t["id"]))
         (manual if t["obrigatoria"] else outras).append(resumo)
         iniciada = any(a["concluida"] for a in lista)
         for a in lista:
@@ -400,14 +474,23 @@ async def montar_painel(conn, pessoa: dict, dia: date) -> dict:
                 prazo=resumo["prazo"], trilha_iniciada=iniciada,
                 concluiu_versao_anterior=a["concluiu_anterior"],
             ))
+        q = resumo["quiz"]
+        if q and q["liberado"] and not q["aprovado"]:
+            pendentes.append(regras.AulaPendente(
+                aula_id="", aula_titulo="Quiz final da trilha", aula_ordem=10_000,
+                trilha_id=str(t["id"]), trilha_titulo=t["titulo"], pilar=t["pilar"],
+                obrigatoria=t["obrigatoria"], situacao_trilha=sit.codigo,
+                prazo=resumo["prazo"], trilha_iniciada=True,
+                concluiu_versao_anterior=False, tipo="quiz",
+            ))
 
     proxima = None
     escolha = regras.proxima_aula(pendentes)
     if escolha is not None:
         p, motivo = escolha
-        duracao = next(a["duracao_min"] for a in aulas if str(a["id"]) == p.aula_id)
+        duracao = next((a["duracao_min"] for a in aulas if str(a["id"]) == p.aula_id), None)
         proxima = {
-            "aula_id": p.aula_id, "aula_titulo": p.aula_titulo,
+            "tipo": p.tipo, "aula_id": p.aula_id or None, "aula_titulo": p.aula_titulo,
             "trilha_id": p.trilha_id, "trilha_titulo": p.trilha_titulo,
             "pilar": p.pilar, "pilar_rotulo": regras.PILARES[p.pilar],
             "motivo": motivo, "motivo_texto": regras.MOTIVOS[motivo],
@@ -493,13 +576,15 @@ async def trilha(
             "materiais": r["materiais"], "estado": estado, "status": r["status"],
         })
     contaveis = [dict(r) for r in rows if r["status"] == "publicada"]
-    resumo, sit = _resumir_trilha(t, contaveis, pessoa.get("created_at"), hoje or _hoje())
+    quizzes = await _quiz_das_trilhas(conn, [trilha_id], pessoa["id"])
+    resumo, sit = _resumir_trilha(t, contaveis, pessoa.get("created_at"), hoje or _hoje(),
+                                  quizzes.get(trilha_id))
     return {
         "id": t["id"], "titulo": t["titulo"], "descricao": t["descricao"],
         "pilar": t["pilar"], "pilar_rotulo": regras.PILARES[t["pilar"]],
         "status": t["status"], "obrigatoria": t["obrigatoria"],
         "prazo": resumo["prazo"], "situacao": resumo["situacao"],
-        "percentual": resumo["percentual"], "aulas": aulas,
+        "percentual": resumo["percentual"], "aulas": aulas, "quiz": resumo["quiz"],
     }
 
 
@@ -541,58 +626,6 @@ async def _perguntas(conn, aula_id: UUID) -> list[dict]:
             {"id": r["alternativa_id"], "texto": r["texto"], "correta": r["correta"]}
         )
     return saida
-
-
-async def _tentativas(conn, pessoa_id, aula: dict) -> list[dict]:
-    rows = await conn.fetch(
-        """
-        SELECT acertos, total, nota, aprovada, erradas, criado_em
-          FROM uc_tentativas
-         WHERE usuario_id = $1 AND aula_id = $2 AND aula_versao = $3
-         ORDER BY criado_em DESC
-        """,
-        pessoa_id, aula["id"], aula["versao"],
-    )
-    return [dict(r) for r in rows]
-
-
-def _quiz_para_tela(perguntas: list[dict], tentativas: list[dict], aula: dict,
-                    pessoa_id, agora: datetime) -> dict | None:
-    """
-    O quiz como a tela recebe: sem `correta`, alternativas embaralhadas
-    (mesma ordem no F5, ordem nova a cada tentativa).
-    """
-    if not perguntas:
-        return None
-    ultima = tentativas[0] if tentativas else None
-    reprovada_em = ultima["criado_em"] if ultima and not ultima["aprovada"] else None
-    semente_base = f"{pessoa_id}:{aula['id']}:{aula['versao']}:{len(tentativas)}"
-    total = len(perguntas)
-    nota_minima = aula["nota_minima"]
-    return {
-        "total": total,
-        "nota_minima": nota_minima,
-        "acertos_para_aprovar": -(-nota_minima * total // 100),
-        "tentativas": len(tentativas),
-        "aprovado": any(t["aprovada"] for t in tentativas),
-        "ultima": None if ultima is None else {
-            "acertos": ultima["acertos"], "total": ultima["total"], "nota": ultima["nota"],
-            "aprovada": ultima["aprovada"], "erradas": _lista_json(ultima["erradas"]),
-            "em": ultima["criado_em"],
-        },
-        "segundos_para_refazer": regras.segundos_para_refazer(reprovada_em, agora),
-        "espera_minutos": regras.ESPERA_REPROVACAO_MIN,
-        "perguntas": [
-            {
-                "id": p["id"], "numero": i, "enunciado": p["enunciado"],
-                "alternativas": [
-                    {"id": a["id"], "texto": a["texto"]}
-                    for a in regras.embaralhar(p["alternativas"], f"{semente_base}:{p['id']}")
-                ],
-            }
-            for i, p in enumerate(perguntas, start=1)
-        ],
-    }
 
 
 def _lista_json(valor) -> list:
@@ -662,11 +695,7 @@ async def _estado_aula(conn, aula: dict, trilha: dict, pessoa: dict, leitura: bo
         "segundos_para_liberar": falta,
         "modo_leitura": leitura,
         "tour": regras.ler_tour(aula.get("tour")),
-        "quiz": _quiz_para_tela(
-            await _perguntas(conn, aula["id"]),
-            await _tentativas(conn, pessoa["id"], aula),
-            aula, pessoa["id"], _agora(),
-        ),
+        "quiz_da_trilha": await _quiz_da_trilha_da_aula(conn, trilha, pessoa),
     }
 
 
@@ -713,19 +742,6 @@ async def concluir(
     a, t = await _aula_ou_404(conn, aula_id, user, eh_gestao(user))
     if not _registra_progresso(a, t, False):
         raise HTTPException(422, "Aula em rascunho não conta como concluída. Publique antes.")
-    tem_quiz = await conn.fetchval("SELECT EXISTS (SELECT 1 FROM uc_perguntas WHERE aula_id = $1)", a["id"])
-    if tem_quiz:
-        ja = await conn.fetchval(
-            """
-            SELECT concluida_em IS NOT NULL FROM uc_progresso
-             WHERE usuario_id = $1 AND aula_id = $2 AND aula_versao = $3
-            """,
-            user["id"], a["id"], a["versao"],
-        )
-        if not ja:
-            raise HTTPException(409, "Esta aula conclui pelo quiz: responda as perguntas no fim da aula.")
-        return await _estado_aula(conn, a, t, user, False)
-
     async with conn.transaction():
         await conn.execute(
             """
@@ -762,101 +778,221 @@ async def concluir(
     return await _estado_aula(conn, a, t, user, False)
 
 
-def _mensagem_tempo(falta: int, duracao_min: int | None) -> str:
-    minutos = -(-falta // 60)
-    return (
-        f"O quiz abre em {minutos} min. "
-        f"A aula tem {duracao_min} min estimados e libera na metade do tempo."
+# ── Quiz final da trilha ─────────────────────────────────────────────
+
+async def _quiz_da_trilha_da_aula(conn, trilha: dict, pessoa: dict) -> dict | None:
+    """O resumo do quiz final na tela da aula (para o botão "Ir para o quiz")."""
+    if trilha.get("status") != "publicada":
+        return None
+    aulas = await conn.fetch(
+        """
+        SELECT EXISTS (SELECT 1 FROM uc_progresso p
+                        WHERE p.aula_id = a.id AND p.usuario_id = $2
+                          AND p.aula_versao = a.versao AND p.concluida_em IS NOT NULL) AS concluida
+          FROM uc_aulas a
+         WHERE a.trilha_id = $1 AND a.status = 'publicada'
+        """,
+        trilha["id"], pessoa["id"],
     )
+    info = (await _quiz_das_trilhas(conn, [trilha["id"]], pessoa["id"])).get(trilha["id"])
+    if info is None:
+        return None
+    return _quiz_resumo(info["banco"], info["aprovado"], [dict(a) for a in aulas])
 
 
-@router.post("/aulas/{aula_id}/quiz", response_model=AulaDetalhe)
+async def _banco_da_trilha(conn, trilha_id: UUID) -> list[dict]:
+    """Todas as perguntas das aulas publicadas, COM gabarito, na ordem."""
+    rows = await conn.fetch(
+        """
+        SELECT p.id AS pergunta_id, p.enunciado, a.ordem AS aula_ordem, a.titulo AS aula_titulo,
+               x.id AS alternativa_id, x.texto, x.correta
+          FROM uc_perguntas p
+          JOIN uc_aulas a ON a.id = p.aula_id
+          JOIN uc_alternativas x ON x.pergunta_id = p.id
+         WHERE a.trilha_id = $1 AND a.status = 'publicada'
+         ORDER BY a.ordem, p.ordem, x.ordem
+        """,
+        trilha_id,
+    )
+    banco: list[dict] = []
+    for r in rows:
+        if not banco or banco[-1]["id"] != r["pergunta_id"]:
+            banco.append({
+                "id": r["pergunta_id"], "enunciado": r["enunciado"],
+                "aula_ordem": r["aula_ordem"], "aula_titulo": r["aula_titulo"],
+                "alternativas": [],
+            })
+        banco[-1]["alternativas"].append(
+            {"id": r["alternativa_id"], "texto": r["texto"], "correta": r["correta"]}
+        )
+    return banco
+
+
+async def _situacao_quiz(conn, t: dict, pessoa: dict, agora: datetime) -> dict:
+    """
+    Tudo o que a tela do quiz e a correção precisam, inclusive o sorteio
+    COM gabarito (`_sorteadas`, nunca vai para a tela).
+    """
+    banco = await _banco_da_trilha(conn, t["id"])
+    if not banco:
+        raise HTTPException(404, "Esta trilha não tem quiz final.")
+    pendentes = await conn.fetchval(
+        """
+        SELECT count(*) FROM uc_aulas a
+         WHERE a.trilha_id = $1 AND a.status = 'publicada'
+           AND NOT EXISTS (SELECT 1 FROM uc_progresso p
+                            WHERE p.aula_id = a.id AND p.usuario_id = $2
+                              AND p.aula_versao = a.versao AND p.concluida_em IS NOT NULL)
+        """,
+        t["id"], pessoa["id"],
+    )
+    tentativas = [dict(r) for r in await conn.fetch(
+        """
+        SELECT acertos, total, nota, aprovada, erradas, criado_em
+          FROM uc_tentativas_trilha
+         WHERE usuario_id = $1 AND trilha_id = $2
+         ORDER BY criado_em DESC
+        """,
+        pessoa["id"], t["id"],
+    )]
+    aprovadas = [x for x in tentativas if x["aprovada"]]
+    ultima = tentativas[0] if tentativas else None
+    reprovada_em = ultima["criado_em"] if ultima and not ultima["aprovada"] else None
+    semente = f"{pessoa['id']}:{t['id']}:{len(tentativas)}"
+    sorteadas = regras.sortear_quiz(banco, semente)
+    total = len(sorteadas)
+    return {
+        "trilha": t,
+        "total": total,
+        "nota_minima": regras.NOTA_MINIMA_QUIZ,
+        "acertos_para_aprovar": regras.acertos_para_aprovar(total, regras.NOTA_MINIMA_QUIZ),
+        "tentativas": len(tentativas),
+        "aprovado": bool(aprovadas),
+        "aprovado_em": aprovadas[-1]["criado_em"] if aprovadas else None,
+        "liberado": t.get("status") == "publicada" and pendentes == 0,
+        "aulas_pendentes": pendentes,
+        "ultima": ultima,
+        "segundos_para_refazer": regras.segundos_para_refazer(reprovada_em, agora),
+        "_semente": semente,
+        "_sorteadas": sorteadas,
+    }
+
+
+def _quiz_out(q: dict, leitura: bool) -> dict:
+    t = q["trilha"]
+    ultima = q["ultima"]
+    responder = (q["liberado"] and not q["aprovado"] and not leitura
+                 and q["segundos_para_refazer"] == 0)
+    return {
+        "trilha_id": t["id"], "trilha_titulo": t["titulo"],
+        "pilar": t["pilar"], "pilar_rotulo": regras.PILARES[t["pilar"]],
+        "total": q["total"], "nota_minima": q["nota_minima"],
+        "acertos_para_aprovar": q["acertos_para_aprovar"],
+        "tentativas": q["tentativas"], "aprovado": q["aprovado"], "aprovado_em": q["aprovado_em"],
+        "liberado": q["liberado"], "aulas_pendentes": q["aulas_pendentes"],
+        "ultima": None if ultima is None else {
+            "acertos": ultima["acertos"], "total": ultima["total"], "nota": ultima["nota"],
+            "aprovada": ultima["aprovada"], "erradas": _lista_json(ultima["erradas"]),
+            "em": ultima["criado_em"],
+        },
+        "segundos_para_refazer": q["segundos_para_refazer"],
+        "espera_minutos": regras.ESPERA_REPROVACAO_MIN,
+        "modo_leitura": leitura,
+        "perguntas": [] if not responder else [
+            {
+                "id": p["id"], "numero": i, "enunciado": p["enunciado"],
+                "alternativas": [
+                    {"id": a["id"], "texto": a["texto"]}
+                    for a in regras.embaralhar(p["alternativas"], f"{q['_semente']}:{p['id']}")
+                ],
+            }
+            for i, p in enumerate(q["_sorteadas"], start=1)
+        ],
+    }
+
+
+@router.get("/trilhas/{trilha_id}/quiz", response_model=QuizTrilhaOut)
+async def quiz_da_trilha(
+    trilha_id: UUID,
+    usuario_id: UUID | None = Query(None),
+    conn=Depends(get_conn),
+    user=Depends(usuario_atual),
+):
+    """
+    A tela do quiz final. As perguntas só vêm quando há o que responder;
+    o mesmo sorteio volta no F5 (a semente só muda com uma tentativa nova).
+    """
+    pessoa, leitura = await _pessoa_alvo(conn, user, usuario_id)
+    t = await _trilha_visivel_ou_404(conn, trilha_id, pessoa, eh_gestao(user))
+    return _quiz_out(await _situacao_quiz(conn, t, pessoa, _agora()), leitura)
+
+
+@router.post("/trilhas/{trilha_id}/quiz", response_model=QuizTrilhaOut)
 async def responder_quiz(
-    aula_id: UUID,
+    trilha_id: UUID,
     body: RespostasQuiz,
     conn=Depends(get_conn),
     user=Depends(usuario_atual),
 ):
     """
-    Corrige o quiz, grava a tentativa e, se aprovou, conclui a aula — na
-    mesma transação. Devolve a aula inteira (com o resultado em
-    `quiz.ultima`), como o "Concluí".
+    Corrige o quiz final e grava a tentativa. Aprovou: a trilha conclui.
 
-    409: o tempo mínimo da aula ainda não passou, ou a aula já foi
-    concluída nesta versão. 429: reprovou há menos de 10 minutos.
-    422: envio incompleto ou com alternativa de outra pergunta — recusado
-    sem gastar tentativa.
+    409: aula da trilha ainda não concluída, ou quiz já aprovado.
+    429: reprovou há menos de 10 minutos. 422: envio incompleto, com
+    alternativa trocada ou de um sorteio antigo — recusado sem gastar
+    tentativa.
     """
-    a, t = await _aula_ou_404(conn, aula_id, user, eh_gestao(user))
-    if not _registra_progresso(a, t, False):
-        raise HTTPException(422, "Aula em rascunho não tem quiz valendo. Publique antes.")
-    perguntas = await _perguntas(conn, a["id"])
-    if not perguntas:
-        raise HTTPException(409, "Esta aula não tem quiz: conclua pelo botão Concluí.")
-
+    t = await _trilha_visivel_ou_404(conn, trilha_id, user, eh_gestao(user))
+    if t.get("status") != "publicada":
+        raise HTTPException(422, "Trilha em rascunho não tem quiz valendo. Publique antes.")
     agora = _agora()
     async with conn.transaction():
+        # Dois envios ao mesmo tempo não viram duas tentativas na mesma espera.
         await conn.execute(
-            """
-            INSERT INTO uc_progresso (usuario_id, aula_id, aula_versao)
-            VALUES ($1, $2, $3)
-            ON CONFLICT (usuario_id, aula_id, aula_versao) DO NOTHING
-            """,
-            user["id"], a["id"], a["versao"],
+            "SELECT pg_advisory_xact_lock(hashtext($1))", f"uc-quiz:{user['id']}:{trilha_id}",
         )
-        # FOR UPDATE: dois envios ao mesmo tempo não viram duas tentativas
-        # dentro da mesma espera.
-        prog = await conn.fetchrow(
-            """
-            SELECT aberta_em, concluida_em FROM uc_progresso
-             WHERE usuario_id = $1 AND aula_id = $2 AND aula_versao = $3
-             FOR UPDATE
-            """,
-            user["id"], a["id"], a["versao"],
-        )
-        if prog["concluida_em"] is not None:
-            raise HTTPException(409, "Aula já concluída.")
-        falta = regras.segundos_para_liberar(prog["aberta_em"], a["duracao_min"], agora)
-        if falta > 0:
-            raise HTTPException(409, _mensagem_tempo(falta, a["duracao_min"]))
-        ultima_reprovada = await conn.fetchval(
-            """
-            SELECT max(criado_em) FROM uc_tentativas
-             WHERE usuario_id = $1 AND aula_id = $2 AND aula_versao = $3 AND NOT aprovada
-            """,
-            user["id"], a["id"], a["versao"],
-        )
-        espera = regras.segundos_para_refazer(ultima_reprovada, agora)
+        q = await _situacao_quiz(conn, t, user, agora)
+        if q["aprovado"]:
+            raise HTTPException(409, "Quiz já aprovado: a trilha está concluída.")
+        if not q["liberado"]:
+            n = q["aulas_pendentes"]
+            raise HTTPException(
+                409, f"Conclua {'a aula que falta' if n == 1 else f'as {n} aulas que faltam'} "
+                     "da trilha antes do quiz final.",
+            )
+        espera = q["segundos_para_refazer"]
         if espera > 0:
             minutos = -(-espera // 60)
             raise HTTPException(
                 429,
-                f"Nova tentativa em {minutos} min. Enquanto isso, releia as partes da aula "
-                f"das perguntas que você errou.",
+                f"Nova tentativa em {minutos} min. Enquanto isso, reveja as aulas das "
+                "perguntas que você errou.",
             )
+        sorteadas = q["_sorteadas"]
         try:
-            c = regras.corrigir(perguntas, body.respostas, a["nota_minima"])
+            c = regras.corrigir(sorteadas, body.respostas, regras.NOTA_MINIMA_QUIZ)
         except regras.ConteudoInvalido as e:
             raise HTTPException(422, str(e))
+        por_id = {str(p["id"]): (i, p) for i, p in enumerate(sorteadas, start=1)}
+        erradas = [
+            {"numero": por_id[pid][0], "aula_ordem": por_id[pid][1]["aula_ordem"],
+             "aula_titulo": por_id[pid][1]["aula_titulo"]}
+            for pid in c.erradas
+        ]
         await conn.execute(
             """
-            INSERT INTO uc_tentativas (usuario_id, aula_id, aula_versao, acertos, total,
-                                       nota, nota_minima, aprovada, respostas, erradas, criado_em)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10::jsonb, $11)
+            INSERT INTO uc_tentativas_trilha
+                   (usuario_id, trilha_id, acertos, total, nota, nota_minima, aprovada,
+                    perguntas, respostas, erradas, criado_em)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9::jsonb, $10::jsonb, $11)
             """,
-            user["id"], a["id"], a["versao"], c.acertos, c.total, c.nota, a["nota_minima"],
-            c.aprovada, json.dumps({str(k): str(v) for k, v in body.respostas.items()}),
-            json.dumps(c.erradas), agora,
+            user["id"], trilha_id, c.acertos, c.total, c.nota, regras.NOTA_MINIMA_QUIZ, c.aprovada,
+            json.dumps([str(p["id"]) for p in sorteadas]),
+            json.dumps({str(k): str(v) for k, v in body.respostas.items()}),
+            json.dumps(erradas), agora,
         )
-        if c.aprovada:
-            await conn.execute(
-                """
-                UPDATE uc_progresso SET concluida_em = GREATEST($4, aberta_em)
-                 WHERE usuario_id = $1 AND aula_id = $2 AND aula_versao = $3
-                """,
-                user["id"], a["id"], a["versao"], agora,
-            )
-    return await _estado_aula(conn, a, t, user, False)
+        q = await _situacao_quiz(conn, t, user, agora)
+    return _quiz_out(q, False)
 
 
 @router.get("/materiais/{material_id}/url", response_model=UrlMaterial)

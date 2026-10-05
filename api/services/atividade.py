@@ -149,9 +149,9 @@ CATALOGO: dict[tuple[str, str], Tipo] = {
     ("DELETE", "/uc/estudio/aulas/{aula_id}"): _t("Universidade", "Aula da UC excluída", 107),
     ("POST", "/uc/estudio/aulas/{aula_id}/materiais"): _t("Universidade", "Material de aula enviado", 108),
     ("DELETE", "/uc/estudio/materiais/{material_id}"): _t("Universidade", "Material de aula excluído", 109),
-    # Quiz (024): cada envio é uma atividade de estudo, aprovado ou não.
-    ("POST", "/uc/aulas/{aula_id}/quiz"): _t("Universidade", "Quiz da UC respondido", 110),
-    ("PUT", "/uc/estudio/aulas/{aula_id}/quiz"): _t("Universidade", "Quiz de aula editado", 111),
+    # Quiz final da trilha (025): cada envio é uma atividade de estudo.
+    ("POST", "/uc/trilhas/{trilha_id}/quiz"): _t("Universidade", "Quiz final de trilha respondido", 110),
+    ("PUT", "/uc/estudio/aulas/{aula_id}/quiz"): _t("Universidade", "Perguntas de aula editadas", 111),
 
     # Monitor (metas e feriados)
     ("PUT", "/monitor/metas"): _t("Cadastros", "Metas do monitor definidas", 83),

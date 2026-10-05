@@ -106,7 +106,9 @@ function LinhaTrilha({ trilha, leitura, onAbrir }) {
           variant={concluida ? 'secondary' : 'primary'}
           onClick={() => onAbrir(trilha, !concluida)}
         >
-          {concluida ? 'Revisar' : trilha.aulas_concluidas > 0 ? 'Continuar' : 'Começar'}
+          {concluida ? 'Revisar'
+            : !trilha.proxima_aula_id && trilha.quiz?.liberado ? 'Fazer o quiz'
+              : trilha.aulas_concluidas > 0 ? 'Continuar' : 'Começar'}
         </Button>
       )}
     </li>
@@ -143,6 +145,8 @@ export default function MinhaUC() {
     setPilarAberto(null);
     if (irDireto && trilha.proxima_aula_id) {
       navigate(`/uc/aulas/${trilha.proxima_aula_id}${sufixo}`);
+    } else if (irDireto && trilha.quiz?.liberado && !trilha.quiz.aprovado) {
+      navigate(`/uc/trilhas/${trilha.id}/quiz${sufixo}`);
     } else {
       navigate(`/uc/trilhas/${trilha.id}${sufixo}`);
     }
@@ -218,9 +222,11 @@ export default function MinhaUC() {
                 <Button
                   className="mt-4"
                   icon={PlayCircle}
-                  onClick={() => navigate(`/uc/aulas/${proxima.aula_id}`)}
+                  onClick={() => navigate(proxima.tipo === 'quiz'
+                    ? `/uc/trilhas/${proxima.trilha_id}/quiz`
+                    : `/uc/aulas/${proxima.aula_id}`)}
                 >
-                  Começar
+                  {proxima.tipo === 'quiz' ? 'Fazer o quiz' : 'Começar'}
                 </Button>
               )}
             </div>

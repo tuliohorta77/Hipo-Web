@@ -8,8 +8,8 @@
 // contagem regressiva aqui é só conforto: sem ela o botão ficaria
 // desabilitado sem explicar até quando.
 //
-// AULA COM QUIZ (`quiz` não nulo) não tem "Concluí": conclui pela
-// aprovação no QuizAula, que só abre depois da mesma trava de tempo.
+// QUIZ FINAL. O quiz é da trilha, numa tela própria. A aula só avisa
+// (`quiz_da_trilha`): concluída a última aula, aparece "Fazer o quiz final".
 //
 // O VÍDEO entra por urlDeEmbed(provedor, ref), que monta o endereço a partir
 // de uma tabela fechada. Nenhum texto da API vira src de iframe direto.
@@ -23,7 +23,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
   ArrowLeft, ArrowRight, CheckCircle2, ExternalLink, FileText, Image as ImageIcon, RefreshCw, Clock,
-  MousePointerClick,
+  MousePointerClick, ClipboardCheck,
 } from 'lucide-react';
 import api, { getModulos } from '../../api';
 import PageHeader from '../../components/ui/PageHeader';
@@ -33,7 +33,6 @@ import Button from '../../components/ui/Button';
 import AlertMessage from '../../components/ui/AlertMessage';
 import { mensagemDeErro } from '../../components/crm/tarefaComum';
 import TextoAula from '../../components/uc/TextoAula';
-import QuizAula from '../../components/uc/QuizAula';
 import { iniciarTour } from '../../components/uc/tour';
 import {
   tamanhoArquivo, tempoRestante, tomDoPilar, urlDeEmbed,
@@ -138,7 +137,8 @@ export default function Aula() {
     setParams(p, { replace: true });
   }
   const concluida = !!aula.concluida_em;
-  const temQuiz = !!aula.quiz;
+  const quizTrilha = aula.quiz_da_trilha;
+  const irAoQuiz = !aula.modo_leitura && quizTrilha?.liberado && !quizTrilha.aprovado;
 
   return (
     <div className="max-w-4xl mx-auto space-y-4">
@@ -248,15 +248,6 @@ export default function Aula() {
         </Card>
       )}
 
-      {temQuiz && (
-        <QuizAula
-          aula={aula}
-          faltaAula={falta}
-          onAtualizar={(data) => { setAula(data); setFalta(data.segundos_para_liberar || 0); }}
-          onRecarregar={carregar}
-        />
-      )}
-
       <Card>
         <div className="flex flex-col sm:flex-row sm:items-center gap-3">
           <div className="flex-1">
@@ -265,9 +256,10 @@ export default function Aula() {
                 {concluida ? 'A pessoa concluiu esta aula.' : 'A pessoa ainda não concluiu esta aula.'}
               </p>
             ) : concluida ? (
-              <p className="text-sm text-hipo-success font-medium">Aula concluída.</p>
-            ) : temQuiz ? (
-              <p className="text-sm text-hipo-slate">A aula conclui quando você for aprovado no quiz.</p>
+              <p className="text-sm text-hipo-success font-medium">
+                Aula concluída.
+                {irAoQuiz && <span className="text-hipo-slate font-normal"> Falta o quiz final da trilha.</span>}
+              </p>
             ) : falta > 0 ? (
               <p className="text-sm text-hipo-slate">
                 O botão libera em <strong className="text-hipo-ink">{tempoRestante(falta)}</strong>.
@@ -284,9 +276,14 @@ export default function Aula() {
                 Anterior
               </Button>
             )}
-            {!aula.modo_leitura && !concluida && !temQuiz && aula.status === 'publicada' && (
+            {!aula.modo_leitura && !concluida && aula.status === 'publicada' && (
               <Button icon={CheckCircle2} onClick={concluir} loading={concluindo} disabled={falta > 0}>
                 Concluí
+              </Button>
+            )}
+            {irAoQuiz && (
+              <Button icon={ClipboardCheck} onClick={() => navigate(`/uc/trilhas/${aula.trilha_id}/quiz`)}>
+                Fazer o quiz final
               </Button>
             )}
             {aula.proxima && (

@@ -390,10 +390,20 @@ def test_quiz_normaliza_espacos():
     assert _r.validar_quiz(q)[0]["enunciado"] == "Qual é a regra?"
 
 
+@_pytest.mark.parametrize("n", [1, 3, 10])
+def test_banco_da_aula_de_1_a_10(n):
+    assert len(_r.validar_quiz(_q(n))) == n
+
+
+def test_banco_acima_de_dez_recusado():
+    with _pytest.raises(_r.ConteudoInvalido, match="vai até 10"):
+        _r.validar_quiz(_q(11))
+
+
 @_pytest.mark.parametrize("n", [3, 6, 8])
-def test_quiz_exige_sete(n):
+def test_carga_exige_sete(n):
     with _pytest.raises(_r.ConteudoInvalido, match="exatamente 7"):
-        _r.validar_quiz(_q(n))
+        _r.validar_quiz(_q(n), exatas=7)
 
 
 @_pytest.mark.parametrize("alts", [2, 6])
@@ -444,7 +454,7 @@ def test_corrigir_recusa_envio_incompleto_sobrando_ou_trocado():
     r.pop("p3")
     with _pytest.raises(_r.ConteudoInvalido, match="falta: 4"):
         _r.corrigir(_perguntas_banco(), r, 85)
-    with _pytest.raises(_r.ConteudoInvalido, match="não é desta aula"):
+    with _pytest.raises(_r.ConteudoInvalido, match="quiz mudou"):
         _r.corrigir(_perguntas_banco(), {**_resp(0), "x": "y"}, 85)
     r = _resp(0)
     r["p0"] = "p1a1"
@@ -464,3 +474,43 @@ def test_embaralhar_e_estavel_por_semente_e_nao_mexe_no_original():
     a = _r.embaralhar(itens, "x")
     assert a == _r.embaralhar(itens, "x") and sorted(a) == itens and itens == list(range(10))
     assert any(_r.embaralhar(itens, f"s{i}") != a for i in range(5))
+
+
+
+def _banco(aulas, por_aula=7):
+    return [{"id": f"a{o}p{i}", "aula_ordem": o} for o in range(1, aulas + 1) for i in range(por_aula)]
+
+
+def test_sorteio_cobre_as_aulas_em_rodizio():
+    q = _r.sortear_quiz(_banco(4), "s")
+    assert len(q) == 10
+    assert [x["aula_ordem"] for x in q] == [1, 1, 1, 2, 2, 2, 3, 3, 4, 4]
+    assert [x["aula_ordem"] for x in _r.sortear_quiz(_banco(12), "s")] == list(range(1, 11))
+
+
+def test_sorteio_estavel_por_semente_e_muda_com_ela():
+    assert _r.sortear_quiz(_banco(4), "s") == _r.sortear_quiz(_banco(4), "s")
+    assert _r.sortear_quiz(_banco(4), "s") != _r.sortear_quiz(_banco(4), "t")
+
+
+def test_sorteio_com_banco_pequeno_usa_tudo():
+    assert len(_r.sortear_quiz(_banco(1, 3), "s")) == 3
+
+
+def test_acertos_para_aprovar():
+    assert (_r.acertos_para_aprovar(10, 85), _r.acertos_para_aprovar(3, 85)) == (9, 3)
+
+
+def test_trilha_com_quiz_pendente_nao_conclui():
+    hoje = date(2026, 10, 5)
+    assert _r.situacao_trilha(3, 3, None, hoje, quiz_pendente=True).codigo == "sem_prazo"
+    assert _r.situacao_trilha(3, 3, None, hoje).codigo == "concluida"
+
+
+def test_quiz_final_e_a_proxima_quando_as_aulas_acabam():
+    base = dict(aula_titulo="x", trilha_titulo="T", pilar="metodo", obrigatoria=False,
+                situacao_trilha="sem_prazo", prazo=None, trilha_iniciada=True,
+                concluiu_versao_anterior=False)
+    quiz = _r.AulaPendente(aula_id="", aula_ordem=10_000, trilha_id="t1", tipo="quiz", **base)
+    p, m = _r.proxima_aula([quiz])
+    assert (p.tipo, m) == ("quiz", "quiz_final")

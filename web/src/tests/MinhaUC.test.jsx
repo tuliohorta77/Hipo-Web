@@ -157,6 +157,28 @@ describe('MinhaUC', () => {
     expect(await screen.findByText('Nenhuma trilha para o seu cargo ainda')).toBeInTheDocument();
   });
 
+  it('aulas feitas: a próxima é o quiz final da trilha', async () => {
+    mockGet.mockResolvedValue({
+      data: painel({
+        proxima: {
+          tipo: 'quiz', aula_id: null, aula_titulo: 'Quiz final da trilha', trilha_id: 't1',
+          trilha_titulo: 'Normas Regulamentadoras', pilar: 'tecnica', pilar_rotulo: 'Técnica',
+          motivo: 'quiz_final', motivo_texto: 'Falta o quiz final da trilha', prazo: null, duracao_min: null,
+        },
+      }),
+    });
+    render(
+      <MemoryRouter initialEntries={['/uc']}>
+        <Routes>
+          <Route path="/uc" element={<MinhaUC />} />
+          <Route path="/uc/trilhas/:id/quiz" element={<p>tela do quiz</p>} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    fireEvent.click(await screen.findByRole('button', { name: /Fazer o quiz/ }));
+    expect(await screen.findByText('tela do quiz')).toBeInTheDocument();
+  });
+
   it('erro da API aparece com o texto do servidor', async () => {
     mockGet.mockRejectedValue(erroHttp(403, 'Só a gestão abre a UC de outra pessoa.'));
     renderizar('/uc?usuario_id=u9');
