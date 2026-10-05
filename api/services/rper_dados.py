@@ -264,6 +264,18 @@ async def coletar(conn, ano: int, mes: int, agora: datetime | None = None) -> di
     """Todas as linhas do mês fechado, mais a posição de agora."""
     primeiro, ultimo = regras.janela_do_mes(ano, mes)
     inicio, fim = janela_utc(primeiro, ultimo)
+    return await coletar_janela(conn, inicio, fim, agora)
+
+
+async def coletar_janela(conn, inicio: datetime, fim: datetime,
+                         agora: datetime | None = None) -> dict:
+    """
+    As mesmas linhas de `coletar`, numa janela UTC qualquer [inicio, fim).
+
+    Existe para o Desempenho da Carreira, que mostra o mês CORRENTE até
+    hoje (como o Monitor): tarefa com prazo daqui a uma semana ainda não
+    pode contar contra a taxa de execução de ninguém.
+    """
     agora = agora or datetime.now(timezone.utc)
     return {
         "reunioes": await _reunioes(conn, inicio, fim),

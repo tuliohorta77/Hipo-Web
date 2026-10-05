@@ -22,7 +22,7 @@
 // clicar fora ou pressionar Esc.
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Outlet, NavLink, useNavigate } from 'react-router-dom';
+import { Outlet, NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { Menu, X, LogOut, User as UserIcon, ChevronDown } from 'lucide-react';
 import { getUser, getModulos, logout } from '../api';
 import Logo, { LogoWordmark } from './Logo';
@@ -80,7 +80,9 @@ const NAV_ITEMS = [
   // que continua fechando a barra como a TV da sala.
   // 'crm' OU 'uc': o segundo é exclusivo da conta que só estuda (cargo UC),
   // que enxerga só este item.
-  { to: '/uc', tour: 'nav-universidade', label: 'Universidade', modulo: ['crm', 'uc'] },
+  // Carreira (05/10/2026): Universidade + PDI + Desempenho. Fica ativo
+  // também em /uc/*, onde moram as trilhas e as aulas da Universidade.
+  { to: '/carreira', tour: 'nav-carreira', label: 'Carreira', modulo: ['crm', 'uc'], ativoEm: ['/uc'] },
   // 'crm' OU 'monitor': o segundo é exclusivo da conta de TV (cargo
   // Monitor), que enxerga só este item.
   { to: '/monitor', tour: 'nav-monitor', label: 'Monitor', modulo: ['crm', 'monitor'] },
@@ -104,34 +106,47 @@ function itemVisivel(item, modulos, cargo) {
 
 // ── Subcomponentes ───────────────────────────────────────────────────
 
-function NavItemDesktop({ to, label, tour }) {
+// Item que também fica ativo em outros prefixos (Carreira em /uc/*).
+function ativoPorPrefixo(pathname, ativoEm) {
+  return (ativoEm || []).some((p) => pathname === p || pathname.startsWith(`${p}/`));
+}
+
+function NavItemDesktop({ to, label, tour, ativoEm }) {
+  const { pathname } = useLocation();
   return (
     <NavLink
       to={to}
       data-tour={tour}
-      className={({ isActive }) =>
-        'h-full flex items-center px-3 text-sm font-medium transition-colors ' +
-        (isActive
-          ? 'text-hipo-blue border-b-2 border-hipo-blue -mb-px'
-          : 'text-hipo-slate hover:text-hipo-ink border-b-2 border-transparent -mb-px')
-      }
+      className={({ isActive: ativoProprio }) => {
+        const isActive = ativoProprio || ativoPorPrefixo(pathname, ativoEm);
+        return (
+          'h-full flex items-center px-3 text-sm font-medium transition-colors ' +
+          (isActive
+            ? 'text-hipo-blue border-b-2 border-hipo-blue -mb-px'
+            : 'text-hipo-slate hover:text-hipo-ink border-b-2 border-transparent -mb-px')
+        );
+      }}
     >
       {label}
     </NavLink>
   );
 }
 
-function NavItemMobile({ to, label, onClick }) {
+function NavItemMobile({ to, label, onClick, ativoEm }) {
+  const { pathname } = useLocation();
   return (
     <NavLink
       to={to}
       onClick={onClick}
-      className={({ isActive }) =>
-        'block px-5 py-3.5 text-sm font-medium transition-colors border-l-[3px] ' +
-        (isActive
-          ? 'text-hipo-blue bg-hipo-blueSoft border-hipo-blue'
-          : 'text-hipo-slate hover:bg-hipo-bg border-transparent')
-      }
+      className={({ isActive: ativoProprio }) => {
+        const isActive = ativoProprio || ativoPorPrefixo(pathname, ativoEm);
+        return (
+          'block px-5 py-3.5 text-sm font-medium transition-colors border-l-[3px] ' +
+          (isActive
+            ? 'text-hipo-blue bg-hipo-blueSoft border-hipo-blue'
+            : 'text-hipo-slate hover:bg-hipo-bg border-transparent')
+        );
+      }}
     >
       {label}
     </NavLink>

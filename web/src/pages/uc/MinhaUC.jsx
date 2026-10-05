@@ -1,6 +1,7 @@
 // web/src/pages/uc/MinhaUC.jsx
 //
-// Universidade Corporativa — a tela de quem aprende.
+// Universidade Corporativa — a tela de quem aprende. É a primeira aba da
+// Carreira (Universidade · PDI · Desempenho), em /carreira e em /uc.
 //
 // Segue as três diretrizes da casa:
 //   1. uma tela por função: cada pessoa vê o manual do PRÓPRIO cargo;
@@ -26,6 +27,7 @@ import AlertMessage from '../../components/ui/AlertMessage';
 import Empty from '../../components/ui/Empty';
 import Modal from '../../components/ui/Modal';
 import { mensagemDeErro } from '../../components/crm/tarefaComum';
+import AbasCarreira from '../../components/carreira/AbasCarreira';
 import {
   SITUACAO_TOM, dataCurta, textoPrazo, tomDoPilar,
 } from '../../components/uc/ucComum';
@@ -149,7 +151,7 @@ export default function MinhaUC() {
   if (erro && !dados) {
     return (
       <div className="max-w-6xl mx-auto">
-        <PageHeader title="Universidade" />
+        <PageHeader title="Carreira" />
         <AlertMessage tipo="erro">{erro}</AlertMessage>
       </div>
     );
@@ -166,7 +168,7 @@ export default function MinhaUC() {
   return (
     <div className="max-w-6xl mx-auto space-y-5">
       <PageHeader
-        title={leitura ? `Universidade · ${dados.usuario.nome}` : 'Universidade'}
+        title={leitura ? `Carreira · ${dados.usuario.nome}` : 'Carreira'}
         subtitle={
           leitura
             ? `${dados.usuario.cargo || 'sem cargo'} · modo leitura`
@@ -186,6 +188,8 @@ export default function MinhaUC() {
           )
         }
       />
+
+      <AbasCarreira ativa="Universidade" />
 
       {erro && <AlertMessage tipo="erro">{erro}</AlertMessage>}
 

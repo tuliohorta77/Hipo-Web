@@ -224,7 +224,7 @@ export default function Estudio() {
         subtitle="Conteúdo por pilar, manual de cada função e o andamento do time."
         actions={(
           <>
-            <Button variant="ghost" icon={ArrowLeft} onClick={() => navigate('/uc')}>Minha UC</Button>
+            <Button variant="ghost" icon={ArrowLeft} onClick={() => navigate('/uc')}>Universidade</Button>
             {vocab && <Button icon={Plus} onClick={() => setNova(true)}>Nova trilha</Button>}
           </>
         )}

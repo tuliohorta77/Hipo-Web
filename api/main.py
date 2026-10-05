@@ -16,6 +16,7 @@ from config import resolver_origens_cors, settings
 from database import criar_pool
 from middleware.telemetria import TelemetriaMiddleware, buffer, descarga_periodica
 from routers import (
+    carreira,
     auth,
     crm_agenda,
     crm_anexos,
@@ -337,6 +338,17 @@ app.include_router(
     uc.router,
     prefix="/uc", tags=["UC - Universidade Corporativa"],
     dependencies=[Depends(requer_qualquer_modulo(["crm", "uc"]))],
+)
+
+
+# Carreira (Universidade, PDI, Desempenho). O Desempenho e de cada pessoa:
+# os indicadores da RPeR contra as metas individuais do mes. Modulo 'crm',
+# como a UC e o RPeR; quem ve a pessoa dos outros e decidido dentro da rota
+# (so a gestao, em modo leitura).
+app.include_router(
+    carreira.router,
+    prefix="/carreira", tags=["Carreira"],
+    dependencies=[Depends(requer_modulo("crm"))],
 )
 
 

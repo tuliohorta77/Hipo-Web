@@ -22,6 +22,8 @@ import MinhaUC from './pages/uc/MinhaUC';
 import TrilhaUC from './pages/uc/Trilha';
 import AulaUC from './pages/uc/Aula';
 import EstudioUC from './pages/uc/Estudio';
+import DesempenhoCarreira from './pages/carreira/Desempenho';
+import PdiCarreira from './pages/carreira/Pdi';
 import { primeiraRotaAcessivel } from './api';
 
 function RedirectPrimeiraRota() {
@@ -84,6 +86,14 @@ export default function App() {
             a API (requer_gestao_uc) — mesmo arranjo de Parceiros e CNAEs.
             ?usuario_id= em /uc, trilhas e aulas é o modo leitura da gestão.
           */}
+          {/*
+            Carreira: Universidade, PDI e Desempenho. /carreira é a
+            Universidade (a mesma tela de /uc, que continua valendo para os
+            links antigos, o tour e a conta UC).
+          */}
+          <Route path="carreira" element={<MinhaUC />} />
+          <Route path="carreira/pdi" element={<PdiCarreira />} />
+          <Route path="carreira/desempenho" element={<DesempenhoCarreira />} />
           <Route path="uc" element={<MinhaUC />} />
           <Route path="uc/estudio" element={<EstudioUC />} />
           <Route path="uc/trilhas/:trilhaId" element={<TrilhaUC />} />

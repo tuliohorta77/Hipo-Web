@@ -14,6 +14,7 @@ const mockGet = vi.fn();
 vi.mock('../api', () => ({
   default: { get: (...a) => mockGet(...a) },
   getUser: () => ({ id: 'u1', nome: 'Jakeline', cargo: 'EV' }),
+  getModulos: () => ['perfil', 'crm'],
 }));
 
 import MinhaUC from '../pages/uc/MinhaUC';
@@ -125,11 +126,15 @@ describe('MinhaUC', () => {
       data: painel({ modo_leitura: true, pode_editar_conteudo: true }),
     });
     renderizar('/uc?usuario_id=u9');
-    expect(await screen.findByText('Universidade · Jakeline')).toBeInTheDocument();
+    expect(await screen.findByText('Carreira · Jakeline')).toBeInTheDocument();
     expect(mockGet).toHaveBeenCalledWith('/uc/painel', { params: { usuario_id: 'u9' } });
     expect(screen.queryByRole('button', { name: /Começar/ })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Continuar' })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Voltar ao time/ })).toBeInTheDocument();
+    // As abas da Carreira levam o modo leitura junto.
+    const abas = screen.getByRole('navigation', { name: 'Carreira' });
+    expect(within(abas).getByText('Desempenho').closest('a').getAttribute('href'))
+      .toBe('/carreira/desempenho?usuario_id=u9');
   });
 
   it('gestão vê o botão do estúdio; operacional não', async () => {

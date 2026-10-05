@@ -4,7 +4,7 @@
 // 'crm'. Os testes cobrem os três estados: com nav, sem nav (cargo extinto)
 // e o dropdown do usuário.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, cleanup } from '@testing-library/react';
+import { render, screen, within, fireEvent, cleanup } from '@testing-library/react';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 
 const mockLogout = vi.fn();
@@ -29,6 +29,7 @@ function renderLayout(rotaInicial = '/perfil') {
           <Route path="crm/oportunidades" element={<div>conteudo-oportunidades</div>} />
           <Route path="crm/agenda" element={<div>conteudo-agenda</div>} />
           <Route path="crm/parceiros" element={<div>conteudo-parceiros</div>} />
+          <Route path="uc/aulas/:id" element={<div>conteudo-aula</div>} />
         </Route>
       </Routes>
     </MemoryRouter>
@@ -74,9 +75,9 @@ describe('Layout — nav com o módulo crm', () => {
       // e só aparece para gestão, que é o cargo deste teste.
       '/crm/contas', '/crm/cnaes', '/crm/parceiros',
       // Relatórios e Monitor são as telas de olhar o todo; o Monitor fecha.
-      // A Universidade fica entre os dois: é de todo mundo, não é trabalho
-      // do funil e não é a TV.
-      '/crm/relatorios', '/uc', '/monitor',
+      // A Carreira (Universidade, PDI, Desempenho) fica entre os dois: é de
+      // todo mundo, não é trabalho do funil e não é a TV.
+      '/crm/relatorios', '/carreira', '/monitor',
     ]);
   });
 
@@ -114,7 +115,7 @@ describe('Layout — nav com o módulo crm', () => {
       // como as quatro telas de trabalho. O recorte dos dados do relatório
       // é do servidor, não da nav. A Universidade também é 'crm': todo
       // cargo aprende.
-      '/crm/relatorios', '/uc', '/monitor',
+      '/crm/relatorios', '/carreira', '/monitor',
     ]);
     expect(screen.queryByText('Parceiros')).not.toBeInTheDocument();
   });
@@ -270,11 +271,11 @@ describe('Layout — conta da UC (cargo UC)', () => {
     mockGetModulos.mockReturnValue(['uc']);
   });
 
-  it('a nav mostra só a Universidade', () => {
+  it('a nav mostra só a Carreira (onde mora a Universidade)', () => {
     renderLayout();
     const nav = screen.getByLabelText('Navegação principal');
     const links = Array.from(nav.querySelectorAll('a')).map((a) => a.textContent);
-    expect(links).toEqual(['Universidade']);
+    expect(links).toEqual(['Carreira']);
   });
 });
 
@@ -285,5 +286,18 @@ describe('Layout — Monitor segue visível para quem tem crm', () => {
     renderLayout();
     const nav = screen.getByLabelText('Navegação principal');
     expect(Array.from(nav.querySelectorAll('a')).map((a) => a.textContent)).toContain('Monitor');
+  });
+});
+
+
+describe('Layout — Carreira', () => {
+  it('fica ativa também dentro da Universidade (/uc/*)', () => {
+    mockGetUser.mockReturnValue({ nome: 'Ana', email: 'ana@teste.com', cargo: 'EV' });
+    mockGetModulos.mockReturnValue(['perfil', 'crm']);
+    renderLayout('/uc/aulas/a1');
+    const nav = screen.getByLabelText('Navegação principal');
+    const carreira = within(nav).getByText('Carreira');
+    expect(carreira.className).toContain('text-hipo-blue');
+    expect(within(nav).getByText('Tarefas').className).not.toContain('text-hipo-blue');
   });
 });
