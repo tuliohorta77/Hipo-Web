@@ -10,6 +10,8 @@ O que mora aqui:
   * vídeo: de uma URL colada pela gestão para (provedor, id) — e só isso
     vai para o banco
   * conclusão de aula sem quiz: a trava de tempo mínimo
+  * quiz depois da aula: forma do quiz, correção, nota e espera entre
+    tentativas (a aula com quiz só conclui com aprovação)
   * prazo e situação das trilhas obrigatórias (o "manual da função")
   * a PRÓXIMA AULA, que é o cartão que abre a tela
 
@@ -19,6 +21,7 @@ from __future__ import annotations
 
 import json
 import math
+import random
 import re
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
@@ -304,6 +307,178 @@ def segundos_para_liberar(aberta_em: datetime | None, duracao_min: int | None,
     inicio = aberta_em or agora
     falta = (liberada_em(inicio, duracao_min) - agora).total_seconds()
     return max(0, math.ceil(falta))
+
+
+# ── Quiz ─────────────────────────────────────────────────────────────
+#
+# A trava de tempo garante presença, não entendimento. Aula com quiz só
+# conclui com aprovação, e o quiz só abre depois da trava de tempo (as
+# duas valem). Decisões do Tulio (05/10/2026): 7 perguntas, 85% para
+# aprovar (6 de 7), nova tentativa 10 minutos depois de reprovar.
+#
+# O gabarito nunca sai do servidor: a tela recebe as alternativas sem
+# `correta`, embaralhadas, e o resultado diz QUAIS perguntas errou, nunca
+# qual era a certa — senão a segunda tentativa vira cola.
+
+PERGUNTAS_POR_QUIZ = 7
+NOTA_MINIMA_QUIZ = 85
+ALTERNATIVAS_MIN = 3
+ALTERNATIVAS_MAX = 5
+ESPERA_REPROVACAO_MIN = 10
+MAX_ENUNCIADO = 300
+MAX_ALTERNATIVA = 200
+
+
+def validar_quiz(perguntas: list | None) -> list[dict]:
+    """
+    O quiz como a gestão escreveu no estúdio, normalizado. Lista vazia =
+    aula sem quiz (volta para o "Concluí" com a trava de tempo).
+
+    Recusa com mensagem pronta para a tela: quantidade diferente de 7,
+    pergunta sem texto, alternativas fora de 3..5, repetidas, ou sem
+    exatamente uma correta.
+    """
+    if not perguntas:
+        return []
+    if not isinstance(perguntas, list):
+        raise ConteudoInvalido("O quiz precisa ser uma lista de perguntas.")
+    if len(perguntas) != PERGUNTAS_POR_QUIZ:
+        raise ConteudoInvalido(
+            f"O quiz tem {len(perguntas)} pergunta(s); precisa de exatamente "
+            f"{PERGUNTAS_POR_QUIZ} (ou nenhuma, para a aula concluir pelo tempo)."
+        )
+    saida, vistos = [], set()
+    for i, p in enumerate(perguntas, start=1):
+        if not isinstance(p, dict):
+            raise ConteudoInvalido(f"Pergunta {i}: formato inválido.")
+        enunciado = " ".join(str(p.get("enunciado") or "").split())
+        if not enunciado:
+            raise ConteudoInvalido(f"Pergunta {i}: escreva o enunciado.")
+        if len(enunciado) > MAX_ENUNCIADO:
+            raise ConteudoInvalido(f"Pergunta {i}: enunciado acima de {MAX_ENUNCIADO} caracteres.")
+        if enunciado.lower() in vistos:
+            raise ConteudoInvalido(f"Pergunta {i}: enunciado repetido.")
+        vistos.add(enunciado.lower())
+        alts = p.get("alternativas") or []
+        if not isinstance(alts, list) or not (ALTERNATIVAS_MIN <= len(alts) <= ALTERNATIVAS_MAX):
+            raise ConteudoInvalido(
+                f"Pergunta {i}: use de {ALTERNATIVAS_MIN} a {ALTERNATIVAS_MAX} alternativas."
+            )
+        norm, textos = [], set()
+        for j, alt in enumerate(alts, start=1):
+            if not isinstance(alt, dict):
+                raise ConteudoInvalido(f"Pergunta {i}, alternativa {j}: formato inválido.")
+            texto = " ".join(str(alt.get("texto") or "").split())
+            if not texto:
+                raise ConteudoInvalido(f"Pergunta {i}, alternativa {j}: escreva o texto.")
+            if len(texto) > MAX_ALTERNATIVA:
+                raise ConteudoInvalido(
+                    f"Pergunta {i}, alternativa {j}: acima de {MAX_ALTERNATIVA} caracteres."
+                )
+            if texto.lower() in textos:
+                raise ConteudoInvalido(f"Pergunta {i}: alternativas repetidas.")
+            textos.add(texto.lower())
+            norm.append({"texto": texto, "correta": alt.get("correta") is True})
+        if sum(1 for a in norm if a["correta"]) != 1:
+            raise ConteudoInvalido(f"Pergunta {i}: marque exatamente uma alternativa correta.")
+        saida.append({"enunciado": enunciado, "alternativas": norm})
+    return saida
+
+
+def nota_do_quiz(acertos: int, total: int) -> int:
+    """
+    0..100, arredondada para baixo: 6 de 7 = 85, nunca "86" que faria a
+    pessoa achar que passou com folga.
+
+    >>> nota_do_quiz(6, 7)
+    85
+    >>> nota_do_quiz(7, 7)
+    100
+    """
+    if total <= 0:
+        return 0
+    return (100 * acertos) // total
+
+
+def aprovado(acertos: int, total: int, nota_minima: int) -> bool:
+    """
+    Comparação em inteiros, sem arredondar: 6 de 7 (85,7%) passa em 85.
+
+    >>> aprovado(6, 7, 85), aprovado(5, 7, 85)
+    (True, False)
+    """
+    return total > 0 and acertos * 100 >= nota_minima * total
+
+
+@dataclass(frozen=True)
+class Correcao:
+    acertos: int
+    total: int
+    nota: int
+    aprovada: bool
+    erradas: list[str]
+
+
+def corrigir(
+    perguntas: list[dict],
+    respostas: dict,
+    nota_minima: int,
+) -> Correcao:
+    """
+    Corrige um envio. `perguntas` vem do banco, na ordem do quiz:
+    [{"id": str, "alternativas": [{"id": str, "correta": bool}]}].
+    `respostas` é {pergunta_id: alternativa_id}, como a tela mandou.
+
+    Toda pergunta precisa de resposta, e a resposta precisa ser uma
+    alternativa DAQUELA pergunta: resposta faltando, sobrando ou trocada
+    é recusada inteira (422), não conta como erro — senão um envio
+    malformado queimaria a tentativa e os 10 minutos.
+    """
+    if not isinstance(respostas, dict):
+        raise ConteudoInvalido("Envie uma resposta para cada pergunta.")
+    ids = [str(p["id"]) for p in perguntas]
+    recebidas = {str(k): str(v) for k, v in respostas.items()}
+    faltando = [i for i, pid in enumerate(ids, start=1) if pid not in recebidas]
+    if faltando:
+        lista = ", ".join(str(n) for n in faltando)
+        raise ConteudoInvalido(f"Responda todas as perguntas antes de enviar (falta: {lista}).")
+    if set(recebidas) - set(ids):
+        raise ConteudoInvalido("Resposta para uma pergunta que não é desta aula.")
+    acertos, erradas = 0, []
+    for p in perguntas:
+        pid = str(p["id"])
+        alts = {str(a["id"]): bool(a["correta"]) for a in p["alternativas"]}
+        escolha = recebidas[pid]
+        if escolha not in alts:
+            raise ConteudoInvalido("Alternativa que não pertence à pergunta.")
+        if alts[escolha]:
+            acertos += 1
+        else:
+            erradas.append(pid)
+    total = len(perguntas)
+    return Correcao(
+        acertos=acertos, total=total, nota=nota_do_quiz(acertos, total),
+        aprovada=aprovado(acertos, total, nota_minima), erradas=erradas,
+    )
+
+
+def segundos_para_refazer(ultima_reprovada_em: datetime | None, agora: datetime) -> int:
+    """Quanto falta para a nova tentativa depois de reprovar. 0 = pode."""
+    if ultima_reprovada_em is None:
+        return 0
+    libera = ultima_reprovada_em + timedelta(minutes=ESPERA_REPROVACAO_MIN)
+    return max(0, math.ceil((libera - agora).total_seconds()))
+
+
+def embaralhar(itens: list, semente: str) -> list:
+    """
+    Cópia embaralhada, estável para a mesma semente. A rota usa
+    pessoa + aula + nº de tentativas: o F5 não muda a ordem, a tentativa
+    seguinte muda.
+    """
+    copia = list(itens)
+    random.Random(semente).shuffle(copia)
+    return copia
 
 
 # ── Manual da função: prazo e situação ───────────────────────────────

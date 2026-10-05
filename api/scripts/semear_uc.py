@@ -19,6 +19,9 @@ O QUE A CARGA GARANTE
   * Cargos: só acrescenta o que falta. Prazo e obrigação que a gestão mudou
     no estúdio ficam como estão.
   * PDFs: anexa o que não estiver anexado (pelo nome exibido).
+  * Quiz (024): as 7 perguntas de cada aula são regravadas, com ids fixos
+    (uuid5 da aula + posição), e a nota mínima vai para 85. Quiz que a
+    gestão mexeu no estúdio numa aula DESTA carga volta ao do conteúdo.
 
 USO (na EC2; o infra/semear-uc.sh prepara o ambiente):
   python -m scripts.semear_uc --simular --pdfs /tmp/uc
@@ -35,6 +38,8 @@ import json
 import re
 import sys
 from pathlib import Path
+
+from uuid import NAMESPACE_URL, UUID, uuid5
 
 from scripts.uc_conteudo import (
     CARGOS_OBRIGATORIOS, CARGOS_OPCIONAIS, PDFS, TRILHAS,
@@ -85,12 +90,10 @@ def conferir() -> list[str]:
                 regras.validar_tour(a.get("tour"))
             except regras.ConteudoInvalido as e:
                 erros.append(f"{rot}: {e}")
-            for j, q in enumerate(a.get("quiz", []), start=1):
-                certas = sum(1 for _, c in q["alternativas"] if c)
-                if certas != 1:
-                    erros.append(f"{rot}, pergunta {j}: precisa de exatamente 1 correta")
-                if len(q["alternativas"]) < 3:
-                    erros.append(f"{rot}, pergunta {j}: menos de 3 alternativas")
+            try:
+                regras.validar_quiz(quiz_do_conteudo(a))
+            except regras.ConteudoInvalido as e:
+                erros.append(f"{rot}: {e}")
     return erros
 
 
@@ -105,6 +108,23 @@ def _tour_json(a: dict) -> str | None:
 
     tour = regras.validar_tour(a.get("tour"))
     return json.dumps(tour, ensure_ascii=False) if tour else None
+
+
+def quiz_do_conteudo(a: dict) -> list[dict]:
+    """O quiz da aula no formato do estúdio ({texto, correta})."""
+    return [
+        {"enunciado": q["enunciado"],
+         "alternativas": [{"texto": texto, "correta": correta} for texto, correta in q["alternativas"]]}
+        for q in a.get("quiz", [])
+    ]
+
+
+def _ids_do_quiz(aula_id: UUID):
+    """Ids fixos: rodar a carga de novo não troca o id de pergunta nenhuma."""
+    def ids(j: int, k: int | None) -> UUID:
+        sufixo = f"p{j}" if k is None else f"p{j}a{k}"
+        return uuid5(NAMESPACE_URL, f"hipo:uc:{aula_id}:{sufixo}")
+    return ids
 
 
 async def _gravar_aulas(conn, t: dict) -> None:
@@ -125,6 +145,11 @@ async def _gravar_aulas(conn, t: dict) -> None:
             a["id"], t["id"], ordem, a["titulo"], a["resumo"],
             a["conteudo_md"], a["duracao_min"], _tour_json(a),
         )
+        from routers.uc_estudio import gravar_quiz
+        from services import uc as regras
+
+        await gravar_quiz(conn, a["id"], regras.validar_quiz(quiz_do_conteudo(a)),
+                          ids=_ids_do_quiz(a["id"]))
     # A UNIQUE (trilha_id, ordem) é DEFERRABLE INITIALLY DEFERRED: dentro da
     # transação as posições podem colidir de passagem; o que vale é o fim.
     await conn.execute(

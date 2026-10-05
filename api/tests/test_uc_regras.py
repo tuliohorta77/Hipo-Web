@@ -351,3 +351,116 @@ class TestTour:
         assert r.ler_tour(None) is None
         assert r.ler_tour("{quebrado") is None
         assert r.ler_tour(json.dumps([{"rota": "/x"}])) is None
+
+
+# ── Quiz (024) ───────────────────────────────────────────────────────
+
+from datetime import datetime as _dt, timedelta as _td, timezone as _tz  # noqa: E402
+
+import pytest as _pytest  # noqa: E402
+
+from services import uc as _r  # noqa: E402
+
+
+def _q(n=7, alts=4):
+    return [
+        {"enunciado": f"P{i}", "alternativas": [{"texto": f"A{i}{k}", "correta": k == 0} for k in range(alts)]}
+        for i in range(n)
+    ]
+
+
+def _perguntas_banco():
+    return [
+        {"id": f"p{i}", "alternativas": [{"id": f"p{i}a{k}", "correta": k == 1} for k in range(4)]}
+        for i in range(7)
+    ]
+
+
+def _resp(erros):
+    return {f"p{i}": (f"p{i}a0" if i < erros else f"p{i}a1") for i in range(7)}
+
+
+def test_quiz_vazio_e_aula_sem_quiz():
+    assert _r.validar_quiz([]) == [] and _r.validar_quiz(None) == []
+
+
+def test_quiz_normaliza_espacos():
+    q = _q()
+    q[0]["enunciado"] = "  Qual   é  a regra? "
+    assert _r.validar_quiz(q)[0]["enunciado"] == "Qual é a regra?"
+
+
+@_pytest.mark.parametrize("n", [3, 6, 8])
+def test_quiz_exige_sete(n):
+    with _pytest.raises(_r.ConteudoInvalido, match="exatamente 7"):
+        _r.validar_quiz(_q(n))
+
+
+@_pytest.mark.parametrize("alts", [2, 6])
+def test_quiz_alternativas_de_3_a_5(alts):
+    with _pytest.raises(_r.ConteudoInvalido, match="de 3 a 5"):
+        _r.validar_quiz(_q(alts=alts))
+
+
+def test_quiz_uma_correta_so():
+    q = _q()
+    q[3]["alternativas"][1]["correta"] = True
+    with _pytest.raises(_r.ConteudoInvalido, match="Pergunta 4: marque exatamente uma"):
+        _r.validar_quiz(q)
+
+
+def test_quiz_alternativas_e_enunciados_repetidos():
+    q = _q()
+    q[0]["alternativas"][1]["texto"] = "a00"
+    with _pytest.raises(_r.ConteudoInvalido, match="repetidas"):
+        _r.validar_quiz(q)
+    q = _q()
+    q[1]["enunciado"] = "p0"
+    with _pytest.raises(_r.ConteudoInvalido, match="enunciado repetido"):
+        _r.validar_quiz(q)
+
+
+def test_correta_so_conta_true_de_verdade():
+    q = _q()
+    q[0]["alternativas"][0]["correta"] = "sim"
+    with _pytest.raises(_r.ConteudoInvalido):
+        _r.validar_quiz(q)
+
+
+def test_corte_85_em_sete_perguntas():
+    assert [_r.aprovado(a, 7, 85) for a in range(8)] == [False] * 6 + [True, True]
+    assert [_r.nota_do_quiz(a, 7) for a in (5, 6, 7)] == [71, 85, 100]
+
+
+def test_corrigir_conta_e_lista_as_erradas_na_ordem():
+    c = _r.corrigir(_perguntas_banco(), _resp(2), 85)
+    assert (c.acertos, c.total, c.nota, c.aprovada, c.erradas) == (5, 7, 71, False, ["p0", "p1"])
+    c = _r.corrigir(_perguntas_banco(), _resp(1), 85)
+    assert c.aprovada and c.nota == 85
+
+
+def test_corrigir_recusa_envio_incompleto_sobrando_ou_trocado():
+    r = _resp(0)
+    r.pop("p3")
+    with _pytest.raises(_r.ConteudoInvalido, match="falta: 4"):
+        _r.corrigir(_perguntas_banco(), r, 85)
+    with _pytest.raises(_r.ConteudoInvalido, match="não é desta aula"):
+        _r.corrigir(_perguntas_banco(), {**_resp(0), "x": "y"}, 85)
+    r = _resp(0)
+    r["p0"] = "p1a1"
+    with _pytest.raises(_r.ConteudoInvalido, match="não pertence"):
+        _r.corrigir(_perguntas_banco(), r, 85)
+
+
+def test_espera_de_dez_minutos_depois_de_reprovar():
+    agora = _dt(2026, 10, 5, 12, tzinfo=_tz.utc)
+    assert _r.segundos_para_refazer(None, agora) == 0
+    assert _r.segundos_para_refazer(agora - _td(minutes=4), agora) == 360
+    assert _r.segundos_para_refazer(agora - _td(minutes=10), agora) == 0
+
+
+def test_embaralhar_e_estavel_por_semente_e_nao_mexe_no_original():
+    itens = list(range(10))
+    a = _r.embaralhar(itens, "x")
+    assert a == _r.embaralhar(itens, "x") and sorted(a) == itens and itens == list(range(10))
+    assert any(_r.embaralhar(itens, f"s{i}") != a for i in range(5))

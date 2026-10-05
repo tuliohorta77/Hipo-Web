@@ -21,10 +21,19 @@ PROGRESSO É POR VERSÃO DA AULA
   Aula que mudou de forma relevante sobe de versão e volta a ficar
   pendente para todos, sem apagar o registro da versão anterior.
 
+QUIZ (024)
+  Aula com perguntas só conclui pelo quiz: 7 perguntas, 85% para aprovar,
+  e ele só abre depois da trava de tempo. Reprovou, nova tentativa em 10
+  minutos. O gabarito nunca sai daqui: alternativas sem `correta`,
+  embaralhadas por pessoa e tentativa; o resultado marca as perguntas
+  erradas, nunca a alternativa certa. Aula sem pergunta segue no
+  "Concluí" com a trava de tempo.
+
 Especificação: claude/universidade-corporativa.md.
 """
 from __future__ import annotations
 
+import json
 from datetime import date, datetime, timezone
 from uuid import UUID
 
@@ -168,6 +177,43 @@ class PassoTour(BaseModel):
     clicar: list[str] = []
 
 
+class AlternativaQuiz(BaseModel):
+    id: UUID
+    texto: str
+
+
+class PerguntaQuiz(BaseModel):
+    id: UUID
+    numero: int
+    enunciado: str
+    alternativas: list[AlternativaQuiz]
+
+
+class TentativaOut(BaseModel):
+    acertos: int
+    total: int
+    nota: int
+    aprovada: bool
+    erradas: list[UUID]
+    em: datetime
+
+
+class QuizOut(BaseModel):
+    total: int
+    nota_minima: int
+    acertos_para_aprovar: int
+    tentativas: int
+    aprovado: bool
+    ultima: TentativaOut | None
+    segundos_para_refazer: int
+    espera_minutos: int
+    perguntas: list[PerguntaQuiz]
+
+
+class RespostasQuiz(BaseModel):
+    respostas: dict[str, str]
+
+
 class AulaDetalhe(BaseModel):
     id: UUID
     trilha_id: UUID
@@ -193,6 +239,7 @@ class AulaDetalhe(BaseModel):
     segundos_para_liberar: int
     modo_leitura: bool
     tour: list[PassoTour] | None = None
+    quiz: QuizOut | None = None
 
 
 class UrlMaterial(BaseModel):
@@ -472,6 +519,89 @@ def _registra_progresso(aula: dict, trilha: dict, leitura: bool) -> bool:
     return not leitura and aula["status"] == "publicada" and trilha["status"] == "publicada"
 
 
+async def _perguntas(conn, aula_id: UUID) -> list[dict]:
+    """O quiz da aula COM gabarito. Só para corrigir e para o estúdio."""
+    rows = await conn.fetch(
+        """
+        SELECT p.id AS pergunta_id, p.ordem AS pordem, p.enunciado,
+               a.id AS alternativa_id, a.ordem AS aordem, a.texto, a.correta
+          FROM uc_perguntas p
+          JOIN uc_alternativas a ON a.pergunta_id = p.id
+         WHERE p.aula_id = $1
+         ORDER BY p.ordem, a.ordem
+        """,
+        aula_id,
+    )
+    saida: list[dict] = []
+    for r in rows:
+        if not saida or saida[-1]["id"] != r["pergunta_id"]:
+            saida.append({"id": r["pergunta_id"], "ordem": r["pordem"],
+                          "enunciado": r["enunciado"], "alternativas": []})
+        saida[-1]["alternativas"].append(
+            {"id": r["alternativa_id"], "texto": r["texto"], "correta": r["correta"]}
+        )
+    return saida
+
+
+async def _tentativas(conn, pessoa_id, aula: dict) -> list[dict]:
+    rows = await conn.fetch(
+        """
+        SELECT acertos, total, nota, aprovada, erradas, criado_em
+          FROM uc_tentativas
+         WHERE usuario_id = $1 AND aula_id = $2 AND aula_versao = $3
+         ORDER BY criado_em DESC
+        """,
+        pessoa_id, aula["id"], aula["versao"],
+    )
+    return [dict(r) for r in rows]
+
+
+def _quiz_para_tela(perguntas: list[dict], tentativas: list[dict], aula: dict,
+                    pessoa_id, agora: datetime) -> dict | None:
+    """
+    O quiz como a tela recebe: sem `correta`, alternativas embaralhadas
+    (mesma ordem no F5, ordem nova a cada tentativa).
+    """
+    if not perguntas:
+        return None
+    ultima = tentativas[0] if tentativas else None
+    reprovada_em = ultima["criado_em"] if ultima and not ultima["aprovada"] else None
+    semente_base = f"{pessoa_id}:{aula['id']}:{aula['versao']}:{len(tentativas)}"
+    total = len(perguntas)
+    nota_minima = aula["nota_minima"]
+    return {
+        "total": total,
+        "nota_minima": nota_minima,
+        "acertos_para_aprovar": -(-nota_minima * total // 100),
+        "tentativas": len(tentativas),
+        "aprovado": any(t["aprovada"] for t in tentativas),
+        "ultima": None if ultima is None else {
+            "acertos": ultima["acertos"], "total": ultima["total"], "nota": ultima["nota"],
+            "aprovada": ultima["aprovada"], "erradas": _lista_json(ultima["erradas"]),
+            "em": ultima["criado_em"],
+        },
+        "segundos_para_refazer": regras.segundos_para_refazer(reprovada_em, agora),
+        "espera_minutos": regras.ESPERA_REPROVACAO_MIN,
+        "perguntas": [
+            {
+                "id": p["id"], "numero": i, "enunciado": p["enunciado"],
+                "alternativas": [
+                    {"id": a["id"], "texto": a["texto"]}
+                    for a in regras.embaralhar(p["alternativas"], f"{semente_base}:{p['id']}")
+                ],
+            }
+            for i, p in enumerate(perguntas, start=1)
+        ],
+    }
+
+
+def _lista_json(valor) -> list:
+    """`erradas` vem do asyncpg como texto JSON (sem codec registrado)."""
+    if isinstance(valor, str):
+        return json.loads(valor)
+    return list(valor or [])
+
+
 async def _estado_aula(conn, aula: dict, trilha: dict, pessoa: dict, leitura: bool) -> dict:
     prog = await conn.fetchrow(
         """
@@ -532,6 +662,11 @@ async def _estado_aula(conn, aula: dict, trilha: dict, pessoa: dict, leitura: bo
         "segundos_para_liberar": falta,
         "modo_leitura": leitura,
         "tour": regras.ler_tour(aula.get("tour")),
+        "quiz": _quiz_para_tela(
+            await _perguntas(conn, aula["id"]),
+            await _tentativas(conn, pessoa["id"], aula),
+            aula, pessoa["id"], _agora(),
+        ),
     }
 
 
@@ -578,6 +713,18 @@ async def concluir(
     a, t = await _aula_ou_404(conn, aula_id, user, eh_gestao(user))
     if not _registra_progresso(a, t, False):
         raise HTTPException(422, "Aula em rascunho não conta como concluída. Publique antes.")
+    tem_quiz = await conn.fetchval("SELECT EXISTS (SELECT 1 FROM uc_perguntas WHERE aula_id = $1)", a["id"])
+    if tem_quiz:
+        ja = await conn.fetchval(
+            """
+            SELECT concluida_em IS NOT NULL FROM uc_progresso
+             WHERE usuario_id = $1 AND aula_id = $2 AND aula_versao = $3
+            """,
+            user["id"], a["id"], a["versao"],
+        )
+        if not ja:
+            raise HTTPException(409, "Esta aula conclui pelo quiz: responda as perguntas no fim da aula.")
+        return await _estado_aula(conn, a, t, user, False)
 
     async with conn.transaction():
         await conn.execute(
@@ -611,6 +758,103 @@ async def concluir(
                  WHERE usuario_id = $1 AND aula_id = $2 AND aula_versao = $3
                 """,
                 user["id"], a["id"], a["versao"],
+            )
+    return await _estado_aula(conn, a, t, user, False)
+
+
+def _mensagem_tempo(falta: int, duracao_min: int | None) -> str:
+    minutos = -(-falta // 60)
+    return (
+        f"O quiz abre em {minutos} min. "
+        f"A aula tem {duracao_min} min estimados e libera na metade do tempo."
+    )
+
+
+@router.post("/aulas/{aula_id}/quiz", response_model=AulaDetalhe)
+async def responder_quiz(
+    aula_id: UUID,
+    body: RespostasQuiz,
+    conn=Depends(get_conn),
+    user=Depends(usuario_atual),
+):
+    """
+    Corrige o quiz, grava a tentativa e, se aprovou, conclui a aula — na
+    mesma transação. Devolve a aula inteira (com o resultado em
+    `quiz.ultima`), como o "Concluí".
+
+    409: o tempo mínimo da aula ainda não passou, ou a aula já foi
+    concluída nesta versão. 429: reprovou há menos de 10 minutos.
+    422: envio incompleto ou com alternativa de outra pergunta — recusado
+    sem gastar tentativa.
+    """
+    a, t = await _aula_ou_404(conn, aula_id, user, eh_gestao(user))
+    if not _registra_progresso(a, t, False):
+        raise HTTPException(422, "Aula em rascunho não tem quiz valendo. Publique antes.")
+    perguntas = await _perguntas(conn, a["id"])
+    if not perguntas:
+        raise HTTPException(409, "Esta aula não tem quiz: conclua pelo botão Concluí.")
+
+    agora = _agora()
+    async with conn.transaction():
+        await conn.execute(
+            """
+            INSERT INTO uc_progresso (usuario_id, aula_id, aula_versao)
+            VALUES ($1, $2, $3)
+            ON CONFLICT (usuario_id, aula_id, aula_versao) DO NOTHING
+            """,
+            user["id"], a["id"], a["versao"],
+        )
+        # FOR UPDATE: dois envios ao mesmo tempo não viram duas tentativas
+        # dentro da mesma espera.
+        prog = await conn.fetchrow(
+            """
+            SELECT aberta_em, concluida_em FROM uc_progresso
+             WHERE usuario_id = $1 AND aula_id = $2 AND aula_versao = $3
+             FOR UPDATE
+            """,
+            user["id"], a["id"], a["versao"],
+        )
+        if prog["concluida_em"] is not None:
+            raise HTTPException(409, "Aula já concluída.")
+        falta = regras.segundos_para_liberar(prog["aberta_em"], a["duracao_min"], agora)
+        if falta > 0:
+            raise HTTPException(409, _mensagem_tempo(falta, a["duracao_min"]))
+        ultima_reprovada = await conn.fetchval(
+            """
+            SELECT max(criado_em) FROM uc_tentativas
+             WHERE usuario_id = $1 AND aula_id = $2 AND aula_versao = $3 AND NOT aprovada
+            """,
+            user["id"], a["id"], a["versao"],
+        )
+        espera = regras.segundos_para_refazer(ultima_reprovada, agora)
+        if espera > 0:
+            minutos = -(-espera // 60)
+            raise HTTPException(
+                429,
+                f"Nova tentativa em {minutos} min. Enquanto isso, releia as partes da aula "
+                f"das perguntas que você errou.",
+            )
+        try:
+            c = regras.corrigir(perguntas, body.respostas, a["nota_minima"])
+        except regras.ConteudoInvalido as e:
+            raise HTTPException(422, str(e))
+        await conn.execute(
+            """
+            INSERT INTO uc_tentativas (usuario_id, aula_id, aula_versao, acertos, total,
+                                       nota, nota_minima, aprovada, respostas, erradas, criado_em)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10::jsonb, $11)
+            """,
+            user["id"], a["id"], a["versao"], c.acertos, c.total, c.nota, a["nota_minima"],
+            c.aprovada, json.dumps({str(k): str(v) for k, v in body.respostas.items()}),
+            json.dumps(c.erradas), agora,
+        )
+        if c.aprovada:
+            await conn.execute(
+                """
+                UPDATE uc_progresso SET concluida_em = GREATEST($4, aberta_em)
+                 WHERE usuario_id = $1 AND aula_id = $2 AND aula_versao = $3
+                """,
+                user["id"], a["id"], a["versao"], agora,
             )
     return await _estado_aula(conn, a, t, user, False)
 

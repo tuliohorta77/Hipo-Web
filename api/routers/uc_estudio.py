@@ -14,7 +14,12 @@ O QUE O ESTÚDIO GARANTE
   * "mudança relevante" numa aula sobe a versão e reabre a pendência para
     quem já concluiu; correção de vírgula não sobe;
   * aula com alguém que já concluiu não é apagada — vira rascunho. Apagar
-    levaria junto a prova de que a pessoa fez.
+    levaria junto a prova de que a pessoa fez;
+  * quiz (`PUT /aulas/{id}/quiz`): nenhuma pergunta (a aula conclui pelo
+    tempo) ou exatamente 7, cada uma com 3 a 5 alternativas e uma correta.
+    Substitui o quiz inteiro. Trocar o quiz não sobe a versão: quem já
+    concluiu continua concluído. As trilhas da carga (scripts/semear_uc.py)
+    têm o quiz regravado a cada carga com --atualizar.
 
 O MANUAL DA FUNÇÃO (`PUT /trilhas/{id}/cargos`)
   Substitui a lista inteira. `desde` é preservado para o cargo que já era
@@ -34,7 +39,7 @@ from pydantic import BaseModel, Field
 from database import get_conn
 from routers.auth import usuario_atual
 from routers.permissions import CARGOS_GESTAO
-from routers.uc import _hoje, montar_painel
+from routers.uc import _hoje, _perguntas, montar_painel
 from services import uc as regras
 from services import uc_material as material
 from services.anexo import AnexoInvalido
@@ -135,6 +140,20 @@ class MaterialEstudio(BaseModel):
     criado_em: datetime
 
 
+class AlternativaEstudio(BaseModel):
+    texto: str
+    correta: bool
+
+
+class PerguntaEstudio(BaseModel):
+    enunciado: str
+    alternativas: list[AlternativaEstudio]
+
+
+class QuizIn(BaseModel):
+    perguntas: list[dict] = []
+
+
 class AulaEstudio(BaseModel):
     id: UUID
     trilha_id: UUID
@@ -153,6 +172,9 @@ class AulaEstudio(BaseModel):
     # O tour vem da carga do conteúdo (scripts/semear_uc.py); o estúdio só
     # mostra quantos passos a aula tem. Editar a aula não mexe nele.
     tour_passos: int = 0
+    # Quiz COM gabarito: só a gestão vê. Vazio = aula sem quiz.
+    quiz: list[PerguntaEstudio] = []
+    nota_minima: int = regras.NOTA_MINIMA_QUIZ
 
 
 class TrilhaEstudioDetalhe(TrilhaEstudio):
@@ -255,6 +277,12 @@ async def _aula_out(conn, a: dict) -> dict:
         "duracao_min": a["duracao_min"], "versao": a["versao"], "status": a["status"],
         "concluintes": concluintes,
         "tour_passos": len(regras.ler_tour(a.get("tour")) or []),
+        "quiz": [
+            {"enunciado": p["enunciado"],
+             "alternativas": [{"texto": x["texto"], "correta": x["correta"]} for x in p["alternativas"]]}
+            for p in await _perguntas(conn, a["id"])
+        ],
+        "nota_minima": a["nota_minima"],
         "materiais": [
             {**dict(m), "eh_imagem": m["tipo_mime"].startswith("image/")} for m in materiais
         ],
@@ -564,6 +592,53 @@ async def editar_aula(aula_id: UUID, body: AulaPatch, conn=Depends(get_conn)):
             f"UPDATE uc_aulas SET {atribuicoes}, atualizado_em = NOW() WHERE id = $1",
             aula_id, *valores,
         )
+        await _toca_trilha(conn, a["trilha_id"])
+    return await _aula_out(conn, await _aula_ou_404(conn, aula_id))
+
+
+async def gravar_quiz(conn, aula_id: UUID, perguntas: list[dict], ids=None) -> None:
+    """
+    Substitui o quiz da aula (já validado). Dentro de transação de quem
+    chama. `ids` (opcional) dá ids fixos à carga: função que recebe
+    (j, k) e devolve o UUID da pergunta j (k=None) ou da alternativa k.
+    """
+    await conn.execute("DELETE FROM uc_perguntas WHERE aula_id = $1", aula_id)
+    for j, p in enumerate(perguntas, start=1):
+        pid = ids(j, None) if ids else uuid4()
+        await conn.execute(
+            "INSERT INTO uc_perguntas (id, aula_id, ordem, enunciado) VALUES ($1, $2, $3, $4)",
+            pid, aula_id, j, p["enunciado"],
+        )
+        for k, alt in enumerate(p["alternativas"], start=1):
+            await conn.execute(
+                """
+                INSERT INTO uc_alternativas (id, pergunta_id, ordem, texto, correta)
+                VALUES ($1, $2, $3, $4, $5)
+                """,
+                ids(j, k) if ids else uuid4(), pid, k, alt["texto"], alt["correta"],
+            )
+    if perguntas:
+        await conn.execute(
+            "UPDATE uc_aulas SET nota_minima = $2 WHERE id = $1",
+            aula_id, regras.NOTA_MINIMA_QUIZ,
+        )
+
+
+@router.put("/aulas/{aula_id}/quiz", response_model=AulaEstudio,
+            dependencies=[Depends(requer_gestao_uc)])
+async def editar_quiz(aula_id: UUID, body: QuizIn, conn=Depends(get_conn)):
+    """
+    O quiz inteiro de uma vez. Lista vazia tira o quiz: a aula volta a
+    concluir pelo botão "Concluí", com a trava de tempo.
+    """
+    a = await _aula_ou_404(conn, aula_id)
+    try:
+        perguntas = regras.validar_quiz(body.perguntas)
+    except ConteudoInvalido as e:
+        _422(e)
+    async with conn.transaction():
+        await gravar_quiz(conn, aula_id, perguntas)
+        await conn.execute("UPDATE uc_aulas SET atualizado_em = NOW() WHERE id = $1", aula_id)
         await _toca_trilha(conn, a["trilha_id"])
     return await _aula_out(conn, await _aula_ou_404(conn, aula_id))
 

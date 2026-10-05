@@ -142,6 +142,42 @@ A apresentação institucional completa está em **Material de apoio**, logo aba
                         ("Atender só a região de Guarulhos", False),
                     ],
                 },
+                {
+                    "enunciado": "O cliente pergunta: \"Vocês atendem filial em outro estado?\". Como a aula orienta usar os números da Controller nessa hora?",
+                    "alternativas": [
+                        ("Usar o número para responder à dúvida dele e seguir com uma pergunta", True),
+                        ("Recitar todos os números da empresa logo na abertura da conversa", False),
+                        ("Evitar citar números, porque soa como propaganda", False),
+                        ("Enviar a apresentação e esperar que ele leia os números", False),
+                    ],
+                },
+                {
+                    "enunciado": "Segundo a apresentação institucional, quantos clientes a Controller já atendeu?",
+                    "alternativas": [
+                        ("Mais de 50", False),
+                        ("Mais de 500", True),
+                        ("Mais de 5 mil", False),
+                        ("Mais de 100 mil", False),
+                    ],
+                },
+                {
+                    "enunciado": "O que você deve fazer com a apresentação institucional antes da sua primeira reunião?",
+                    "alternativas": [
+                        ("Ler só o slide de números, que é o que o cliente pergunta", False),
+                        ("Nada, ela é de uso exclusivo da diretoria", False),
+                        ("Ler inteira, pois é o mesmo arquivo que o cliente recebe", True),
+                        ("Resumir em uma página e enviar no lugar dela", False),
+                    ],
+                },
+                {
+                    "enunciado": "Qual frase, na abertura da apresentação, resume o papel da Controller?",
+                    "alternativas": [
+                        ("Oferecer os exames ocupacionais pelo menor preço da região de Guarulhos", False),
+                        ("Assumir toda a gestão de pessoas e da folha de pagamento do cliente", False),
+                        ("Fazer exames ocupacionais sem necessidade de agendamento prévio", False),
+                        ("Organizar as ações de saúde ocupacional do cliente com mais planejamento e suporte", True),
+                    ],
+                },
             ],
         },
         {
@@ -228,6 +264,42 @@ O detalhe de cada sigla (o que é, qual norma exige, quem precisa) está na tril
                         ("Mandar a apresentação e esperar o retorno", False),
                     ],
                 },
+                {
+                    "enunciado": "O cliente pede um PGR e um LTCAT. A qual frente do portfólio esses serviços pertencem?",
+                    "alternativas": [
+                        ("Segurança do Trabalho", True),
+                        ("Medicina Ocupacional", False),
+                        ("Gestão e Compliance", False),
+                        ("Saúde e Bem-estar", False),
+                    ],
+                },
+                {
+                    "enunciado": "Audiometria e exames laboratoriais pedidos pelo médico conforme o risco são chamados de:",
+                    "alternativas": [
+                        ("Exames de mudança de risco", False),
+                        ("Exames complementares", True),
+                        ("Avaliações ambientais", False),
+                        ("Programas preventivos", False),
+                    ],
+                },
+                {
+                    "enunciado": "Campanhas de saúde e consultoria para RH e gestores ficam em qual frente, a que vai além da obrigação legal?",
+                    "alternativas": [
+                        ("Segurança do Trabalho", False),
+                        ("Gestão e Compliance", False),
+                        ("Saúde e Bem-estar", True),
+                        ("Medicina Ocupacional", False),
+                    ],
+                },
+                {
+                    "enunciado": "Por que é importante saber a qual frente pertence cada pedido do cliente?",
+                    "alternativas": [
+                        ("Para encaminhar o cliente a outro fornecedor em cada frente", False),
+                        ("Para cobrar uma taxa separada por frente contratada", False),
+                        ("Para saber qual frente pode ser deixada de fora", False),
+                        ("Para montar uma proposta completa em vez de vender só o exame pedido", True),
+                    ],
+                },
             ],
         },
         {
@@ -298,6 +370,42 @@ Fale só do que entregamos. Se o cliente pedir algo fora do portfólio ou um pra
                         ("Dar um desconto no lugar do prazo", False),
                     ],
                 },
+                {
+                    "enunciado": "Como a aula orienta usar a lista de problemas de quem não tem gestão especializada?",
+                    "alternativas": [
+                        ("Perguntar ao cliente qual desses problemas ele já viveu", True),
+                        ("Ler a lista inteira para o cliente no início da reunião", False),
+                        ("Enviar a lista por e-mail antes da reunião", False),
+                        ("Não mencionar problemas, só os benefícios", False),
+                    ],
+                },
+                {
+                    "enunciado": "O diferencial \"Integração com o eSocial\" reduz principalmente quais riscos para o cliente?",
+                    "alternativas": [
+                        ("Acidentes de trabalho e afastamentos", False),
+                        ("Inconsistências, atrasos e penalidades", True),
+                        ("Rotatividade e faltas dos empregados", False),
+                        ("Custos de exames complementares", False),
+                    ],
+                },
+                {
+                    "enunciado": "O que caracteriza o \"atendimento consultivo\" da Controller?",
+                    "alternativas": [
+                        ("Executar os exames pedidos sem interferir na gestão do cliente", False),
+                        ("Cobrar por hora cada consulta feita pela equipe técnica", False),
+                        ("Acompanhar a empresa para garantir conformidade, eficiência e tranquilidade", True),
+                        ("Atender o cliente apenas quando ele abre um chamado", False),
+                    ],
+                },
+                {
+                    "enunciado": "Qual destes é um dos ganhos que o cliente tem com a Controller, segundo a aula?",
+                    "alternativas": [
+                        ("Dispensa da fiscalização do trabalho", False),
+                        ("Isenção de enviar eventos ao eSocial", False),
+                        ("Redução dos impostos sobre a folha", False),
+                        ("Mais produtividade para o RH", True),
+                    ],
+                },
             ],
         },
         {
@@ -356,6 +464,42 @@ As trilhas obrigatórias do seu cargo formam o **Manual da função**, com prazo
                         ("Quando você fecha a última tarefa aberta de uma oportunidade viva", True),
                         ("Só quando a oportunidade é ganha", False),
                         ("Nunca, é opcional", False),
+                    ],
+                },
+                {
+                    "enunciado": "Você acabou de sair de uma reunião em que o cliente não apareceu. O que fazer?",
+                    "alternativas": [
+                        ("Registrar o desfecho no-show no HIPO no mesmo dia", True),
+                        ("Esperar o fim da semana para registrar todos os desfechos", False),
+                        ("Apagar a reunião do HIPO, já que ela não aconteceu", False),
+                        ("Avisar o gestor no WhatsApp e não registrar nada", False),
+                    ],
+                },
+                {
+                    "enunciado": "Qual é o prazo para concluir a trilha 01 · Boas-vindas à Controller?",
+                    "alternativas": [
+                        ("30 dias", False),
+                        ("10 dias", True),
+                        ("5 dias", False),
+                        ("60 dias", False),
+                    ],
+                },
+                {
+                    "enunciado": "Em qual menu fica a Universidade e onde ela abre?",
+                    "alternativas": [
+                        ("No menu Clientes, abrindo na lista de todas as trilhas", False),
+                        ("No menu Agenda, abrindo no calendário de aulas", False),
+                        ("No menu Carreira, sempre abrindo na sua próxima aula", True),
+                        ("No menu Carreira, abrindo sempre na primeira aula", False),
+                    ],
+                },
+                {
+                    "enunciado": "Seguir o roteiro de vendas e registrar tudo no HIPO faz parte de qual pilar da Universidade?",
+                    "alternativas": [
+                        ("Técnica", False),
+                        ("Energia", False),
+                        ("Produto", False),
+                        ("Método", True),
                     ],
                 },
             ],
@@ -449,6 +593,42 @@ Toda atividade econômica (o **CNAE** do CNPJ) tem um **grau de risco de 1 a 4**
                         ("Do porte da empresa", False),
                     ],
                 },
+                {
+                    "enunciado": "O cliente fala da comissão interna de prevenção de acidentes e de assédio. Qual NR trata dela?",
+                    "alternativas": [
+                        ("NR-05", True),
+                        ("NR-04", False),
+                        ("NR-06", False),
+                        ("NR-17", False),
+                    ],
+                },
+                {
+                    "enunciado": "Para quais organizações valem as NRs?",
+                    "alternativas": [
+                        ("Só para indústrias e construção civil", False),
+                        ("Para toda organização com empregados CLT", True),
+                        ("Só para empresas com mais de 50 empregados", False),
+                        ("Só para empresas de grau de risco 3 e 4", False),
+                    ],
+                },
+                {
+                    "enunciado": "Quem, na equipe de SST, elabora laudos como o LTCAT e os de insalubridade e periculosidade?",
+                    "alternativas": [
+                        ("O técnico de enfermagem do trabalho", False),
+                        ("O médico que emite o ASO", False),
+                        ("O engenheiro de segurança do trabalho", True),
+                        ("O RH da empresa cliente", False),
+                    ],
+                },
+                {
+                    "enunciado": "Uma empresa tem grau de risco 4 e outra tem grau de risco 1. O que isso indica?",
+                    "alternativas": [
+                        ("A de grau 4 tem mais empregados que a de grau 1", False),
+                        ("A de grau 1 teve mais acidentes no ano anterior", False),
+                        ("As duas têm as mesmas obrigações de SST", False),
+                        ("A de grau 4 tem atividade mais perigosa e mais obrigações", True),
+                    ],
+                },
             ],
         },
         {
@@ -520,6 +700,42 @@ Avalia a adequação do trabalho às pessoas, nos termos da **NR-17**: mobiliár
                         ("Não depende", False),
                     ],
                 },
+                {
+                    "enunciado": "Qual programa substituiu o antigo PPRA?",
+                    "alternativas": [
+                        ("PGR", True),
+                        ("PCMSO", False),
+                        ("LTCAT", False),
+                        ("ASO", False),
+                    ],
+                },
+                {
+                    "enunciado": "O que o ASO diz sobre o trabalhador?",
+                    "alternativas": [
+                        ("A que agentes nocivos ele está exposto", False),
+                        ("Se ele está apto ou inapto para a função", True),
+                        ("Quais riscos existem no setor dele", False),
+                        ("Se ele tem direito a aposentadoria especial", False),
+                    ],
+                },
+                {
+                    "enunciado": "Um ex-empregado abriu processo pedindo adicional de periculosidade. Qual laudo o cliente precisa e qual NR o baseia?",
+                    "alternativas": [
+                        ("Laudo de insalubridade, com base na NR-17", False),
+                        ("LTCAT, com base na NR-07", False),
+                        ("Laudo de periculosidade, com base na NR-16", True),
+                        ("Análise ergonômica, com base na NR-15", False),
+                    ],
+                },
+                {
+                    "enunciado": "O que a análise ergonômica avalia, nos termos da NR-17?",
+                    "alternativas": [
+                        ("Ruído, poeira e agentes químicos do ambiente", False),
+                        ("Exames clínicos e complementares de cada função", False),
+                        ("Exposição a agentes nocivos para o INSS", False),
+                        ("Mobiliário, postura, ritmo e organização do trabalho", True),
+                    ],
+                },
             ],
         },
         {
@@ -578,6 +794,42 @@ Além da consulta clínica, o PCMSO pode exigir exames conforme o risco da funç
                         ("Junto com o demissional", False),
                     ],
                 },
+                {
+                    "enunciado": "Em que situação a NR-07 permite dispensar o exame demissional?",
+                    "alternativas": [
+                        ("Quando o último exame clínico ocupacional é recente, num prazo que depende do grau de risco", True),
+                        ("Quando o trabalhador pede demissão por vontade própria", False),
+                        ("Quando a empresa é ME ou EPP de qualquer grau de risco", False),
+                        ("Quando o trabalhador ficou menos de um ano na empresa", False),
+                    ],
+                },
+                {
+                    "enunciado": "Um trabalhador atua exposto a ruído. Qual exame complementar a aula cita para esse caso?",
+                    "alternativas": [
+                        ("Espirometria", False),
+                        ("Audiometria", True),
+                        ("Acuidade visual", False),
+                        ("Exame laboratorial", False),
+                    ],
+                },
+                {
+                    "enunciado": "Quem define quais exames complementares cada função faz?",
+                    "alternativas": [
+                        ("O vendedor, conforme o pacote fechado", False),
+                        ("O RH do cliente, conforme o orçamento", False),
+                        ("O médico do PCMSO", True),
+                        ("O próprio trabalhador, no exame clínico", False),
+                    ],
+                },
+                {
+                    "enunciado": "O cliente quer que um novo empregado comece a trabalhar hoje e faça o admissional na semana que vem. O que a aula diz?",
+                    "alternativas": [
+                        ("Pode, desde que seja feito em até 30 dias", False),
+                        ("Pode, porque o admissional é opcional", False),
+                        ("Pode, se ele já tiver ASO de outra empresa", False),
+                        ("O admissional deve ser feito antes de ele começar a trabalhar", True),
+                    ],
+                },
             ],
         },
         {
@@ -632,6 +884,42 @@ Esses eventos substituíram o PPP em papel: o histórico de exposição do traba
                         ("Acidentes de trabalho e doenças ocupacionais (CAT)", True),
                         ("Admissões", False),
                         ("Treinamentos de NR", False),
+                    ],
+                },
+                {
+                    "enunciado": "Os eventos de SST do eSocial substituíram qual documento em papel?",
+                    "alternativas": [
+                        ("O PPP", True),
+                        ("O PGR", False),
+                        ("O ASO", False),
+                        ("O PCMSO", False),
+                    ],
+                },
+                {
+                    "enunciado": "Você pergunta quem envia os eventos de SST e o cliente responde \"o contador manda\". O que isso indica?",
+                    "alternativas": [
+                        ("Que o cliente já está resolvido e não precisa de nada", False),
+                        ("Que você encontrou um problema e uma oportunidade para a gestão do eSocial", True),
+                        ("Que esses eventos não são obrigatórios para ele", False),
+                        ("Que a conversa deve ser feita só com o contador", False),
+                    ],
+                },
+                {
+                    "enunciado": "Se o PCMSO do cliente estiver errado, qual evento do eSocial tende a sair errado também?",
+                    "alternativas": [
+                        ("S-2210", False),
+                        ("S-2240", False),
+                        ("S-2220", True),
+                        ("S-1200", False),
+                    ],
+                },
+                {
+                    "enunciado": "Quem precisa enviar os eventos de SST do eSocial?",
+                    "alternativas": [
+                        ("Só empresas com SESMT próprio", False),
+                        ("Só empresas de grau de risco 3 e 4", False),
+                        ("Só empresas que já tiveram acidente", False),
+                        ("Todo cliente com empregado CLT", True),
                     ],
                 },
             ],
@@ -712,6 +1000,42 @@ As próximas aulas aprofundam as duas normas que sustentam quase toda venda: **N
                 ("Valor a mais, não exigência de norma", True),
                 ("Exigidos pela NR-04 para todas as empresas", False),
                 ("Obrigatórios no eSocial", False),
+            ],
+        },
+        {
+            "enunciado": "O cliente comenta: \"estamos contratando bastante este mês\". Qual serviço esse sinal indica?",
+            "alternativas": [
+                ("Exames admissionais, exigidos pela NR-07", True),
+                ("Laudo de periculosidade, exigido pela NR-16", False),
+                ("Análise ergonômica, exigida pela NR-17", False),
+                ("Campanha de saúde, exigida pela NR-01", False),
+            ],
+        },
+        {
+            "enunciado": "Qual é a base legal do LTCAT, segundo a aula?",
+            "alternativas": [
+                ("A NR-04, ligada ao dimensionamento do SESMT", False),
+                ("A legislação previdenciária, ligada à aposentadoria especial", True),
+                ("A NR-07, ligada aos exames periódicos", False),
+                ("A NR-17, ligada à ergonomia", False),
+            ],
+        },
+        {
+            "enunciado": "Qual destes é sinal de oportunidade para revisar o PGR do cliente?",
+            "alternativas": [
+                ("PGR feito no mesmo ano do PCMSO", False),
+                ("Empresa com menos de 10 empregados", False),
+                ("PGR com mais de 2 anos ou sem revisão depois de 26/05/2026", True),
+                ("Empresa que já envia o S-2220 em dia", False),
+            ],
+        },
+        {
+            "enunciado": "Segundo a aula, de onde nasce a proposta para o cliente?",
+            "alternativas": [
+                ("Da tabela de preços, aplicada ao número de empregados", False),
+                ("Do pacote mais vendido no mês anterior", False),
+                ("Da lista completa de serviços do portfólio", False),
+                ("Das respostas do cliente às perguntas de Problema, anotadas no HIPO", True),
             ],
         },
     ],
@@ -797,6 +1121,42 @@ Ao ser admitido, ou ao mudar para função com risco diferente, o trabalhador de
                     ("A cada 12 meses", True),
                     ("A cada 2 anos", False),
                     ("Só na admissão", False),
+                ],
+            },
+            {
+                "enunciado": "Um órgão público da administração indireta tem empregados CLT. A NR-01 se aplica a ele?",
+                "alternativas": [
+                    ("Sim, a NR-01 vale para órgãos públicos com empregados CLT", True),
+                    ("Não, a NR-01 vale só para empresas privadas", False),
+                    ("Só se ele tiver mais de 50 empregados", False),
+                    ("Só se ele for obrigado a ter CIPA", False),
+                ],
+            },
+            {
+                "enunciado": "Um trabalhador vê risco grave e iminente à sua vida na atividade. O que a NR-01 garante?",
+                "alternativas": [
+                    ("Ele deve continuar até o fim do turno e depois avisar", False),
+                    ("Ele pode interromper a atividade, avisando o superior na hora", True),
+                    ("Ele só pode parar com autorização escrita do gestor", False),
+                    ("Ele pode parar, mas perde o dia de trabalho", False),
+                ],
+            },
+            {
+                "enunciado": "O cliente diz: \"cumprimos as NR, então a convenção coletiva não importa\". O que a NR-01 diz?",
+                "alternativas": [
+                    ("A convenção coletiva só vale se for mais branda que as NR", False),
+                    ("Quem cumpre as NR fica dispensado da convenção coletiva", False),
+                    ("Cumprir as NR não dispensa o que vier de convenção ou acordo coletivo", True),
+                    ("A convenção coletiva substitui a NR-01 quando existir", False),
+                ],
+            },
+            {
+                "enunciado": "Ao ser admitido ou mudar para função com risco diferente, o trabalhador deve receber:",
+                "alternativas": [
+                    ("Apenas o EPI da nova função, sem outras informações", False),
+                    ("Uma cópia do contrato social da empresa", False),
+                    ("Somente o resultado do último exame periódico", False),
+                    ("Informação sobre os riscos, a prevenção, as medidas adotadas e a emergência", True),
                 ],
             },
         ],
@@ -891,6 +1251,33 @@ O PGR não anda sozinho: o controle da saúde dos empregados é um processo prev
                     ("Tempo de exposição e uso de EPI", False),
                 ],
             },
+            {
+                "enunciado": "Por quanto tempo, no mínimo, deve ser guardado o histórico das atualizações do inventário de riscos?",
+                "alternativas": [
+                    ("20 anos", True),
+                    ("5 anos", False),
+                    ("2 anos", False),
+                    ("10 anos", False),
+                ],
+            },
+            {
+                "enunciado": "Uma prestadora de serviço trabalha dentro da fábrica do cliente. Como fica o PGR?",
+                "alternativas": [
+                    ("A contratada fica fora de qualquer PGR enquanto estiver na fábrica", False),
+                    ("O PGR da contratante inclui medidas para a contratada ou usa os programas dela", True),
+                    ("Só a contratada faz PGR, e a contratante não troca informação", False),
+                    ("A contratante precisa fazer um PGR novo a cada contrato", False),
+                ],
+            },
+            {
+                "enunciado": "O que o plano de ação do PGR precisa ter, segundo a aula?",
+                "alternativas": [
+                    ("Apenas a lista de EPIs entregues a cada trabalhador", False),
+                    ("Orçamento aprovado e assinatura do sindicato", False),
+                    ("Cronograma, responsáveis, forma de acompanhamento e de aferição", True),
+                    ("Somente as medidas para riscos de acidente", False),
+                ],
+            },
         ],
     },
     # ── 3 ────────────────────────────────────────────────────────────
@@ -948,6 +1335,42 @@ A norma diz **o que** gerenciar, não impõe um questionário ou ferramenta espe
                     ("Exigências da atividade de trabalho e eficácia das medidas de prevenção", True),
                     ("Histórico pessoal e familiar do trabalhador", False),
                     ("Laudo psiquiátrico de cada empregado", False),
+                ],
+            },
+            {
+                "enunciado": "O cliente pede \"o formulário oficial do governo\" para avaliar riscos psicossociais. O que responder?",
+                "alternativas": [
+                    ("Que a Controller envia o formulário oficial junto com o PGR", False),
+                    ("Que o formulário oficial é preenchido no eSocial", False),
+                    ("Que cada trabalhador baixa o formulário no gov.br", False),
+                    ("Esse formulário não existe na NR-01; o método é definido pelo técnico responsável", True),
+                ],
+            },
+            {
+                "enunciado": "O PGR do cliente trata só de ruído, poeira e queda. Pela aula, ele está:",
+                "alternativas": [
+                    ("Incompleto, porque precisa tratar os fatores psicossociais", True),
+                    ("Completo, porque cobre os riscos físicos e de acidente", False),
+                    ("Completo, se tiver sido feito antes de 2026", False),
+                    ("Incompleto, porque precisa de laudo psiquiátrico", False),
+                ],
+            },
+            {
+                "enunciado": "Ao considerar as condições de trabalho, incluindo fatores psicossociais, a NR-01 remete a qual norma?",
+                "alternativas": [
+                    ("NR-05", False),
+                    ("NR-17", True),
+                    ("NR-07", False),
+                    ("NR-15", False),
+                ],
+            },
+            {
+                "enunciado": "Como a aula recomenda abordar os riscos psicossociais com o cliente?",
+                "alternativas": [
+                    ("Destacar o valor das multas logo de início", False),
+                    ("Evitar o tema até o cliente perguntar", False),
+                    ("Não vender medo, vender o texto da norma", True),
+                    ("Prometer o formulário oficial do governo", False),
                 ],
             },
         ],
@@ -1016,6 +1439,42 @@ A parte **prática** só pode ser a distância se a NR específica permitir.
                     ("No mínimo igual à presencial", True),
                     ("Livre, definida pelo aluno", False),
                     ("Sempre de 8 horas", False),
+                ],
+            },
+            {
+                "enunciado": "Quais informações devem constar no certificado de um treinamento de NR?",
+                "alternativas": [
+                    ("Apenas o nome do trabalhador e a data", False),
+                    ("Nota da prova, salário e cargo do trabalhador", False),
+                    ("Nome da empresa e assinatura do sindicato", False),
+                    ("Conteúdo programático, carga horária, data, local, instrutores e responsável técnico", True),
+                ],
+            },
+            {
+                "enunciado": "Se a NR específica não fixa a periodicidade do treinamento periódico, quem define o prazo?",
+                "alternativas": [
+                    ("O empregador", True),
+                    ("O sindicato", False),
+                    ("O próprio trabalhador", False),
+                    ("A CIPA", False),
+                ],
+            },
+            {
+                "enunciado": "Num aproveitamento de treinamento na mesma empresa, a partir de quando conta a validade?",
+                "alternativas": [
+                    ("Do treinamento mais recente aproveitado", False),
+                    ("Do treinamento mais antigo aproveitado", True),
+                    ("Da data de admissão do trabalhador", False),
+                    ("Da data em que o responsável técnico validou", False),
+                ],
+            },
+            {
+                "enunciado": "A parte prática de um treinamento de NR pode ser feita a distância?",
+                "alternativas": [
+                    ("Sim, sempre que houver projeto pedagógico", False),
+                    ("Não, em nenhuma hipótese", False),
+                    ("Só se a NR específica permitir", True),
+                    ("Sim, se a carga horária for dobrada", False),
                 ],
             },
         ],
@@ -1090,6 +1549,42 @@ E aqui está o ponto que mais se perde: **a dispensa do PCMSO não desobriga a e
                     ("A contratante deve incluí-lo nas suas ações de prevenção e no seu PGR", True),
                     ("O MEI passa a ter de fazer PGR", False),
                     ("O sindicato faz o PGR dele", False),
+                ],
+            },
+            {
+                "enunciado": "Uma ME de grau de risco 2 tem cozinha e limpeza com produto químico. O que provavelmente acontece com a dispensa de PGR?",
+                "alternativas": [
+                    ("Continua valendo, porque o grau de risco é 2", False),
+                    ("Continua valendo, porque é ME", False),
+                    ("Cai só se ela tiver mais de 20 empregados", False),
+                    ("Cai, porque há provável exposição a agentes", True),
+                ],
+            },
+            {
+                "enunciado": "Que condição a dispensa do PCMSO exige a mais que a dispensa do PGR?",
+                "alternativas": [
+                    ("Nenhuma exposição a riscos ergonômicos", True),
+                    ("Ter menos de 10 empregados", False),
+                    ("Ter CIPA constituída", False),
+                    ("Ter SESMT próprio", False),
+                ],
+            },
+            {
+                "enunciado": "Numa ME que usa a dispensa, quem declara as informações de SST e responde por elas?",
+                "alternativas": [
+                    ("O contador da empresa", False),
+                    ("O empregador", True),
+                    ("A empresa de medicina ocupacional", False),
+                    ("O sindicato da categoria", False),
+                ],
+            },
+            {
+                "enunciado": "O que o tratamento diferenciado do item 1.8 da NR-01 alivia?",
+                "alternativas": [
+                    ("As obrigações de SST da pequena empresa, por completo", False),
+                    ("Os exames médicos, mas não os documentos", False),
+                    ("Documentos, não obrigações; as demais NR continuam valendo", True),
+                    ("As multas, mas não os documentos", False),
                 ],
             },
         ],
@@ -1187,6 +1682,33 @@ A grande maioria das empresas que atendemos **não chega** ao Anexo II: tem meno
                     ("Não; PGR (NR-01) e PCMSO (NR-07) continuam obrigatórios", True),
                     ("Sim, se for grau de risco 1", False),
                     ("Só está dispensada do PCMSO", False),
+                ],
+            },
+            {
+                "enunciado": "Uma empresa de grau de risco 4 tem 60 empregados. Pelo Anexo II da NR-04, como fica o SESMT?",
+                "alternativas": [
+                    ("Não precisa de SESMT, que começa em 101", False),
+                    ("Precisa de técnico e de médico do trabalho", False),
+                    ("Precisa só de médico do trabalho em tempo parcial", False),
+                    ("Precisa de técnico de segurança; o médico só entra a partir de 101", True),
+                ],
+            },
+            {
+                "enunciado": "Nenhum estabelecimento se enquadra sozinho no Anexo II, mas a soma na mesma UF alcança. Qual modalidade de SESMT?",
+                "alternativas": [
+                    ("Estadual", True),
+                    ("Individual", False),
+                    ("Compartilhado", False),
+                    ("Regionalizado", False),
+                ],
+            },
+            {
+                "enunciado": "Qual é a carga horária semanal do técnico de segurança no SESMT?",
+                "alternativas": [
+                    ("15 horas", False),
+                    ("44 horas", True),
+                    ("30 horas", False),
+                    ("20 horas", False),
                 ],
             },
         ],
@@ -1295,6 +1817,42 @@ As próximas aulas explicam cada uma em profundidade. A trilha de **Método · R
                         ("Contrato de abertura", False),
                     ],
                 },
+                {
+                    "enunciado": "Segundo a aula, o que acontece quando o vendedor apresenta antes de entender o problema do cliente?",
+                    "alternativas": [
+                        ("O cliente passa a comparar preço, como diante de um catálogo", True),
+                        ("O cliente ganha confiança e decide mais rápido", False),
+                        ("A reunião fica mais curta e mais produtiva", False),
+                        ("O cliente revela sozinho todas as suas dores", False),
+                    ],
+                },
+                {
+                    "enunciado": "Quando o próprio cliente diz em voz alta quanto o problema custa, a conversa muda de quê para quê?",
+                    "alternativas": [
+                        ("De \"quanto custa não resolver\" para \"quanto custa o exame\"", False),
+                        ("De \"quem decide\" para \"quando vamos começar\"", False),
+                        ("De \"qual é o prazo\" para \"qual é o desconto\"", False),
+                        ("De \"quanto custa o exame\" para \"quanto custa não resolver\"", True),
+                    ],
+                },
+                {
+                    "enunciado": "Qual é a referência de tempo de fala do vendedor numa reunião consultiva, segundo a aula?",
+                    "alternativas": [
+                        ("No mínimo 50% na conversa e até 60% na transcrição inteira", False),
+                        ("No máximo 30% na conversa e até 40% na transcrição inteira", True),
+                        ("No máximo 40% na conversa e até 30% na transcrição inteira", False),
+                        ("Metade do tempo para cada lado, em qualquer medição", False),
+                    ],
+                },
+                {
+                    "enunciado": "O vendedor precisa decidir se uma oportunidade merece proposta. Qual técnica, segundo a aula, cumpre esse papel?",
+                    "alternativas": [
+                        ("Insight Challenger (Dixon e Adamson)", False),
+                        ("GPCT + BA/C&I (HubSpot)", True),
+                        ("Contrato de abertura (Sandler)", False),
+                        ("SPIN Selling (Rackham)", False),
+                    ],
+                },
             ],
         },
         {
@@ -1363,6 +1921,42 @@ Sandler insistia que o vendedor deve dar ao cliente permissão explícita para d
                         ("No fechamento, ao propor o próximo passo", True),
                         ("Só se o cliente pedir desconto", False),
                         ("No e-mail de proposta", False),
+                    ],
+                },
+                {
+                    "enunciado": "Segundo a aula, por que muitas reuniões terminam em \"vou pensar\"?",
+                    "alternativas": [
+                        ("Porque o vendedor fez perguntas demais antes de apresentar a solução", False),
+                        ("Pelo que não foi combinado: vendedor e cliente esperavam desfechos diferentes", True),
+                        ("Porque a apresentação institucional foi curta demais para convencer", False),
+                        ("Porque o cliente não recebeu a proposta por e-mail antes da reunião", False),
+                    ],
+                },
+                {
+                    "enunciado": "No contrato de abertura, o que define o elemento \"Papéis\"?",
+                    "alternativas": [
+                        ("O cliente responde perguntas; o vendedor ouve e, se tiver solução, apresenta", True),
+                        ("O vendedor apresenta a empresa; o cliente diz se gostou ou não", False),
+                        ("O cliente define a pauta; o vendedor controla o tempo da reunião", False),
+                        ("O vendedor pergunta o orçamento; o cliente indica quem decide", False),
+                    ],
+                },
+                {
+                    "enunciado": "Qual destes é um sinal de que o contrato de abertura funcionou?",
+                    "alternativas": [
+                        ("O cliente pede para ver a apresentação logo no início", False),
+                        ("O cliente diz no final que ainda vai pensar no assunto", False),
+                        ("O cliente pede o preço antes de começar o diagnóstico", False),
+                        ("O cliente aceita responder perguntas antes de ver a apresentação", True),
+                    ],
+                },
+                {
+                    "enunciado": "Qual destes é um erro comum ao fazer o contrato de abertura, segundo a aula?",
+                    "alternativas": [
+                        ("Dizê-lo com naturalidade, como parte da conversa", False),
+                        ("Confirmar com o cliente o tempo combinado da reunião", False),
+                        ("Fazê-lo de forma burocrática, como um termo a ser assinado", True),
+                        ("Combinar que no final se decide o próximo passo", False),
                     ],
                 },
             ],
@@ -1465,6 +2059,33 @@ S → P → I → N é a lógica natural, mas a conversa vai e volta. O que não
                         ("Anotar as respostas", False),
                     ],
                 },
+                {
+                    "enunciado": "O cliente comenta: \"O admissional às vezes demora.\" Segundo a aula, isso é:",
+                    "alternativas": [
+                        ("Uma necessidade implícita, uma insatisfação vaga", True),
+                        ("Uma necessidade explícita, pronta para fechar negócio", False),
+                        ("Uma pergunta de Implicação feita pelo próprio cliente", False),
+                        ("Uma objeção de preço que precisa ser tratada com LAER", False),
+                    ],
+                },
+                {
+                    "enunciado": "Segundo a aula, o que acontece quando o vendedor pula as perguntas de Implicação?",
+                    "alternativas": [
+                        ("O cliente decide mais rápido, porque a reunião encurta", False),
+                        ("A apresentação fica mais convincente e mais objetiva", False),
+                        ("O cliente fica com um problema pequeno e uma solução cara", True),
+                        ("As perguntas de Situação passam a fazer o papel delas", False),
+                    ],
+                },
+                {
+                    "enunciado": "O que Rackham mostrou sobre oferecer a solução assim que aparece o primeiro problema?",
+                    "alternativas": [
+                        ("Gera objeção, porque a necessidade ainda é implícita", True),
+                        ("Acelera o fechamento, porque o cliente vê a solução cedo", False),
+                        ("Funciona bem quando o ticket é alto e o ciclo é longo", False),
+                        ("Transforma automaticamente a necessidade em explícita", False),
+                    ],
+                },
             ],
         },
         {
@@ -1532,6 +2153,42 @@ O GPCT não é um segundo interrogatório. Boa parte dele já aparece no diagnó
                         ("Quem é o médico do PCMSO", False),
                     ],
                 },
+                {
+                    "enunciado": "Perguntado sobre prazo, o cliente responde \"sem pressa\". Segundo a aula, isso indica:",
+                    "alternativas": [
+                        ("Que ele tem urgência, mas prefere não demonstrar", False),
+                        ("Que o orçamento para o serviço já está aprovado", False),
+                        ("Que resolver isso não é prioridade para ele agora", True),
+                        ("Que o decisor da compra está presente na reunião", False),
+                    ],
+                },
+                {
+                    "enunciado": "No critério P (Plans), por que importa saber o que o cliente já tentou fazer?",
+                    "alternativas": [
+                        ("Porque quem tentou e não conseguiu tem uma dor real", True),
+                        ("Para descobrir quanto ele pagava ao fornecedor antigo", False),
+                        ("Para identificar quem aprova um fornecedor novo", False),
+                        ("Para definir a data de início do novo contrato", False),
+                    ],
+                },
+                {
+                    "enunciado": "Segundo a aula, qual é o motivo mais comum de oportunidade parada?",
+                    "alternativas": [
+                        ("Perguntar o orçamento cedo demais", False),
+                        ("Fazer perguntas de Implicação demais", False),
+                        ("Falar só com quem não decide", True),
+                        ("Apresentar a proposta pessoalmente", False),
+                    ],
+                },
+                {
+                    "enunciado": "Como o GPCT se relaciona com o diagnóstico SPIN, segundo a aula?",
+                    "alternativas": [
+                        ("O GPCT refaz todas as perguntas do SPIN para confirmar as respostas", False),
+                        ("Boa parte do GPCT já aparece no SPIN; a qualificação só completa o que faltou", True),
+                        ("O GPCT substitui o SPIN sempre que a venda é complexa e de ticket alto", False),
+                        ("Não se relacionam: o GPCT ignora o que surgiu no diagnóstico", False),
+                    ],
+                },
             ],
         },
         {
@@ -1596,6 +2253,42 @@ O insight posiciona a Controller como **consultoria** e não como "clínica de e
                         ("O que só constrói relacionamento (Relationship Builder)", True),
                         ("Todos apareceram igualmente", False),
                         ("O vendedor técnico", False),
+                    ],
+                },
+                {
+                    "enunciado": "Qual é a diferença entre ser visto como \"clínica de exame\" e como \"consultoria\"?",
+                    "alternativas": [
+                        ("Clínica se compara pelo risco que evita; consultoria, por preço por exame", False),
+                        ("Clínica atende só empresas pequenas; consultoria atende só indústrias", False),
+                        ("Nenhuma: as duas são comparadas pelo preço por exame", False),
+                        ("Clínica se compara por preço por exame; consultoria, pelo risco que evita", True),
+                    ],
+                },
+                {
+                    "enunciado": "Como a Controller usa o método Challenger nas reuniões?",
+                    "alternativas": [
+                        ("Como método completo, com uma palestra sobre a NR-01 na abertura", False),
+                        ("Como um sermão curto, para deixar clara a autoridade técnica", False),
+                        ("Como um toque: o insight vira pergunta curta e o cliente tira a conclusão", True),
+                        ("Só depois da proposta, como argumento no e-mail de follow-up", False),
+                    ],
+                },
+                {
+                    "enunciado": "Na sala estão o dono e o técnico de segurança, com dores diferentes, e o vendedor ajusta a mensagem para cada um. Qual movimento Challenger é esse?",
+                    "alternativas": [
+                        ("Ensinar (Teach)", False),
+                        ("Conduzir (Take control)", False),
+                        ("Acolher (Acknowledge)", False),
+                        ("Adaptar (Tailor)", True),
+                    ],
+                },
+                {
+                    "enunciado": "Por que o comentário sobre a NR-01 exigir riscos psicossociais no PGR é um bom insight comercial?",
+                    "alternativas": [
+                        ("É uma regra antiga que todo cliente já conhece e por isso gera confiança imediata", False),
+                        ("Dispensa o diagnóstico, porque vale do mesmo jeito para qualquer empresa", False),
+                        ("É novo para o cliente, relevante pelo risco de autuação e leva a um serviço da Controller", True),
+                        ("Permite apresentar o preço logo no início, antes de qualquer pergunta", False),
                     ],
                 },
             ],
@@ -1670,6 +2363,42 @@ Cliente sem objeção nenhuma geralmente não está considerando comprar de verd
                         ("Reconhecer que a dúvida é legítima, sem necessariamente concordar", True),
                         ("Mudar de assunto", False),
                         ("Pedir para o cliente repetir", False),
+                    ],
+                },
+                {
+                    "enunciado": "O cliente diz: \"Está caro.\" Segundo o LAER, qual é uma boa pergunta para a etapa Explorar?",
+                    "alternativas": [
+                        ("\"Caro comparado a quê?\"", True),
+                        ("\"Se eu der 10% de desconto, fechamos hoje?\"", False),
+                        ("\"Mas você viu que o serviço é completo, né?\"", False),
+                        ("\"Quer que eu refaça a proposta mais barata?\"", False),
+                    ],
+                },
+                {
+                    "enunciado": "Qual é a premissa do LAER sobre as objeções?",
+                    "alternativas": [
+                        ("Toda objeção de preço se resolve com um desconto bem dado", False),
+                        ("A objeção que o cliente diz é sempre exatamente a real", False),
+                        ("As objeções devem ser respondidas antes de o cliente terminar", False),
+                        ("A objeção que o cliente diz quase nunca é a objeção real", True),
+                    ],
+                },
+                {
+                    "enunciado": "Depois de responder à objeção, o que a aula manda fazer?",
+                    "alternativas": [
+                        ("Confirmar se respondeu à preocupação e, se não, voltar a explorar", True),
+                        ("Seguir direto para o fechamento sem perguntar mais nada", False),
+                        ("Repetir a mesma resposta com outras palavras para reforçar", False),
+                        ("Oferecer um desconto para garantir que a objeção acabou", False),
+                    ],
+                },
+                {
+                    "enunciado": "Segundo a aula, qual é o pior cenário em relação a objeções?",
+                    "alternativas": [
+                        ("O cliente levantar várias objeções durante a reunião", False),
+                        ("O cliente fazer uma objeção de preço logo na abertura", False),
+                        ("A objeção escondida, que só aparece depois como silêncio", True),
+                        ("O cliente pedir um tempo para avaliar a proposta", False),
                     ],
                 },
             ],
@@ -1751,6 +2480,42 @@ Fechar não é um momento único no fim da reunião. A cada bloco da apresentaç
                         ("Para o cliente completar a resposta, muitas vezes com o que tinha de mais importante", True),
                         ("Para mostrar autoridade", False),
                         ("Para encerrar o assunto", False),
+                    ],
+                },
+                {
+                    "enunciado": "O cliente dá uma resposta genérica. O que a escuta ativa recomenda fazer em seguida?",
+                    "alternativas": [
+                        ("Pedir profundidade: \"como assim?\" ou \"me dá um exemplo\"", True),
+                        ("Passar logo para a próxima pergunta da lista", False),
+                        ("Resumir e apresentar a solução em seguida", False),
+                        ("Repetir a mesma pergunta com outras palavras", False),
+                    ],
+                },
+                {
+                    "enunciado": "Qual destes é um benefício do resumo de confirmação, segundo a aula?",
+                    "alternativas": [
+                        ("Dispensa a necessidade de anotar as palavras do cliente", False),
+                        ("Substitui a pergunta final sobre o que impede de avançar", False),
+                        ("Corrige mal-entendidos antes que virem uma proposta errada", True),
+                        ("Permite falar do preço antes de apresentar a solução", False),
+                    ],
+                },
+                {
+                    "enunciado": "O cliente está inseguro sobre trocar de fornecedor. Qual tipo de fechamento a aula indica?",
+                    "alternativas": [
+                        ("Fechamento direto, pedindo a decisão ainda na reunião", False),
+                        ("Passo de baixo risco, como um diagnóstico que prova valor", True),
+                        ("Fechamento futuro, marcado para antes do vencimento", False),
+                        ("Reunião com o decisor, mesmo com ele já presente", False),
+                    ],
+                },
+                {
+                    "enunciado": "Como funcionam os pequenos fechamentos descritos na aula?",
+                    "alternativas": [
+                        ("A cada objeção, um pequeno desconto é oferecido ao cliente", False),
+                        ("A cada bloco, uma pergunta de confirmação gera um pequeno \"sim\"", True),
+                        ("Em cada etapa, o vendedor pede uma assinatura parcial", False),
+                        ("Em cada reunião, fecha-se apenas um item do escopo", False),
                     ],
                 },
             ],
@@ -1846,6 +2611,42 @@ O documento **Roteiro de Vendas · Controller Med Seg** está em **Material de a
                         ("Não há limite", False),
                     ],
                 },
+                {
+                    "enunciado": "Quanto tempo a etapa de Diagnóstico ocupa na reunião Controller de 45 minutos?",
+                    "alternativas": [
+                        ("5 minutos", False),
+                        ("12 minutos", False),
+                        ("15 minutos", True),
+                        ("3 minutos", False),
+                    ],
+                },
+                {
+                    "enunciado": "Se o diagnóstico render mais que o previsto, o que a aula diz que acontece?",
+                    "alternativas": [
+                        ("A apresentação encolhe", True),
+                        ("A reunião é estendida", False),
+                        ("O diagnóstico é interrompido", False),
+                        ("As objeções são puladas", False),
+                    ],
+                },
+                {
+                    "enunciado": "Qual técnica orienta a etapa de Qualificação no roteiro Controller?",
+                    "alternativas": [
+                        ("GPCT + BA/C&I", True),
+                        ("SPIN", False),
+                        ("LAER", False),
+                        ("Contrato de abertura (Sandler)", False),
+                    ],
+                },
+                {
+                    "enunciado": "Como o roteiro manda usar o insight sobre a NR-01 exigir riscos psicossociais no PGR?",
+                    "alternativas": [
+                        ("Como abertura da apresentação, antes do rapport", False),
+                        ("Como pergunta no diagnóstico, não como sermão", True),
+                        ("Como argumento final, só na hora do fechamento", False),
+                        ("Como sermão curto, para mostrar autoridade", False),
+                    ],
+                },
             ],
         },
         {
@@ -1918,6 +2719,42 @@ Boa parte da pesquisa nasce na qualificação do SDR: fornecedor atual, número 
                         ("Fechada: não é usada", False),
                     ],
                 },
+                {
+                    "enunciado": "A reunião é com uma rede de varejo com várias lojas. Qual hipótese de dor a aula sugere para esse perfil?",
+                    "alternativas": [
+                        ("LTCAT desatualizado e exames por risco, como audiometria e espirometria", False),
+                        ("Acha que não tem risco e o PGR não inclui riscos psicossociais", False),
+                        ("Trabalho em altura (NR-35) e eletricidade (NR-10) sem controle", False),
+                        ("Turnover alto e admissional demorado atrasando o início do funcionário", True),
+                    ],
+                },
+                {
+                    "enunciado": "Para que servem as três hipóteses de dor escritas antes da reunião?",
+                    "alternativas": [
+                        ("Para afirmar ao cliente qual é o problema dele", False),
+                        ("Para montar a proposta antes mesmo da reunião", False),
+                        ("Para escolher quais perguntas fazer no diagnóstico", True),
+                        ("Para dispensar as perguntas de Problema", False),
+                    ],
+                },
+                {
+                    "enunciado": "Segundo a aula, onde pesquisar contratações recentes da empresa e por que isso importa?",
+                    "alternativas": [
+                        ("Vagas no LinkedIn e no Indeed; mostram volume de admissionais e turnover", True),
+                        ("No cartão CNPJ; mostra o grau de risco e os exames complementares", False),
+                        ("No Google Maps; mostra as atividades de risco de cada unidade", False),
+                        ("No agendamento; mostra quem vai estar presente na reunião", False),
+                    ],
+                },
+                {
+                    "enunciado": "Por que o SDR precisa registrar no HIPO o que descobre na qualificação?",
+                    "alternativas": [
+                        ("Senão o vendedor pergunta de novo, e o cliente percebe", True),
+                        ("Para o SDR receber a comissão integral da venda", False),
+                        ("Porque o cliente exige ver o registro da conversa", False),
+                        ("Para liberar o envio da proposta por e-mail", False),
+                    ],
+                },
             ],
         },
         {
@@ -1984,12 +2821,48 @@ No scorecard, o item **Contrato de abertura** só ganha nota máxima com tempo, 
                     ],
                 },
                 {
-                    "enunciado": "Para o item Contrato de abertura ganhar nota 2 no scorecard, o vendedor precisa:",
+                    "enunciado": "Para o item Contrato de abertura ganhar nota máxima no scorecard, o vendedor precisa:",
                     "alternativas": [
                         ("Só confirmar o tempo", False),
                         ("Combinar tempo, pauta e que no final se decide o próximo passo", True),
                         ("Apresentar a empresa", False),
                         ("Pedir o orçamento", False),
+                    ],
+                },
+                {
+                    "enunciado": "Qual é o objetivo da abertura da reunião, segundo a aula?",
+                    "alternativas": [
+                        ("Sair com a apresentação institucional já mostrada e entendida pelo cliente", False),
+                        ("Sair com o orçamento e o prazo do cliente confirmados logo de início", False),
+                        ("Sair com permissão para perguntar e o combinado de decidir o próximo passo no final", True),
+                        ("Sair com o cliente convencido de que precisa trocar de fornecedor", False),
+                    ],
+                },
+                {
+                    "enunciado": "Qual é a fala de transição da abertura para o diagnóstico?",
+                    "alternativas": [
+                        ("\"Para eu não te mostrar coisa que não serve, posso te fazer algumas perguntas?\"", True),
+                        ("\"Agora deixa eu te mostrar rapidamente quem é a Controller e o que fazemos.\"", False),
+                        ("\"Antes de tudo, qual é o orçamento que vocês têm hoje para SST?\"", False),
+                        ("\"Vou compartilhar a tela para a gente seguir pela nossa apresentação.\"", False),
+                    ],
+                },
+                {
+                    "enunciado": "Na fala padrão do contrato, para que serve o trecho \"as duas respostas são boas para mim\"?",
+                    "alternativas": [
+                        ("Mostra que o vendedor não tem interesse real na venda", False),
+                        ("Deixa claro que um \"não\" é uma resposta aceita no desfecho", True),
+                        ("Encerra o rapport com um toque de bom humor", False),
+                        ("Define quanto tempo a reunião vai durar", False),
+                    ],
+                },
+                {
+                    "enunciado": "Qual destes é um erro a evitar na abertura?",
+                    "alternativas": [
+                        ("Confirmar se os 45 minutos ainda estão bons", False),
+                        ("Fazer um rapport ligado à pesquisa da empresa", False),
+                        ("Abrir a reunião compartilhando a tela", True),
+                        ("Pedir permissão para fazer algumas perguntas", False),
                     ],
                 },
             ],
@@ -2083,6 +2956,42 @@ As dores, **nas palavras do cliente**, vão para a oportunidade no HIPO no mesmo
                         ("Nenhuma", False),
                     ],
                 },
+                {
+                    "enunciado": "\"Se você tivesse todos os exames, vencimentos e documentos num lugar só, o que mudaria na sua rotina?\" é uma pergunta de:",
+                    "alternativas": [
+                        ("Necessidade de solução", True),
+                        ("Situação", False),
+                        ("Problema", False),
+                        ("Implicação", False),
+                    ],
+                },
+                {
+                    "enunciado": "\"Você consegue saber hoje, em 5 minutos, quais exames periódicos vencem no próximo mês?\" é uma pergunta de:",
+                    "alternativas": [
+                        ("Situação", False),
+                        ("Problema", True),
+                        ("Implicação", False),
+                        ("Necessidade de solução", False),
+                    ],
+                },
+                {
+                    "enunciado": "Quando o resumo de confirmação vale nota máxima no scorecard?",
+                    "alternativas": [
+                        ("Quando o vendedor o faz depois da apresentação", False),
+                        ("Quando o resumo usa os termos técnicos do vendedor", False),
+                        ("Quando o cliente confirma o resumo com um \"sim\"", True),
+                        ("Quando o resumo é enviado por e-mail após a reunião", False),
+                    ],
+                },
+                {
+                    "enunciado": "Onde e quando as dores do cliente devem ser registradas?",
+                    "alternativas": [
+                        ("Na proposta, só depois que o cliente aprovar o escopo", False),
+                        ("No e-mail de resumo, reescritas com as palavras do vendedor", False),
+                        ("Na oportunidade no HIPO, no mesmo dia, nas palavras do cliente", True),
+                        ("No HIPO, no fim da semana, traduzidas em termos técnicos", False),
+                    ],
+                },
             ],
         },
         {
@@ -2148,6 +3057,42 @@ O item 7 do scorecard verifica se o cliente respondeu **quando** (prazo), **quem
                         ("Amarelo", False),
                     ],
                 },
+                {
+                    "enunciado": "Uma oportunidade terminou a qualificação com 3 sinais verdes. O que fazer, segundo a regra de avanço?",
+                    "alternativas": [
+                        ("Apresentar e propor na mesma reunião", False),
+                        ("Apresentar e agendar reunião com o decisor", False),
+                        ("Enviar material, marcar retorno e registrar como nutrição", True),
+                        ("Enviar a proposta por e-mail no mesmo dia", False),
+                    ],
+                },
+                {
+                    "enunciado": "Perguntado \"O que acontece se nada mudar nos próximos 6 meses?\", o cliente responde \"nada\". Como isso se classifica?",
+                    "alternativas": [
+                        ("Verde no critério Consequências", False),
+                        ("Vermelho no critério Prazo", False),
+                        ("Vermelho no critério Consequências", True),
+                        ("Verde no critério Implicações", False),
+                    ],
+                },
+                {
+                    "enunciado": "O cliente diz que escolhe fornecedor só pelo menor preço por exame. Em qual critério isso é sinal vermelho?",
+                    "alternativas": [
+                        ("Autoridade", False),
+                        ("Orçamento", True),
+                        ("Metas", False),
+                        ("Desafios", False),
+                    ],
+                },
+                {
+                    "enunciado": "Qual destes é um sinal verde no critério Prazo?",
+                    "alternativas": [
+                        ("O cliente diz que está sem pressa para resolver", False),
+                        ("O cliente diz que, por enquanto, só quer cotar", False),
+                        ("O decisor da compra está inacessível no momento", False),
+                        ("O contrato atual vence numa data já definida", True),
+                    ],
+                },
             ],
         },
         {
@@ -2207,6 +3152,42 @@ O item 8 (**Apresentação ligada às dores**) vale 2 quando **toda** solução 
                         ("Perguntar se aquilo resolve o que o cliente comentou", True),
                         ("Mostrar o preço daquele item", False),
                         ("Pedir para o cliente ler o slide", False),
+                    ],
+                },
+                {
+                    "enunciado": "A apresentação institucional segue \"quem somos → o que fazemos → por que nós\". Qual ordem a reunião usa?",
+                    "alternativas": [
+                        ("Prova → dor → solução", False),
+                        ("Solução → prova → dor", False),
+                        ("Dor → solução → prova", True),
+                        ("Quem somos → dor → preço", False),
+                    ],
+                },
+                {
+                    "enunciado": "Como usar o slide 6 (Serviços: Medicina e Segurança) na reunião?",
+                    "alternativas": [
+                        ("Mostrar todos os serviços em detalhe, um por um, sem pular", False),
+                        ("Pular o slide, porque a lista de serviços não interessa", False),
+                        ("Deixá-lo na tela durante todo o fechamento da reunião", False),
+                        ("Mostrar só os itens ligados à dor e citar o resto em uma frase", True),
+                    ],
+                },
+                {
+                    "enunciado": "O cliente tem várias unidades. Qual diferencial dos slides 8 e 9 deve ser ligado a essa dor?",
+                    "alternativas": [
+                        ("Atendimento nacional", True),
+                        ("Consultoria sobre insegurança jurídica", False),
+                        ("Campanhas de bem-estar", False),
+                        ("História local em Guarulhos", False),
+                    ],
+                },
+                {
+                    "enunciado": "Quando o item 8 do scorecard (Apresentação ligada às dores) vale 0?",
+                    "alternativas": [
+                        ("Quando o deck inteiro é mostrado sem ligação com as dores", True),
+                        ("Quando a apresentação começa pelo slide 10", False),
+                        ("Quando o slide 4 de história não é usado", False),
+                        ("Quando há pergunta de confirmação a cada bloco", False),
                     ],
                 },
             ],
@@ -2304,6 +3285,42 @@ O item 9 (**Objeções com LAER**) vale 2 quando há pergunta de exploração **
                         ("Pedir para ele pedir de novo depois", False),
                     ],
                 },
+                {
+                    "enunciado": "O cliente diz: \"Já temos fornecedor.\" Depois de explorar, qual resposta a aula indica?",
+                    "alternativas": [
+                        ("Sem falar mal do concorrente, oferecer uma auditoria da documentação atual", True),
+                        ("Mostrar os erros que o concorrente costuma cometer com outros clientes", False),
+                        ("Oferecer um desconto que cubra a eventual multa de troca de fornecedor", False),
+                        ("Encerrar a conversa e marcar um novo contato só para daqui a um ano", False),
+                    ],
+                },
+                {
+                    "enunciado": "Se for preciso dar desconto, como ele deve ser concedido?",
+                    "alternativas": [
+                        ("Logo na primeira objeção de preço, para mostrar boa vontade", False),
+                        ("Sempre em troca de algo: prazo maior, pagamento antecipado ou indicação", True),
+                        ("Sem contrapartida, desde que o cliente feche no mesmo dia", False),
+                        ("Apenas por e-mail, depois que a proposta já tiver sido enviada", False),
+                    ],
+                },
+                {
+                    "enunciado": "O cliente diz: \"Trocar dá muito trabalho.\" Qual resposta a aula indica?",
+                    "alternativas": [
+                        ("Dizer que o trabalho da troca é pequeno e seguir para o próximo assunto", False),
+                        ("Explicar que a Controller migra histórico e documentos e o RH não refaz nada", True),
+                        ("Oferecer um desconto para compensar o trabalho que a troca vai dar", False),
+                        ("Sugerir que ele espere o contrato atual vencer para pensar no assunto", False),
+                    ],
+                },
+                {
+                    "enunciado": "O cliente diz: \"O diretor precisa aprovar.\" Qual é a resposta indicada?",
+                    "alternativas": [
+                        ("Mandar a proposta por e-mail para o cliente repassar ao diretor quando puder", False),
+                        ("Propor 20 minutos com o decisor, com você presente, e levar um resumo de uma página", True),
+                        ("Pedir o telefone do diretor e ligar para ele sem a participação do cliente", False),
+                        ("Oferecer um desconto para facilitar a aprovação do diretor na mesma semana", False),
+                    ],
+                },
             ],
         },
         {
@@ -2372,6 +3389,42 @@ O item 10 (**Próximo passo com data**) vale 2 com **dia e hora** falados e acei
                         ("Revelar objeções ocultas enquanto ainda dá para tratá-las", True),
                         ("Pedir desconto", False),
                         ("Confirmar o e-mail do cliente", False),
+                    ],
+                },
+                {
+                    "enunciado": "O decisor está presente, mas quer ver números antes de decidir. Qual fechamento usar?",
+                    "alternativas": [
+                        ("Direto: \"Podemos começar a implantação no dia X?\"", False),
+                        ("Alternativa: \"Te apresento a proposta na quinta às 10h ou na sexta às 15h?\"", True),
+                        ("Baixo risco: \"Que tal começarmos com um diagnóstico da documentação?\"", False),
+                        ("Futuro: \"Vamos marcar a revisão para 60 dias antes do vencimento?\"", False),
+                    ],
+                },
+                {
+                    "enunciado": "O que o resumo de valor, no início do fechamento, retoma do começo da reunião?",
+                    "alternativas": [
+                        ("A história da Controller desde 1991, para reforçar a credibilidade", False),
+                        ("O contrato de abertura: o combinado de decidir juntos o próximo passo", True),
+                        ("A lista completa de serviços do slide 6, para não esquecer nada", False),
+                        ("As perguntas de Situação, para confirmar os dados da empresa", False),
+                    ],
+                },
+                {
+                    "enunciado": "No HIPO, o que acontece com o próximo passo combinado na reunião?",
+                    "alternativas": [
+                        ("Vira a próxima tarefa da oportunidade, com a data e a hora aceitas", True),
+                        ("Fica anotado só no e-mail de resumo enviado ao cliente", False),
+                        ("É registrado como observação, sem data definida", False),
+                        ("Só é lançado depois que a proposta for assinada", False),
+                    ],
+                },
+                {
+                    "enunciado": "Qual nota o item 10 do scorecard dá a um próximo passo combinado, mas sem data?",
+                    "alternativas": [
+                        ("0", False),
+                        ("2", False),
+                        ("Não é avaliado", False),
+                        ("1", True),
                     ],
                 },
             ],
@@ -2443,6 +3496,42 @@ Cada toque da cadência é uma tarefa, e cada tarefa concluída pede a próxima.
                         ("Vai para nutrição com data de retomada", True),
                         ("É apagada do HIPO", False),
                         ("O vendedor recomeça a cadência do zero", False),
+                    ],
+                },
+                {
+                    "enunciado": "Em quanto tempo a proposta deve sair, e como ela chega ao cliente?",
+                    "alternativas": [
+                        ("Em até 2 horas, enviada por e-mail", False),
+                        ("Em até uma semana, por WhatsApp", False),
+                        ("Em até 48 horas, sempre apresentada", True),
+                        ("No mesmo dia, só enviada por e-mail", False),
+                    ],
+                },
+                {
+                    "enunciado": "Na cadência de follow-up, o que acontece no D+9?",
+                    "alternativas": [
+                        ("WhatsApp para confirmar o recebimento da proposta e o horário", False),
+                        ("E-mail com conteúdo útil, como um checklist da NR-01 psicossocial", True),
+                        ("Ligação para retomar a implicação levantada no diagnóstico", False),
+                        ("Mensagem de encerramento perguntando quando pode retomar", False),
+                    ],
+                },
+                {
+                    "enunciado": "Na estrutura da proposta, em que ponto entra o Investimento?",
+                    "alternativas": [
+                        ("Na primeira página, antes do diagnóstico do cliente", False),
+                        ("Depois do que ouvimos, do que propomos e da implantação", True),
+                        ("Logo depois do que ouvimos, antes do que propomos", False),
+                        ("No final, depois dos próximos passos combinados", False),
+                    ],
+                },
+                {
+                    "enunciado": "Como o HIPO faz a cadência de follow-up andar sozinha?",
+                    "alternativas": [
+                        ("Cada toque é uma tarefa, e cada tarefa concluída pede a próxima", True),
+                        ("Envia as mensagens ao cliente automaticamente, sem o vendedor", False),
+                        ("Encerra a oportunidade no D+21 sem nenhum registro de motivo", False),
+                        ("Agenda todos os toques de uma vez no calendário do cliente", False),
                     ],
                 },
             ],
@@ -2530,6 +3619,42 @@ A nota de roteiro validada é um dos componentes do pilar **Método** na avalia�
                         ("Pelo menos 60%", False),
                         ("Exatamente 50%", False),
                         ("Não é medido", False),
+                    ],
+                },
+                {
+                    "enunciado": "Como é tratada uma reunião presencial que não tem transcrição?",
+                    "alternativas": [
+                        ("Recebe nota zero em todos os itens do scorecard", False),
+                        ("É avaliada pelo registro no HIPO e marcada como \"sem transcrição\"", True),
+                        ("Não é registrada e fica fora do HIPO", False),
+                        ("Recebe automaticamente a nota média do vendedor", False),
+                    ],
+                },
+                {
+                    "enunciado": "Qual é o papel do gestor na avaliação feita pela IA?",
+                    "alternativas": [
+                        ("Nenhum: a nota da IA é final e vai direto para o vendedor", False),
+                        ("Só lê a avaliação quando o vendedor contesta alguma nota", False),
+                        ("Preenche o scorecard do zero, sem usar a sugestão da IA", False),
+                        ("Revisa e pode ajustar as notas; a avaliação é sugestão até ele validar", True),
+                    ],
+                },
+                {
+                    "enunciado": "Além da nota, o que o vendedor recebe da avaliação de cada reunião?",
+                    "alternativas": [
+                        ("A transcrição inteira, sem nenhum destaque do gestor", False),
+                        ("Uma lista com todas as falas que ele deveria ter evitado", False),
+                        ("Dois trechos da transcrição: um que funcionou e um para melhorar", True),
+                        ("A comparação com as notas de todos os outros vendedores", False),
+                    ],
+                },
+                {
+                    "enunciado": "O que acontece com os itens mais fracos do scorecard no mês?",
+                    "alternativas": [
+                        ("São retirados do scorecard", False),
+                        ("Viram o tema do treinamento semanal", True),
+                        ("Reduzem a comissão do vendedor", False),
+                        ("Ficam para a revisão de 90 dias", False),
                     ],
                 },
             ],

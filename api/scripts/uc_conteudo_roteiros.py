@@ -131,6 +131,42 @@ O que você descobrir além disso (fornecedor atual, unidades, vencimento do con
                         ("Quando o contrato é assinado", False),
                     ],
                 },
+                {
+                    "enunciado": "Na ligação você descobre o fornecedor atual e quando vence o contrato. O que fazer com essas informações?",
+                    "alternativas": [
+                        ("Escrever na oportunidade, para o EV não perguntar de novo", True),
+                        ("Guardar para usar só se o cliente pedir desconto", False),
+                        ("Descartar: para marcar, só decisor e interesse importam", False),
+                        ("Usar para montar uma proposta antes da reunião", False),
+                    ],
+                },
+                {
+                    "enunciado": "Uma empresa com 4 funcionários CLT: o dono aceita conversar com o especialista, com dia e hora. O que o SDR faz?",
+                    "alternativas": [
+                        ("Marca a reunião: não há filtro de porte", True),
+                        ("Descarta, pois empresa pequena não tem obrigação nenhuma de SST", False),
+                        ("Pede que o cliente procure a Controller quando crescer", False),
+                        ("Manda a tabela de preços em vez da reunião", False),
+                    ],
+                },
+                {
+                    "enunciado": "O cliente pede ao SDR que mande uma proposta antes de qualquer reunião. O que diz a aula?",
+                    "alternativas": [
+                        ("Mandar uma proposta padrão para não perder o cliente", False),
+                        ("Mandar a proposta e marcar a reunião depois", False),
+                        ("Proposta sai da reunião, nunca antes", True),
+                        ("Pedir ao EV que mande a proposta no mesmo dia", False),
+                    ],
+                },
+                {
+                    "enunciado": "O cliente começa a perguntar detalhes da NR-01 na ligação. Qual é o papel do SDR?",
+                    "alternativas": [
+                        ("Explicar a norma em profundidade para ganhar autoridade", False),
+                        ("Plantar a dúvida e deixar a resposta para o EV na reunião", True),
+                        ("Mandar o texto completo da norma por e-mail", False),
+                        ("Encerrar a ligação, pois norma não é assunto do SDR", False),
+                    ],
+                },
             ],
         },
         {
@@ -209,6 +245,42 @@ Desde **26/05/2026** está em vigor a redação da NR-01 que exige os **fatores 
                         ("O RH corporativo", False),
                         ("O técnico de segurança", False),
                         ("A recepção", False),
+                    ],
+                },
+                {
+                    "enunciado": "Na pesquisa, a conta mostra o nº de funcionários vindo da fonte de dados. Como usar esse número?",
+                    "alternativas": [
+                        ("Como número exato para calcular o preço", False),
+                        ("Como estimativa, só para se orientar", True),
+                        ("Como critério para descartar empresas pequenas", False),
+                        ("Como dado oficial para preencher a proposta", False),
+                    ],
+                },
+                {
+                    "enunciado": "Rede de varejo com várias lojas. Qual hipótese de dor a aula sugere para abrir a ligação?",
+                    "alternativas": [
+                        ("PGR e LTCAT desatualizados, com NR-35 e NR-10", False),
+                        ("Turnover alto e admissional demorado atrasando o início do funcionário", True),
+                        ("Achar que não tem risco por ser atividade de escritório", False),
+                        ("Exames complementares de audiometria e espirometria", False),
+                    ],
+                },
+                {
+                    "enunciado": "Como o SDR deve usar o gancho da NR-01 (riscos psicossociais no PGR) na ligação?",
+                    "alternativas": [
+                        ("Como pergunta: \"o PGR de vocês já foi revisado com os riscos psicossociais?\"", True),
+                        ("Como alerta de multa, para o cliente sentir urgência", False),
+                        ("Explicando a norma em detalhes antes de qualquer pergunta", False),
+                        ("Só no e-mail, porque na ligação não há tempo", False),
+                    ],
+                },
+                {
+                    "enunciado": "Você vai ligar para uma indústria de grau de risco 3. Quem a aula sugere procurar e quem costuma decidir?",
+                    "alternativas": [
+                        ("Técnico ou engenheiro de segurança sente a dor; decide o gerente da planta ou o dono", True),
+                        ("O RH corporativo sente a dor e decide sozinho", False),
+                        ("O financeiro sente a dor; decide o técnico de segurança", False),
+                        ("A recepção sente a dor; decide o contador", False),
                     ],
                 },
             ],
@@ -299,6 +371,42 @@ Duas opções de horário recebem mais "sim" do que "quando você pode?".
                         ("Desligar e tentar outro número", False),
                     ],
                 },
+                {
+                    "enunciado": "Na abertura, o decisor diz que é um momento ruim. O que o roteiro manda fazer?",
+                    "alternativas": [
+                        ("Falar o motivo rápido antes que ele desligue", False),
+                        ("Mandar a apresentação por WhatsApp e encerrar", False),
+                        ("Ligar de novo em cinco minutos sem combinar", False),
+                        ("Perguntar quando ligar e marcar a tarefa com essa hora", True),
+                    ],
+                },
+                {
+                    "enunciado": "O cliente responde quem cuida de SST hoje. O que fazer com a resposta?",
+                    "alternativas": [
+                        ("Anotar as palavras exatas, que vão para a Descrição da oportunidade", True),
+                        ("Resumir com as suas palavras no fim do dia", False),
+                        ("Guardar só se ele citar um fornecedor concorrente", False),
+                        ("Repetir a resposta e já passar o preço", False),
+                    ],
+                },
+                {
+                    "enunciado": "Na confirmação da reunião, além do nome, cargo, e-mail e celular do decisor, o que o roteiro pergunta?",
+                    "alternativas": [
+                        ("\"Mais alguém precisa estar?\"", True),
+                        ("\"Quanto vocês pagam hoje pelo serviço?\"", False),
+                        ("\"Pode me mandar o PGR atual de vocês?\"", False),
+                        ("\"Posso mandar a proposta antes da reunião?\"", False),
+                    ],
+                },
+                {
+                    "enunciado": "Você percebe que está falando há mais de 30 segundos seguidos. O que diz a regra de ouro?",
+                    "alternativas": [
+                        ("Pare e faça uma pergunta: quem pergunta conduz", True),
+                        ("Termine o argumento para não perder o raciocínio", False),
+                        ("Fale mais rápido para caber nos dois minutos", False),
+                        ("Peça a reunião imediatamente, sem perguntar nada", False),
+                    ],
+                },
             ],
         },
         {
@@ -371,6 +479,42 @@ A objeção de telefone quase nunca é contra a Controller: é contra o tempo. S
                         ("Agradecer, marcar o retorno com data e seguir a cadência", True),
                         ("Finalizar a oportunidade como perdida", False),
                         ("Mandar a proposta", False),
+                    ],
+                },
+                {
+                    "enunciado": "O cliente diz: \"Manda por e-mail.\" Qual é a exploração do roteiro?",
+                    "alternativas": [
+                        ("\"Claro, qual é o seu e-mail?\" e encerrar a ligação", False),
+                        ("\"Mando sim. Para não te mandar coisa genérica, posso te fazer uma pergunta?\"", True),
+                        ("\"E-mail ninguém lê, melhor marcar a reunião agora\"", False),
+                        ("\"Posso mandar a tabela de preços junto?\"", False),
+                    ],
+                },
+                {
+                    "enunciado": "O cliente diz: \"O contador cuida disso.\" Qual é a resposta do roteiro, depois de explorar?",
+                    "alternativas": [
+                        ("O contador não tem competência para cuidar desse assunto", False),
+                        ("O contador envia o evento; PGR, PCMSO e ASO são de SST, e a Controller trabalha junto com ele", True),
+                        ("Pedir o telefone do contador e tratar só com ele", False),
+                        ("A Controller também pode assumir a contabilidade da empresa", False),
+                    ],
+                },
+                {
+                    "enunciado": "O cliente diz: \"Não tenho interesse.\" Qual é a pergunta de exploração?",
+                    "alternativas": [
+                        ("\"É porque já está tudo resolvido ou porque agora não é prioridade?\"", True),
+                        ("\"Posso saber quanto vocês pagam hoje?\"", False),
+                        ("\"Sabia que a NR-01 pode gerar multa?\"", False),
+                        ("\"Quem é o responsável que pode decidir no seu lugar?\"", False),
+                    ],
+                },
+                {
+                    "enunciado": "Segundo a aula, contra o que a objeção de telefone quase sempre é?",
+                    "alternativas": [
+                        ("Contra o preço dos serviços de SST", False),
+                        ("Contra o tempo, não contra a Controller", True),
+                        ("Contra a reputação da Controller", False),
+                        ("Contra as exigências da NR-01", False),
                     ],
                 },
             ],
@@ -450,6 +594,42 @@ Cada mensagem enviada é uma tarefa **concluída** (tipo WhatsApp ou E-mail), co
                         ("No anexo da tarefa no HIPO (Ctrl+V)", True),
                         ("Num grupo de WhatsApp da equipe", False),
                         ("Não precisa guardar", False),
+                    ],
+                },
+                {
+                    "enunciado": "Quando o SDR pode mandar áudio no WhatsApp?",
+                    "alternativas": [
+                        ("No primeiro contato, para criar proximidade", False),
+                        ("A qualquer momento, se for para explicar a NR-01", False),
+                        ("Em qualquer horário, inclusive no fim de semana", False),
+                        ("Só depois de uma resposta do cliente, com até 30 segundos", True),
+                    ],
+                },
+                {
+                    "enunciado": "Qual mensagem da cadência costuma ser a que mais recebe resposta?",
+                    "alternativas": [
+                        ("O primeiro WhatsApp depois da ligação não atendida", False),
+                        ("A de encerramento: \"posso te procurar de novo em [mês]?\"", True),
+                        ("O e-mail de primeiro contato com a credencial", False),
+                        ("O WhatsApp de retorno com dois horários", False),
+                    ],
+                },
+                {
+                    "enunciado": "O cliente responde à mensagem de encerramento pedindo contato em março. O que o SDR faz?",
+                    "alternativas": [
+                        ("Finaliza a oportunidade como Perdido", False),
+                        ("Reinicia a cadência no dia seguinte", False),
+                        ("Manda a proposta para ele analisar até março", False),
+                        ("Marca a tarefa para o mês combinado", True),
+                    ],
+                },
+                {
+                    "enunciado": "Como registrar no HIPO um WhatsApp enviado da cadência?",
+                    "alternativas": [
+                        ("Anotação solta na Descrição da conta", False),
+                        ("Tarefa aberta até o cliente responder", False),
+                        ("Tarefa concluída do tipo WhatsApp, com o texto em \"O que aconteceu\"", True),
+                        ("Não precisa: só as ligações são registradas", False),
                     ],
                 },
             ],
@@ -534,6 +714,42 @@ Seis toques sem nenhuma resposta: **finalize a oportunidade como Perdido**, com 
                         ("Cada toque é uma tarefa; ao concluir, você marca a próxima", True),
                         ("O HIPO liga sozinho", False),
                         ("O gestor distribui todo dia", False),
+                    ],
+                },
+                {
+                    "enunciado": "A ligação do D0 foi de manhã e ninguém atendeu. Como deve ser a ligação do D3?",
+                    "alternativas": [
+                        ("Em outro horário: à tarde", True),
+                        ("No mesmo horário, para criar o hábito", False),
+                        ("Trocada por um e-mail de retorno", False),
+                        ("Só pela recepção, pedindo pelo setor", False),
+                    ],
+                },
+                {
+                    "enunciado": "Qual é o toque do D8 na cadência padrão?",
+                    "alternativas": [
+                        ("WhatsApp de encerramento", False),
+                        ("Ligação, tentando a recepção e pedindo pelo setor", True),
+                        ("E-mail de primeiro contato", False),
+                        ("WhatsApp de retorno com dois horários", False),
+                    ],
+                },
+                {
+                    "enunciado": "No D3 o decisor atende, conversa e aceita a reunião. O que acontece com a cadência?",
+                    "alternativas": [
+                        ("Segue até o D12 para reforçar o contato", False),
+                        ("Recomeça do D0 com outra sequência", False),
+                        ("Continua só por WhatsApp até a reunião", False),
+                        ("Para ali: conseguiu falar e marcar", True),
+                    ],
+                },
+                {
+                    "enunciado": "Pelo ritmo do dia sugerido na aula, o que o SDR faz pela manhã?",
+                    "alternativas": [
+                        ("WhatsApp e e-mails da cadência, em lote", False),
+                        ("Registro das reuniões marcadas no dia anterior", False),
+                        ("Ligações, começando pelas atrasadas e depois as de hoje", True),
+                        ("Pesquisa das empresas que vai puxar da base", False),
                     ],
                 },
             ],
@@ -627,6 +843,42 @@ Registre como tarefa concluída. Se o cliente pedir para mudar, edite a reunião
                         ("Só se o EV pedir", False),
                     ],
                 },
+                {
+                    "enunciado": "O SDR marca uma reunião online na Agenda. De onde vem o link da videochamada?",
+                    "alternativas": [
+                        ("O SDR manda um link pessoal por WhatsApp", False),
+                        ("O EV cria o link no dia da reunião", False),
+                        ("O Google cria o Meet ao marcar a reunião", True),
+                        ("O cliente envia o link da empresa dele", False),
+                    ],
+                },
+                {
+                    "enunciado": "Qual campo da reunião gera o número de agendamentos do SDR?",
+                    "alternativas": [
+                        ("Anfitrião", False),
+                        ("Agendado por", True),
+                        ("Contato do cliente", False),
+                        ("Cliente (oportunidade)", False),
+                    ],
+                },
+                {
+                    "enunciado": "Por que preencher o campo \"Contato do cliente\" com o decisor?",
+                    "alternativas": [
+                        ("Para o SDR ganhar o crédito do agendamento", False),
+                        ("Para ele receber o convite da reunião", True),
+                        ("Para a oportunidade ir sozinha para Lead", False),
+                        ("Para o EV ligar antes e adiantar o preço", False),
+                    ],
+                },
+                {
+                    "enunciado": "Na confirmação da véspera, o cliente pede para mudar o horário. O que fazer?",
+                    "alternativas": [
+                        ("Pedir que ele combine o novo horário direto com o EV", False),
+                        ("Cancelar a reunião e recomeçar a cadência", False),
+                        ("Editar a reunião com ele ainda na conversa, já no horário novo com o EV", True),
+                        ("Manter o horário e avisar o EV da mudança depois", False),
+                    ],
+                },
             ],
         },
     ],
@@ -713,6 +965,42 @@ METODO_03 = {
                         ("Nenhum", False),
                     ],
                 },
+                {
+                    "enunciado": "Segundo a aula, qual é a métrica que importa para o EC?",
+                    "alternativas": [
+                        ("Indicação que vira cliente", True),
+                        ("Número de escritórios visitados no mês", False),
+                        ("Quantidade de exames vendidos ao escritório", False),
+                        ("Número de ligações frias feitas por dia", False),
+                    ],
+                },
+                {
+                    "enunciado": "Qual destas é uma dor do escritório de contabilidade citada na aula?",
+                    "alternativas": [
+                        ("Retrabalho corrigindo eventos de SST recusados", True),
+                        ("Falta de clientes com funcionário CLT", False),
+                        ("Dificuldade para emitir as notas de serviço", False),
+                        ("Excesso de exames no próprio escritório", False),
+                    ],
+                },
+                {
+                    "enunciado": "Segundo a aula, o que o contador realmente compra quando vira parceiro?",
+                    "alternativas": [
+                        ("Serviços de SST para o próprio escritório", False),
+                        ("Um sistema para enviar o eSocial dos clientes", False),
+                        ("Exames com desconto para a equipe dele", False),
+                        ("Tranquilidade com os clientes dele e uma receita a mais", True),
+                    ],
+                },
+                {
+                    "enunciado": "Qual destes itens a Controller oferece ao escritório parceiro?",
+                    "alternativas": [
+                        ("Um padrão único de SST, com dados técnicos no prazo, para os clientes indicados", True),
+                        ("Exclusividade sobre todos os clientes da região", False),
+                        ("Serviço de contabilidade para os clientes dele", False),
+                        ("Comissão em percentual livre, negociada pelo EC", False),
+                    ],
+                },
             ],
         },
         {
@@ -783,6 +1071,42 @@ Cada contato é uma **tarefa do parceiro** (aba Tarefas do parceiro). A reunião
                         ("Cadastrando em Contas e marcando Finder", True),
                         ("Importando uma planilha", False),
                         ("Só quando fechar a primeira venda", False),
+                    ],
+                },
+                {
+                    "enunciado": "Em uma conversa, um cliente diz \"o contador cuida disso\". Para o EC, o que essa frase representa?",
+                    "alternativas": [
+                        ("Um sinal para encerrar a conversa", False),
+                        ("Uma chance de criticar o trabalho do contador", False),
+                        ("Uma pista: perguntar o nome do escritório", True),
+                        ("Um pedido para mandar proposta ao contador", False),
+                    ],
+                },
+                {
+                    "enunciado": "Na primeira ligação ao escritório, qual é a pergunta do roteiro depois da credencial?",
+                    "alternativas": [
+                        ("\"Quanto vocês cobram de honorário por cliente?\"", False),
+                        ("\"Vocês têm interesse em ganhar uma comissão extra?\"", False),
+                        ("\"Quando um cliente seu precisa de PGR ou de exame, para quem vocês mandam?\"", True),
+                        ("\"Quantos exames os funcionários de vocês fazem por ano?\"", False),
+                    ],
+                },
+                {
+                    "enunciado": "Segundo a aula, sobre o que o EC NÃO deve falar com o escritório?",
+                    "alternativas": [
+                        ("Sobre o eSocial de SST dos clientes dele", False),
+                        ("Sobre a comissão recorrente do parceiro", False),
+                        ("Sobre exame e preço de exame", True),
+                        ("Sobre a tranquilidade com os clientes dele", False),
+                    ],
+                },
+                {
+                    "enunciado": "Como registrar no HIPO os contatos e a reunião com um escritório?",
+                    "alternativas": [
+                        ("Tarefa do parceiro e reunião na agenda com Parceiro (contador)", True),
+                        ("Oportunidade de venda em Suspect para o escritório", False),
+                        ("Anotação na Descrição de um cliente do escritório", False),
+                        ("Planilha de parceiros enviada à gestão", False),
                     ],
                 },
             ],
@@ -860,6 +1184,42 @@ Saia com: nome da empresa, contato, e o combinado de como o contador vai apresen
                         ("Desconto na mensalidade do escritório", False),
                     ],
                 },
+                {
+                    "enunciado": "Na reunião de parceria de 30 minutos, qual etapa ocupa mais tempo?",
+                    "alternativas": [
+                        ("Programa, com 12 minutos", False),
+                        ("Abertura, com 8 minutos", False),
+                        ("Objeções, com 12 minutos", False),
+                        ("Diagnóstico, com 12 minutos", True),
+                    ],
+                },
+                {
+                    "enunciado": "Depois das perguntas SPIN, como o EC fecha o diagnóstico?",
+                    "alternativas": [
+                        ("Com um resumo da situação, do problema e da implicação, e \"É isso?\"", True),
+                        ("Apresentando a tabela de comissão completa", False),
+                        ("Pedindo a assinatura do contrato de parceria", False),
+                        ("Perguntando qual software contábil o escritório usa", False),
+                    ],
+                },
+                {
+                    "enunciado": "Ao pedir a primeira indicação, com o que o EC deve sair da reunião?",
+                    "alternativas": [
+                        ("Só o CNPJ do cliente, para pesquisar depois", False),
+                        ("Uma lista com todos os clientes do escritório", False),
+                        ("A promessa do contador de pensar em alguém", False),
+                        ("Nome da empresa, contato e como o contador vai apresentar", True),
+                    ],
+                },
+                {
+                    "enunciado": "Como funciona a devolutiva no programa de parceria?",
+                    "alternativas": [
+                        ("O contador fica sabendo de cada passo: reunião marcada, proposta e fechamento", True),
+                        ("O contador recebe um relatório no fim do ano", False),
+                        ("O contador só é avisado se o cliente fechar", False),
+                        ("O próprio cliente indicado avisa o contador", False),
+                    ],
+                },
             ],
         },
         {
@@ -926,6 +1286,42 @@ O mesmo LAER do Roteiro de Vendas: **Listar** (ouça até o fim), **Acolher**, *
                         ("Devolutiva a cada passo e uma primeira indicação de cliente que já reclama do fornecedor", True),
                         ("Pedir exclusividade", False),
                         ("Mandar o contrato antes da reunião", False),
+                    ],
+                },
+                {
+                    "enunciado": "O contador diz: \"Não quero indicar e me queimar.\" Qual é a exploração do roteiro?",
+                    "alternativas": [
+                        ("\"Quanto você acha que ganharia se indicasse?\"", False),
+                        ("\"Seus clientes costumam reclamar de você?\"", False),
+                        ("\"O que faria você se sentir seguro para indicar?\"", True),
+                        ("\"Outra clínica já te deixou mal com algum cliente?\"", False),
+                    ],
+                },
+                {
+                    "enunciado": "O contador diz: \"Meus clientes já têm SST.\" Qual resposta segue o roteiro?",
+                    "alternativas": [
+                        ("Os fornecedores atuais certamente estão errando", False),
+                        ("Então a parceria não faz sentido para o escritório", False),
+                        ("A parceria vale para os que não têm e para os que têm e reclamam; basta um", True),
+                        ("Oferecer comissão maior para cada cliente que trocar", False),
+                    ],
+                },
+                {
+                    "enunciado": "O contador diz: \"Não tenho tempo.\" O que o EC responde?",
+                    "alternativas": [
+                        ("Marcar a conversa para daqui a seis meses", False),
+                        ("Ele só passa nome e contato; o resto é com a Controller, com aviso a cada passo", True),
+                        ("Pedir que ele apresente a Controller a cada cliente", False),
+                        ("Oferecer um bônus para compensar o tempo dele", False),
+                    ],
+                },
+                {
+                    "enunciado": "O contador pergunta: \"Quanto eu ganho?\" Qual é a conduta da aula?",
+                    "alternativas": [
+                        ("Explorar, falar da comissão recorrente pela tabela e mostrar como ela soma com o tempo", True),
+                        ("Dar um valor estimado alto para animar o contador", False),
+                        ("Dizer que só a gestão pode falar de comissão", False),
+                        ("Prometer percentual maior se ele indicar logo", False),
                     ],
                 },
             ],
@@ -1007,6 +1403,42 @@ Conversão = indicações conquistadas ÷ indicações que chegaram ao fim. **Ca
                         ("O EV, na reunião de 45 minutos do roteiro", True),
                         ("Ninguém, manda a proposta direto", False),
                         ("O SDR", False),
+                    ],
+                },
+                {
+                    "enunciado": "O contador indicou um cliente e já confirmou o interesse dele. Em que fase abrir a oportunidade?",
+                    "alternativas": [
+                        ("Lead", True),
+                        ("Suspect, até o EV confirmar", False),
+                        ("Proposta, já que veio indicado", False),
+                        ("Cancelado, até a reunião acontecer", False),
+                    ],
+                },
+                {
+                    "enunciado": "O que faz a oportunidade contar como venda com EC?",
+                    "alternativas": [
+                        ("O Finder preenchido com o escritório", False),
+                        ("O EC na aba Envolvidos, com o papel EC", True),
+                        ("O EC como anfitrião da reunião", False),
+                        ("O nome do EC escrito na Descrição", False),
+                    ],
+                },
+                {
+                    "enunciado": "Como se calcula a conversão do parceiro?",
+                    "alternativas": [
+                        ("Indicações conquistadas ÷ todas as indicações, com os cancelados", False),
+                        ("Reuniões marcadas ÷ indicações recebidas no mês", False),
+                        ("Indicações conquistadas ÷ indicações que chegaram ao fim, sem os cancelados", True),
+                        ("Contratos fechados ÷ contatos feitos com o parceiro", False),
+                    ],
+                },
+                {
+                    "enunciado": "O contador quer participar da reunião com o cliente que ele indicou. O que fazer?",
+                    "alternativas": [
+                        ("Convidá-lo para a reunião com o EV", True),
+                        ("Explicar que só o EC pode participar", False),
+                        ("Pedir que ele conduza a reunião no lugar do EV", False),
+                        ("Fazer uma reunião separada só com ele", False),
                     ],
                 },
             ],
@@ -1091,6 +1523,42 @@ Pelo menos uma reunião por trimestre com cada parceiro ativo, na agenda com **P
                         ("Na Prospecção", False),
                         ("No Relatório anual", False),
                         ("No Perfil", False),
+                    ],
+                },
+                {
+                    "enunciado": "Um parceiro fez a última indicação há 120 dias. Qual é o ritmo indicado?",
+                    "alternativas": [
+                        ("Ativo: contato toda semana", False),
+                        ("Esfriando: reunião de reativação no mês", True),
+                        ("Dormente: ligação de reengajamento no mês", False),
+                        ("Sem indicação: contato a cada duas semanas", False),
+                    ],
+                },
+                {
+                    "enunciado": "Um escritório parceiro nunca indicou ninguém. Com que frequência o EC deve fazer contato?",
+                    "alternativas": [
+                        ("A cada duas semanas, até a primeira indicação com nome", True),
+                        ("Toda semana, como um parceiro ativo", False),
+                        ("Uma vez por mês, com reunião de reativação", False),
+                        ("Só quando o escritório procurar a Controller", False),
+                    ],
+                },
+                {
+                    "enunciado": "Parceiro dormente: duas tentativas de reengajamento sem resposta. O que fazer?",
+                    "alternativas": [
+                        ("Tirar da carteira na hora, por conta própria", False),
+                        ("Seguir ligando toda semana até ele responder", False),
+                        ("Finalizar as oportunidades dele como Perdido", False),
+                        ("Conversar com a gestão sobre tirar da carteira", True),
+                    ],
+                },
+                {
+                    "enunciado": "Com que frequência mínima fazer reunião de carteira com cada parceiro ativo?",
+                    "alternativas": [
+                        ("Pelo menos uma por semana", False),
+                        ("Uma por ano, na renovação", False),
+                        ("Pelo menos uma por trimestre", True),
+                        ("Só quando houver indicação nova", False),
                     ],
                 },
             ],

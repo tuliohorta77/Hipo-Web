@@ -1358,9 +1358,8 @@ CREATE TABLE IF NOT EXISTS uc_aulas (
     video_provedor VARCHAR(10),
     video_ref     VARCHAR(120),
     duracao_min   SMALLINT,
-    -- Nota minima do quiz (UC-2). Ja nasce aqui para a aula nao mudar de
-    -- forma quando o quiz chegar.
-    nota_minima   SMALLINT NOT NULL DEFAULT 70,
+    -- Nota minima do quiz (024): 85% = 6 de 7.
+    nota_minima   SMALLINT NOT NULL DEFAULT 85,
     -- Tour guiado (023): passos que abrem a tela real do HIPO e destacam
     -- os elementos explicados na aula. Validado por services/uc.validar_tour.
     tour          JSONB,
@@ -1407,6 +1406,61 @@ CREATE TABLE IF NOT EXISTS uc_progresso (
 );
 
 CREATE INDEX IF NOT EXISTS idx_uc_progresso_aula ON uc_progresso (aula_id, aula_versao);
+
+-- ============================================================================
+-- uc_perguntas / uc_alternativas / uc_tentativas
+--   (espelha api/migrations/024_uc_quiz.sql)
+-- ============================================================================
+-- Quiz depois da aula: 7 perguntas, 85% para aprovar, nova tentativa 10 min
+-- depois de reprovar. Regras em services/uc.py (secao Quiz).
+CREATE TABLE IF NOT EXISTS uc_perguntas (
+    id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    aula_id    UUID NOT NULL REFERENCES uc_aulas(id) ON DELETE CASCADE,
+    ordem      SMALLINT NOT NULL,
+    enunciado  TEXT NOT NULL,
+    criado_em  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT uq_uc_pergunta_ordem UNIQUE (aula_id, ordem) DEFERRABLE INITIALLY DEFERRED,
+    CONSTRAINT ck_uc_pergunta_ordem CHECK (ordem >= 1),
+    CONSTRAINT ck_uc_pergunta_enunciado CHECK (length(btrim(enunciado)) BETWEEN 1 AND 300)
+);
+
+CREATE TABLE IF NOT EXISTS uc_alternativas (
+    id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    pergunta_id  UUID NOT NULL REFERENCES uc_perguntas(id) ON DELETE CASCADE,
+    ordem        SMALLINT NOT NULL,
+    texto        TEXT NOT NULL,
+    correta      BOOLEAN NOT NULL DEFAULT FALSE,
+    CONSTRAINT uq_uc_alternativa_ordem UNIQUE (pergunta_id, ordem) DEFERRABLE INITIALLY DEFERRED,
+    CONSTRAINT ck_uc_alternativa_ordem CHECK (ordem >= 1),
+    CONSTRAINT ck_uc_alternativa_texto CHECK (length(btrim(texto)) BETWEEN 1 AND 200)
+);
+
+-- No maximo uma correta por pergunta; "pelo menos uma" e regra do servico.
+CREATE UNIQUE INDEX IF NOT EXISTS uq_uc_alternativa_correta
+    ON uc_alternativas (pergunta_id) WHERE correta;
+
+CREATE TABLE IF NOT EXISTS uc_tentativas (
+    id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    usuario_id   UUID NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
+    aula_id      UUID NOT NULL REFERENCES uc_aulas(id) ON DELETE CASCADE,
+    aula_versao  SMALLINT NOT NULL,
+    acertos      SMALLINT NOT NULL,
+    total        SMALLINT NOT NULL,
+    nota         SMALLINT NOT NULL,
+    nota_minima  SMALLINT NOT NULL,
+    aprovada     BOOLEAN NOT NULL,
+    -- {pergunta_id: alternativa_id} como foi enviado.
+    respostas    JSONB NOT NULL,
+    -- ids das perguntas erradas, na ordem do quiz (a tela marca sem
+    -- revelar a alternativa certa).
+    erradas      JSONB NOT NULL DEFAULT '[]'::jsonb,
+    criado_em    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT ck_uc_tentativa_conta CHECK (total >= 1 AND acertos BETWEEN 0 AND total),
+    CONSTRAINT ck_uc_tentativa_nota  CHECK (nota BETWEEN 0 AND 100 AND nota_minima BETWEEN 0 AND 100)
+);
+
+CREATE INDEX IF NOT EXISTS idx_uc_tentativas_pessoa
+    ON uc_tentativas (usuario_id, aula_id, aula_versao, criado_em DESC);
 
 
 -- ============================================================================

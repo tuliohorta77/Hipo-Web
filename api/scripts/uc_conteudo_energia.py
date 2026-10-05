@@ -107,6 +107,42 @@ Por isso Energia e Método andam juntos: atividade que não é registrada não e
                         ("Conta pela metade", False),
                     ],
                 },
+                {
+                    "enunciado": "Segundo a aula, o que acontece com quem tem Energia, mas não tem Método?",
+                    "alternativas": [
+                        ("Faz poucas reuniões excelentes e não bate a meta", False),
+                        ("Bate a meta, mas só na última semana", False),
+                        ("Vende bem, mas não consegue repetir no mês seguinte", False),
+                        ("Faz muito barulho e pouca venda", True),
+                    ],
+                },
+                {
+                    "enunciado": "O que define o pilar Técnica?",
+                    "alternativas": [
+                        ("O jeito certo de fazer: roteiro e registro", False),
+                        ("Fazer o suficiente, todo dia, para a meta", False),
+                        ("O que você sabe: normas, produto e técnicas de venda", True),
+                        ("As horas dedicadas ao trabalho no mês", False),
+                    ],
+                },
+                {
+                    "enunciado": "Qual destas é \"atividade certa\" para o pilar Energia?",
+                    "alternativas": [
+                        ("Reorganizar a agenda várias vezes ao dia", False),
+                        ("Contato, reunião, proposta ou indicação que move o funil", True),
+                        ("Responder toda mensagem no instante em que chega", False),
+                        ("Ficar no escritório até mais tarde", False),
+                    ],
+                },
+                {
+                    "enunciado": "O que a aula chama de \"ritmo certo\"?",
+                    "alternativas": [
+                        ("Esforço concentrado na última semana do mês", False),
+                        ("Mais horas nos dias em que você está disposto", False),
+                        ("Atividade distribuída pelos dias úteis, sem deixar para a última semana", True),
+                        ("O mesmo ritmo do colega com melhor resultado", False),
+                    ],
+                },
             ],
         },
         {
@@ -191,6 +227,42 @@ A conta vira o seu **mínimo diário**, a atividade que não se negocia (aula 3)
                         ("Nada, é azar", False),
                     ],
                 },
+                {
+                    "enunciado": "No exemplo ilustrativo da aula (EV), são 18 propostas e 60% das reuniões realizadas viram proposta. Quantas reuniões realizadas?",
+                    "alternativas": [
+                        ("11", False),
+                        ("18", False),
+                        ("30", True),
+                        ("38", False),
+                    ],
+                },
+                {
+                    "enunciado": "Pessoa nova, sem histórico no HIPO. Quais taxas usar na conta reversa?",
+                    "alternativas": [
+                        ("As do melhor vendedor do time, para mirar alto", False),
+                        ("As do time, informadas pela gestão, trocadas pelas suas depois de 60 dias", True),
+                        ("50% em todas as etapas, até ter histórico", False),
+                        ("Nenhuma: só fazer a conta depois de três meses", False),
+                    ],
+                },
+                {
+                    "enunciado": "Onde, no HIPO, você vê suas reuniões realizadas, canceladas e no-show?",
+                    "alternativas": [
+                        ("Tarefas › Realizadas no mês", False),
+                        ("Contas › Dados públicos", False),
+                        ("Agenda › Produtividade", True),
+                        ("Perfil", False),
+                    ],
+                },
+                {
+                    "enunciado": "No exemplo ilustrativo da aula (EC), a meta é 8 indicações e cada parceiro ativo indica 0,5 por mês. Quantos parceiros ativos?",
+                    "alternativas": [
+                        ("16", True),
+                        ("4", False),
+                        ("8", False),
+                        ("32", False),
+                    ],
+                },
             ],
         },
         {
@@ -268,6 +340,42 @@ Todo mundo tem dia ruim, reunião que cai, imprevisto. Nesses dias, o plano enco
                         ("Pedir para o colega fazer", False),
                     ],
                 },
+                {
+                    "enunciado": "Pela rotina da aula, como começa o dia do SDR às 8h?",
+                    "alternativas": [
+                        ("Respondendo o WhatsApp acumulado da noite", False),
+                        ("Planejando por 15 minutos: Atrasadas, Para hoje e a lista de ligações", True),
+                        ("Pesquisando as empresas que vai puxar da base", False),
+                        ("Confirmando as reuniões do dia seguinte", False),
+                    ],
+                },
+                {
+                    "enunciado": "É 14h na rotina de referência do SDR. O que ele faz?",
+                    "alternativas": [
+                        ("WhatsApp e e-mails da cadência, em lote", False),
+                        ("Segundo bloco de ligações, com quem não atendeu de manhã", True),
+                        ("Pesquisa e prospecção de novas empresas", False),
+                        ("Fechamento do dia e confirmações da véspera", False),
+                    ],
+                },
+                {
+                    "enunciado": "Uma reunião do EV acabou. Em quanto tempo ela deve estar registrada?",
+                    "alternativas": [
+                        ("Até o fim da semana, na revisão de sexta", False),
+                        ("Em até 2 horas, com dores, GPCT e próximo passo", True),
+                        ("Só no fechamento do dia, junto com as demais", False),
+                        ("Em até 48 horas, junto com a proposta", False),
+                    ],
+                },
+                {
+                    "enunciado": "Qual é o mínimo diário do EC?",
+                    "alternativas": [
+                        ("Uma reunião de parceria com escritório novo por dia", False),
+                        ("Uma indicação nova registrada por dia", False),
+                        ("Uma visita presencial a escritório por dia", False),
+                        ("Os contatos de carteira da conta reversa e nenhuma indicação sem devolutiva", True),
+                    ],
+                },
             ],
         },
         {
@@ -330,6 +438,42 @@ No fim do dia, 10 minutos: o que ficou para trás, o que entra amanhã, qual é 
                         ("Editar o prazo", True),
                         ("Cancelar sem motivo", False),
                         ("Concluir sem fazer", False),
+                    ],
+                },
+                {
+                    "enunciado": "Um colega faz um pedido interno não urgente no meio do seu bloco de ligações. O que fazer?",
+                    "alternativas": [
+                        ("Parar o bloco e resolver na hora", False),
+                        ("Deixar para responder no fim da semana", False),
+                        ("Pedir ao gestor que responda por você", False),
+                        ("Anotar e responder no bloco de escritos", True),
+                    ],
+                },
+                {
+                    "enunciado": "Um cliente manda mensagem durante o bloco de ligações. O que a aula orienta?",
+                    "alternativas": [
+                        ("Largar o bloco e responder no mesmo minuto", False),
+                        ("Responder só no dia seguinte, no bloco de escritos", False),
+                        ("Cliente é prioridade, mas prioridade é responder no dia, sem largar o bloco", True),
+                        ("Ignorar mensagens de cliente durante o expediente", False),
+                    ],
+                },
+                {
+                    "enunciado": "Quando fazer o registro de uma conversa no HIPO?",
+                    "alternativas": [
+                        ("No fim do dia, todas de uma vez", False),
+                        ("Logo depois de cada conversa, como parte dela", True),
+                        ("Na revisão semanal de sexta-feira", False),
+                        ("Quando o gestor pedir o relatório", False),
+                    ],
+                },
+                {
+                    "enunciado": "O que fazer na revisão de 10 minutos no fim do dia?",
+                    "alternativas": [
+                        ("Responder as mensagens que acumularam no dia", False),
+                        ("Conferir o resultado dos colegas no Monitor", False),
+                        ("Ver o que ficou para trás, o que entra amanhã e a tarefa difícil de amanhã", True),
+                        ("Planejar a semana inteira pelo farol", False),
                     ],
                 },
             ],
@@ -399,6 +543,42 @@ Todo mundo tem tarde lenta. Em vez de forçar a tarefa difícil, troque para uma
                         ("Trocar para uma tarefa útil de energia menor e voltar ao bloco forte depois da pausa", True),
                         ("Ir embora mais cedo", False),
                         ("Ficar no celular até passar", False),
+                    ],
+                },
+                {
+                    "enunciado": "Segundo a aula, para que serve a pausa de 10 minutos a cada ciclo?",
+                    "alternativas": [
+                        ("Manter a qualidade da 40ª ligação igual à da primeira", True),
+                        ("Compensar as horas extras do dia anterior", False),
+                        ("Colocar em dia as mensagens do celular pessoal", False),
+                        ("Adiantar a proposta que ficou pendente", False),
+                    ],
+                },
+                {
+                    "enunciado": "Segundo a aula, onde começa o dia de 60 ligações?",
+                    "alternativas": [
+                        ("No café da manhã reforçado", False),
+                        ("Na noite anterior, com sono regular", True),
+                        ("No bloco de planejamento das 8h", False),
+                        ("Na diária do time", False),
+                    ],
+                },
+                {
+                    "enunciado": "Onde deve ficar o celular pessoal durante os blocos?",
+                    "alternativas": [
+                        ("Longe", True),
+                        ("No silencioso, sobre a mesa", False),
+                        ("Ao lado, para responder rápido", False),
+                        ("Na mão, entre uma ligação e outra", False),
+                    ],
+                },
+                {
+                    "enunciado": "O que a aula recomenda sobre o ambiente da ligação?",
+                    "alternativas": [
+                        ("Viva-voz, para ficar com as mãos livres", False),
+                        ("Ligar de onde estiver, até na rua", False),
+                        ("Fone de ouvido bom e lugar sem barulho de fundo", True),
+                        ("Música de fundo para manter o ritmo", False),
                     ],
                 },
             ],
@@ -471,6 +651,42 @@ Se o cansaço ou o desânimo durarem muito além de uma semana ruim, converse co
                         ("A meta do mês inteiro", False),
                         ("O resultado do colega", False),
                         ("Nenhuma", False),
+                    ],
+                },
+                {
+                    "enunciado": "Um cliente recusa de forma ríspida, no meio de um dia ruim dele. Como a aula orienta interpretar?",
+                    "alternativas": [
+                        ("Sinal de que a abordagem deve ser descartada", False),
+                        ("Motivo para pausar o bloco até o ânimo voltar", False),
+                        ("Prova de que a empresa não tem a dor", False),
+                        ("O \"não\" é para a proposta ou o momento, não para você", True),
+                    ],
+                },
+                {
+                    "enunciado": "Segundo a aula, o que você controla e deve celebrar?",
+                    "alternativas": [
+                        ("Se o cliente fecha ou não o contrato", False),
+                        ("A taxa de conversão do time inteiro", False),
+                        ("O volume, a qualidade da conversa e o registro", True),
+                        ("O humor do cliente durante a ligação", False),
+                    ],
+                },
+                {
+                    "enunciado": "Semana ruim. Além de voltar ao mínimo diário, o que a aula recomenda olhar?",
+                    "alternativas": [
+                        ("A conta, não o sentimento: o problema é volume ou taxa?", True),
+                        ("O resultado dos colegas, para comparar", False),
+                        ("Só o fechamento do mês, para não desanimar", False),
+                        ("As metas do mês anterior, para se consolar", False),
+                    ],
+                },
+                {
+                    "enunciado": "Na semana ruim, que ajuda do gestor a aula sugere pedir cedo?",
+                    "alternativas": [
+                        ("A redução da meta do mês", False),
+                        ("Um role-play de 15 minutos", True),
+                        ("Que ele assuma suas ligações", False),
+                        ("A troca da sua carteira", False),
                     ],
                 },
             ],
@@ -553,6 +769,42 @@ Se o número ficou impossível, fale com a gestão **no meio do mês**, não no 
                         ("Nada", False),
                     ],
                 },
+                {
+                    "enunciado": "No controle diário de 5 minutos, o que conferir na Agenda?",
+                    "alternativas": [
+                        ("Se os colegas confirmaram as reuniões deles", False),
+                        ("O ranking de reuniões do time no mês", False),
+                        ("Nenhuma reunião sem desfecho; borda tracejada é pendência", True),
+                        ("As reuniões marcadas para o mês seguinte", False),
+                    ],
+                },
+                {
+                    "enunciado": "Quando refazer a conta reversa, segundo a aula?",
+                    "alternativas": [
+                        ("Só quando a meta do mês não for batida", False),
+                        ("No primeiro dia útil do mês, com a meta nova e as taxas atualizadas", True),
+                        ("Uma vez por trimestre, junto com a gestão", False),
+                        ("No último dia do mês, no fechamento", False),
+                    ],
+                },
+                {
+                    "enunciado": "O Monitor mostra carinha triste no meio do mês. O que isso significa?",
+                    "alternativas": [
+                        ("A meta do mês já está perdida", False),
+                        ("Há um erro de registro no HIPO", False),
+                        ("É hora de pedir redução de meta", False),
+                        ("Ainda é recuperável", True),
+                    ],
+                },
+                {
+                    "enunciado": "Qual é a pergunta da revisão semanal de sexta à tarde?",
+                    "alternativas": [
+                        ("Quantas vendas os colegas fizeram?", False),
+                        ("Qual parceiro indicou mais no ano?", False),
+                        ("Quantas horas trabalhei na semana?", False),
+                        ("Estou no ritmo da conta reversa?", True),
+                    ],
+                },
             ],
         },
         {
@@ -625,6 +877,42 @@ Ajuda pedida na primeira semana vira ajuste; na última, vira justificativa. Ped
                         ("Para dividir a meta", False),
                         ("Porque é obrigatório", False),
                         ("Não se deve pedir ajuda", False),
+                    ],
+                },
+                {
+                    "enunciado": "Na diária, alguém levanta uma trava. Como ela é tratada?",
+                    "alternativas": [
+                        ("O time inteiro discute até resolver", False),
+                        ("Fica para a pauta da reunião semanal", False),
+                        ("O gestor decide na hora, na frente de todos", False),
+                        ("Não se resolve na diária: quem pode ajudar fica depois com quem precisa", True),
+                    ],
+                },
+                {
+                    "enunciado": "Como é o formato da diária?",
+                    "alternativas": [
+                        ("45 minutos, sentados, olhando o funil", False),
+                        ("15 minutos, em pé, até 2 minutos por pessoa", True),
+                        ("30 minutos, por mensagem no grupo", False),
+                        ("15 minutos, em que só o gestor fala", False),
+                    ],
+                },
+                {
+                    "enunciado": "Qual destes itens faz parte da reunião semanal de 45 minutos?",
+                    "alternativas": [
+                        ("O ranking público de vendas do time", False),
+                        ("A leitura das tarefas atrasadas de cada um", False),
+                        ("Um trecho de transcrição que funcionou e um que perdeu a venda", True),
+                        ("A revisão da meta anual da empresa", False),
+                    ],
+                },
+                {
+                    "enunciado": "Como é escolhido o tema de treino da semana?",
+                    "alternativas": [
+                        ("O serviço mais caro do catálogo", False),
+                        ("O item mais fraco do scorecard ou a objeção que mais apareceu", True),
+                        ("A norma mais recente publicada", False),
+                        ("Um assunto sorteado entre o time", False),
                     ],
                 },
             ],

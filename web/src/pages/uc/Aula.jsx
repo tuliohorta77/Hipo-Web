@@ -8,6 +8,9 @@
 // contagem regressiva aqui é só conforto: sem ela o botão ficaria
 // desabilitado sem explicar até quando.
 //
+// AULA COM QUIZ (`quiz` não nulo) não tem "Concluí": conclui pela
+// aprovação no QuizAula, que só abre depois da mesma trava de tempo.
+//
 // O VÍDEO entra por urlDeEmbed(provedor, ref), que monta o endereço a partir
 // de uma tabela fechada. Nenhum texto da API vira src de iframe direto.
 //
@@ -30,6 +33,7 @@ import Button from '../../components/ui/Button';
 import AlertMessage from '../../components/ui/AlertMessage';
 import { mensagemDeErro } from '../../components/crm/tarefaComum';
 import TextoAula from '../../components/uc/TextoAula';
+import QuizAula from '../../components/uc/QuizAula';
 import { iniciarTour } from '../../components/uc/tour';
 import {
   tamanhoArquivo, tempoRestante, tomDoPilar, urlDeEmbed,
@@ -134,6 +138,7 @@ export default function Aula() {
     setParams(p, { replace: true });
   }
   const concluida = !!aula.concluida_em;
+  const temQuiz = !!aula.quiz;
 
   return (
     <div className="max-w-4xl mx-auto space-y-4">
@@ -243,6 +248,15 @@ export default function Aula() {
         </Card>
       )}
 
+      {temQuiz && (
+        <QuizAula
+          aula={aula}
+          faltaAula={falta}
+          onAtualizar={(data) => { setAula(data); setFalta(data.segundos_para_liberar || 0); }}
+          onRecarregar={carregar}
+        />
+      )}
+
       <Card>
         <div className="flex flex-col sm:flex-row sm:items-center gap-3">
           <div className="flex-1">
@@ -252,6 +266,8 @@ export default function Aula() {
               </p>
             ) : concluida ? (
               <p className="text-sm text-hipo-success font-medium">Aula concluída.</p>
+            ) : temQuiz ? (
+              <p className="text-sm text-hipo-slate">A aula conclui quando você for aprovado no quiz.</p>
             ) : falta > 0 ? (
               <p className="text-sm text-hipo-slate">
                 O botão libera em <strong className="text-hipo-ink">{tempoRestante(falta)}</strong>.
@@ -268,7 +284,7 @@ export default function Aula() {
                 Anterior
               </Button>
             )}
-            {!aula.modo_leitura && !concluida && aula.status === 'publicada' && (
+            {!aula.modo_leitura && !concluida && !temQuiz && aula.status === 'publicada' && (
               <Button icon={CheckCircle2} onClick={concluir} loading={concluindo} disabled={falta > 0}>
                 Concluí
               </Button>

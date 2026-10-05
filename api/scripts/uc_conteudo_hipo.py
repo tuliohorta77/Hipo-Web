@@ -257,6 +257,42 @@ Na barra de cima, da esquerda para a direita:
                         ("Apresentação", False),
                     ],
                 },
+                {
+                    "enunciado": "Você ligou para uma empresa e combinou um retorno, mas não lançou nada no HIPO. Segundo a aula, o que vale para esse contato?",
+                    "alternativas": [
+                        ("Conta no seu número assim que a planilha da equipe for atualizada", False),
+                        ("Entra no seu número no fim do dia, de forma automática", False),
+                        ("Para o HIPO não aconteceu: não conta no seu número nem aparece para o EV", True),
+                        ("Aparece no Monitor como pendência para a gestão lançar por você", False),
+                    ],
+                },
+                {
+                    "enunciado": "Pela ordem do dia do SDR proposta na aula, por qual tela você começa?",
+                    "alternativas": [
+                        ("Tarefas: atrasadas primeiro, depois as de hoje", True),
+                        ("Prospecção: puxar empresas novas para o funil", False),
+                        ("Monitor: conferir LEAD, AGEN e no-show", False),
+                        ("Agenda: rever as reuniões marcadas para o EV", False),
+                    ],
+                },
+                {
+                    "enunciado": "Uma reunião de cliente aconteceu ontem e ninguém registrou se foi realizada, cancelada ou no-show. Onde isso aparece?",
+                    "alternativas": [
+                        ("Na fila de Prospecção, como empresa a contatar", False),
+                        ("Em nenhum lugar: a reunião some da semana", False),
+                        ("Na aba Histórico da conta, como alerta", False),
+                        ("Como pendência na Agenda", True),
+                    ],
+                },
+                {
+                    "enunciado": "Você é usuário novo e entrou com a senha 123456. Onde troca a senha?",
+                    "alternativas": [
+                        ("Na Carreira, aba PDI", False),
+                        ("No Perfil, clicando no seu nome", True),
+                        ("Na tela Contas, no seu cadastro", False),
+                        ("No Monitor, no canto da tela", False),
+                    ],
+                },
             ],
         },
         {
@@ -351,6 +387,42 @@ Empresa que já é cliente, já tem oportunidade aberta ou está marcada como n�
                         ("Uma proposta em rascunho", False),
                     ],
                 },
+                {
+                    "enunciado": "Você quer toda a divisão de construção sem escolher código por código. O que digitar no campo CNAE?",
+                    "alternativas": [
+                        ("Construção, no campo Buscar na fatia", False),
+                        ("Todos os códigos de 4100 a 4399, um a um", False),
+                        ("41: código curto pega a família inteira", True),
+                        ("Nada: deixar o CNAE vazio e escolher a cidade", False),
+                    ],
+                },
+                {
+                    "enunciado": "O contador Seus suspects abertos ficou amarelo. O que a aula recomenda?",
+                    "alternativas": [
+                        ("Trabalhar os Suspects que você já tem antes de puxar mais", True),
+                        ("Puxar mais 50 para manter a fila sempre cheia", False),
+                        ("Pedir à gestão para liberar um limite maior", False),
+                        ("Marcar os Suspects antigos como Não prospectar", False),
+                    ],
+                },
+                {
+                    "enunciado": "Na barra de baixo, em Primeiro contato em, você escolhe um dia diferente de hoje. Para que horário a tarefa é marcada?",
+                    "alternativas": [
+                        ("8h do dia escolhido", False),
+                        ("13h do dia escolhido", False),
+                        ("O mesmo horário em que você puxou", False),
+                        ("9h do dia escolhido", True),
+                    ],
+                },
+                {
+                    "enunciado": "Você marca na lista uma empresa que já tem oportunidade aberta e clica em Puxar para o HIPO. O que acontece com ela?",
+                    "alternativas": [
+                        ("Ganha uma segunda oportunidade em Suspect", False),
+                        ("Fica de fora, com o motivo mostrado na tela", True),
+                        ("Passa para você como SDR da oportunidade aberta", False),
+                        ("É marcada como Não prospectar automaticamente", False),
+                    ],
+                },
             ],
         },
         {
@@ -438,6 +510,42 @@ Ligação, Reunião, Visita, Proposta, E-mail, WhatsApp e Outro. Reunião e Visi
                         ("A próxima tarefa (título, tipo, prazo e responsável)", True),
                         ("A senha do gestor", False),
                         ("Uma proposta", False),
+                    ],
+                },
+                {
+                    "enunciado": "Você precisa ver as tarefas da equipe toda, e não só as suas. O que fazer?",
+                    "alternativas": [
+                        ("Abrir a coluna Concluídas", False),
+                        ("Clicar em Realizadas em (mês)", False),
+                        ("Trocar o seletor Responsável para \"Todos os responsáveis\"", True),
+                        ("Digitar o nome do colega na busca", False),
+                    ],
+                },
+                {
+                    "enunciado": "O cliente mandou um print no WhatsApp confirmando o interesse. Como guardar isso na tarefa?",
+                    "alternativas": [
+                        ("Colar com Ctrl+V na área de anexos da tarefa", True),
+                        ("Copiar o texto do print para o título da tarefa", False),
+                        ("Mandar o print por e-mail para o EV", False),
+                        ("Guardar na aba Histórico da conta", False),
+                    ],
+                },
+                {
+                    "enunciado": "Você cria uma tarefa do tipo Visita. O que o HIPO exige ao salvar?",
+                    "alternativas": [
+                        ("Aprovação da gestão para a visita", False),
+                        ("Que a oportunidade já esteja em Apresentação", False),
+                        ("O endereço confirmado da empresa na conta", False),
+                        ("Horário livre para o responsável, em dia útil, porque ela vai para a agenda", True),
+                    ],
+                },
+                {
+                    "enunciado": "Ao concluir a última tarefa aberta de uma oportunidade, que próxima tarefa vem sugerida por padrão?",
+                    "alternativas": [
+                        ("Reunião em 7 dias, com o EV como responsável", False),
+                        ("Ligação amanhã às 9h, com o mesmo responsável", True),
+                        ("E-mail hoje às 17h, com o mesmo responsável", False),
+                        ("WhatsApp em 2 dias, com o gestor como responsável", False),
                     ],
                 },
             ],
@@ -541,6 +649,42 @@ O que você descobriu na qualificação (fornecedor atual, número de unidades, 
                         ("Pedir um relatório ao gestor", False),
                     ],
                 },
+                {
+                    "enunciado": "Na qualificação você descobriu o fornecedor atual, o número de unidades e quem decide. Onde registrar para o EV encontrar?",
+                    "alternativas": [
+                        ("No título da próxima tarefa", False),
+                        ("Na aba Envolvidos da oportunidade", False),
+                        ("Em Descrição ou Observações, na aba Dados", True),
+                        ("Num comentário no Histórico da conta", False),
+                    ],
+                },
+                {
+                    "enunciado": "Você mudou a temperatura e a mensalidade e fechou a janela da oportunidade sem clicar em mais nada. O que aconteceu com essas mudanças?",
+                    "alternativas": [
+                        ("Gravaram na hora, como acontece com a Fase", False),
+                        ("Não foram gravadas: esses campos só gravam com Salvar", True),
+                        ("Ficaram aguardando a aprovação do EV", False),
+                        ("Gravaram, mas só aparecem no dia seguinte", False),
+                    ],
+                },
+                {
+                    "enunciado": "Dentro da oportunidade, o que a aba Envolvidos mostra?",
+                    "alternativas": [
+                        ("Quem é o SDR, o EV e o EC da oportunidade", True),
+                        ("Os contatos do cliente e quem decide", False),
+                        ("Os concorrentes que o cliente está avaliando", False),
+                        ("Os sócios da empresa vindos da Receita", False),
+                    ],
+                },
+                {
+                    "enunciado": "Na barra de cima de Oportunidades, o que acontece ao clicar em Em aberto?",
+                    "alternativas": [
+                        ("Abre o formulário de nova oportunidade", False),
+                        ("Troca a visão para Tabela", False),
+                        ("Mostra só as oportunidades ganhas no mês", False),
+                        ("Filtra só as oportunidades ativas e suspensas", True),
+                    ],
+                },
             ],
         },
         {
@@ -637,6 +781,42 @@ O horário precisa estar livre para o anfitrião. Reunião é uma tarefa do anfi
                         ("Cancelada só vale para reunião presencial", False),
                     ],
                 },
+                {
+                    "enunciado": "Em que horários a grade da Agenda permite marcar reunião?",
+                    "alternativas": [
+                        ("Das 8h às 18h, direto, de hora em hora", False),
+                        ("Das 9h às 12h e das 14h às 18h, de 15 em 15 minutos", False),
+                        ("Das 8h às 11h30 e das 13h às 17h30, de 30 em 30 minutos", True),
+                        ("Das 7h às 19h, de segunda a sábado", False),
+                    ],
+                },
+                {
+                    "enunciado": "Você marca uma reunião online e não informa nenhum link. O que acontece?",
+                    "alternativas": [
+                        ("O Google cria o Meet", True),
+                        ("O HIPO não deixa marcar sem link", False),
+                        ("A reunião vira presencial", False),
+                        ("O EV precisa criar o link depois", False),
+                    ],
+                },
+                {
+                    "enunciado": "Você quer marcar para um EV específico e ver só os horários dele. O que fazer?",
+                    "alternativas": [
+                        ("Escolher o EV em Agendado por", False),
+                        ("Escolher Toda a equipe e procurar o nome dele", False),
+                        ("Clicar em Oportunidades, no filtro de assunto", False),
+                        ("Escolher o EV em Agenda de", True),
+                    ],
+                },
+                {
+                    "enunciado": "Onde você vê os Agendamentos por SDR da semana na Agenda?",
+                    "alternativas": [
+                        ("No número Slots livres do topo", False),
+                        ("No botão Produtividade da agenda", True),
+                        ("Na tela Contas, em Sem oportunidade aberta", False),
+                        ("No formulário Marcar reunião", False),
+                    ],
+                },
             ],
         },
         {
@@ -718,6 +898,42 @@ Conta marcada como **Não prospectar** (por exemplo, já é cliente) recusa opor
                         ("O próprio cliente", False),
                     ],
                 },
+                {
+                    "enunciado": "No cadastro de nova conta, o botão Buscar na Receita está desabilitado. Qual é o motivo?",
+                    "alternativas": [
+                        ("Só a gestão pode consultar a Receita", False),
+                        ("A razão social ainda está em branco", False),
+                        ("O CNPJ ainda não está completo e válido", True),
+                        ("A conta precisa ser salva antes", False),
+                    ],
+                },
+                {
+                    "enunciado": "Você já tinha digitado alguns campos e clicou em Buscar na Receita. O que acontece com eles?",
+                    "alternativas": [
+                        ("Ficam como estão: a busca preenche só os campos vazios", True),
+                        ("São substituídos pelos dados da Receita", False),
+                        ("São apagados e o HIPO pede para digitar de novo", False),
+                        ("Vão para a aba Observações como histórico", False),
+                    ],
+                },
+                {
+                    "enunciado": "Na aba Dados públicos, uma empresa tem grau de risco 4 e outra grau 1. O que isso diz para a conversa?",
+                    "alternativas": [
+                        ("A de grau 1 tem mais obrigações de SST", False),
+                        ("As duas têm as mesmas obrigações de SST", False),
+                        ("O grau só indica o porte da empresa", False),
+                        ("A de grau 4 tem mais obrigações de SST", True),
+                    ],
+                },
+                {
+                    "enunciado": "Uma empresa chegou por indicação, por telefone, e não está no HIPO. O que fazer?",
+                    "alternativas": [
+                        ("Criar a oportunidade sem conta e cadastrar depois", False),
+                        ("Cadastrar pelo botão Nova conta, com razão social e CNPJ", True),
+                        ("Pedir ao EV para cadastrar na reunião", False),
+                        ("Esperar a base da Receita do mês seguinte", False),
+                    ],
+                },
             ],
         },
         {
@@ -781,6 +997,42 @@ Em **Carreira**, a aba **Universidade** abre na sua próxima aula, e a aba **Des
                         ("AGEN conta pela data da reunião; AGEND MES pela data em que foi marcada", True),
                         ("AGEN é do EV e AGEND MES do EC", False),
                         ("AGEND MES conta só no-show", False),
+                    ],
+                },
+                {
+                    "enunciado": "Um quadro do Monitor está em 65% da meta de hoje. Que carinha aparece?",
+                    "alternativas": [
+                        ("Feliz, porque o mês ainda não acabou", False),
+                        ("Nenhuma: a carinha só aparece no fim do mês", False),
+                        ("Triste, porque está abaixo de 70%", True),
+                        ("Feliz, porque passou da metade da meta", False),
+                    ],
+                },
+                {
+                    "enunciado": "Você quer saber quais reuniões formam o número do quadro AGEN. O que fazer?",
+                    "alternativas": [
+                        ("Clicar no quadro no Monitor", True),
+                        ("Pedir um relatório à gestão", False),
+                        ("Abrir a aba Desempenho e esperar o fim do mês", False),
+                        ("Recarregar a página do Monitor", False),
+                    ],
+                },
+                {
+                    "enunciado": "Com que frequência o Monitor atualiza os números?",
+                    "alternativas": [
+                        ("Só quando alguém aperta F5", False),
+                        ("Uma vez por dia, de madrugada", False),
+                        ("Quando a gestão publica o fechamento", False),
+                        ("Sozinho, a cada minuto", True),
+                    ],
+                },
+                {
+                    "enunciado": "Na avaliação do squad de SDR, quais são os indicadores principais?",
+                    "alternativas": [
+                        ("Leads gerados e contas prospectadas", False),
+                        ("Agendamentos e reuniões realizadas", True),
+                        ("No-show e taxa de execução", False),
+                        ("Tarefas de prospecção e ticket gerado", False),
                     ],
                 },
             ],
@@ -849,6 +1101,33 @@ O funil diz o que treinar:
                         ("No no-show: confirmar a reunião e registrar o desfecho", True),
                         ("Na proposta do EV", False),
                         ("Em nada: agendar é o que conta", False),
+                    ],
+                },
+                {
+                    "enunciado": "No funil do seu Desempenho, \"Agendamentos por empresa contatada\" está em 0,3. O que isso quer dizer?",
+                    "alternativas": [
+                        ("3 reuniões a cada 10 empresas contatadas", True),
+                        ("3 empresas contatadas para cada reunião", False),
+                        ("0,3% das empresas viraram reunião", False),
+                        ("30 reuniões para cada empresa contatada", False),
+                    ],
+                },
+                {
+                    "enunciado": "Seu funil mostra muitas tarefas de prospecção e poucas empresas contatadas. O que a aula manda treinar?",
+                    "alternativas": [
+                        ("Abordagem: revisar o Método 02 · Roteiro do SDR", False),
+                        ("No-show: confirmar a reunião na véspera", False),
+                        ("Cadência: voltar à Energia 01 (rotina e mínimo diário)", True),
+                        ("Proposta: rever o Método 01 com o EV", False),
+                    ],
+                },
+                {
+                    "enunciado": "O que o cartão Ponto de atenção mostra no topo do Desempenho?",
+                    "alternativas": [
+                        ("O indicador mais perto de bater a meta", False),
+                        ("O último indicador que você lançou", False),
+                        ("O indicador de maior peso na RPeR", False),
+                        ("O indicador mais longe da meta, com o botão Agir em", True),
                     ],
                 },
             ],
@@ -956,6 +1235,42 @@ A negociação inteira vive no HIPO: fase, temperatura, proposta, cada contato e
                         ("Apagar a oportunidade", False),
                     ],
                 },
+                {
+                    "enunciado": "Pela ordem do dia do EV proposta na aula, por onde você começa?",
+                    "alternativas": [
+                        ("Tarefas: atrasadas primeiro", False),
+                        ("Agenda: as reuniões de hoje e o desfecho das de ontem", True),
+                        ("Oportunidades: fase e temperatura em dia", False),
+                        ("Monitor: NMRR, contratos e scorecard", False),
+                    ],
+                },
+                {
+                    "enunciado": "O SDR marcou uma reunião de cliente para você conduzir. Como você aparece nela?",
+                    "alternativas": [
+                        ("Como Agendado por", False),
+                        ("Como convidado externo", False),
+                        ("Como anfitrião", True),
+                        ("Como EC nos Envolvidos", False),
+                    ],
+                },
+                {
+                    "enunciado": "Quais quadros do Monitor falam do trabalho do EV?",
+                    "alternativas": [
+                        ("NMRR, CONTRATOS, TICK MED, APRE e SCORECARD", True),
+                        ("LEAD, AGEN, AGEND MES e % NOSHOW", False),
+                        ("PARCERIAS, LEAD e AGEN", False),
+                        ("AGEND MES, PARCERIAS e % NOSHOW", False),
+                    ],
+                },
+                {
+                    "enunciado": "Uma negociação está anotada só no seu caderno, não no HIPO. Segundo a aula, o que acontece com ela?",
+                    "alternativas": [
+                        ("A gestão lança por você no fim do mês", False),
+                        ("Entra no seu número quando a oportunidade fechar", False),
+                        ("Aparece no Monitor como previsão", False),
+                        ("Não entra no seu número e some quando você sair de férias", True),
+                    ],
+                },
             ],
         },
         {
@@ -1039,6 +1354,42 @@ Arraste para outra coluna ou use o seletor de fase do cartão. Soltar em **Final
                         ("Clicar em Ganhas no mês", False),
                         ("Trocar para Tabela", False),
                         ("Não é possível", False),
+                    ],
+                },
+                {
+                    "enunciado": "Uma oportunidade está com temperatura 50. Que cor ela mostra no cartão?",
+                    "alternativas": [
+                        ("Vermelho", False),
+                        ("Azul", False),
+                        ("Amarelo", True),
+                        ("Verde", False),
+                    ],
+                },
+                {
+                    "enunciado": "Você ajustou vários campos no painel de Filtros e a lista não mudou. O que falta?",
+                    "alternativas": [
+                        ("Clicar em Aplicar filtros", True),
+                        ("Clicar em Salvar na oportunidade", False),
+                        ("Trocar para a visão Tabela", False),
+                        ("Clicar no X ao lado dos Filtros", False),
+                    ],
+                },
+                {
+                    "enunciado": "Você quer ver o percentual de passagem entre as fases. Qual visão usar?",
+                    "alternativas": [
+                        ("Kanban", False),
+                        ("Tabela", False),
+                        ("Previsto no mês", False),
+                        ("Funil", True),
+                    ],
+                },
+                {
+                    "enunciado": "A coluna Negociação do kanban é grande e não mostra todas as oportunidades. O que fazer?",
+                    "alternativas": [
+                        ("Trocar para a visão Funil", False),
+                        ("Clicar em Carregar mais, que traz de 100 em 100", True),
+                        ("Arrastar os cartões para Finalizado", False),
+                        ("Limpar os filtros com o X", False),
                     ],
                 },
             ],
@@ -1126,6 +1477,42 @@ No kanban, clique no nome da empresa no cartão; na tabela, na linha. A oportuni
                         ("Trocar o EV", False),
                     ],
                 },
+                {
+                    "enunciado": "Você abriu a conta pelo trilho da oportunidade e editou um contato. Ao fechar a conta, onde você fica?",
+                    "alternativas": [
+                        ("Na lista de Contas, com a conta salva", False),
+                        ("Na tela de Oportunidades, sem o filtro", False),
+                        ("Na oportunidade, como ela estava", True),
+                        ("Na aba Histórico da conta", False),
+                    ],
+                },
+                {
+                    "enunciado": "O cliente contou que está comparando a Controller com outra empresa. Onde registrar isso?",
+                    "alternativas": [
+                        ("Na aba Concorrentes", True),
+                        ("Na aba Envolvidos", False),
+                        ("No campo Finder", False),
+                        ("Na aba Histórico", False),
+                    ],
+                },
+                {
+                    "enunciado": "Você assumiu uma oportunidade que era de outro EV. O que a aula manda conferir?",
+                    "alternativas": [
+                        ("Se a temperatura foi zerada", False),
+                        ("Se a fase voltou para Lead", False),
+                        ("Se o Finder mudou para o seu nome", False),
+                        ("Se você está na aba Envolvidos como EV", True),
+                    ],
+                },
+                {
+                    "enunciado": "Você tem uma reunião daqui a pouco. O que a aula manda fazer antes?",
+                    "alternativas": [
+                        ("Gerar uma proposta nova para levar pronta", False),
+                        ("Abrir a oportunidade e ler Dados, Tarefas e Histórico", True),
+                        ("Mudar a fase para Apresentação", False),
+                        ("Suspender a oportunidade até o fim da reunião", False),
+                    ],
+                },
             ],
         },
         {
@@ -1207,6 +1594,42 @@ Finalizada por engano? **Reabrir** no topo da oportunidade. Fica registrado no H
                         ("Uma nova proposta", False),
                     ],
                 },
+                {
+                    "enunciado": "Você finalizou uma oportunidade por engano. O que fazer?",
+                    "alternativas": [
+                        ("Criar outra oportunidade para a mesma empresa", False),
+                        ("Clicar em Reabrir no topo da oportunidade", True),
+                        ("Pedir à gestão para apagar o desfecho", False),
+                        ("Arrastar o cartão de Finalizado para Negociação", False),
+                    ],
+                },
+                {
+                    "enunciado": "Onde você encontra as propostas que já gerou, em PPTX e PDF?",
+                    "alternativas": [
+                        ("Em Versões geradas, na aba Proposta", True),
+                        ("Na aba Histórico da oportunidade", False),
+                        ("Nos anexos da conta", False),
+                        ("Em Relatórios, fonte Propostas", False),
+                    ],
+                },
+                {
+                    "enunciado": "O telefone que aparece no slide de fechamento da proposta está errado. Onde corrigir?",
+                    "alternativas": [
+                        ("Na aba Proposta, campo Cidade", False),
+                        ("Na conta do cliente, aba Telefones", False),
+                        ("Na aba Envolvidos da oportunidade", False),
+                        ("No seu Perfil", True),
+                    ],
+                },
+                {
+                    "enunciado": "Pelo roteiro de vendas citado na aula, quando e como a proposta deve chegar ao cliente?",
+                    "alternativas": [
+                        ("Em até 7 dias, enviada por e-mail", False),
+                        ("No mesmo dia, enviada por WhatsApp", False),
+                        ("Em até 48h depois da reunião, apresentada e não só enviada", True),
+                        ("Quando o cliente pedir, enviada em PDF", False),
+                    ],
+                },
             ],
         },
         {
@@ -1278,6 +1701,42 @@ Tarefa de reunião mostra **O que aconteceu?**, que leva ao desfecho (próxima a
                         ("Editar o prazo da tarefa", True),
                         ("Cancelar e esquecer", False),
                         ("Concluir sem escrever nada", False),
+                    ],
+                },
+                {
+                    "enunciado": "Ao concluir, você marca a próxima como Reunião, mas o horário não está livre. O que o HIPO faz?",
+                    "alternativas": [
+                        ("Cancela a próxima tarefa", False),
+                        ("Cria a tarefa e avisa para usar Colocar na agenda nela", True),
+                        ("Marca a reunião assim mesmo, por cima da outra", False),
+                        ("Impede de concluir a tarefa atual", False),
+                    ],
+                },
+                {
+                    "enunciado": "Por que cada toque da cadência de follow-up deve ser uma tarefa com prazo?",
+                    "alternativas": [
+                        ("Porque só tarefas aparecem na proposta", False),
+                        ("Porque o cliente recebe um aviso a cada tarefa", False),
+                        ("Porque tarefa conta como reunião no Monitor", False),
+                        ("Porque a cadência anda sozinha e a gestão vê quem está em follow-up e há quanto tempo", True),
+                    ],
+                },
+                {
+                    "enunciado": "Você abre uma tarefa de reunião na tela Tarefas. Qual botão leva ao registro do desfecho?",
+                    "alternativas": [
+                        ("O que aconteceu?", True),
+                        ("Editar reunião", False),
+                        ("Colocar na agenda", False),
+                        ("Cancelar", False),
+                    ],
+                },
+                {
+                    "enunciado": "Você quer ver a sua produção do mês separada por tipo de tarefa. Onde clicar?",
+                    "alternativas": [
+                        ("Na coluna Concluídas", False),
+                        ("No seletor Responsável", False),
+                        ("No contador Realizadas em (mês)", True),
+                        ("Na faixa azul da tarefa", False),
                     ],
                 },
             ],
@@ -1361,6 +1820,42 @@ Com a transcrição pronta, o **Scorecard do roteiro** avalia 10 itens de 0 a 2 
                         ("Não há meta", False),
                     ],
                 },
+                {
+                    "enunciado": "Uma reunião marcada para as 12h30 não aparece na grade. Onde ela está?",
+                    "alternativas": [
+                        ("Na faixa Fora da grade", True),
+                        ("Na coluna Futuras da tela Tarefas", False),
+                        ("Em lugar nenhum: a Agenda não aceita esse horário", False),
+                        ("Na semana seguinte", False),
+                    ],
+                },
+                {
+                    "enunciado": "O cliente avisou com dois dias de antecedência que precisa desmarcar. Qual desfecho, e o que acontece?",
+                    "alternativas": [
+                        ("No-show; o evento continua na agenda", False),
+                        ("Realizada; a tarefa é concluída", False),
+                        ("Cancelada; o evento continua só na sua agenda", False),
+                        ("Cancelada; o evento sai da agenda de todos e o Google avisa o cliente", True),
+                    ],
+                },
+                {
+                    "enunciado": "A partir de quando o link Reunião ao vivo (transcrição durante a call) fica disponível?",
+                    "alternativas": [
+                        ("Na hora exata do início", False),
+                        ("1 hora antes do início", True),
+                        ("No dia anterior", False),
+                        ("Só depois que a reunião termina", False),
+                    ],
+                },
+                {
+                    "enunciado": "A call terminou e a transcrição do Meet ainda não apareceu na tarefa da reunião. O que fazer?",
+                    "alternativas": [
+                        ("Digitar a transcrição à mão", False),
+                        ("Registrar No-show até ela chegar", False),
+                        ("Clicar em Buscar agora", True),
+                        ("Gerar o scorecard sem transcrição", False),
+                    ],
+                },
             ],
         },
         {
@@ -1439,6 +1934,42 @@ Na avaliação do squad de EV, os principais são **NMRR** e **pipeline**, junto
                         ("% NOSHOW", False),
                     ],
                 },
+                {
+                    "enunciado": "Na tela Relatórios, qual é a ordem para montar um relatório?",
+                    "alternativas": [
+                        ("Arrastar os campos, escolher o período e depois a fonte", False),
+                        ("Escolher o que analisar, o período, Montar relatório e arrastar os campos", True),
+                        ("Escolher o período, salvar e depois escolher a fonte", False),
+                        ("Montar relatório e só então escolher o que analisar", False),
+                    ],
+                },
+                {
+                    "enunciado": "Na conta, onde você vê as outras negociações com a mesma empresa?",
+                    "alternativas": [
+                        ("Na aba Sócios", False),
+                        ("Na aba Dados públicos", False),
+                        ("Na aba Contatos", False),
+                        ("Na aba Oportunidades", True),
+                    ],
+                },
+                {
+                    "enunciado": "Na avaliação do squad de EV, quais são os indicadores principais?",
+                    "alternativas": [
+                        ("NMRR e pipeline", True),
+                        ("Follow-ups e propostas", False),
+                        ("Reuniões realizadas e scorecard", False),
+                        ("Ticket médio e contratos", False),
+                    ],
+                },
+                {
+                    "enunciado": "Você montou um relatório que vai usar toda semana. O que dá para fazer com ele?",
+                    "alternativas": [
+                        ("Só exportar, porque relatório não fica salvo", False),
+                        ("Mandar para a gestão publicar no Monitor", False),
+                        ("Salvar no seu perfil e, se quiser, compartilhar com a equipe", True),
+                        ("Fixar como quadro novo no Monitor", False),
+                    ],
+                },
             ],
         },
         {
@@ -1507,6 +2038,33 @@ Na avaliação do squad de EV, os principais são **NMRR** e **pipeline**, junto
                         ("Em Monitor › RPeR › Metas por squad e pessoa", True),
                         ("Na proposta", False),
                         ("Em lugar nenhum: o HIPO calcula sozinho", False),
+                    ],
+                },
+                {
+                    "enunciado": "Seu funil mostra muitas propostas e poucas vendas. O que a aula manda trabalhar?",
+                    "alternativas": [
+                        ("Negociação e follow-up: toda proposta com próximo passo marcado", True),
+                        ("Diagnóstico: revisar as perguntas da reunião", False),
+                        ("Prospecção: pedir mais empresas ao SDR", False),
+                        ("Cadastro: conferir as contas", False),
+                    ],
+                },
+                {
+                    "enunciado": "O seu PIPELINE está baixo. O que isso indica, segundo a aula?",
+                    "alternativas": [
+                        ("Que as propostas estão caras", False),
+                        ("Que a meta foi mal cadastrada", False),
+                        ("Que o follow-up está atrasado", False),
+                        ("Falta reunião: converse com o SDR e a gestão sobre a agenda da semana", True),
+                    ],
+                },
+                {
+                    "enunciado": "Quais passagens aparecem no Funil do Desempenho do EV?",
+                    "alternativas": [
+                        ("Tarefas de prospecção → Empresas contatadas → Reuniões agendadas", False),
+                        ("Reuniões realizadas → Propostas → Vendas", True),
+                        ("Suspect → Lead → Qualificação → Negociação", False),
+                        ("Parceiros → Indicações → Vendas", False),
                     ],
                 },
             ],
@@ -1614,6 +2172,42 @@ O EC cuida da **carteira de parceiros**: escritórios de contabilidade (e outras
                         ("No-show", False),
                     ],
                 },
+                {
+                    "enunciado": "Para que o EC usa a tela Oportunidades?",
+                    "alternativas": [
+                        ("Para cadastrar parceiros novos", False),
+                        ("Para puxar empresas da base da Receita", False),
+                        ("Para acompanhar as indicações que viraram negociação", True),
+                        ("Para marcar as reuniões de carteira", False),
+                    ],
+                },
+                {
+                    "enunciado": "Pela ordem do dia do EC proposta na aula, por onde você começa?",
+                    "alternativas": [
+                        ("Parceiros: quem está Sem contato nesta semana e quem está esfriando", True),
+                        ("Tarefas: atrasadas primeiro", False),
+                        ("Agenda: reuniões de carteira da semana", False),
+                        ("Oportunidades: como andam as indicações", False),
+                    ],
+                },
+                {
+                    "enunciado": "Em que tela se marca uma empresa como Finder, para ela virar parceiro?",
+                    "alternativas": [
+                        ("Em Parceiros, botão Novo parceiro", False),
+                        ("Em Monitor, quadro PARCERIAS", False),
+                        ("Em Agenda, no formulário de reunião", False),
+                        ("Em Contas", True),
+                    ],
+                },
+                {
+                    "enunciado": "Segundo a aula, quais duas coisas o HIPO mede no trabalho do EC?",
+                    "alternativas": [
+                        ("Ligações feitas e propostas enviadas", False),
+                        ("Contato com o parceiro e indicações que chegam", True),
+                        ("Empresas puxadas e reuniões agendadas", False),
+                        ("No-show e ticket médio", False),
+                    ],
+                },
             ],
         },
         {
@@ -1704,6 +2298,42 @@ Na coluna **Em aberto**, as indicações do parceiro por fase (S, L, Q, A, N) co
                         ("Importando uma planilha", False),
                     ],
                 },
+                {
+                    "enunciado": "O que o número Sem contato, no topo de Parceiros, mostra?",
+                    "alternativas": [
+                        ("Parceiros que nunca indicaram", False),
+                        ("Parceiros sem EC responsável", False),
+                        ("Parceiros sem indicar há mais de 180 dias", False),
+                        ("Parceiros sem tarefa feita nem marcada nesta semana", True),
+                    ],
+                },
+                {
+                    "enunciado": "O que mostra o mini-funil da coluna Em aberto?",
+                    "alternativas": [
+                        ("As indicações do parceiro por fase (S, L, Q, A, N), com quantidade e valor", True),
+                        ("As tarefas do parceiro nas últimas 4 semanas", False),
+                        ("A conversão do parceiro mês a mês", False),
+                        ("Os contatos do escritório por cargo", False),
+                    ],
+                },
+                {
+                    "enunciado": "Um parceiro tem quatro semanas verdes no farol e nenhuma indicação. Como a aula lê isso?",
+                    "alternativas": [
+                        ("Abandono do parceiro pelo EC", False),
+                        ("Problema de mercado, não de contato", True),
+                        ("Erro de cadastro do Finder", False),
+                        ("Parceiro pronto para sair da carteira", False),
+                    ],
+                },
+                {
+                    "enunciado": "Um EC vai sair de férias e todos os parceiros dele precisam passar para você. O que usar?",
+                    "alternativas": [
+                        ("Remover da carteira em cada parceiro", False),
+                        ("Filtro EC responsável com o seu nome", False),
+                        ("Transferir carteira, que move todos de uma vez e registra no histórico", True),
+                        ("Marcar Finder de novo em cada conta", False),
+                    ],
+                },
             ],
         },
         {
@@ -1782,6 +2412,42 @@ Clique na linha do parceiro. O painel abre por cima da lista.
                         ("Quando a parceria acabou de verdade", True),
                         ("Para transferir para outro EC", False),
                         ("Toda vez que o farol fica vermelho", False),
+                    ],
+                },
+                {
+                    "enunciado": "No trilho do parceiro, você troca o EC responsável. Precisa salvar?",
+                    "alternativas": [
+                        ("Sim, no botão Salvar do rodapé", False),
+                        ("Sim, e a gestão precisa aprovar", False),
+                        ("Só se o parceiro tiver tarefa aberta", False),
+                        ("Não: grava na hora e registra o evento", True),
+                    ],
+                },
+                {
+                    "enunciado": "Antes de ligar para um parceiro, o que a aula sugere abrir?",
+                    "alternativas": [
+                        ("A aba Carteira, para ver quem assumiu", False),
+                        ("A aba Indicações, para falar do cliente que ele indicou e já fechou", True),
+                        ("O Monitor, para ver o quadro PARCERIAS", False),
+                        ("A tela de Contas, para conferir o endereço", False),
+                    ],
+                },
+                {
+                    "enunciado": "Onde você vê quando o parceiro virou parceiro, quem o assumiu e quando foi transferido?",
+                    "alternativas": [
+                        ("Na aba Carteira", True),
+                        ("Na aba Dados", False),
+                        ("Na aba Tarefas", False),
+                        ("Na aba Indicações", False),
+                    ],
+                },
+                {
+                    "enunciado": "Você usa Agendar reunião no rodapé do parceiro. Quem vem como anfitrião?",
+                    "alternativas": [
+                        ("O EV da última indicação", False),
+                        ("Quem estiver livre no horário", False),
+                        ("O EC responsável pelo parceiro", True),
+                        ("A gestão", False),
                     ],
                 },
             ],
@@ -1864,6 +2530,42 @@ Igual a qualquer reunião: **Realizada**, **Cancelada** (24h ou mais de anteced�
                         ("Tarefas de parceiro criadas", False),
                     ],
                 },
+                {
+                    "enunciado": "Na tela Tarefas, como você reconhece o cartão de uma tarefa de parceiro?",
+                    "alternativas": [
+                        ("Ele aparece numa coluna própria, Parceiros", False),
+                        ("Ele mostra \"Parceiro\" no lugar do número da oportunidade", True),
+                        ("Ele vem sempre em vermelho", False),
+                        ("Ele só aparece na aba Tarefas do parceiro", False),
+                    ],
+                },
+                {
+                    "enunciado": "Você vai marcar uma reunião com um escritório parceiro pela Agenda. O que escolher em Reunião com?",
+                    "alternativas": [
+                        ("Cliente (oportunidade), buscando pelo CNPJ", False),
+                        ("Convidado externo, digitando o e-mail", False),
+                        ("Toda a equipe, para ver os horários", False),
+                        ("Parceiro (contador), buscando o escritório", True),
+                    ],
+                },
+                {
+                    "enunciado": "Na busca de Parceiro (contador), o escritório que você procura não aparece. Qual é a causa mais provável?",
+                    "alternativas": [
+                        ("A conta não está marcada como parceira (Finder)", True),
+                        ("O escritório já tem reunião na semana", False),
+                        ("A Agenda está filtrada em Oportunidades", False),
+                        ("O escritório não tem CNPJ válido na Receita", False),
+                    ],
+                },
+                {
+                    "enunciado": "Na reunião de carteira marcada pela Agenda, quem vai em Anfitrião e quem vai em Agendado por?",
+                    "alternativas": [
+                        ("Anfitrião: o EV. Agendado por: você", False),
+                        ("Anfitrião: o parceiro. Agendado por: você", False),
+                        ("Você nos dois", True),
+                        ("Anfitrião: você. Agendado por: a gestão", False),
+                    ],
+                },
             ],
         },
         {
@@ -1940,6 +2642,42 @@ Na visão 360 de uma conta, a **Situação** tem os marcadores **Ativa** e **Fin
                         ("Pela Agenda", False),
                     ],
                 },
+                {
+                    "enunciado": "Uma indicação virou oportunidade, mas o campo Finder ficou vazio. Qual é a consequência?",
+                    "alternativas": [
+                        ("O parceiro é removido da carteira", False),
+                        ("A oportunidade não pode ser finalizada", False),
+                        ("O EV recebe a indicação como dele", False),
+                        ("Não entra na carteira do parceiro nem na sua avaliação de vendas com EC", True),
+                    ],
+                },
+                {
+                    "enunciado": "Na aba Envolvidos de uma oportunidade indicada pelo seu parceiro, com que papel você entra?",
+                    "alternativas": [
+                        ("SDR", False),
+                        ("EC", True),
+                        ("EV", False),
+                        ("Finder", False),
+                    ],
+                },
+                {
+                    "enunciado": "Uma conta que ainda não era parceiro é usada como Finder numa oportunidade. O que acontece com ela?",
+                    "alternativas": [
+                        ("Vira parceiro automaticamente", True),
+                        ("Precisa ser aprovada pela gestão", False),
+                        ("Fica marcada como Não prospectar", False),
+                        ("Nada, até alguém marcar Finder em Contas", False),
+                    ],
+                },
+                {
+                    "enunciado": "Como o HIPO calcula a Conversão do parceiro?",
+                    "alternativas": [
+                        ("Indicações ganhas ÷ todas as indicações, inclusive as abertas", False),
+                        ("Reuniões realizadas ÷ indicações recebidas", False),
+                        ("Indicações conquistadas ÷ indicações que chegaram ao fim, sem os cancelados", True),
+                        ("Indicações do mês ÷ parceiros na carteira", False),
+                    ],
+                },
             ],
         },
         {
@@ -1995,6 +2733,42 @@ Em **Relatórios**: fonte **Oportunidades**, período **Este ano**, **Montar rel
                         ("A empresa ser da sua cidade", False),
                         ("O gestor marcar no fim do mês", False),
                         ("Nada, toda venda conta", False),
+                    ],
+                },
+                {
+                    "enunciado": "Para a gestão, o que conta como reunião de carteira?",
+                    "alternativas": [
+                        ("Qualquer reunião marcada com parceiro", False),
+                        ("Reunião de parceiro realizada em que você foi o anfitrião", True),
+                        ("Reunião de cliente indicada por parceiro", False),
+                        ("Tarefa de ligação concluída com parceiro", False),
+                    ],
+                },
+                {
+                    "enunciado": "No relatório \"Indicações por parceiro\" sugerido na aula, o que vai em Linhas?",
+                    "alternativas": [
+                        ("A mensalidade", False),
+                        ("Veio de indicação de parceiro", False),
+                        ("A fase da oportunidade", False),
+                        ("Parceiro que indicou", True),
+                    ],
+                },
+                {
+                    "enunciado": "Para montar esse relatório, que fonte e que período a aula indica?",
+                    "alternativas": [
+                        ("Oportunidades, período Este ano", True),
+                        ("Contas, período Este mês", False),
+                        ("Reuniões, últimos 30 dias", False),
+                        ("Tarefas, desde sempre", False),
+                    ],
+                },
+                {
+                    "enunciado": "Pelo tour, por onde a semana do EC começa?",
+                    "alternativas": [
+                        ("Pelo quadro PARCERIAS do Monitor", False),
+                        ("Pelo relatório Indicações por parceiro", False),
+                        ("Pelo número Sem contato em Parceiros: quem está nele vira tarefa hoje", True),
+                        ("Pela coluna Concluídas em Tarefas", False),
                     ],
                 },
             ],
@@ -2063,6 +2837,33 @@ Em **Relatórios**: fonte **Oportunidades**, período **Este ano**, **Montar rel
                         ("Em Monitor › RPeR › Metas por squad e pessoa", True),
                         ("Em Parceiros", False),
                         ("Em lugar nenhum: o HIPO calcula sozinho", False),
+                    ],
+                },
+                {
+                    "enunciado": "No funil do seu Desempenho, \"indicações por reunião\" está em 0,5. O que isso quer dizer?",
+                    "alternativas": [
+                        ("5 indicações a cada reunião", False),
+                        ("0,5% das reuniões geraram indicação", False),
+                        ("2 indicações a cada reunião", False),
+                        ("1 indicação a cada 2 reuniões", True),
+                    ],
+                },
+                {
+                    "enunciado": "Por que CONTAS SOB GESTÃO é comparada com a meta cheia mesmo no meio do mês?",
+                    "alternativas": [
+                        ("Porque é o indicador principal do EC", False),
+                        ("Porque é posição: a carteira de hoje, não uma soma", True),
+                        ("Porque a gestão cadastra só a meta anual", False),
+                        ("Porque taxa não acumula", False),
+                    ],
+                },
+                {
+                    "enunciado": "Seu funil mostra poucas reuniões por parceiro. O que a aula manda fazer?",
+                    "alternativas": [
+                        ("Começar a semana pelo Sem contato em Parceiros e revisar o Método 03 · Roteiro do EC", True),
+                        ("Pedir indicação concreta no fim de toda reunião", False),
+                        ("Conferir se você está nos Envolvidos das oportunidades", False),
+                        ("Acompanhar as indicações com o EV", False),
                     ],
                 },
             ],

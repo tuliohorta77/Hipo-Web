@@ -70,8 +70,9 @@ def test_todos_os_pdfs_estao_em_alguma_aula():
     assert usados >= set(c.PDFS)
 
 
-def test_toda_aula_tem_quiz_para_a_uc2():
-    assert all(len(a["quiz"]) >= 3 for t in c.TRILHAS for a in t["aulas"])
+def test_toda_aula_tem_quiz_de_sete_perguntas():
+    """Decisão de 05/10/2026: 7 perguntas, 85% (6 de 7) para aprovar."""
+    assert all(len(a["quiz"]) == 7 for t in c.TRILHAS for a in t["aulas"])
 
 
 def test_vigencia_dos_psicossociais_esta_no_texto():
@@ -81,10 +82,19 @@ def test_vigencia_dos_psicossociais_esta_no_texto():
 
 def test_conferir_pega_quiz_com_duas_corretas(monkeypatch):
     aula = dict(c.TRILHA_01["aulas"][0])
-    aula["quiz"] = [{"enunciado": "x", "alternativas": [("a", True), ("b", True), ("c", False)]}]
+    aula["quiz"] = [dict(q) for q in aula["quiz"]]
+    aula["quiz"][2] = {"enunciado": "x", "alternativas": [("a", True), ("b", True), ("c", False)]}
     trilha = {**c.TRILHA_01, "aulas": [aula]}
     monkeypatch.setattr(semear_uc, "TRILHAS", [trilha])
-    assert any("exatamente 1 correta" in e for e in semear_uc.conferir())
+    assert any("exatamente uma alternativa correta" in e for e in semear_uc.conferir())
+
+
+def test_conferir_pega_quiz_com_menos_de_sete(monkeypatch):
+    aula = dict(c.TRILHA_01["aulas"][0])
+    aula["quiz"] = aula["quiz"][:3]
+    trilha = {**c.TRILHA_01, "aulas": [aula]}
+    monkeypatch.setattr(semear_uc, "TRILHAS", [trilha])
+    assert any("precisa de exatamente 7" in e for e in semear_uc.conferir())
 
 
 def test_senha_do_banco_sai_mascarada():

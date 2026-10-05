@@ -10,8 +10,9 @@
 // pergunta "essa mudança obriga quem já fez a refazer?". Sem concluinte,
 // a pergunta não tem a quem se aplicar.
 //
-// Material de apoio só depois de salvar: o arquivo precisa de uma aula que
-// já existe (mesma regra dos anexos de tarefa).
+// Material de apoio e quiz só depois de salvar: precisam de uma aula que
+// já existe (mesma regra dos anexos de tarefa). O quiz salva à parte
+// (EditorQuiz), com o próprio botão.
 
 import { useEffect, useRef, useState } from 'react';
 import { Eye, Pencil, Trash2, Upload, FileText, Image as ImageIcon } from 'lucide-react';
@@ -22,6 +23,7 @@ import Input, { Select, Textarea } from '../ui/Input';
 import AlertMessage from '../ui/AlertMessage';
 import { mensagemDeErro } from '../crm/tarefaComum';
 import TextoAula from './TextoAula';
+import EditorQuiz from './EditorQuiz';
 import { tamanhoArquivo, urlDeEmbed } from './ucComum';
 
 function vazio() {
@@ -143,7 +145,7 @@ export default function EditorAula({ aberto, trilhaId, aula, onFechar, onSalvo, 
           <Input
             id="aula-duracao" label="Duração (min)" type="number" min="1" max="600"
             value={form.duracao_min} onChange={campo('duracao_min')}
-            hint="Libera o Concluí na metade"
+            hint="Libera o Concluí (ou o quiz) na metade"
           />
         </div>
         <Input id="aula-resumo" label="Resumo" value={form.resumo} onChange={campo('resumo')} />
@@ -256,6 +258,15 @@ export default function EditorAula({ aberto, trilhaId, aula, onFechar, onSalvo, 
             </>
           )}
         </div>
+
+        {atual ? (
+          <EditorQuiz
+            aula={atual}
+            onSalvo={(data) => { setAtual((a) => ({ ...a, quiz: data.quiz, nota_minima: data.nota_minima })); onSalvo?.(data); }}
+          />
+        ) : (
+          <p className="text-xs text-hipo-slate">Salve a aula para escrever o quiz.</p>
+        )}
       </div>
     </Modal>
   );
