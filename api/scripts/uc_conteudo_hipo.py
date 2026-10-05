@@ -27,7 +27,10 @@ FORMATO DO TOUR (validado por services/uc.validar_tour)
           ABRIDORES.
 
 Os textos descrevem a tela como ela está no código em 02/10/2026 (rótulos,
-regras e mensagens conferidos nas páginas e nos routers). Tela mudou de
+regras e mensagens conferidos nas páginas e nos routers). Atualizado em
+outubro/2026 com a Carreira (entrega 038): a Universidade virou a aba de
+um item novo, Carreira, ao lado do PDI e do Desempenho; cada trilha ganhou
+a aula "Carreira: o seu Desempenho" no fim. Tela mudou de
 rótulo? Atualize a aula junto, e rode a carga com --atualizar.
 
 Este arquivo é só dado. Quem grava é scripts/semear_uc.py.
@@ -78,10 +81,75 @@ PASSO_PERFIL = _passo(
     "senha 123456: troque no primeiro dia.",
 )
 PASSO_UC = _passo(
-    "/uc", "uc-proxima", "Sua próxima aula",
-    "A Universidade abre sempre na **próxima aula**, escolhida pelo prazo. "
-    "Quando terminar este tour, é aqui que você volta para continuar.",
+    "/carreira", "uc-proxima", "Sua próxima aula",
+    "Em **Carreira**, a aba Universidade abre sempre na **próxima aula**, "
+    "escolhida pelo prazo. Quando terminar este tour, é aqui que você volta "
+    "para continuar.",
 )
+PASSO_CARREIRA = _passo(
+    "/carreira", "nav-carreira", "Carreira",
+    "Estudo e desenvolvimento num lugar só, em três abas: **Universidade** "
+    "(as trilhas), **PDI** (o seu plano de desenvolvimento) e **Desempenho** "
+    "(os seus números contra a sua meta).",
+)
+
+
+def _tour_desempenho(principais: str, funil: str) -> list[dict]:
+    """O tour da aba Desempenho; muda só o que é de cada função."""
+    d = "/carreira/desempenho"
+    return [
+        PASSO_CARREIRA,
+        _passo("/carreira", "carreira-abas", "As três abas",
+               "**Universidade** abre na sua próxima aula. **PDI** é o seu plano de "
+               "desenvolvimento (chega na próxima entrega). **Desempenho** mostra os "
+               "seus números do mês contra a sua meta."),
+        _passo(d, "des-mes", "O mês e o ritmo",
+               "As setas trocam o mês. No mês atual, cada número é comparado com a "
+               "**meta de hoje**, que acompanha os dias úteis como no Monitor. Mês "
+               "fechado compara com a meta do mês inteiro."),
+        _passo(d, "des-atencao", "Seu ponto de atenção",
+               "O indicador mais longe da meta, quanto falta para a meta do mês e o "
+               "botão **Agir em**, que leva à tela onde esse número se mexe. Se o "
+               "cartão não aparece, está tudo em dia ou a meta ainda não foi cadastrada."),
+        _passo(d, "des-principais", "Os principais", principais),
+        _passo(d, "des-indicadores", "Todos os indicadores",
+               "Os mesmos números da RPeR: realizado, meta de hoje, meta do mês e a "
+               "carinha do atingimento. O link no fim da linha abre a tela onde se age."),
+        _passo(d, "des-funil", "O funil e as taxas", funil),
+        _passo(d, "des-historico", "Últimos meses",
+               "Seis meses de realizado e atingimento, contra a meta de cada mês. É "
+               "aqui que se vê se o ritmo está melhorando. O mês atual é parcial."),
+    ]
+
+
+TEXTO_CARREIRA_ABAS = """\
+## A Carreira
+
+No menu, a Universidade virou **Carreira**. É o lugar do seu desenvolvimento, em três abas:
+
+- **Universidade**: as trilhas, como sempre. Abre na sua próxima aula.
+- **PDI**: o seu plano de desenvolvimento individual. Chega na próxima entrega: as ações vão nascer do seu Desempenho e das suas trilhas, combinadas com a gestão.
+- **Desempenho**: os seus números do mês contra a sua meta. É o assunto desta aula.
+
+## De onde vêm os números
+
+- **A meta** é a da RPeR, cadastrada pela gestão em **Monitor › RPeR › Metas por squad e pessoa**. Sem meta cadastrada para o mês, a tela avisa e mostra só o realizado.
+- **O realizado** sai do que você lança no HIPO: são os mesmos números da RPeR, só que seus. Tarefa sem concluir, reunião sem desfecho e fase desatualizada não contam.
+
+## Mês atual e meses fechados
+
+No mês atual, cada indicador é comparado com a **meta de hoje**, proporcional aos dias úteis que já passaram, como no Monitor: no dia útil 10 de 20, a meta de hoje é metade da do mês. Taxa não acumula: a meta de hoje de uma taxa é a própria meta. Em um mês fechado, a comparação é com a meta do mês inteiro. As setas **‹ ›** trocam o mês.
+
+A carinha segue o Monitor: de 110% para cima, muito feliz; de 100%, feliz; de 70%, neutra; de 50%, triste; abaixo de 50%, brava.
+"""
+
+TEXTO_CARREIRA_GESTAO = """\
+## A gestão vê a mesma tela
+
+Franqueado e ADM escolhem a pessoa no seletor **Pessoa** e veem o seu Desempenho em modo leitura, sem os botões de ação. A conversa de acompanhamento parte do mesmo número que você vê.
+
+> Clique em **Me mostra no HIPO**: o tour abre a Carreira e aponta cada parte do Desempenho. Ele só mostra, não muda nada.
+"""
 
 
 # ═════════════════════════════════════════════════════════════════════
@@ -123,7 +191,8 @@ Na barra de cima, da esquerda para a direita:
 - **Tarefas**: tudo o que está em aberto, começando pelo que é seu.
 - **Agenda**: a semana da equipe, onde você marca a reunião para o EV.
 - **Contas**: o cadastro das empresas.
-- **Relatórios**, **Universidade** e **Monitor**: números, estudo e o painel da sala.
+- **Relatórios** e **Monitor**: números e o painel da sala.
+- **Carreira**: a Universidade, o seu PDI e o seu Desempenho contra a meta.
 
 ## O seu dia, na ordem
 
@@ -157,6 +226,7 @@ Na barra de cima, da esquerda para a direita:
                 _passo("/monitor", "mon-quadros", "Monitor",
                        "O painel da sala: dez quadros com a meta de hoje e o resultado do mês. "
                        "LEAD, AGEN e % NOSHOW contam muito do seu trabalho."),
+                PASSO_CARREIRA,
                 PASSO_PERFIL,
             ],
             "quiz": [
@@ -675,7 +745,7 @@ A gestão acompanha o squad de SDR por agendamentos e reuniões realizadas (os p
 
 ## Continuar estudando
 
-A **Universidade** abre na sua próxima aula. Depois desta trilha, a **Método 01 · Roteiro de vendas Controller** mostra o que fazer em cada contato.
+Em **Carreira**, a aba **Universidade** abre na sua próxima aula, e a aba **Desempenho** mostra os seus números contra a sua meta (a próxima aula). Depois desta trilha, a **Método 01 · Roteiro de vendas Controller** mostra o que fazer em cada contato.
 """,
             "tour": [
                 _passo("/monitor", "mon-barra", "O mês e o ritmo",
@@ -711,6 +781,74 @@ A **Universidade** abre na sua próxima aula. Depois desta trilha, a **Método 0
                         ("AGEN conta pela data da reunião; AGEND MES pela data em que foi marcada", True),
                         ("AGEN é do EV e AGEND MES do EC", False),
                         ("AGEND MES conta só no-show", False),
+                    ],
+                },
+            ],
+        },
+        {
+            "id": _id("b0218"),
+            "titulo": "Carreira: o seu Desempenho",
+            "resumo": "A Carreira e as três abas, e como ler o seu Desempenho de SDR: meta de hoje, ponto de atenção, funil e histórico.",
+            "duracao_min": 7,
+            "conteudo_md": TEXTO_CARREIRA_ABAS + """\
+## A tela, de cima para baixo
+
+1. **Ponto de atenção**: o indicador mais longe da meta, com o percentual, quanto falta para a meta do mês e o botão **Agir em**, que leva à tela certa (Agenda, Tarefas, Oportunidades ou Prospecção).
+2. **Os principais do SDR**: **AGENDAMENTOS** (reuniões marcadas por você no mês) e **REUNIÕES REALIZADAS** (as que você agendou e aconteceram).
+3. **Indicadores do mês**: todos os da RPeR do SDR. Além dos principais: no-show, leads gerados, tarefas de prospecção, contas prospectadas, taxa de execução, ticket gerado e NMRR gerado.
+4. **Funil**: Tarefas de prospecção → Empresas contatadas → Reuniões agendadas → Reuniões realizadas, com a taxa de cada passagem. "Agendamentos por empresa contatada" aparece como razão: 0,3 quer dizer 3 reuniões a cada 10 empresas. É conversão dentro do mês, para enxergar onde o funil afina.
+5. **Últimos meses**: seis meses de realizado e atingimento.
+
+## O que fazer com isso
+
+O funil diz o que treinar:
+
+- **Muita tarefa, pouco contato**: cadência. Volte à **Energia 01** (rotina e mínimo diário).
+- **Muito contato, pouco agendamento**: abordagem. Revise o **Método 02 · Roteiro do SDR**.
+- **Muito agendamento, pouca reunião realizada**: no-show. Confirme a reunião na véspera e registre o desfecho no mesmo dia.
+
+""" + TEXTO_CARREIRA_GESTAO,
+            "tour": _tour_desempenho(
+                "Os dois números que mais pesam no SDR: **AGENDAMENTOS** e **REUNIÕES "
+                "REALIZADAS**, com a meta e a barra do atingimento.",
+                "Tarefas de prospecção → empresas contatadas → reuniões agendadas → "
+                "reuniões realizadas. A taxa de cada passagem mostra onde o seu funil afina.",
+            ),
+            "quiz": [
+                {
+                    "enunciado": "Dia útil 10 de 20. Sua meta do mês é 40 agendamentos e você tem 14. Qual é o atingimento da meta de hoje?",
+                    "alternativas": [
+                        ("35%", False),
+                        ("70%", True),
+                        ("140%", False),
+                        ("14%", False),
+                    ],
+                },
+                {
+                    "enunciado": "Onde a gestão cadastra a sua meta individual?",
+                    "alternativas": [
+                        ("No seu Perfil", False),
+                        ("Em Monitor › RPeR › Metas por squad e pessoa", True),
+                        ("Na Universidade", False),
+                        ("Em lugar nenhum: o HIPO calcula sozinho", False),
+                    ],
+                },
+                {
+                    "enunciado": "A meta de no-show é 15%. No dia útil 5 de 20, qual é a meta de hoje?",
+                    "alternativas": [
+                        ("15%: taxa não acumula", True),
+                        ("3,75%", False),
+                        ("0%", False),
+                        ("60%", False),
+                    ],
+                },
+                {
+                    "enunciado": "Seu funil mostra muitos agendamentos e poucas reuniões realizadas. Onde está o problema?",
+                    "alternativas": [
+                        ("Na prospecção: faltam empresas", False),
+                        ("No no-show: confirmar a reunião e registrar o desfecho", True),
+                        ("Na proposta do EV", False),
+                        ("Em nada: agendar é o que conta", False),
                     ],
                 },
             ],
@@ -755,7 +893,8 @@ A negociação inteira vive no HIPO: fase, temperatura, proposta, cada contato e
 - **Tarefas**: o que está em aberto, começando pelo que é seu.
 - **Agenda**: as suas reuniões da semana. Muitas foram marcadas para você pelo SDR.
 - **Contas**: o cadastro das empresas, com dados da Receita e grau de risco.
-- **Relatórios**, **Universidade** e **Monitor**.
+- **Relatórios** e **Monitor**.
+- **Carreira**: a Universidade, o seu PDI e o seu Desempenho contra a meta.
 
 ## O seu dia, na ordem
 
@@ -786,6 +925,7 @@ A negociação inteira vive no HIPO: fase, temperatura, proposta, cada contato e
                        "Tabelas dinâmicas sobre a base do HIPO. Todo número abre os registros que o compõem."),
                 _passo("/monitor", "mon-quadros", "Monitor",
                        "O painel da sala: **NMRR**, **CONTRATOS**, **TICK MED**, **APRE** e **SCORECARD** falam do seu trabalho."),
+                PASSO_CARREIRA,
                 PASSO_PERFIL,
             ],
             "quiz": [
@@ -1301,6 +1441,76 @@ Na avaliação do squad de EV, os principais são **NMRR** e **pipeline**, junto
                 },
             ],
         },
+        {
+            "id": _id("b0318"),
+            "titulo": "Carreira: o seu Desempenho",
+            "resumo": "A Carreira e as três abas, e como ler o seu Desempenho de EV: NMRR, pipeline, funil de reunião a venda e histórico.",
+            "duracao_min": 7,
+            "conteudo_md": TEXTO_CARREIRA_ABAS + """\
+## A tela, de cima para baixo
+
+1. **Ponto de atenção**: o indicador mais longe da meta, com o percentual, quanto falta para a meta do mês e o botão **Agir em**, que leva à tela certa (Oportunidades, Tarefas ou Agenda).
+2. **Os principais do EV**: **NMRR** (a mensalidade das vendas do mês) e **PIPELINE (TICKET MENSAL)** (a mensalidade das oportunidades em negociação).
+3. **Indicadores do mês**: todos os da RPeR do EV. Além dos principais: follow-ups realizados, taxa de execução, oportunidades trabalhadas, propostas enviadas, reuniões realizadas, vendas fechadas, taxa de conversão, ticket médio e em negociação.
+4. **Funil**: Reuniões realizadas → Propostas → Vendas, com a taxa de cada passagem. É conversão dentro do mês, para enxergar onde o funil afina.
+5. **Últimos meses**: seis meses de realizado e atingimento.
+
+## Posição não é acumulado
+
+**PIPELINE** e **EM NEGOCIAÇÃO** são uma fotografia do que está aberto agora, não uma soma ao longo do mês. Por isso são comparados com a meta cheia mesmo no mês aberto. Os demais seguem a meta de hoje.
+
+## O que fazer com isso
+
+- **Muita reunião, pouca proposta**: diagnóstico. Revise o **Método 01 · Roteiro de vendas Controller**, nas aulas de diagnóstico e proposta.
+- **Muita proposta, pouca venda**: negociação e follow-up. Toda proposta com próximo passo marcado.
+- **Pipeline baixo**: falta reunião. Converse com o SDR e com a gestão sobre a agenda da semana.
+
+""" + TEXTO_CARREIRA_GESTAO,
+            "tour": _tour_desempenho(
+                "Os dois números que mais pesam no EV: **NMRR** (vendas do mês) e "
+                "**PIPELINE** (a mensalidade em negociação), com a meta e a barra do atingimento.",
+                "Reuniões realizadas → propostas → vendas. A taxa de cada passagem mostra "
+                "se o funil afina no diagnóstico ou na negociação.",
+            ),
+            "quiz": [
+                {
+                    "enunciado": "Dia útil 10 de 20. Sua meta de NMRR do mês é R$ 4.000 e você vendeu R$ 1.000. Qual é o atingimento da meta de hoje?",
+                    "alternativas": [
+                        ("25%", False),
+                        ("50%", True),
+                        ("100%", False),
+                        ("10%", False),
+                    ],
+                },
+                {
+                    "enunciado": "Por que o PIPELINE é comparado com a meta cheia mesmo no meio do mês?",
+                    "alternativas": [
+                        ("Porque é posição: a fotografia do que está aberto agora, não uma soma", True),
+                        ("Porque é o indicador mais importante", False),
+                        ("Porque a gestão escolheu assim no Perfil", False),
+                        ("Não é: segue a meta de hoje", False),
+                    ],
+                },
+                {
+                    "enunciado": "Seu funil mostra muitas reuniões realizadas e poucas propostas. O que revisar?",
+                    "alternativas": [
+                        ("O diagnóstico da reunião, no Roteiro de vendas", True),
+                        ("A prospecção do SDR", False),
+                        ("O cadastro da conta", False),
+                        ("Nada: proposta não conta", False),
+                    ],
+                },
+                {
+                    "enunciado": "Onde a gestão cadastra a sua meta individual?",
+                    "alternativas": [
+                        ("No seu Perfil", False),
+                        ("Em Monitor › RPeR › Metas por squad e pessoa", True),
+                        ("Na proposta", False),
+                        ("Em lugar nenhum: o HIPO calcula sozinho", False),
+                    ],
+                },
+            ],
+        },
     ],
 }
 
@@ -1342,7 +1552,8 @@ O EC cuida da **carteira de parceiros**: escritórios de contabilidade (e outras
 - **Agenda**: abre em **Parceiros**, com as reuniões da carteira.
 - **Oportunidades**: as indicações que viraram negociação.
 - **Contas**: o cadastro das empresas, onde se marca o **Finder**.
-- **Relatórios**, **Universidade** e **Monitor**.
+- **Relatórios** e **Monitor**.
+- **Carreira**: a Universidade, o seu PDI e o seu Desempenho contra a meta.
 
 ## O seu dia, na ordem
 
@@ -1372,6 +1583,7 @@ O EC cuida da **carteira de parceiros**: escritórios de contabilidade (e outras
                        "O cadastro das empresas. É marcando **Finder** numa conta que ela vira parceiro."),
                 _passo("/monitor", "mon-quadros", "Monitor",
                        "O quadro **PARCERIAS** conta as reuniões de parceiro realizadas no mês."),
+                PASSO_CARREIRA,
                 PASSO_PERFIL,
             ],
             "quiz": [
@@ -1783,6 +1995,74 @@ Em **Relatórios**: fonte **Oportunidades**, período **Este ano**, **Montar rel
                         ("A empresa ser da sua cidade", False),
                         ("O gestor marcar no fim do mês", False),
                         ("Nada, toda venda conta", False),
+                    ],
+                },
+            ],
+        },
+        {
+            "id": _id("b0417"),
+            "titulo": "Carreira: o seu Desempenho",
+            "resumo": "A Carreira e as três abas, e como ler o seu Desempenho de EC: reuniões de carteira, MRR, funil de parceiro a venda e histórico.",
+            "duracao_min": 7,
+            "conteudo_md": TEXTO_CARREIRA_ABAS + """\
+## A tela, de cima para baixo
+
+1. **Ponto de atenção**: o indicador mais longe da meta, com o percentual, quanto falta para a meta do mês e o botão **Agir em**, que leva à tela certa (Parceiros, Agenda, Tarefas ou Oportunidades).
+2. **Os principais do EC**: **REUNIÕES DE CARTEIRA** (reuniões de parceiro realizadas em que você foi o anfitrião) e **MRR FECHADO** (a mensalidade das vendas em que você está nos Envolvidos como EC).
+3. **Indicadores do mês**: todos os da RPeR do EC. Além dos principais: contas sob gestão, parcerias novas, leads indicados, tarefas, taxa de execução e vendas com EC.
+4. **Funil**: Parceiros na carteira → Reuniões de carteira → Indicações recebidas → Vendas com EC. "Reuniões por parceiro" e "indicações por reunião" aparecem como razão: 0,5 indicação por reunião quer dizer 1 indicação a cada 2 reuniões. É conversão dentro do mês.
+5. **Últimos meses**: seis meses de realizado e atingimento.
+
+**CONTAS SOB GESTÃO** é posição (a carteira de hoje, não uma soma), por isso é comparada com a meta cheia mesmo no mês aberto.
+
+## O que fazer com isso
+
+- **Poucas reuniões por parceiro**: cadência da carteira. Comece a semana pelo **Sem contato** em Parceiros e revise o **Método 03 · Roteiro do EC**.
+- **Muitas reuniões, poucas indicações**: o pedido de indicação. Toda reunião de carteira termina com um pedido concreto.
+- **Indicações que não viram venda**: acompanhe com o EV e confira se você está nos **Envolvidos** da oportunidade, com o papel EC.
+
+""" + TEXTO_CARREIRA_GESTAO,
+            "tour": _tour_desempenho(
+                "Os dois números que mais pesam no EC: **REUNIÕES DE CARTEIRA** e "
+                "**MRR FECHADO**, com a meta e a barra do atingimento.",
+                "Parceiros na carteira → reuniões de carteira → indicações recebidas → "
+                "vendas com EC. As razões mostram se falta reunião ou falta pedido de indicação.",
+            ),
+            "quiz": [
+                {
+                    "enunciado": "Dia útil 10 de 20. Sua meta do mês é 20 reuniões de carteira e você fez 8. Qual é o atingimento da meta de hoje?",
+                    "alternativas": [
+                        ("40%", False),
+                        ("80%", True),
+                        ("160%", False),
+                        ("8%", False),
+                    ],
+                },
+                {
+                    "enunciado": "Você faz muitas reuniões de carteira, mas recebe poucas indicações. O que o funil está dizendo?",
+                    "alternativas": [
+                        ("Falta o pedido de indicação nas reuniões", True),
+                        ("Falta parceiro na carteira", False),
+                        ("O EV não está vendendo", False),
+                        ("Nada: reunião é o que conta", False),
+                    ],
+                },
+                {
+                    "enunciado": "O que faz uma venda entrar no seu MRR FECHADO?",
+                    "alternativas": [
+                        ("Você estar nos Envolvidos da oportunidade com o papel EC", True),
+                        ("A empresa ser da sua cidade", False),
+                        ("O gestor marcar no fim do mês", False),
+                        ("Toda venda do mês entra", False),
+                    ],
+                },
+                {
+                    "enunciado": "Onde a gestão cadastra a sua meta individual?",
+                    "alternativas": [
+                        ("No seu Perfil", False),
+                        ("Em Monitor › RPeR › Metas por squad e pessoa", True),
+                        ("Em Parceiros", False),
+                        ("Em lugar nenhum: o HIPO calcula sozinho", False),
                     ],
                 },
             ],

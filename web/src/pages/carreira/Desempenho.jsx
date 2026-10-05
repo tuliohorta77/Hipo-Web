@@ -237,7 +237,7 @@ export default function Desempenho() {
       {cabecalho}
 
       <div className="flex flex-wrap items-center gap-3">
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-1" data-tour="des-mes">
           <Button
             size="sm" variant="ghost" icon={ChevronLeft} aria-label="Mês anterior"
             onClick={() => irPara({ ano: anterior.ano, mes: anterior.mes })}
@@ -293,7 +293,7 @@ export default function Desempenho() {
       ) : (
         <>
           {atencao && (
-            <Card padding="md" className="border-hipo-warningBorder bg-hipo-warningSoft/40" data-testid="ponto-de-atencao">
+            <Card padding="md" className="border-hipo-warningBorder bg-hipo-warningSoft/40" data-testid="ponto-de-atencao" data-tour="des-atencao">
               <div className="flex flex-col sm:flex-row sm:items-center gap-3">
                 <AlertTriangle size={20} className="text-hipo-warning shrink-0" aria-hidden="true" />
                 <div className="flex-1">
@@ -322,12 +322,12 @@ export default function Desempenho() {
           )}
 
           {principais.length > 0 && (
-            <div className="grid gap-4 grid-cols-1 sm:grid-cols-2">
+            <div className="grid gap-4 grid-cols-1 sm:grid-cols-2" data-tour="des-principais">
               {principais.map((l) => <CartaoPrincipal key={l.chave} linha={l} aberto={dados.aberto} />)}
             </div>
           )}
 
-          <Card padding="none">
+          <Card padding="none" data-tour="des-indicadores">
             <div className="px-5 pt-4"><CardHeader title="Indicadores do mês" hint="Os mesmos números da RPeR, contra a sua meta." /></div>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
@@ -375,7 +375,7 @@ export default function Desempenho() {
             </div>
           </Card>
 
-          <Card>
+          <Card data-tour="des-funil">
             <CardHeader
               title="Funil e taxas de conversão"
               hint="Passagem entre as etapas dentro do mês. Mostra onde o funil afina."
@@ -383,7 +383,7 @@ export default function Desempenho() {
             <Funil etapas={dados.funil} />
           </Card>
 
-          <Card>
+          <Card data-tour="des-historico">
             <CardHeader
               title="Últimos meses"
               hint="Realizado e atingimento contra a meta de cada mês. O mês aberto é parcial."

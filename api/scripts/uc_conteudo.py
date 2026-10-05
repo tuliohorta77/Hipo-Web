@@ -322,7 +322,7 @@ Você vai ser acompanhado(a) em três pilares:
 - **Método**: os processos que precisam ser seguidos (roteiro de vendas, registro no HIPO).
 - **Energia**: o esforço necessário para bater as metas.
 
-As trilhas obrigatórias do seu cargo formam o **Manual da função**, com prazo. A tela da Universidade sempre mostra a sua **próxima aula**.
+As trilhas obrigatórias do seu cargo formam o **Manual da função**, com prazo. A Universidade fica no menu **Carreira** e sempre abre na sua **próxima aula**; ao lado ficam o seu **PDI** e o seu **Desempenho** contra a meta.
 
 ## Seus próximos passos
 

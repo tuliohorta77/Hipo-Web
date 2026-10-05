@@ -115,3 +115,24 @@ def test_passos_de_outras_trilhas_entram_na_conferencia():
     from scripts import uc_conteudo_roteiros as r
     com_tour = {t["titulo"] for t, _a, _i, _p in _passos()}
     assert {r.METODO_02["titulo"], r.METODO_03["titulo"]} <= com_tour
+
+
+def test_toda_trilha_hipo_termina_no_desempenho_da_carreira():
+    """Entrega 038: a Universidade virou aba da Carreira; cada função aprende a ler o Desempenho."""
+    assert {"/carreira", "/carreira/desempenho"} <= set(regras.ROTAS_TOUR)
+    for t in h.TRILHAS_HIPO:
+        ultima = t["aulas"][-1]
+        assert ultima["titulo"] == "Carreira: o seu Desempenho", t["titulo"]
+        rotas = {p["rota"] for p in ultima["tour"]}
+        assert "/carreira/desempenho" in rotas
+        assert "Monitor › RPeR › Metas" in ultima["conteudo_md"]
+        # A primeira aula apresenta o item novo do menu.
+        assert any(p["alvo"] == "nav-carreira" for p in t["aulas"][0]["tour"]), t["titulo"]
+
+
+def test_nenhum_texto_manda_procurar_a_universidade_no_menu():
+    for t in h.TRILHAS_HIPO:
+        for a in t["aulas"]:
+            assert "**Relatórios**, **Universidade**" not in a["conteudo_md"], a["titulo"]
+            for p in a["tour"]:
+                assert p["rota"] != "/uc", f"{t['titulo']} / {a['titulo']}"

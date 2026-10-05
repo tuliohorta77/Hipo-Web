@@ -115,6 +115,7 @@ def validar_cargo(cargo: str | None) -> str:
 ROTAS_TOUR = (
     "/crm/prospeccao", "/crm/oportunidades", "/crm/tarefas", "/crm/agenda",
     "/crm/contas", "/crm/parceiros", "/crm/relatorios", "/monitor", "/uc", "/perfil",
+    "/carreira", "/carreira/desempenho",
 )
 MAX_PASSOS_TOUR = 15
 MAX_CLIQUES_TOUR = 3
