@@ -592,7 +592,7 @@ class TestCargaInicial:
         # A primeira aula da trilha 01 é a próxima: prazo mais curto.
         assert p["proxima"]["aula_titulo"] == TRILHAS[0]["aulas"][0]["titulo"]
         assert all(t["prazo"] is not None for t in p["manual"]["trilhas"])
-        assert len(s3_falso) == 4
+        assert len(s3_falso) == 5
         metodo = next(x for x in p["pilares"] if x["pilar"] == "metodo")
         assert metodo["trilhas"] == 2  # Método 01 + HIPO - EV
 
@@ -603,7 +603,10 @@ class TestCargaInicial:
         await semear_uc.carregar(time["conn"], _pdfs(tmp_path), atualizar=False, simular=False)
         p = await painel(client, ep)
         assert len(p["manual"]["trilhas"]) == 3
-        assert {t["titulo"] for t in p["outras"]} == {TRILHA_04["titulo"], METODO_01["titulo"]}
+        from scripts.uc_conteudo_energia import ENERGIA_01
+        assert {t["titulo"] for t in p["outras"]} == {
+            TRILHA_04["titulo"], METODO_01["titulo"], ENERGIA_01["titulo"],
+        }
 
     async def test_trilha_de_metodo_reforca_o_roteiro(self, time, client, s3_falso, tmp_path):
         from scripts import semear_uc
@@ -619,7 +622,7 @@ class TestCargaInicial:
         await semear_uc.carregar(time["conn"], _pdfs(tmp_path), atualizar=False, simular=False)
         p = await painel(client, time["g"])
         assert p["manual"]["trilhas"] == []
-        assert len(p["outras"]) == 10
+        assert len(p["outras"]) == 11
 
     async def test_trilha_de_nr_da_029_vira_a_03_sem_perder_progresso(self, time, client, s3_falso, tmp_path):
         """
@@ -680,8 +683,8 @@ class TestCargaInicial:
         from scripts.uc_conteudo import TRILHAS
         assert await time["conn"].fetchval("SELECT count(*) FROM uc_trilhas") == len(TRILHAS)
         assert await time["conn"].fetchval("SELECT count(*) FROM uc_aulas") == sum(len(t["aulas"]) for t in TRILHAS)
-        assert await time["conn"].fetchval("SELECT count(*) FROM uc_materiais") == 4
-        assert len(s3_falso) == 4
+        assert await time["conn"].fetchval("SELECT count(*) FROM uc_materiais") == 5
+        assert len(s3_falso) == 5
 
     async def test_trilha_de_uso_traz_o_tour_na_aula(self, time, client, s3_falso, tmp_path):
         from scripts import semear_uc
@@ -720,6 +723,20 @@ class TestCargaInicial:
         assert resp.status_code == 200, resp.text
         r = (await client.get(f"/uc/aulas/{aula['id']}", headers=h)).json()
         assert len(r["tour"]) == len(aula["tour"])
+
+    async def test_energia_01_no_manual_do_time_comercial(self, time, client, s3_falso, tmp_path):
+        from scripts import semear_uc
+        from scripts.uc_conteudo_energia import ENERGIA_01
+        await semear_uc.carregar(time["conn"], _pdfs(tmp_path), atualizar=False, simular=False)
+        for pessoa in (time["ev"], time["sdr"]):
+            p = await painel(client, pessoa)
+            assert ENERGIA_01["titulo"] in {t["titulo"] for t in p["manual"]["trilhas"]}
+            energia = next(x for x in p["pilares"] if x["pilar"] == "energia")
+            assert energia["trilhas"] == 1
+        # O PDF de apoio entra na aula 1.
+        assert await time["conn"].fetchval(
+            "SELECT count(*) FROM uc_materiais WHERE aula_id = $1", ENERGIA_01["aulas"][0]["id"],
+        ) == 1
 
     async def test_simular_nao_grava(self, time, client, s3_falso):
         from scripts import semear_uc

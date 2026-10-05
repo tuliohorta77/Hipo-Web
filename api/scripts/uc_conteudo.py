@@ -11,6 +11,8 @@ HIPO — UC: conteúdo das três primeiras trilhas da Universidade Corporativa.
   Método 02 · Roteiro do SDR / Método 03 · Roteiro do EC
                                           Método  (prazo 50 dias; em
                                                    uc_conteudo_roteiros.py)
+  Energia 01 · Rotina, volume e metas     Energia (prazo 60 dias; em
+                                                   uc_conteudo_energia.py)
 
 01 a 03 são obrigatórias para SDR, EV, EC, EP e ADM. 04 e Método 01 são
 do time comercial (SDR, EV, EC); EP e ADM podem fazer, sem obrigação. O
@@ -57,6 +59,7 @@ PDFS: dict[str, tuple[str, str]] = {
     "nr01": ("NR-01 (texto oficial, atualizado 2025).pdf", "nr-01.pdf"),
     "nr04": ("NR-04 (texto oficial, atualizado 2023).pdf", "nr-04.pdf"),
     "roteiro": ("Roteiro de Vendas - Controller Med Seg.pdf", "roteiro-vendas.pdf"),
+    "energia": ("Energia 01 - Rotina, volume e metas.pdf", "energia-01.pdf"),
 }
 
 # ═════════════════════════════════════════════════════════════════════
@@ -2539,7 +2542,10 @@ A nota de roteiro validada é um dos componentes do pilar **Método** na avalia�
 from scripts.uc_conteudo_hipo import TRILHAS_HIPO  # noqa: E402
 # Roteiros do SDR e do EC (Método 02 e 03, entrega 036).
 from scripts.uc_conteudo_roteiros import TRILHAS_ROTEIROS  # noqa: E402
+# Primeira trilha do pilar Energia (entrega 037).
+from scripts.uc_conteudo_energia import TRILHAS_ENERGIA  # noqa: E402
 
 TRILHAS: list[dict] = [
-    TRILHA_01, TRILHA_02, TRILHA_03, TRILHA_04, METODO_01, *TRILHAS_HIPO, *TRILHAS_ROTEIROS,
+    TRILHA_01, TRILHA_02, TRILHA_03, TRILHA_04, METODO_01,
+    *TRILHAS_HIPO, *TRILHAS_ROTEIROS, *TRILHAS_ENERGIA,
 ]

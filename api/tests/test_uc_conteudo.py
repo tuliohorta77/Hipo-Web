@@ -121,3 +121,23 @@ def test_roteiro_do_ec_fala_de_comissao_recorrente_sem_numero():
     for termo in ("6920-6/01", "Finder", "S-2220", "S-2240", "devolutiva"):
         assert termo in texto, termo
 
+
+# ── Energia 01 ───────────────────────────────────────────────────────
+
+def test_energia_01_no_pilar_certo_e_com_os_temas_pedidos():
+    from scripts import uc_conteudo_energia as e
+    t = e.ENERGIA_01
+    assert t["pilar"] == "energia" and t in c.TRILHAS
+    assert t["obrigatorios"] == ("SDR", "EV", "EC")
+    texto = " ".join(a["conteudo_md"] for a in t["aulas"])
+    for tema in ("conta reversa", "mínimo diário", "lotes", "pausa", "resiliência",
+                 "Monitor", "diária", "sem ranking"):
+        assert tema.lower() in texto.lower(), tema
+
+
+def test_energia_01_marca_os_numeros_como_exemplo():
+    """Os números da conta reversa são ilustrativos: o texto precisa dizer isso."""
+    from scripts import uc_conteudo_energia as e
+    aula = e.ENERGIA_01["aulas"][1]["conteudo_md"]
+    assert "exemplo ilustrativo" in aula and "Não são meta nem taxa oficial" in aula
+
