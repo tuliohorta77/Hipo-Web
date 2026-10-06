@@ -19,6 +19,7 @@ import api from '../../api';
 import AbaTarefas from './AbaTarefas';
 import AbaProposta from './AbaProposta';
 import AbaContatos from './AbaContatos';
+import AbaEmails from './AbaEmails';
 import { SeloComite } from './contatoComum';
 import Tabs from '../ui/Tabs';
 import Input, { Select } from '../ui/Input';
@@ -381,6 +382,9 @@ export default function OportunidadeDetalhe({
 }) {
   const [form, setForm] = useState({});
   const [aba, setAba] = useState('dados');
+  // 050: "E-mail" numa versão da proposta abre a aba E-mails com o
+  // rascunho do modelo de proposta e aquela versão já escolhida.
+  const [presetEmail, setPresetEmail] = useState(null);
   const [erro, setErro] = useState(null);
   const [salvando, setSalvando] = useState(false);
   const [acaoEmCurso, setAcaoEmCurso] = useState(null);
@@ -417,6 +421,7 @@ export default function OportunidadeDetalhe({
         : null,
     );
     setAba('dados');
+    setPresetEmail(null);
     setErro(null);
   }, [oportunidade]);
 
@@ -487,6 +492,9 @@ export default function OportunidadeDetalhe({
     // essas pessoas que as tarefas acontecem.
     { key: 'contatos', label: 'Contatos', badge: oportunidade.qtd_contatos || undefined },
     { key: 'proposta', label: 'Proposta' },
+    // 050: primeiro contato e proposta saem pelo Gmail do vendedor. Logo
+    // depois de Proposta: é dali que o e-mail mais importante parte.
+    { key: 'emails', label: 'E-mails' },
     { key: 'envolvidos', label: 'Envolvidos', badge: oportunidade.envolvidos?.length || undefined },
     { key: 'concorrentes', label: 'Concorrentes', badge: oportunidade.concorrentes?.length || undefined },
     { key: 'historico', label: 'Histórico' },
@@ -740,6 +748,14 @@ export default function OportunidadeDetalhe({
                 // Vincular/desvincular CNPJ muda o "+N CNPJs" do cabeçalho
                 // e do cartão do funil.
                 onCnpjsMudaram={() => onRecarregar?.()}
+                onEnviarPorEmail={(proposta, item) => {
+                  setPresetEmail({
+                    modelo: 'proposta',
+                    proposta_id: proposta.id,
+                    proposta_item_id: item?.id || null,
+                  });
+                  setAba('emails');
+                }}
                 onGerada={(proposta) => {
                   // O backend já gravou a mensalidade nova. Refletir no
                   // form evita o campo acima mostrar o valor velho até
@@ -751,6 +767,14 @@ export default function OportunidadeDetalhe({
               />
             </div>
           </div>
+        )}
+
+        {aba === 'emails' && (
+          <AbaEmails
+            oportunidade={oportunidade}
+            preset={presetEmail}
+            onPresetUsado={() => setPresetEmail(null)}
+          />
         )}
 
         {aba === 'historico' && <AbaHistorico oportunidadeId={oportunidade.id} />}

@@ -110,6 +110,9 @@ CATALOGO: dict[tuple[str, str], Tipo] = {
     ("POST", "/crm/oportunidades/{oportunidade_id}/cnpjs"): _t("Propostas", "CNPJ adicionado à oportunidade", 41),
     ("DELETE", "/crm/oportunidades/{oportunidade_id}/cnpjs/{conta_id}"): _t("Propostas", "CNPJ retirado da oportunidade", 42),
     ("PUT", "/crm/tabela-precos"): _t("Propostas", "Tabela de preços alterada", 43),
+    # 050: e-mail comercial pelo Gmail. O envio e a atividade; o rascunho
+    # (leitura que viaja em POST) e a verificacao de resposta nao produzem nada.
+    ("POST", "/crm/oportunidades/{oportunidade_id}/emails"): _t("Propostas", "E-mail enviado ao cliente", 44),
 
     # Contas e contatos
     ("POST", "/crm/contas"): _t("Contas e contatos", "Conta criada", 50),
@@ -180,6 +183,7 @@ CATALOGO: dict[tuple[str, str], Tipo] = {
     ("POST", "/crm/dominio/{tabela}"): _t("Cadastros", "Item de cadastro criado", 80),
     ("POST", "/crm/dominio/motivos/{tipo}"): _t("Cadastros", "Motivo criado", 81),
     ("POST", "/crm/agenda/tipos"): _t("Cadastros", "Tipo de reunião criado", 82),
+    ("PUT", "/crm/email/modelos/{slug}"): _t("Cadastros", "Modelo de e-mail alterado", 89),
     # Mapear um CNAE classifica TODAS as contas futuras com aquele código —
     # é cadastro de apoio com alcance largo, e por isso aparece nominalmente
     # no fechamento em vez de virar "outras alterações".
@@ -202,6 +206,10 @@ IGNORADAS: frozenset[tuple[str, str]] = frozenset({
     ("PUT", "/auth/perfil"),
     ("PUT", "/auth/senha"),
     ("PUT", "/crm/dominio/preferencias/{chave}"),
+    # E-mail comercial (050): o rascunho so preenche o modelo (leitura em
+    # POST) e verificar so olha o Gmail. Quem conta e o envio.
+    ("POST", "/crm/oportunidades/{oportunidade_id}/emails/rascunho"),
+    ("POST", "/crm/oportunidades/{oportunidade_id}/emails/verificar"),
     # Relatorios. A consulta, o drilldown e a lista de valores sao LEITURA
     # que viaja em POST (o corpo nao cabe numa query string). Salvar,
     # editar, compartilhar e duplicar um relatorio e preferencia pessoal,

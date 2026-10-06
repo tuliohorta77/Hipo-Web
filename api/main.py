@@ -26,6 +26,7 @@ from routers import (
     crm_contas,
     crm_contatos,
     crm_dominio,
+    crm_emails,
     crm_enriquecimento,
     crm_oportunidade_contatos,
     crm_oportunidades,
@@ -242,6 +243,16 @@ app.include_router(
 app.include_router(
     crm_propostas.router,
     prefix="/crm", tags=["CRM - Propostas"],
+    dependencies=[Depends(requer_modulo("crm"))],
+)
+
+# E-mail comercial pela Gmail API (050): primeiro contato e envio de
+# proposta, da caixa do vendedor. Prefixo /crm como as propostas: os
+# modelos (/crm/email/modelos) nao sao de uma oportunidade so. A edicao dos
+# modelos e checada por cargo dentro do router (gestao).
+app.include_router(
+    crm_emails.router,
+    prefix="/crm", tags=["CRM - E-mail"],
     dependencies=[Depends(requer_modulo("crm"))],
 )
 

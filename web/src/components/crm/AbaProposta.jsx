@@ -31,7 +31,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   FileText, Plus, X, Download, FileType2, Loader2, History, Building2,
-  ChevronDown, ChevronRight,
+  ChevronDown, ChevronRight, Send,
 } from 'lucide-react';
 
 import api from '../../api';
@@ -256,9 +256,20 @@ function LinhaCnpj({
 
 // ── Uma versão na lista ──────────────────────────────────────────────
 
-function BotoesArquivo({ ocupado, pdfDisponivel, onBaixar }) {
+function BotoesArquivo({ ocupado, pdfDisponivel, onBaixar, onEnviar }) {
   return (
     <div className="flex gap-1 shrink-0">
+      {/*
+        050: a proposta vai por e-mail em PDF, da caixa do vendedor. Mesma
+        regra do botão de PDF: sem LibreOffice no servidor, não há anexo, e
+        o botão não aparece.
+      */}
+      {onEnviar && pdfDisponivel && (
+        <Button size="sm" variant="secondary" icon={Send} disabled={ocupado}
+          onClick={onEnviar} aria-label="Enviar por e-mail">
+          E-mail
+        </Button>
+      )}
       <Button size="sm" variant="secondary" icon={Download} disabled={ocupado}
         onClick={() => onBaixar('pptx')}>
         PPTX
@@ -278,7 +289,7 @@ function BotoesArquivo({ ocupado, pdfDisponivel, onBaixar }) {
   );
 }
 
-function Versao({ proposta, ocupado, pdfDisponivel, onBaixar }) {
+function Versao({ proposta, ocupado, pdfDisponivel, onBaixar, onEnviar }) {
   const [aberta, setAberta] = useState(false);
   const itens = proposta.itens || [];
   const varios = itens.length > 1;
@@ -314,6 +325,7 @@ function Versao({ proposta, ocupado, pdfDisponivel, onBaixar }) {
           ocupado={ocupado}
           pdfDisponivel={pdfDisponivel}
           onBaixar={(formato) => onBaixar(proposta, formato)}
+          onEnviar={onEnviar ? () => onEnviar(proposta) : undefined}
         />
       </div>
 
@@ -349,6 +361,7 @@ function Versao({ proposta, ocupado, pdfDisponivel, onBaixar }) {
                       ocupado={ocupado}
                       pdfDisponivel={pdfDisponivel}
                       onBaixar={(formato) => onBaixar(proposta, formato, i)}
+                      onEnviar={onEnviar ? () => onEnviar(proposta, i) : undefined}
                     />
                   )}
                 </li>
@@ -363,7 +376,7 @@ function Versao({ proposta, ocupado, pdfDisponivel, onBaixar }) {
 
 // ── Aba ──────────────────────────────────────────────────────────────
 
-export default function AbaProposta({ oportunidade, onGerada, onCnpjsMudaram }) {
+export default function AbaProposta({ oportunidade, onGerada, onCnpjsMudaram, onEnviarPorEmail }) {
   const [padrao, setPadrao] = useState(null);
   const [versoes, setVersoes] = useState([]);
   const [carregando, setCarregando] = useState(true);
@@ -856,6 +869,7 @@ export default function AbaProposta({ oportunidade, onGerada, onCnpjsMudaram }) 
                   ocupado={Boolean(baixando)}
                   pdfDisponivel={padrao?.pdf_disponivel}
                   onBaixar={baixar}
+                  onEnviar={onEnviarPorEmail}
                 />
               ))}
             </ul>

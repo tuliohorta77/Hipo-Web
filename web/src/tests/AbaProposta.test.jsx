@@ -456,6 +456,36 @@ describe('AbaProposta — versões', () => {
     expect(screen.getByText(/exporte pelo PowerPoint/)).toBeInTheDocument();
   });
 
+  // 050: a versão vai por e-mail, da caixa do vendedor, em PDF.
+  it('E-mail na versão chama o pai com a proposta (e o CNPJ, se for um só)', async () => {
+    mockGet.mockImplementation(respostas(PADRAO, [V1]));
+    const onEnviar = vi.fn();
+    montar({ onEnviarPorEmail: onEnviar });
+    await screen.findByLabelText('Versões da proposta');
+    fireEvent.click(screen.getAllByRole('button', { name: 'Enviar por e-mail' })[0]);
+    expect(onEnviar).toHaveBeenCalledWith(expect.objectContaining({ id: 'p1' }));
+    fireEvent.click(screen.getByText('Proposta por CNPJ'));
+    const porCnpj = within(screen.getByLabelText('CNPJs da versão 1'));
+    fireEvent.click(porCnpj.getAllByRole('button', { name: 'Enviar por e-mail' })[1]);
+    expect(onEnviar).toHaveBeenLastCalledWith(
+      expect.objectContaining({ id: 'p1' }), expect.objectContaining({ id: 'i2' }),
+    );
+  });
+
+  it('sem PDF no servidor, não oferece o e-mail', async () => {
+    mockGet.mockImplementation(respostas({ ...PADRAO, pdf_disponivel: false }, [V1]));
+    montar({ onEnviarPorEmail: vi.fn() });
+    await screen.findByLabelText('Versões da proposta');
+    expect(screen.queryByRole('button', { name: 'Enviar por e-mail' })).not.toBeInTheDocument();
+  });
+
+  it('sem o handler do pai, não há botão de e-mail', async () => {
+    mockGet.mockImplementation(respostas(PADRAO, [V1]));
+    montar();
+    await screen.findByLabelText('Versões da proposta');
+    expect(screen.queryByRole('button', { name: 'Enviar por e-mail' })).not.toBeInTheDocument();
+  });
+
   function comDownload() {
     mockGet.mockImplementation((url, cfg) => {
       if (url === '/crm/propostas/p1/arquivo') {

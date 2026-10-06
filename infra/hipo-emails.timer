@@ -1,0 +1,13 @@
+[Unit]
+Description=HIPO -- verifica respostas dos e-mails comerciais a cada 15 minutos
+Documentation=file:///home/hipo/app/api/scripts/verificar_respostas_email.py
+
+[Timer]
+# A cada 15 minutos, todos os dias. Passada sem nada para olhar custa uma
+# consulta ao banco; o botao "Ver se respondeu" da tela cobre quem tem pressa.
+OnCalendar=*:7/15
+Persistent=true
+RandomizedDelaySec=60
+
+[Install]
+WantedBy=timers.target

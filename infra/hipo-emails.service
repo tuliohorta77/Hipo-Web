@@ -1,0 +1,38 @@
+[Unit]
+# HIPO -- verifica se o cliente respondeu os e-mails comerciais (050).
+#
+# Instalacao: infra/instalar-timer-emails.sh (o deploy-050 roda).
+# O rsync do CI NAO leva a pasta infra/: a unit vai por scp.
+#
+# Verificacao:
+#   systemctl list-timers hipo-emails.timer
+#   sudo systemctl start hipo-emails.service   # roda agora
+#   journalctl -u hipo-emails.service -n 50 --no-pager
+Description=HIPO -- verifica respostas dos e-mails comerciais no Gmail
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# ec2-user, o mesmo usuario de hipo-api.service e de hipo-transcricoes.
+# Com `hipo`, o pydantic-settings nao le o .env (600 ec2-user) nem a chave
+# do Google (600 ec2-user).
+User=ec2-user
+Group=ec2-user
+WorkingDirectory=/home/hipo/app/api
+EnvironmentFile=/home/hipo/app/.env
+Environment=PYTHONPATH=/home/hipo/app/api
+Environment=PYTHONUNBUFFERED=1
+
+ExecStart=/usr/bin/python3 -m scripts.verificar_respostas_email
+
+# Sem Restart=: o proprio timer e a retentativa, e o script e idempotente.
+TimeoutStartSec=300
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=read-only
+
+[Install]
+WantedBy=multi-user.target
