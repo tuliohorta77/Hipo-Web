@@ -46,7 +46,7 @@ ABRIDORES = frozenset({
     "opo-cartao-abrir", "opo-filtros-botao", "opo-det-finalizar", "opo-det-agendar",
     "tar-cartao", "age-celula-livre", "age-cartao",
     "con-linha", "con-btn-nova", "par-linha",
-    "aba-dados", "aba-tarefas", "aba-proposta", "aba-envolvidos", "aba-historico",
+    "aba-dados", "aba-tarefas", "aba-contatos", "aba-proposta", "aba-envolvidos", "aba-historico",
     "aba-indicacoes", "aba-carteira", "aba-dados-publicos",
 })
 

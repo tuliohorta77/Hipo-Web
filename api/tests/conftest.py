@@ -199,3 +199,87 @@ async def usuario_adm(db_conn, client):
 @pytest.fixture
 async def usuario_franqueado(db_conn, client):
     return await criar_usuario(db_conn, client, "Franqueado", "franqueado@teste.com")
+
+
+async def contato_do_alvo(
+    client,
+    headers: dict,
+    *,
+    oportunidade_id: str | None = None,
+    conta_id: str | None = None,
+    nome: str = "Ana Contato",
+) -> str:
+    """
+    Um contato da empresa do alvo, criado se ainda não houver (045).
+
+    Desde a 045, ligação, reunião, visita, WhatsApp e e-mail exigem o
+    contato. Os testes que NÃO são sobre essa regra usam este helper para
+    cumprir o requisito sem repetir o cadastro: na oportunidade, devolve o
+    principal (e cria + promove um, se faltar); no parceiro, o primeiro
+    contato vinculado à conta.
+
+    Vai pela API, e não por INSERT, para que o contato nasça pelo mesmo
+    caminho da tela — vínculo com a conta e espelho do principal incluídos.
+    """
+    if oportunidade_id is not None:
+        opp = await client.get(f"/crm/oportunidades/{oportunidade_id}", headers=headers)
+        assert opp.status_code == 200, opp.text
+        if opp.json().get("contato_id"):
+            return opp.json()["contato_id"]
+        novo = await client.post(
+            "/crm/contatos",
+            json={"nome": nome, "conta_id": opp.json()["conta_id"]},
+            headers=headers,
+        )
+        assert novo.status_code == 201, novo.text
+        add = await client.post(
+            f"/crm/oportunidades/{oportunidade_id}/contatos",
+            json={"contato_id": novo.json()["id"], "principal": True},
+            headers=headers,
+        )
+        assert add.status_code == 201, add.text
+        return novo.json()["id"]
+
+    assert conta_id is not None, "Informe oportunidade_id ou conta_id."
+    lista = await client.get(
+        "/crm/contatos/por-alvo", params={"conta_id": conta_id}, headers=headers
+    )
+    assert lista.status_code == 200, lista.text
+    if lista.json():
+        return lista.json()[0]["id"]
+    novo = await client.post(
+        "/crm/contatos", json={"nome": nome, "conta_id": conta_id}, headers=headers
+    )
+    assert novo.status_code == 201, novo.text
+    return novo.json()["id"]
+
+
+async def contato_para_proxima(client, headers: dict, url: str) -> str:
+    """
+    O contato da PRÓXIMA tarefa de uma conclusão/desfecho (045), deduzido
+    da URL da própria chamada: a próxima herda o alvo da tarefa que fecha.
+
+    Aceita as três portas que criam próxima:
+        /crm/tarefas/{id}/concluir
+        /crm/agenda/tarefas/{id}/desfecho
+        /crm/agenda/reunioes/{id}/desfecho
+    """
+    partes = url.strip("/").split("/")
+    if partes[:2] == ["crm", "tarefas"] or partes[:3] == ["crm", "agenda", "tarefas"]:
+        tarefa_id = partes[2] if partes[1] == "tarefas" else partes[3]
+        t = await client.get(f"/crm/tarefas/{tarefa_id}", headers=headers)
+        assert t.status_code == 200, t.text
+        alvo = t.json()
+    else:
+        r = await client.get(f"/crm/agenda/reunioes/{partes[3]}", headers=headers)
+        assert r.status_code == 200, r.text
+        alvo = r.json()
+        alvo = {
+            **alvo,
+            "alvo": "oportunidade" if alvo.get("oportunidade_id") else "parceiro",
+        }
+    if alvo.get("oportunidade_id"):
+        return await contato_do_alvo(
+            client, headers, oportunidade_id=alvo["oportunidade_id"]
+        )
+    return await contato_do_alvo(client, headers, conta_id=alvo["conta_id"])

@@ -14,7 +14,7 @@ a 16/08 (domingo). Quase todo assert daqui depende disso.
 """
 import pytest
 
-from tests.conftest import criar_usuario
+from tests.conftest import contato_do_alvo, contato_para_proxima, criar_usuario
 from tests.test_crm_parceiros import (
     CNPJ_CLIENTE,
     CNPJ_CLIENTE_2,
@@ -50,6 +50,18 @@ async def nova_tarefa(client, headers, responsavel_id, **alvo):
         "prazo": "2026-08-12T13:00:00Z",
         **alvo,
     }
+    # 045: ligação exige contato. Só preenche quando o alvo é um só e o
+    # teste não mandou o seu — os testes de alvo inválido seguem intactos.
+    if "contato_id" not in alvo and (("conta_id" in alvo) != ("oportunidade_id" in alvo)):
+        try:
+            corpo["contato_id"] = await contato_do_alvo(
+                client, headers,
+                oportunidade_id=alvo.get("oportunidade_id"),
+                conta_id=alvo.get("conta_id"),
+            )
+        except AssertionError:
+            # Alvo que não existe ou não é acessível: o teste é sobre isso.
+            pass
     return await client.post("/crm/tarefas", json=corpo, headers=headers)
 
 
@@ -333,7 +345,7 @@ class TestConclusaoDeTarefaDeParceiro:
         resp = await client.post(
             f"/crm/tarefas/{criada['id']}/concluir",
             json={
-                "proxima": {
+                "proxima": {"contato_id": await contato_para_proxima(client, cenario["headers"], f"/crm/tarefas/{criada['id']}/concluir"), 
                     "tipo": "reuniao",
                     "titulo": "Café com o contador",
                     "responsavel_id": cenario["usuario_id"],
@@ -592,7 +604,7 @@ class TestTarefasAbertasDoParceiro:
         )).json()
         resp = await client.post(
             f"/crm/tarefas/{t['id']}/concluir",
-            json={"proxima": {
+            json={"proxima": {"contato_id": await contato_para_proxima(client, cenario["headers"], f"/crm/tarefas/{t['id']}/concluir"), 
                 "tipo": "ligacao",
                 "titulo": "Retomar em duas semanas",
                 "responsavel_id": cenario["usuario_id"],

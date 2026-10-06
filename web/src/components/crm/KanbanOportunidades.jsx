@@ -38,6 +38,7 @@ import { Flag, GripVertical, ThermometerSun, CalendarClock, User } from 'lucide-
 import Badge from '../ui/Badge';
 import Button from '../ui/Button';
 import CarregarMais from './CarregarMais';
+import { SeloComite } from './contatoComum';
 
 const TOM_TEMPERATURA = (t) => {
   if (t === null || t === undefined) return 'neutral';
@@ -118,6 +119,13 @@ function Cartao({
               <ThermometerSun size={11} />{item.temperatura}
             </span>
           </Badge>
+        )}
+        {/*
+          045: o farol do comitê. Só na oportunidade viva — na finalizada,
+          quantas pessoas estavam envolvidas já não muda nada.
+        */}
+        {!somenteLeitura && item.qtd_contatos !== undefined && (
+          <SeloComite qtd={item.qtd_contatos} temDecisor={item.tem_decisor} />
         )}
         {item.status === 'suspensa' && <Badge tone="warning">Suspensa</Badge>}
         {somenteLeitura && (

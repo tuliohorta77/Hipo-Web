@@ -25,7 +25,7 @@ from services import avaliacao_roteiro as aval
 from services import coleta_avaliacao as coleta
 from services import roteiro_scorecard as sc
 from services.tarefa import FUSO_OPERACAO
-from tests.conftest import _DB_URL, criar_usuario
+from tests.conftest import _DB_URL, contato_do_alvo, contato_para_proxima, criar_usuario
 from tests.test_crm_agenda import nova_reuniao
 
 UTC = timezone.utc
@@ -166,6 +166,7 @@ class TestEstado:
 
     async def test_tarefa_que_nao_e_reuniao_e_404(self, base, client):
         tarefa = (await client.post("/crm/tarefas", json={
+            "contato_id": await contato_do_alvo(client, base["h"], oportunidade_id=base["opp"]["id"]),
             "oportunidade_id": base["opp"]["id"], "tipo": "ligacao",
             "titulo": "Ligar", "responsavel_id": base["uid"],
             "prazo": (datetime.now(UTC) + timedelta(days=1)).isoformat(),

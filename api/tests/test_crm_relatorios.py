@@ -19,7 +19,7 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from services import relatorios as rel
-from tests.conftest import criar_usuario
+from tests.conftest import contato_do_alvo, contato_para_proxima, criar_usuario
 
 HOJE = datetime.now(ZoneInfo("America/Sao_Paulo")).date()
 PERIODO = {"data_ref": "data_criacao", "inicio": (HOJE - timedelta(days=30)).isoformat(),
@@ -271,6 +271,7 @@ class TestVisaoGeral:
         prazo = (datetime.now(ZoneInfo("UTC")) + timedelta(days=1)).isoformat()
         for resp in (cenario["id_ana"], cenario["id_beto"]):
             r = await client.post("/crm/tarefas", json={
+                "contato_id": await contato_do_alvo(client, h, oportunidade_id=cenario["opps"][0]["id"]),
                 "oportunidade_id": cenario["opps"][0]["id"], "tipo": "ligacao", "titulo": "Ligar",
                 "responsavel_id": str(resp), "prazo": prazo,
             }, headers=h)
@@ -323,6 +324,7 @@ class TestRecorte:
         prazo = (datetime.now(ZoneInfo("UTC")) + timedelta(days=1)).isoformat()
         for resp in (cenario["id_ana"], cenario["id_beto"]):
             r = await client.post("/crm/tarefas", json={
+                "contato_id": await contato_do_alvo(client, h, oportunidade_id=o1["id"]),
                 "oportunidade_id": o1["id"], "tipo": "ligacao", "titulo": "Ligar",
                 "responsavel_id": str(resp), "prazo": prazo,
             }, headers=h)

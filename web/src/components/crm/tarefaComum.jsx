@@ -12,14 +12,16 @@
 // formulário de tarefa e os painéis de concluir / cancelar / editar. Cada
 // tela decide onde encaixá-los e como desenhar a lista.
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   Check, X, Pencil, Phone, Users, MapPin, FileText,
   Mail, MessageCircle, CircleDot, AlertTriangle, CalendarPlus, CalendarCheck,
 } from 'lucide-react';
 
+import api from '../../api';
 import Button from '../ui/Button';
 import Input, { Select, Textarea } from '../ui/Input';
+import { ROTULO_PAPEL, TelefonesDoContato } from './contatoComum';
 
 export const TIPOS = [
   { valor: 'ligacao', rotulo: 'Ligação', Icone: Phone },
@@ -32,6 +34,48 @@ export const TIPOS = [
 ];
 
 export const ICONE_TIPO = Object.fromEntries(TIPOS.map((t) => [t.valor, t.Icone]));
+
+// 045: toda INTERAÇÃO tem uma pessoa do outro lado. Espelha
+// TIPOS_EXIGEM_CONTATO de api/services/tarefa.py — o 422 de lá é a rede
+// embaixo desta linha. Proposta e Outro podem ser trabalho interno.
+export const TIPOS_EXIGEM_CONTATO = ['ligacao', 'reuniao', 'visita', 'whatsapp', 'email'];
+
+export function exigeContato(tipo) {
+  return TIPOS_EXIGEM_CONTATO.includes(tipo);
+}
+
+/**
+ * O alvo de uma tarefa já existente, no formato que o seletor de contato
+ * usa: a oportunidade (com a conta dela, para cadastrar gente nova) ou o
+ * parceiro.
+ */
+export function alvoDaTarefa(tarefa) {
+  if (!tarefa) return null;
+  return tarefa.alvo === 'parceiro' || !tarefa.oportunidade_id
+    ? { conta_id: tarefa.conta_id }
+    : { oportunidade_id: tarefa.oportunidade_id, conta_id: tarefa.conta_id };
+}
+
+/** "com Fulana" + telefones clicáveis, para os cartões e a linha do tempo. */
+export function ContatoDaTarefa({ tarefa }) {
+  if (!tarefa.contato_id) {
+    return exigeContato(tarefa.tipo) && ABERTAS.includes(tarefa.situacao)
+      ? <span className="text-xs text-hipo-warning">sem contato definido</span>
+      : null;
+  }
+  return (
+    <span className="inline-flex flex-wrap items-center gap-x-2 text-xs text-hipo-slate">
+      <span>com <span className="text-hipo-ink">{tarefa.contato_nome}</span></span>
+      <TelefonesDoContato
+        compacto
+        contato={{
+          telefone: tarefa.contato_telefone,
+          telefone_whatsapp: tarefa.contato_whatsapp,
+        }}
+      />
+    </span>
+  );
+}
 
 // Cada situação tem um tom e uma palavra. A palavra não é redundância: cor
 // sozinha não carrega informação para quem não distingue tons.
@@ -197,13 +241,19 @@ export function dataCompleta(iso) {
 
 // ── Formulário ───────────────────────────────────────────────────────
 
-export function tarefaVazia(usuarioPadrao = '') {
+/**
+ * `contatoPadrao`: com quem a conversa provavelmente vai ser — na próxima
+ * tarefa, a mesma pessoa da que está fechando; na nova, o principal da
+ * oportunidade. É sugestão: o campo continua trocável.
+ */
+export function tarefaVazia(usuarioPadrao = '', contatoPadrao = '') {
   return {
     tipo: 'ligacao',
     titulo: '',
     descricao: '',
     responsavel_id: usuarioPadrao,
     prazo: amanhaDeManha(),
+    contato_id: contatoPadrao || '',
   };
 }
 
@@ -214,11 +264,15 @@ export function corpoDaTarefa(form) {
     descricao: form.descricao.trim() || null,
     responsavel_id: form.responsavel_id,
     prazo: paraIso(form.prazo),
+    contato_id: form.contato_id || null,
   };
 }
 
 export function formIncompleto(form) {
-  return !form.titulo.trim() || !form.responsavel_id || !form.prazo;
+  return (
+    !form.titulo.trim() || !form.responsavel_id || !form.prazo
+    || (exigeContato(form.tipo) && !form.contato_id)
+  );
 }
 
 export function formDaTarefa(tarefa) {
@@ -228,7 +282,144 @@ export function formDaTarefa(tarefa) {
     descricao: tarefa.descricao || '',
     responsavel_id: tarefa.responsavel_id,
     prazo: paraCampoLocal(tarefa.prazo),
+    contato_id: tarefa.contato_id || '',
   };
+}
+
+// ── Com quem (045) ───────────────────────────────────────────────────
+
+const NOVO = '__novo__';
+
+/**
+ * O seletor do contato da tarefa: as pessoas do comitê primeiro (o
+ * principal com estrela), depois o resto da empresa — e "cadastrar novo"
+ * no fim, porque quem descobriu agora o nome do RH não pode ficar travado
+ * pela obrigação de escolher alguém que ainda não existe no sistema.
+ */
+export function CampoContato({ alvo, valor, onChange, obrigatorio, idBase, prefixo = '' }) {
+  const [opcoes, setOpcoes] = useState([]);
+  const [novo, setNovo] = useState(null);
+  const [erro, setErro] = useState(null);
+  const [salvando, setSalvando] = useState(false);
+  const oppId = alvo?.oportunidade_id || null;
+  const contaId = alvo?.conta_id || null;
+
+  useEffect(() => {
+    if (!oppId && !contaId) { setOpcoes([]); return; }
+    let vivo = true;
+    // Dentro de uma promise: erro de rede OU de chamada (cliente sem `get`
+    // num teste, por exemplo) vira lista vazia, nunca tela branca.
+    Promise.resolve()
+      .then(() => api.get('/crm/contatos/por-alvo', {
+        params: oppId ? { oportunidade_id: oppId } : { conta_id: contaId },
+      }))
+      .then(({ data }) => { if (vivo) setOpcoes(Array.isArray(data) ? data : []); })
+      .catch(() => { if (vivo) setOpcoes([]); });
+    return () => { vivo = false; };
+  }, [oppId, contaId]);
+
+  async function cadastrar() {
+    setSalvando(true);
+    setErro(null);
+    try {
+      const { data } = await api.post('/crm/contatos', {
+        nome: novo.nome.trim(),
+        cargo: novo.cargo.trim() || null,
+        telefone: novo.telefone.trim() || null,
+        telefone_whatsapp: novo.whatsapp,
+        conta_id: contaId,
+      });
+      setOpcoes((o) => [...o, { ...data, no_comite: false, principal: false, cargo: novo.cargo }]);
+      onChange(data.id);
+      setNovo(null);
+    } catch (err) {
+      setErro(mensagemDeErro(err, 'Não foi possível cadastrar o contato.'));
+    } finally {
+      setSalvando(false);
+    }
+  }
+
+  const rotulo = (c) => [
+    c.principal ? '★ ' : '',
+    c.nome,
+    c.cargo ? ` · ${c.cargo}` : '',
+    c.papel ? ` · ${ROTULO_PAPEL[c.papel] || c.papel}` : '',
+  ].join('');
+
+  const doComite = opcoes.filter((c) => c.no_comite);
+  const daEmpresa = opcoes.filter((c) => !c.no_comite);
+  const id = `${idBase}-contato`;
+
+  return (
+    <div className="md:col-span-2 space-y-2">
+      <Select
+        id={id}
+        label={`${prefixo}Contato${obrigatorio ? ' (obrigatório)' : ''}`}
+        value={novo ? NOVO : (valor || '')}
+        onChange={(e) => {
+          if (e.target.value === NOVO) {
+            setNovo({ nome: '', cargo: '', telefone: '', whatsapp: false });
+          } else {
+            setNovo(null);
+            onChange(e.target.value);
+          }
+        }}
+      >
+        <option value="">{obrigatorio ? '— com quem vai ser? —' : '— sem contato —'}</option>
+        {doComite.length > 0 && (
+          <optgroup label="Nesta oportunidade">
+            {doComite.map((c) => <option key={c.id} value={c.id}>{rotulo(c)}</option>)}
+          </optgroup>
+        )}
+        {daEmpresa.length > 0 && (
+          <optgroup label={oppId ? 'Outras pessoas da empresa' : 'Contatos do parceiro'}>
+            {daEmpresa.map((c) => <option key={c.id} value={c.id}>{rotulo(c)}</option>)}
+          </optgroup>
+        )}
+        {contaId && <option value={NOVO}>+ Cadastrar novo contato…</option>}
+      </Select>
+
+      {obrigatorio && !valor && !novo && opcoes.length === 0 && (
+        <p className="text-xs text-hipo-warning">
+          Esta empresa ainda não tem contato. Cadastre a pessoa com quem vai
+          ser a conversa — é assim que a conta deixa de depender de um nome só.
+        </p>
+      )}
+
+      {novo && (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-2 border-l-2 border-hipo-blue pl-3">
+          <Input
+            id={`${id}-novo-nome`} label="Nome" value={novo.nome}
+            onChange={(e) => setNovo((n) => ({ ...n, nome: e.target.value }))}
+          />
+          <Input
+            id={`${id}-novo-cargo`} label="Cargo" value={novo.cargo}
+            onChange={(e) => setNovo((n) => ({ ...n, cargo: e.target.value }))}
+          />
+          <div>
+            <Input
+              id={`${id}-novo-telefone`} label="Telefone" value={novo.telefone}
+              onChange={(e) => setNovo((n) => ({ ...n, telefone: e.target.value }))}
+            />
+            <label className="inline-flex items-center gap-1.5 text-xs text-hipo-slate mt-1">
+              <input
+                type="checkbox" checked={novo.whatsapp}
+                onChange={(e) => setNovo((n) => ({ ...n, whatsapp: e.target.checked }))}
+              />
+              É WhatsApp
+            </label>
+          </div>
+          {erro && <p className="md:col-span-3 text-xs text-hipo-danger">{erro}</p>}
+          <div className="md:col-span-3 flex justify-end gap-2">
+            <Button size="sm" variant="ghost" onClick={() => setNovo(null)}>Voltar</Button>
+            <Button size="sm" loading={salvando} disabled={!novo.nome.trim()} onClick={cadastrar}>
+              Cadastrar e usar
+            </Button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
 /**
@@ -254,6 +445,9 @@ export function formDaTarefa(tarefa) {
 
 export function CamposTarefa({
   valor, onChange, usuarios, prefixo = '', idBase = 'tarefa',
+  // 045: { oportunidade_id?, conta_id } — de onde vêm os contatos possíveis.
+  // Sem alvo o campo não aparece (o servidor continua cobrando).
+  alvo = null,
   // Diz, quando o tipo é reunião ou visita, que ela vai para a agenda. É o
   // caso da PRÓXIMA tarefa marcada ao fechar outra. Quem já explica isso do
   // seu jeito (a criação na aba) ou não agenda ao salvar (a edição) desliga.
@@ -319,6 +513,17 @@ export function CamposTarefa({
         <option value="">— selecione —</option>
         {usuarios.map((u) => <option key={u.id} value={u.id}>{u.nome}</option>)}
       </Select>
+
+      {alvo && (
+        <CampoContato
+          alvo={alvo}
+          valor={valor.contato_id}
+          onChange={(contatoId) => onChange({ ...valor, contato_id: contatoId })}
+          obrigatorio={exigeContato(valor.tipo)}
+          idBase={idBase}
+          prefixo={prefixo}
+        />
+      )}
 
       {avisoAgenda && TIPOS_AGENDAVEIS.includes(valor.tipo) && (
         <p className="md:col-span-2 text-xs text-hipo-slate">
@@ -393,7 +598,10 @@ export function PainelAcoesTarefa({
   const exigeProximaAqui = exigeProxima(tarefa);
   const [resultado, setResultado] = useState('');
   const [motivo, setMotivo] = useState('');
-  const [proxima, setProxima] = useState(() => tarefaVazia(tarefa.responsavel_id));
+  const [proxima, setProxima] = useState(
+    () => tarefaVazia(tarefa.responsavel_id, tarefa.contato_id),
+  );
+  const alvo = alvoDaTarefa(tarefa);
   const [edicao, setEdicao] = useState(() => formDaTarefa(tarefa));
 
   if (!painel) {
@@ -404,7 +612,7 @@ export function PainelAcoesTarefa({
           aria-label={`Concluir ${tarefa.titulo}`}
           onClick={() => {
             setResultado('');
-            setProxima(tarefaVazia(tarefa.responsavel_id));
+            setProxima(tarefaVazia(tarefa.responsavel_id, tarefa.contato_id));
             setPainel('concluir');
           }}
         >
@@ -492,6 +700,7 @@ export function PainelAcoesTarefa({
               usuarios={usuarios}
               prefixo="Próxima: "
               idBase={`proxima-${tarefa.id}`}
+              alvo={alvo}
             />
           </div>
         ) : (
@@ -573,6 +782,7 @@ export function PainelAcoesTarefa({
         usuarios={usuarios}
         idBase={`edicao-${tarefa.id}`}
         avisoAgenda={false}
+        alvo={alvo}
       />
       <div className="flex justify-end gap-2">
         <Button size="sm" variant="ghost" onClick={() => setPainel(null)}>

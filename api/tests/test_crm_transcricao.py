@@ -20,6 +20,8 @@ from uuid import UUID
 
 import pytest
 
+from tests.conftest import contato_do_alvo, contato_para_proxima
+
 from services import coleta_transcricao as coleta
 from services import google_meet, resumo_reuniao
 from services.google_meet import Download, Levantamento, ResultadoMeet
@@ -174,7 +176,7 @@ class TestEstado:
     async def test_tarefa_sem_reuniao_e_404(self, base, client):
         tarefa = (await client.post(
             "/crm/tarefas",
-            json={"oportunidade_id": base["opp"]["id"], "tipo": "ligacao",
+            json={"contato_id": await contato_do_alvo(client, base["h"], oportunidade_id=base["opp"]["id"]), "oportunidade_id": base["opp"]["id"], "tipo": "ligacao",
                   "titulo": "Ligar", "responsavel_id": base["uid"],
                   "prazo": (agora() + timedelta(days=1)).isoformat()},
             headers=base["h"],

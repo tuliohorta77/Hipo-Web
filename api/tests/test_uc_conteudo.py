@@ -163,12 +163,26 @@ def test_tecnicas_do_sdr_treinam_cada_tecnica_com_pratica():
     assert m in c.TRILHAS and m["pilar"] == "tecnica"
     assert m["titulo"] == "04 · Técnicas do SDR na prática"
     assert m["obrigatorios"] == ("SDR",) and set(m["opcionais"]) == {"ADM", "Franqueado"}
-    assert len(m["aulas"]) == 9
+    assert len(m["aulas"]) == 11
     for a in m["aulas"]:
         md = a["conteudo_md"]
         for secao in ("## O que é", "## Por que funciona", "## Exercício", "## Role-play"):
             assert secao in md, (a["titulo"], secao)
         assert "Critérios" in md, a["titulo"]
+
+
+def test_tecnicas_do_sdr_ensinam_abm_e_multithreading():
+    """045 (05/10/2026): ABM e multithreading no método do SDR."""
+    from scripts import uc_conteudo_tecnicas_sdr as t
+    abm, multi = t.METODO_04["aulas"][-2:]
+    assert "Account Based" in abm["titulo"]
+    assert "Multithreading" in multi["titulo"]
+    for papel in ("Decisor", "Campeão", "Influenciador", "Operacional (RH/DP)",
+                  "Compras/Financeiro", "Técnico (SESMT/Médico)"):
+        assert papel in abm["conteudo_md"], papel
+    assert "de 2 a 4" in multi["conteudo_md"]
+    for aula in (abm, multi):
+        assert any("aba-contatos" in p.get("clicar", []) for p in aula["tour"])
 
 
 def test_tecnicas_do_sdr_depois_do_roteiro_e_antes_da_energia():

@@ -3,6 +3,9 @@ HIPO — UC: 04 · Técnicas do SDR na prática (pilar Técnica).
 
   04 · Técnicas do SDR na prática   obrigatória para SDR (prazo 55 dias)
 
+045 (05/10/2026): aulas 10 (Account Based) e 11 (Multithreading), junto
+da lista de contatos por oportunidade e do contato obrigatório nas tarefas.
+
 ADM e Franqueado veem sem obrigação.
 
 Pedido do Tulio (05/10/2026): "com base no script de SDR, monte um curso
@@ -1126,7 +1129,7 @@ Conseguiu falar e marcar? **A cadência para ali.**
 
 A cadência anda pelas **tarefas**:
 
-1. Cada toque é uma tarefa, com tipo (Ligação, WhatsApp, E-mail) e dia.
+1. Cada toque é uma tarefa, com tipo (Ligação, WhatsApp, E-mail), dia e **o contato** (com quem é a conversa).
 2. Ao **concluir** um toque, escreva o resultado em "O que aconteceu" ("não atendeu", "recepção: falar com Juliana depois das 16h").
 3. O HIPO pede a **próxima tarefa**: marque o toque seguinte, com o tipo e o dia da sequência.
 4. **Combinou retorno?** A próxima tarefa vai no dia e na hora combinados, não no D da sequência.
@@ -1420,6 +1423,314 @@ Pegue as **três últimas reuniões** que você marcou. Releia a Descrição de 
 
 
 # ═════════════════════════════════════════════════════════════════════
+# Aula 10 — Account Based Prospecting (ABM): atacar a conta
+# ═════════════════════════════════════════════════════════════════════
+#
+# Pedido do Tulio (05/10/2026, entrega 045): incluir ABM e multithreading
+# no método do SDR, junto da lista de contatos por oportunidade no HIPO.
+
+AULA_10 = {
+    "id": _id("b071a"),
+    "titulo": "Técnica 10 · Account Based: atacar a conta, não uma pessoa",
+    "resumo": "Mapear as pessoas que decidem, usam e compram medicina ocupacional numa empresa e registrar cada uma com o seu papel na aba Contatos.",
+    "duracao_min": 12,
+    "conteudo_md": """\
+## O que é
+
+**Account Based Prospecting (ABM)** é prospectar a **empresa inteira** em vez de uma pessoa só. Você não liga "para a Juliana do RH": você trabalha a **conta Metalúrgica Alfa**, e a Juliana é uma das pessoas dela.
+
+Numa empresa média, a decisão de medicina e segurança ocupacional passa por várias mãos:
+
+- **Diretoria ou sócio**: assina e aprova o valor.
+- **Gerente de RH**: sente a dor do admissional atrasado e do turnover.
+- **Coordenação de DP**: vive o eSocial, o ASO vencido e a convocação de periódico.
+- **Compras ou Financeiro**: compara preço e cuida do contrato.
+- **SESMT** (técnico ou engenheiro de segurança): cuida do PGR, do LTCAT e das NRs.
+- **Médico do trabalho**: assina o PCMSO e opina sobre o fornecedor.
+
+## Por que funciona
+
+- **Uma pessoa só é um ponto único de falha.** Ela sai de férias, muda de empresa ou para de responder, e a oportunidade morre em silêncio.
+- **Cada pessoa tem uma dor diferente.** O DP quer o eSocial sem erro; o SESMT quer o PGR com os psicossociais (obrigatórios desde **26/05/2026**); a diretoria quer custo previsível. Mais pessoas, mais motivos para comprar.
+- **Quem decide raramente é quem atende.** Mapear a conta mostra o caminho até o **decisor** em vez de esperar que a primeira pessoa leve você até ele.
+
+## Os papéis no HIPO
+
+Na aba **Contatos** da oportunidade, cada pessoa tem um **papel na decisão**:
+
+- **Decisor**: diretor, sócio, dono.
+- **Campeão**: quem defende você lá dentro (muitas vezes o RH).
+- **Influenciador**: médico do trabalho, contador, consultoria.
+- **Operacional (RH/DP)**: quem vai usar o serviço no dia a dia.
+- **Compras/Financeiro**: quem compara preço e fecha o contrato.
+- **Técnico (SESMT/Médico)**: técnico ou engenheiro de segurança.
+
+## Passo a passo
+
+1. **Antes de discar, liste quem deveria existir.** Pela pesquisa de três minutos (técnica 1): porte, grau de risco e matriz ou filial dizem quais papéis a empresa tem.
+2. **Abra a oportunidade, aba Contatos.** Inclua quem já é contato da empresa ou **cadastre a pessoa nova** ali mesmo, com o cargo.
+3. **Classifique o papel** de cada um. Não sabe ainda? Deixe "classificar depois" e pergunte na próxima conversa.
+4. **Marque o principal**: a pessoa que está conduzindo a conversa agora. É ela que aparece no funil e na proposta.
+5. **Use cada conversa para descobrir a próxima pessoa.** Pergunta que funciona: *"Além de você, quem mais participa da escolha do fornecedor de medicina ocupacional aí?"*
+6. **Toda tarefa sai com o contato.** Ligação, reunião, visita, WhatsApp e e-mail pedem **com quem** vai ser a conversa. É isso que mostra, depois, com quantas pessoas da conta você está falando de verdade.
+
+## Certo e errado
+
+- **Errado:** "Liguei na empresa, falei com alguém, mandei a apresentação." Ninguém sabe com quem, e o EV vai começar do zero.
+- **Errado:** cadastrar dez nomes tirados de uma lista e nunca falar com nenhum. Cadastro não é relacionamento.
+- **Certo:** "Juliana (RH, Campeã) me passou o Marcos (sócio, Decisor) e o Paulo (técnico de segurança). Próxima tarefa: ligar para o Paulo sobre o PGR."
+
+## Erros comuns
+
+- **Parar no primeiro "sim".** O RH gostou, mas quem assina é o sócio que você nunca ouviu.
+- **Papel em branco para sempre.** Sem papel, a tela não mostra se o decisor está mapeado.
+- **Pessoa de outra empresa na tarefa.** O HIPO recusa: o contato precisa ser da conta (ou de um CNPJ adicional da mesma oportunidade).
+
+## Exercício (individual, 15 minutos)
+
+Escolha **três oportunidades** da sua fila. Para cada uma, escreva numa folha: os papéis que essa empresa provavelmente tem (pelo porte e pelo grau de risco), quem você já conhece, quem falta e **a pergunta** que vai fazer na próxima conversa para chegar ao próximo nome. Depois, cadastre no HIPO os nomes que você já tem, com o papel.
+
+## Role-play em dupla (10 minutos)
+
+O avaliador faz o papel da **Juliana, gerente de RH** de uma indústria de 180 funcionários, grau de risco 3. Ela está interessada, mas diz "quem decide é o Marcos, o sócio".
+
+**Critérios (o avaliador marca sim ou não):**
+
+1. O SDR perguntou quem mais participa da escolha (e não só "quem decide").
+2. Descobriu pelo menos mais um nome além do Marcos (DP, SESMT ou Compras).
+3. Pediu à Juliana ajuda para chegar ao Marcos (apresentação ou reunião junto).
+4. Classificou a Juliana como Campeã e o Marcos como Decisor no HIPO.
+5. A próxima tarefa saiu com o contato certo (o Marcos ou o novo nome), não "com a empresa".
+
+> Account Based em uma frase: a venda é para a conta; cada pessoa é uma porta.
+""",
+    "tour": [
+        _passo("/crm/oportunidades", "opo-det-conteudo", "A aba Contatos",
+               "As pessoas da empresa nesta negociação, cada uma com o seu **papel**. "
+               "Inclua quem já é contato ou cadastre alguém novo aqui mesmo.",
+               clicar=["opo-cartao-abrir", "aba-contatos"]),
+        _passo("/crm/oportunidades", "opo-det-abas", "O número ao lado da aba",
+               "Quantas pessoas estão envolvidas. O ideal é de 2 a 4.",
+               clicar=["opo-cartao-abrir"]),
+    ],
+    "quiz": [
+        {
+            "enunciado": "O que é Account Based Prospecting (ABM)?",
+            "alternativas": [
+                ("Ligar só para o dono da empresa", False),
+                ("Prospectar a empresa inteira, mapeando as várias pessoas que participam da decisão", True),
+                ("Mandar a mesma mensagem para toda a base", False),
+                ("Trabalhar só contas grandes", False),
+            ],
+        },
+        {
+            "enunciado": "Por que depender de um único contato é arriscado?",
+            "alternativas": [
+                ("Porque o HIPO não aceita", False),
+                ("Porque a pessoa pode sair, tirar férias ou parar de responder, e a oportunidade morre em silêncio", True),
+                ("Porque o EV não gosta", False),
+                ("Porque a proposta exige três assinaturas", False),
+            ],
+        },
+        {
+            "enunciado": "Numa indústria grau de risco 3, quem costuma cuidar do PGR e do LTCAT?",
+            "alternativas": [
+                ("Compras", False),
+                ("O contador", False),
+                ("O SESMT (técnico ou engenheiro de segurança)", True),
+                ("A recepção", False),
+            ],
+        },
+        {
+            "enunciado": "A gerente de RH defende a sua proposta lá dentro, mas quem assina é o sócio. Que papéis você registra?",
+            "alternativas": [
+                ("Os dois como Decisor", False),
+                ("RH como Campeã e o sócio como Decisor", True),
+                ("RH como Compras e o sócio como Operacional", False),
+                ("Nenhum papel até fechar", False),
+            ],
+        },
+        {
+            "enunciado": "Qual pergunta ajuda a abrir a conta para outras pessoas?",
+            "alternativas": [
+                ("\"Você é o decisor?\"", False),
+                ("\"Posso mandar a proposta?\"", False),
+                ("\"Além de você, quem mais participa da escolha do fornecedor de medicina ocupacional aí?\"", True),
+                ("\"Qual o seu orçamento?\"", False),
+            ],
+        },
+        {
+            "enunciado": "Onde você registra as pessoas da conta e o papel de cada uma?",
+            "alternativas": [
+                ("Na aba Contatos da oportunidade", True),
+                ("Nas observações, em texto livre", False),
+                ("Numa planilha à parte", False),
+                ("No WhatsApp", False),
+            ],
+        },
+        {
+            "enunciado": "Você cadastrou dez nomes de uma lista e não falou com nenhum. Isso é ABM?",
+            "alternativas": [
+                ("Sim, quanto mais nomes melhor", False),
+                ("Sim, se todos tiverem papel", False),
+                ("Não: cadastro não é relacionamento; ABM é conversar com as pessoas da conta", True),
+                ("Sim, desde que o principal esteja marcado", False),
+            ],
+        },
+    ],
+}
+
+
+# ═════════════════════════════════════════════════════════════════════
+# Aula 11 — Multithreading: vários relacionamentos ao mesmo tempo
+# ═════════════════════════════════════════════════════════════════════
+
+AULA_11 = {
+    "id": _id("b071b"),
+    "titulo": "Técnica 11 · Multithreading: de 2 a 4 pessoas na negociação",
+    "resumo": "Manter conversas simultâneas com várias pessoas da conta, ler o farol do comitê e fazer cada tarefa com a pessoa certa.",
+    "duracao_min": 10,
+    "conteudo_md": """\
+## O que é
+
+**Multithreading** é manter **vários relacionamentos ao mesmo tempo** dentro da mesma conta. Parece ABM (técnica 10), mas o foco muda: ABM é **mapear** quem existe; multithreading é **conversar** com essas pessoas em paralelo, cada uma pelo seu assunto.
+
+Uma oportunidade forte tem, idealmente, **de 2 a 4 contatos envolvidos**.
+
+## Por que funciona
+
+- **Se um fio se rompe, a negociação continua.** A Juliana saiu de férias? Você segue com o Paulo do SESMT e com o Marcos.
+- **Cada pessoa empurra por um motivo.** O DP quer o eSocial sem erro; o técnico quer o PGR com os psicossociais; o sócio quer preço previsível. Juntos, eles vendem por você.
+- **O decisor ouve de mais de um lado.** Quando o sócio escuta o RH e o SESMT falando bem do mesmo fornecedor, a reunião de fechamento é curta.
+
+## O farol do comitê no HIPO
+
+Na aba **Contatos** (e no cartão do funil):
+
+- **Vermelho · Sem contato**: a conta ainda não tem rosto.
+- **Amarelo · 1 contato**: single-thread. Normal logo depois do primeiro contato, mas é para mudar.
+- **Verde · 2 a 4 contatos**: o ideal.
+- **"Sem decisor"**: tem gente, mas ninguém com o papel de **Decisor**.
+
+Abaixo de cada pessoa aparecem as **interações** (tarefas concluídas com ela) e **quando foi a última**. Três nomes na lista e todas as conversas com um só é single-thread com outro nome.
+
+## Passo a passo
+
+1. **Olhe o farol antes de cada próxima tarefa.** Amarelo? A próxima tarefa abre um fio novo.
+2. **Uma tarefa, uma pessoa.** Ao criar a tarefa, escolha **o contato** da conversa. Ligação, reunião, visita, WhatsApp e e-mail exigem.
+3. **Assunto certo para cada fio.** Para o DP, eSocial e ASO; para o SESMT, PGR e NRs; para o decisor, custo e prazo.
+4. **Conte a um o que ouviu do outro**, com cuidado: *"O Paulo comentou que o PGR não tem os psicossociais; faz sentido a gente olhar isso junto?"*
+5. **Leve mais de uma pessoa para a reunião.** No agendamento, o contato principal recebe o convite; os outros entram como convidados.
+6. **No bastão para o EV** (técnica 9), a linha do decisor cita as outras pessoas envolvidas e o papel de cada uma.
+
+## Certo e errado
+
+- **Errado:** cinco tarefas seguidas, todas com a Juliana, enquanto o sócio nunca foi procurado.
+- **Errado:** falar com o SESMT e esconder isso do RH, que se sente atropelado.
+- **Certo:** "Ligação com a Juliana (RH) na terça; WhatsApp para o Paulo (SESMT) na quarta sobre o PGR; reunião de apresentação com os dois e o Marcos (sócio) na sexta."
+
+## Erros comuns
+
+- **Multithreading de cadastro.** Pessoas na lista, nenhuma interação com elas.
+- **Só um fio quente.** O farol está verde, mas a última conversa com os outros foi há 40 dias.
+- **Esquecer o decisor.** Três pessoas operacionais e ninguém com poder de assinar.
+
+## Exercício (individual, 10 minutos)
+
+Abra **as cinco oportunidades mais avançadas** da sua fila. Para cada uma, anote o farol, se há decisor, com quem foi a última interação e quando. Em toda oportunidade amarela, crie uma tarefa **com uma pessoa nova** da conta. Em toda oportunidade sem decisor, a próxima tarefa é chegar até ele.
+
+## Role-play em dupla (10 minutos)
+
+O avaliador mostra uma oportunidade com **farol amarelo**: um só contato, a Juliana (RH), que não responde há duas semanas. Na conta existem ainda um técnico de segurança e o sócio.
+
+**Critérios (o avaliador marca sim ou não):**
+
+1. O SDR reconheceu o risco de single-thread sem precisar de dica.
+2. Escolheu abrir um fio novo (técnico ou sócio) em vez de insistir só na Juliana.
+3. Escolheu o assunto certo para a pessoa nova (PGR/NR para o técnico, custo e prazo para o sócio).
+4. Criou a tarefa com o contato da pessoa nova, no dia e canal da cadência.
+5. Manteve a Juliana na conversa (não a atropelou).
+
+> Multithreading em uma frase: se a negociação depende de um nome só, ela ainda não é uma oportunidade forte.
+""",
+    "tour": [
+        _passo("/crm/oportunidades", "opo-cartao", "O farol no cartão",
+               "Quantos contatos a oportunidade tem. **Amarelo** é uma pessoa só; **verde**, de 2 a 4."),
+        _passo("/crm/oportunidades", "opo-det-conteudo", "Interações por pessoa",
+               "Abaixo de cada contato: quantas conversas e quando foi a última. É o que mostra se o fio está vivo.",
+               clicar=["opo-cartao-abrir", "aba-contatos"]),
+        _passo("/crm/tarefas", "tar-cartao", "Toda tarefa tem com quem",
+               "O cartão mostra **com quem** é a conversa. Ligação, reunião, visita, WhatsApp e e-mail exigem o contato."),
+    ],
+    "quiz": [
+        {
+            "enunciado": "Qual a diferença entre ABM e multithreading?",
+            "alternativas": [
+                ("Nenhuma, são a mesma coisa", False),
+                ("ABM mapeia as pessoas da conta; multithreading mantém conversas simultâneas com elas", True),
+                ("ABM é para indústria; multithreading, para varejo", False),
+                ("Multithreading é usar vários canais com a mesma pessoa", False),
+            ],
+        },
+        {
+            "enunciado": "Quantos contatos envolvidos uma oportunidade forte deveria ter, idealmente?",
+            "alternativas": [
+                ("Um, o decisor", False),
+                ("De 2 a 4", True),
+                ("Pelo menos 10", False),
+                ("Tantos quantos houver na empresa", False),
+            ],
+        },
+        {
+            "enunciado": "O farol do comitê está amarelo. O que isso quer dizer?",
+            "alternativas": [
+                ("A oportunidade está atrasada", False),
+                ("Falta a proposta", False),
+                ("Há um contato só: a negociação depende de uma pessoa", True),
+                ("O decisor recusou", False),
+            ],
+        },
+        {
+            "enunciado": "O farol está verde, com o aviso \"sem decisor\". O que fazer?",
+            "alternativas": [
+                ("Nada, verde é suficiente", False),
+                ("Fazer da próxima tarefa o caminho até quem assina", True),
+                ("Marcar qualquer contato como Decisor", False),
+                ("Finalizar como perdido", False),
+            ],
+        },
+        {
+            "enunciado": "Você vai ligar para o técnico de segurança da conta. Qual assunto tem mais chance de abrir a conversa?",
+            "alternativas": [
+                ("O preço por vida", False),
+                ("O PGR e os riscos psicossociais exigidos pela NR-01", True),
+                ("O prazo do admissional", False),
+                ("A forma de pagamento", False),
+            ],
+        },
+        {
+            "enunciado": "O que o HIPO exige ao criar uma ligação, reunião, visita, WhatsApp ou e-mail?",
+            "alternativas": [
+                ("O contato: com quem vai ser a conversa", True),
+                ("O valor da proposta", False),
+                ("A aprovação do gestor", False),
+                ("O CNPJ da empresa", False),
+            ],
+        },
+        {
+            "enunciado": "Três pessoas no comitê, mas todas as interações foram com a mesma. Como chamar isso?",
+            "alternativas": [
+                ("Multithreading completo", False),
+                ("ABM avançado", False),
+                ("Single-thread com outro nome", True),
+                ("Comitê coberto", False),
+            ],
+        },
+    ],
+}
+
+
+# ═════════════════════════════════════════════════════════════════════
 # A trilha
 # ═════════════════════════════════════════════════════════════════════
 
@@ -1432,14 +1743,19 @@ METODO_04 = {
         "O treino de cada técnica do 02 · Roteiro do SDR: pesquisa e "
         "hipótese de dor, abertura com permissão, perguntar e escutar, pedido "
         "com duas opções, recepção, LAER no telefone, mensagem escrita, "
-        "cadência e o bastão para o EV. Cada aula ensina o passo a passo, "
+        "cadência, o bastão para o EV, Account Based (atacar a conta) e "
+        "multithreading (2 a 4 pessoas na negociação). Cada aula ensina o passo a passo, "
         "mostra o certo e o errado e termina com exercício e role-play em "
         "dupla, com critérios de avaliação."
     ),
     "prazo_dias": 55,
     "obrigatorios": ("SDR",),
     "opcionais": GESTAO_OPCIONAL,
-    "aulas": [AULA_1, AULA_2, AULA_3, AULA_4, AULA_5, AULA_6, AULA_7, AULA_8, AULA_9],
+    "aulas": [
+        AULA_1, AULA_2, AULA_3, AULA_4, AULA_5, AULA_6, AULA_7, AULA_8, AULA_9,
+        # 045: ABM e multithreading, depois do bastão.
+        AULA_10, AULA_11,
+    ],
 }
 
 TRILHAS_TECNICAS_SDR: list[dict] = [METODO_04]

@@ -99,6 +99,10 @@ CATALOGO: dict[tuple[str, str], Tipo] = {
     ("PATCH", "/crm/oportunidades/{oportunidade_id}"): _t("Oportunidades", "Oportunidade editada", 35),
     ("PUT", "/crm/oportunidades/{oportunidade_id}/envolvidos"): _t("Oportunidades", "Envolvidos atualizados", 36),
     ("PUT", "/crm/oportunidades/{oportunidade_id}/concorrentes"): _t("Oportunidades", "Concorrentes atualizados", 37),
+    # 045: o comitê da oportunidade (ABM / multithreading).
+    ("POST", "/crm/oportunidades/{oportunidade_id}/contatos"): _t("Oportunidades", "Contato incluído na oportunidade", 38),
+    ("PATCH", "/crm/oportunidades/{oportunidade_id}/contatos/{contato_id}"): _t("Oportunidades", "Papel do contato alterado", 38),
+    ("DELETE", "/crm/oportunidades/{oportunidade_id}/contatos/{contato_id}"): _t("Oportunidades", "Contato retirado da oportunidade", 39),
 
     # Propostas
     ("POST", "/crm/oportunidades/{oportunidade_id}/propostas"): _t("Propostas", "Proposta gerada", 40),

@@ -122,6 +122,43 @@ def validar_alvo(oportunidade_id, conta_id) -> str:
     return "oportunidade" if tem_opp else "parceiro"
 
 
+# ── Com quem é a tarefa (028) ────────────────────────────────────────
+#
+# Toda INTERAÇÃO tem uma pessoa do outro lado. Ligação (onde mora o FUP),
+# reunião, visita, WhatsApp e e-mail exigem o contato; proposta e "outro"
+# podem ser trabalho interno e ficam livres.
+#
+# É a peça de dado que torna o multithreading medível: sem saber com quem
+# foi cada conversa, "quantas pessoas desta conta estamos trabalhando" é
+# palpite. E é por isso que a lista é FECHADA, igual aos tipos.
+#
+# A regra mora na API e não num CHECK do banco por dois motivos que o CHECK
+# não sabe distinguir: as tarefas antigas abertas continuam válidas até
+# alguém editá-las, e a Prospecção abre em lote o "primeiro contato" de
+# empresas que ainda não têm contato nenhum — descobrir a pessoa É a tarefa.
+
+TIPOS_EXIGEM_CONTATO = ("ligacao", "reuniao", "visita", "whatsapp", "email")
+
+
+def exige_contato(tipo: str | None) -> bool:
+    return tipo in TIPOS_EXIGEM_CONTATO
+
+
+def validar_contato_obrigatorio(tipo: str, contato_id) -> None:
+    """
+    Levanta TarefaInvalida quando o tipo é de interação e o contato não veio.
+
+    A frase pergunta em vez de acusar: o que falta é uma decisão ("com quem
+    vou falar?"), e é ela que o vendedor precisa tomar antes de marcar.
+    """
+    if contato_id is None and exige_contato(tipo):
+        rotulo = ROTULOS_TIPO.get(tipo, tipo)
+        raise TarefaInvalida(
+            f"{rotulo} precisa de um contato: com quem vai ser a conversa? "
+            "Escolha uma pessoa da empresa ou cadastre uma nova."
+        )
+
+
 def situacao(
     estado: EstadoTarefa,
     agora: datetime,

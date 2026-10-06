@@ -8,7 +8,7 @@
 // acontecem todos aqui.
 
 import { useCallback, useEffect, useState } from 'react';
-import { Star, Trash2, UserPlus, Mail, Phone } from 'lucide-react';
+import { Star, Trash2, UserPlus, Mail, Pencil } from 'lucide-react';
 
 import api from '../../api';
 import EntityPicker from '../EntityPicker';
@@ -16,6 +16,7 @@ import Button from '../ui/Button';
 import Badge from '../ui/Badge';
 import Empty from '../ui/Empty';
 import AlertMessage from '../ui/AlertMessage';
+import { FormContato, LinkLinkedin, TelefonesDoContato } from './contatoComum';
 
 function mensagemDeErro(err, padrao) {
   const d = err?.response?.data?.detail;
@@ -29,6 +30,9 @@ export default function ContatosDaConta({ contaId, contatos, onMudou }) {
   const [erro, setErro] = useState(null);
   const [ocupado, setOcupado] = useState(null);
   const [chaveReset, setChaveReset] = useState(0);
+  // 045: editar no lugar. Antes, trocar um telefone era excluir o contato e
+  // cadastrar de novo — perdendo vínculos, histórico e tarefas.
+  const [editando, setEditando] = useState(null);
 
   useEffect(() => { setErro(null); }, [contaId]);
 
@@ -70,6 +74,13 @@ export default function ContatosDaConta({ contaId, contatos, onMudou }) {
 
   async function vincular(contato) {
     if (!contato) return;
+    // Recém-criado pelo "+" já nasce vinculado (POST com conta_id), e o
+    // EntityPicker devolve o registro criado por aqui — vincular de novo
+    // daria 409 "já vinculado".
+    if (contato.contas?.some((v) => v.conta_id === contaId && v.ativo)) {
+      setChaveReset((k) => k + 1);
+      return;
+    }
     await acao(
       'vincular',
       () => api.post(`/crm/contatos/${contato.id}/vinculos`, { conta_id: contaId }),
@@ -125,7 +136,17 @@ export default function ContatosDaConta({ contaId, contatos, onMudou }) {
         />
       ) : (
         <ul className="divide-y divide-hipo-border border border-hipo-border rounded-lg">
-          {contatos.map((c) => (
+          {contatos.map((c) => (editando === c.id ? (
+            <li key={c.id} className="px-3 py-2.5">
+              <FormContato
+                contato={c}
+                contaId={contaId}
+                cargoAtual={c.cargo}
+                onCancelar={() => setEditando(null)}
+                onSalvo={() => { setEditando(null); onMudou(); }}
+              />
+            </li>
+          ) : (
             <li key={c.id} className="flex items-center gap-3 px-3 py-2.5">
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
@@ -139,13 +160,20 @@ export default function ContatosDaConta({ contaId, contatos, onMudou }) {
                       <Mail size={11} />{c.email}
                     </span>
                   )}
-                  {c.telefone && (
-                    <span className="inline-flex items-center gap-1">
-                      <Phone size={11} />{c.telefone}
-                    </span>
-                  )}
+                  <TelefonesDoContato contato={c} compacto />
+                  <LinkLinkedin url={c.linkedin} />
                 </div>
               </div>
+
+              <Button
+                size="sm"
+                variant="ghost"
+                icon={Pencil}
+                aria-label={`Editar ${c.nome}`}
+                onClick={() => setEditando(c.id)}
+              >
+                Editar
+              </Button>
 
               {!c.principal && (
                 <Button
@@ -184,7 +212,7 @@ export default function ContatosDaConta({ contaId, contatos, onMudou }) {
                 Remover
               </Button>
             </li>
-          ))}
+          )))}
         </ul>
       )}
     </div>

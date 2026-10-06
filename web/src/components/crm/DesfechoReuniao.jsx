@@ -143,7 +143,13 @@ export function PainelDesfecho({
 }) {
   const [escolha, setEscolha] = useState(reuniao.desfecho_sugerido || 'realizada');
   const [observacao, setObservacao] = useState('');
-  const [proxima, setProxima] = useState(() => tarefaVazia(reuniao.anfitriao_id));
+  // A próxima conversa é, por padrão, com a mesma pessoa desta reunião.
+  const [proxima, setProxima] = useState(
+    () => tarefaVazia(reuniao.anfitriao_id, reuniao.contato_id),
+  );
+  const alvoContato = reuniao.oportunidade_id
+    ? { oportunidade_id: reuniao.oportunidade_id, conta_id: reuniao.conta_id }
+    : { conta_id: reuniao.conta_id };
 
   // O alvo sai de `oportunidade_id`: a reunião aberta pela aba de tarefas
   // do parceiro é de parceiro. A regra vem da função compartilhada, e não de um
@@ -255,6 +261,7 @@ export function PainelDesfecho({
             usuarios={usuarios}
             prefixo="Próxima: "
             idBase={`proxima-reuniao-${reuniao.id}`}
+            alvo={alvoContato}
           />
         </div>
       ) : escolha === 'realizada' && reuniao.outras_abertas > 0 ? (

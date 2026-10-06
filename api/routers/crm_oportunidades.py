@@ -39,9 +39,11 @@ from routers.auth import usuario_atual
 # router de tarefas. Importar de lá é o preço de não ter duas definições da
 # mesma coisa — e é importação de mão única: crm_tarefas não conhece este
 # módulo, então não há ciclo.
+from routers.crm_oportunidade_contatos import definir_principal, incluir_no_comite
 from routers.crm_tarefas import (
     TarefaDeFinalizacao,
     inserir_tarefa_concluida,
+    validar_contato as validar_contato_tarefa,
     validar_referencias as validar_referencias_tarefa,
 )
 from services import cnpj as cnpj_svc
@@ -222,6 +224,11 @@ class OportunidadeResumo(BaseModel):
     # 042: quantos CNPJs além do principal estão nesta negociação. O cartão
     # e o cabeçalho mostram "+N CNPJs" sem uma segunda chamada.
     cnpjs_adicionais: int = 0
+    # 045: o comitê (ABM / multithreading). Quantas pessoas ATIVAS estão
+    # nesta negociação e se o decisor já foi mapeado — é o farol do cartão,
+    # sem uma segunda chamada por oportunidade.
+    qtd_contatos: int = 0
+    tem_decisor: bool = False
 
 
 class OportunidadeDetalhe(OportunidadeResumo):
@@ -282,7 +289,16 @@ _SELECT_BASE = """
            env.envolvidos,
            (SELECT count(*) FROM oportunidade_contas oc_n
              WHERE oc_n.oportunidade_id = o.id AND oc_n.removido_em IS NULL
-           ) AS cnpjs_adicionais
+           ) AS cnpjs_adicionais,
+           (SELECT count(*) FROM oportunidade_contatos ocx
+              JOIN contatos ctx ON ctx.id = ocx.contato_id
+             WHERE ocx.oportunidade_id = o.id AND ctx.ativo
+           ) AS qtd_contatos,
+           EXISTS (SELECT 1 FROM oportunidade_contatos ocd
+                     JOIN contatos ctd ON ctd.id = ocd.contato_id
+                    WHERE ocd.oportunidade_id = o.id AND ctd.ativo
+                      AND ocd.papel = 'decisor'
+           ) AS tem_decisor
       FROM oportunidades o
       JOIN contas c            ON c.id = o.conta_id
       LEFT JOIN contatos ct    ON ct.id = o.contato_id
@@ -1284,6 +1300,12 @@ async def inserir_oportunidade(
         finder_conta_id, proxima_acao_em,
         proxima_acao_tipo, criado_por,
     )
+    if contato_id is not None:
+        # O contato informado na criação é o primeiro do comitê — e, por
+        # ser o primeiro, o principal (espelho em oportunidades.contato_id).
+        await incluir_no_comite(
+            conn, novo_id, contato_id, criado_por=criado_por, principal=True,
+        )
     await _substituir_envolvidos(conn, novo_id, envolvidos or [])
     await _substituir_concorrentes(conn, novo_id, concorrentes or [])
     await _marcar_finder(conn, finder_conta_id)
@@ -1395,6 +1417,18 @@ async def editar(
             f"UPDATE oportunidades SET {', '.join(sets)} WHERE id = ${len(dados) + 1}",
             *dados.values(), oportunidade_id,
         )
+        # 045: `contato_id` é o espelho do principal do comitê. Trocá-lo por
+        # aqui (o seletor antigo, clientes antigos da API) põe a pessoa no
+        # comitê como principal; limpar desmarca o principal sem tirar
+        # ninguém da lista.
+        if "contato_id" in dados:
+            if dados["contato_id"] is not None:
+                await incluir_no_comite(
+                    conn, oportunidade_id, dados["contato_id"],
+                    criado_por=user["id"], principal=True,
+                )
+            else:
+                await definir_principal(conn, oportunidade_id, None)
         await _marcar_finder(conn, dados.get("finder_conta_id"))
     return await _detalhe(conn, oportunidade_id)
 
@@ -1458,6 +1492,13 @@ async def desfecho(
         await validar_referencias_tarefa(
             conn, oportunidade_id, None, payload.tarefa.responsavel_id
         )
+    # O registro do fechamento NÃO exige contato (045): é o relato do que
+    # acabou de acontecer, e travar a finalização por um campo seria atrito
+    # no pior momento. Mas, se veio, precisa ser uma pessoa da empresa.
+    await validar_contato_tarefa(
+        conn, payload.tarefa.tipo, payload.tarefa.contato_id,
+        oportunidade_id, None, obrigatorio=False,
+    )
 
     async with conn.transaction():
         await _aplicar(conn, oportunidade_id, novo, user["id"], estado, "status")

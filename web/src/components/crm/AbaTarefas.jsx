@@ -52,7 +52,7 @@ import {
 } from './DesfechoReuniao';
 import {
   ABERTAS, ICONE_TIPO, SITUACAO, TIPOS_AGENDAVEIS,
-  CamposTarefa, PainelAcoesTarefa,
+  CamposTarefa, ContatoDaTarefa, PainelAcoesTarefa,
   corpoDaTarefa, dataCompleta, dataCurta, exigeProximaTarefa, formIncompleto,
   mensagemDeErro, tarefaVazia,
 } from './tarefaComum';
@@ -116,6 +116,8 @@ function Evento({
             ? <span className="block mt-0.5"><SeloDesfecho tarefa={tarefa} /></span>
             : <span className={`block text-xs ${tom.texto}`}>{tom.palavra}</span>}
         </button>
+        {/* Fora do botão: os telefones são links, e link dentro de botão é HTML inválido. */}
+        <div className="mt-0.5"><ContatoDaTarefa tarefa={tarefa} /></div>
 
         {/* ── Drilldown ── */}
         {expandida && (
@@ -234,13 +236,18 @@ export default function AbaTarefas({ oportunidade, parceiro, onMudou, versao = 0
   const [erro, setErro] = useState(null);
   const [ocupado, setOcupado] = useState(false);
   const [criando, setCriando] = useState(false);
-  const [nova, setNova] = useState(() => tarefaVazia());
+  const [nova, setNova] = useState(() => tarefaVazia('', oportunidade?.contato_id));
   const [expandida, setExpandida] = useState(null);
   const [reuniaoAberta, setReuniaoAberta] = useState(null);
 
   const ehParceiro = Boolean(parceiro);
   const alvo = ehParceiro ? parceiro : oportunidade;
   const alvoId = alvo.id;
+  // 045: de onde vêm os contatos da tarefa nova — o comitê e a empresa da
+  // oportunidade, ou os contatos do parceiro.
+  const alvoContato = ehParceiro
+    ? { conta_id: parceiro.id }
+    : { oportunidade_id: oportunidade.id, conta_id: oportunidade.conta_id };
 
   // Quem fecha a ÚLTIMA tarefa aberta precisa marcar a seguinte — é assim
   // que a oportunidade nunca fica sem próximo passo. Sobrando outra aberta,
@@ -340,6 +347,7 @@ export default function AbaTarefas({ oportunidade, parceiro, onMudou, versao = 0
             titulo: corpo.titulo,
             descricao: corpo.descricao,
             modalidade: corpo.tipo === 'visita' ? 'presencial' : 'online',
+            contato_id: corpo.contato_id,
           }));
         } else {
           await api.post('/crm/tarefas', { ...filtro, ...corpo });
@@ -350,7 +358,7 @@ export default function AbaTarefas({ oportunidade, parceiro, onMudou, versao = 0
         : 'Não foi possível criar a tarefa.',
     );
     if (ok) {
-      setNova(tarefaVazia());
+      setNova(tarefaVazia('', oportunidade?.contato_id));
       setCriando(false);
       if (criada?.id) setReuniaoAberta(criada.id);
     }
@@ -442,7 +450,7 @@ export default function AbaTarefas({ oportunidade, parceiro, onMudou, versao = 0
           icon={Plus}
           variant={criando ? 'secondary' : 'primary'}
           onClick={() => {
-            setNova(tarefaVazia());
+            setNova(tarefaVazia('', oportunidade?.contato_id));
             setCriando((v) => !v);
           }}
         >
@@ -453,7 +461,10 @@ export default function AbaTarefas({ oportunidade, parceiro, onMudou, versao = 0
       {/* ── Criação inline. Nunca modal: esta aba já vive dentro de um. ── */}
       {criando && (
         <div className="border border-hipo-border rounded-lg p-3 space-y-3 bg-hipo-bg/40">
-          <CamposTarefa valor={nova} onChange={setNova} usuarios={usuarios} avisoAgenda={false} />
+          <CamposTarefa
+            valor={nova} onChange={setNova} usuarios={usuarios}
+            avisoAgenda={false} alvo={alvoContato}
+          />
           {novaEhReuniao && (
             <p className="text-xs text-hipo-slate">
               Reunião e visita entram direto na agenda. Depois de marcar, abre o

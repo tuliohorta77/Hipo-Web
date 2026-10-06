@@ -18,6 +18,8 @@ import {
 import api from '../../api';
 import AbaTarefas from './AbaTarefas';
 import AbaProposta from './AbaProposta';
+import AbaContatos from './AbaContatos';
+import { SeloComite } from './contatoComum';
 import Tabs from '../ui/Tabs';
 import Input, { Select } from '../ui/Input';
 import Button from '../ui/Button';
@@ -31,8 +33,11 @@ import EntityPicker from '../EntityPicker';
 // passo" agora é a aba Tarefas. Os campos continuavam na tela depois de o
 // backend tirá-los de CAMPOS_EDITAVEIS — o usuário digitava, salvava, e o
 // PATCH ignorava em silêncio.
+// contato_id saiu deste form na 045: o contato da oportunidade virou uma
+// LISTA (aba Contatos), e o principal é escolhido lá. Mandar o campo daqui
+// trocaria o principal pelo seletor antigo sem passar pela lista.
 const CAMPOS = [
-  'contato_id', 'valor_mensalidade', 'temperatura', 'previsao_fechamento',
+  'valor_mensalidade', 'temperatura', 'previsao_fechamento',
   'descricao', 'observacoes', 'origem_id', 'finder_conta_id',
 ];
 
@@ -379,7 +384,6 @@ export default function OportunidadeDetalhe({
   const [erro, setErro] = useState(null);
   const [salvando, setSalvando] = useState(false);
   const [acaoEmCurso, setAcaoEmCurso] = useState(null);
-  const [contatos, setContatos] = useState([]);
   const [origens, setOrigens] = useState([]);
   // O EntityPicker mostra o RÓTULO do item selecionado, e o rótulo não cabe
   // no `form` — lá só vive o id que vai no PATCH. Guardar o objeto escolhido
@@ -396,7 +400,6 @@ export default function OportunidadeDetalhe({
     if (idCarregado.current === oportunidade.id) return;
     idCarregado.current = oportunidade.id;
     setForm({
-      contato_id: oportunidade.contato_id || '',
       valor_mensalidade: oportunidade.valor_mensalidade ?? '',
       temperatura: oportunidade.temperatura ?? '',
       previsao_fechamento: paraInputData(oportunidade.previsao_fechamento),
@@ -418,12 +421,6 @@ export default function OportunidadeDetalhe({
   }, [oportunidade]);
 
   useEffect(() => {
-    api.get(`/crm/contatos`, { params: { conta_id: oportunidade.conta_id, limit: 100 } })
-      // `|| []` não é paranoia: uma resposta sem `itens` deixava o map de
-      // baixo estourar e a tela inteira virava branco. Erro de dado não pode
-      // derrubar a tela.
-      .then(({ data }) => setContatos(data.itens || []))
-      .catch(() => setContatos([]));
     api.get('/crm/dominio/origens')
       .then(({ data }) => setOrigens(data))
       .catch(() => setOrigens([]));
@@ -431,7 +428,6 @@ export default function OportunidadeDetalhe({
 
   const sujo = useMemo(() => {
     const original = {
-      contato_id: oportunidade.contato_id || '',
       valor_mensalidade: oportunidade.valor_mensalidade ?? '',
       temperatura: oportunidade.temperatura ?? '',
       previsao_fechamento: paraInputData(oportunidade.previsao_fechamento),
@@ -487,6 +483,9 @@ export default function OportunidadeDetalhe({
     // vem do detalhe, não de uma segunda chamada — precisa estar certo antes
     // de alguém clicar.
     { key: 'tarefas', label: 'Tarefas', badge: oportunidade.tarefas_abertas || undefined },
+    // 045: o comitê (ABM / multithreading). Logo depois de Tarefas: é com
+    // essas pessoas que as tarefas acontecem.
+    { key: 'contatos', label: 'Contatos', badge: oportunidade.qtd_contatos || undefined },
     { key: 'proposta', label: 'Proposta' },
     { key: 'envolvidos', label: 'Envolvidos', badge: oportunidade.envolvidos?.length || undefined },
     { key: 'concorrentes', label: 'Concorrentes', badge: oportunidade.concorrentes?.length || undefined },
@@ -604,14 +603,23 @@ export default function OportunidadeDetalhe({
           // Três colunas e sem max-w: com dois campos a menos (a próxima ação
           // virou a tabela `tarefas`), tudo cabe na altura do modal sem rolar.
           <div className="grid grid-cols-1 md:grid-cols-3 gap-x-4 gap-y-3">
-            <Select
-              label="Contato"
-              value={form.contato_id || ''}
-              onChange={(e) => set('contato_id', e.target.value)}
-            >
-              <option value="">— sem contato —</option>
-              {contatos.map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}
-            </Select>
+            <div>
+              <span className="block text-sm font-medium text-hipo-ink mb-1.5">Contato principal</span>
+              <button
+                type="button"
+                onClick={() => setAba('contatos')}
+                className="w-full h-10 px-3 flex items-center gap-2 rounded-lg border border-hipo-border bg-hipo-card text-sm text-left hover:bg-hipo-bg"
+                aria-label="Ver contatos da oportunidade"
+              >
+                <span className="truncate flex-1 text-hipo-ink">
+                  {oportunidade.contato_nome || 'Nenhum contato'}
+                </span>
+                <SeloComite
+                  qtd={oportunidade.qtd_contatos || 0}
+                  temDecisor={oportunidade.tem_decisor}
+                />
+              </button>
+            </div>
             <Select
               label="Origem"
               value={form.origem_id ?? ''}
@@ -693,6 +701,10 @@ export default function OportunidadeDetalhe({
 
         {aba === 'tarefas' && (
           <AbaTarefas oportunidade={oportunidade} onMudou={onRecarregar} />
+        )}
+
+        {aba === 'contatos' && (
+          <AbaContatos oportunidade={oportunidade} onMudou={onRecarregar} />
         )}
 
         {/*

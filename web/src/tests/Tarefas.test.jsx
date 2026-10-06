@@ -55,6 +55,12 @@ function tarefa(id, extra = {}) {
     // Quantas OUTRAS tarefas do mesmo alvo estão em aberto. Zero = esta é a
     // última, e é só nesse caso que concluir exige a próxima.
     outras_abertas: 0,
+    // 045: com quem. A próxima sugere a mesma pessoa.
+    conta_id: 'c1',
+    contato_id: 'ct1',
+    contato_nome: 'Ana RH',
+    contato_telefone: '11999990000',
+    contato_whatsapp: false,
     criado_em: '2026-08-01T12:00:00Z',
     ...extra,
   };
@@ -120,6 +126,11 @@ function respostas(colunas = COLUNAS) {
   return (url) => {
     if (url === '/crm/tarefas/kanban') return Promise.resolve({ data: colunas });
     if (url === '/crm/dominio/usuarios') return Promise.resolve({ data: USUARIOS });
+    if (url === '/crm/contatos/por-alvo') {
+      return Promise.resolve({ data: [
+        { id: 'ct1', nome: 'Ana RH', cargo: null, no_comite: true, principal: true, papel: null },
+      ] });
+    }
     if (url === '/crm/tarefas/resumo') return Promise.resolve({ data: RESUMO });
     if (url === '/crm/tarefas') return Promise.resolve({ data: { total: 0, abertas: 0, atrasadas: 0, itens: [] } });
     return Promise.resolve({ data: [] });

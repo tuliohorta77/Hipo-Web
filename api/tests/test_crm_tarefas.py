@@ -15,7 +15,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from services import tarefa as regras
-from tests.conftest import criar_usuario
+from tests.conftest import contato_do_alvo, contato_para_proxima, criar_usuario
 
 # Todo desfecho exige o registro do fechamento — a tarefa que conta O QUE
 # fechou o negócio, gravada já concluída na mesma transação. Constante aqui
@@ -75,6 +75,17 @@ async def nova_tarefa(client, headers, oportunidade_id, usuario_id, **extra):
         "prazo": em(1),
     }
     corpo.update(extra)
+    # 045: ligação exige contato. Quem não testa essa regra recebe o
+    # principal da oportunidade (ou um contato do parceiro).
+    if "contato_id" not in extra:
+        if corpo.get("oportunidade_id"):
+            corpo["contato_id"] = await contato_do_alvo(
+                client, headers, oportunidade_id=corpo["oportunidade_id"]
+            )
+        elif corpo.get("conta_id"):
+            corpo["contato_id"] = await contato_do_alvo(
+                client, headers, conta_id=corpo["conta_id"]
+            )
     resp = await client.post("/crm/tarefas", json=corpo, headers=headers)
     assert resp.status_code == 201, resp.text
     return resp.json()
@@ -142,6 +153,7 @@ class TestCriar:
         resp = await client.post(
             "/crm/tarefas",
             json={
+                "contato_id": await contato_do_alvo(client, cenario["headers"], oportunidade_id=cenario["opp"]["id"]),
                 "oportunidade_id": cenario["opp"]["id"], "tipo": "ligacao",
                 "titulo": "   ", "responsavel_id": cenario["usuario_id"],
                 "prazo": em(1),
@@ -179,6 +191,7 @@ class TestCriar:
         resp = await client.post(
             "/crm/tarefas",
             json={
+                "contato_id": await contato_do_alvo(client, cenario["headers"], oportunidade_id=cenario["opp"]["id"]),
                 "oportunidade_id": cenario["opp"]["id"], "tipo": "ligacao",
                 "titulo": "X", "responsavel_id": str(uuid.uuid4()),
                 "prazo": em(1),
@@ -215,7 +228,7 @@ class TestListagem:
         await nova_tarefa(client, h, o, u, prazo=em(-2), titulo="Atrasada")
         await client.post(
             f"/crm/tarefas/{futura['id']}/concluir",
-            json={"proxima": proxima(u, prazo=em(9), titulo="Nova")},
+            json={"proxima": {**proxima(u, prazo=em(9), titulo="Nova"), "contato_id": await contato_para_proxima(client, h, f"/crm/tarefas/{futura['id']}/concluir")}},
             headers=h,
         )
         body = (await client.get(f"/crm/tarefas?oportunidade_id={o}", headers=h)).json()
@@ -381,7 +394,7 @@ class TestKanban:
         t = await nova_tarefa(client, h, o, u)
         await client.post(
             f"/crm/tarefas/{t['id']}/concluir",
-            json={"proxima": proxima(u)}, headers=h,
+            json={"proxima": {**proxima(u), "contato_id": await contato_para_proxima(client, h, f"/crm/tarefas/{t['id']}/concluir")}}, headers=h,
         )
         colunas = (await client.get("/crm/tarefas/kanban", headers=h)).json()
         assert next(c for c in colunas if c["situacao"] == "concluida")["quantidade"] == 1
@@ -460,7 +473,7 @@ class TestKanban:
         for t in (a, b):
             await client.post(
                 f"/crm/tarefas/{t['id']}/concluir",
-                json={"proxima": proxima(u)}, headers=h,
+                json={"proxima": {**proxima(u), "contato_id": await contato_para_proxima(client, h, f"/crm/tarefas/{t['id']}/concluir")}}, headers=h,
             )
         colunas = (await client.get("/crm/tarefas/kanban", headers=h)).json()
         concluidas = next(c for c in colunas if c["situacao"] == "concluida")
@@ -531,7 +544,7 @@ class TestKanban:
         t = await nova_tarefa(client, h, o, u)
         resp = await client.post(
             f"/crm/tarefas/{t['id']}/concluir",
-            json={"proxima": proxima(u)}, headers=h,
+            json={"proxima": {**proxima(u), "contato_id": await contato_para_proxima(client, h, f"/crm/tarefas/{t['id']}/concluir")}}, headers=h,
         )
         assert resp.status_code == 200, resp.text
         corpo = resp.json()
@@ -637,6 +650,7 @@ class TestOutrasAbertasDispensamAProxima:
         base = {
             "conta_id": conta["id"], "tipo": "ligacao",
             "responsavel_id": u, "prazo": em(1),
+            "contato_id": await contato_do_alvo(client, h, conta_id=conta["id"]),
         }
         a = (await client.post(
             "/crm/tarefas", json={**base, "titulo": "Ligar"}, headers=h
@@ -722,7 +736,7 @@ class TestConcluir:
         t = await nova_tarefa(client, h, o, u)
         resp = await client.post(
             f"/crm/tarefas/{t['id']}/concluir",
-            json={"resultado": "Atendeu, pediu proposta", "proxima": proxima(u)},
+            json={"resultado": "Atendeu, pediu proposta", "proxima": {**proxima(u), "contato_id": await contato_para_proxima(client, h, f"/crm/tarefas/{t['id']}/concluir")}},
             headers=h,
         )
         assert resp.status_code == 200
@@ -744,7 +758,7 @@ class TestConcluir:
         t = await nova_tarefa(client, h, o, u)
         await client.post(
             f"/crm/tarefas/{t['id']}/concluir",
-            json={"proxima": proxima(u)}, headers=h,
+            json={"proxima": {**proxima(u), "contato_id": await contato_para_proxima(client, h, f"/crm/tarefas/{t['id']}/concluir")}}, headers=h,
         )
         body = (await client.get(f"/crm/tarefas?oportunidade_id={o}", headers=h)).json()
         nova = next(i for i in body["itens"] if i["id"] != t["id"])
@@ -791,7 +805,7 @@ class TestConcluir:
         t = await nova_tarefa(client, h, o, u)
         resp = await client.post(
             f"/crm/tarefas/{t['id']}/concluir",
-            json={"proxima": proxima(str(uuid.uuid4()))}, headers=h,
+            json={"proxima": {**proxima(str(uuid.uuid4())), "contato_id": await contato_para_proxima(client, h, f"/crm/tarefas/{t['id']}/concluir")}}, headers=h,
         )
         assert resp.status_code == 422
         depois = (await client.get(f"/crm/tarefas/{t['id']}", headers=h)).json()
@@ -803,11 +817,11 @@ class TestConcluir:
         t = await nova_tarefa(client, h, o, u)
         await client.post(
             f"/crm/tarefas/{t['id']}/concluir",
-            json={"proxima": proxima(u)}, headers=h,
+            json={"proxima": {**proxima(u), "contato_id": await contato_para_proxima(client, h, f"/crm/tarefas/{t['id']}/concluir")}}, headers=h,
         )
         resp = await client.post(
             f"/crm/tarefas/{t['id']}/concluir",
-            json={"proxima": proxima(u)}, headers=h,
+            json={"proxima": {**proxima(u), "contato_id": await contato_para_proxima(client, h, f"/crm/tarefas/{t['id']}/concluir")}}, headers=h,
         )
         assert resp.status_code == 422
         assert "já foi concluída" in resp.json()["detail"]
@@ -817,7 +831,7 @@ class TestConcluir:
         t = await nova_tarefa(client, h, o, u)
         body = (await client.post(
             f"/crm/tarefas/{t['id']}/concluir",
-            json={"resultado": "   ", "proxima": proxima(u)}, headers=h,
+            json={"resultado": "   ", "proxima": {**proxima(u), "contato_id": await contato_para_proxima(client, h, f"/crm/tarefas/{t['id']}/concluir")}}, headers=h,
         )).json()
         assert body["resultado"] is None
 
@@ -844,7 +858,7 @@ class TestCancelar:
         t = await nova_tarefa(client, h, o, u)
         await client.post(
             f"/crm/tarefas/{t['id']}/concluir",
-            json={"proxima": proxima(u)}, headers=h,
+            json={"proxima": {**proxima(u), "contato_id": await contato_para_proxima(client, h, f"/crm/tarefas/{t['id']}/concluir")}}, headers=h,
         )
         resp = await client.post(f"/crm/tarefas/{t['id']}/cancelar", json={}, headers=h)
         assert resp.status_code == 422
@@ -868,7 +882,7 @@ class TestEditar:
         t = await nova_tarefa(client, h, o, u)
         await client.post(
             f"/crm/tarefas/{t['id']}/concluir",
-            json={"proxima": proxima(u)}, headers=h,
+            json={"proxima": {**proxima(u), "contato_id": await contato_para_proxima(client, h, f"/crm/tarefas/{t['id']}/concluir")}}, headers=h,
         )
         resp = await client.patch(
             f"/crm/tarefas/{t['id']}", json={"titulo": "Reescrevendo"}, headers=h
@@ -1285,6 +1299,7 @@ class TestResumo:
         resp = await client.post(
             "/crm/tarefas",
             json={
+                "contato_id": await contato_do_alvo(client, headers, conta_id=conta["id"]),
                 "conta_id": conta["id"], "tipo": "reuniao",
                 "titulo": "Café com o contador", "responsavel_id": usuario_id,
                 "prazo": iso(11),

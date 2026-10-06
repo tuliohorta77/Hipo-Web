@@ -24,7 +24,17 @@ vi.mock('../api', () => ({
 
 import AbaTarefas from '../components/crm/AbaTarefas';
 
-const OPP = { id: 'o1', numero: 'OPP-2026-00001', status: 'ativa' };
+// 045: a oportunidade tem um contato principal, e é ele que as tarefas
+// novas e as próximas sugerem.
+const OPP = {
+  id: 'o1', numero: 'OPP-2026-00001', status: 'ativa',
+  conta_id: 'c1', contato_id: 'ct1',
+};
+
+const CONTATOS_DO_ALVO = [
+  { id: 'ct1', nome: 'Ana RH', cargo: 'Gerente de RH', no_comite: true, principal: true, papel: 'decisor' },
+  { id: 'ct2', nome: 'Davi Compras', cargo: null, no_comite: false, principal: false, papel: null },
+];
 
 function tarefa(id, extra = {}) {
   return {
@@ -45,6 +55,10 @@ function tarefa(id, extra = {}) {
     cancelada_em: null,
     motivo_cancelamento: null,
     tarefa_anterior_id: null,
+    contato_id: 'ct1',
+    contato_nome: 'Ana RH',
+    contato_telefone: '11999990000',
+    contato_whatsapp: true,
     criado_em: '2026-08-01T12:00:00Z',
     ...extra,
   };
@@ -80,6 +94,7 @@ function respostas(lista = LISTA) {
   return (url) => {
     if (url === '/crm/tarefas') return Promise.resolve({ data: lista });
     if (url === '/crm/dominio/usuarios') return Promise.resolve({ data: USUARIOS });
+    if (url === '/crm/contatos/por-alvo') return Promise.resolve({ data: CONTATOS_DO_ALVO });
     return Promise.resolve({ data: [] });
   };
 }

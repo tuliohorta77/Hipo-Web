@@ -37,6 +37,7 @@ import OportunidadeDetalhe from '../../components/crm/OportunidadeDetalhe';
 import ContaDetalhe from '../../components/crm/ContaDetalhe';
 import ModalDesfecho from '../../components/crm/ModalDesfecho';
 import ModalReuniao from '../../components/crm/ModalReuniao';
+import { SeloComite } from '../../components/crm/contatoComum';
 import {
   PAGINA_KANBAN, completarColuna, mesclarItens,
 } from '../../components/crm/CarregarMais';
@@ -839,6 +840,11 @@ export default function Oportunidades() {
                               <span className="font-medium text-hipo-ink">{o.conta_razao_social}</span>
                               {o.contato_nome && (
                                 <span className="block text-xs text-hipo-slate">{o.contato_nome}</span>
+                              )}
+                              {o.qtd_contatos !== undefined && ['ativa', 'suspensa'].includes(o.status) && (
+                                <span className="block mt-0.5">
+                                  <SeloComite qtd={o.qtd_contatos} temDecisor={o.tem_decisor} />
+                                </span>
                               )}
                             </Td>
                             <Td>{FASES[o.fase] || o.fase}</Td>

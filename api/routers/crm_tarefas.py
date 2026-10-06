@@ -36,13 +36,18 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 from database import get_conn
 from routers.auth import usuario_atual
+from routers.crm_oportunidade_contatos import (
+    contas_da_oportunidade, contato_ativo, contato_vinculado, incluir_no_comite,
+)
 from services import agenda as agenda_regras
 from services import tarefa as regras
 from services.tarefa import EstadoTarefa, TarefaInvalida
 
 router = APIRouter()
 
-CAMPOS_EDITAVEIS = {"tipo", "titulo", "descricao", "responsavel_id", "prazo"}
+CAMPOS_EDITAVEIS = {
+    "tipo", "titulo", "descricao", "responsavel_id", "prazo", "contato_id",
+}
 
 
 # ── Schemas ──────────────────────────────────────────────────────────
@@ -53,6 +58,12 @@ class TarefaBase(BaseModel):
     descricao: str | None = None
     responsavel_id: UUID
     prazo: datetime
+    # 045: com quem é a interação. Obrigatório nos tipos de
+    # services/tarefa.TIPOS_EXIGEM_CONTATO — a regra é aplicada pelas ROTAS
+    # (`validar_contato`), e não aqui, porque o schema não sabe se está numa
+    # criação pela tela ou no "primeiro contato" que a Prospecção abre em
+    # lote para quem ainda não tem contato nenhum.
+    contato_id: UUID | None = None
 
     @field_validator("tipo")
     @classmethod
@@ -97,6 +108,7 @@ class TarefaEditar(BaseModel):
     descricao: str | None = None
     responsavel_id: UUID | None = None
     prazo: datetime | None = None
+    contato_id: UUID | None = None
 
     @field_validator("tipo")
     @classmethod
@@ -190,6 +202,12 @@ class TarefaOut(BaseModel):
     cancelada_em: datetime | None
     motivo_cancelamento: str | None
     tarefa_anterior_id: UUID | None
+    # 045: com quem. Nome e telefone vêm prontos para o cartão mostrar
+    # "com Fulana" e o botão de ligar/WhatsApp sem uma segunda chamada.
+    contato_id: UUID | None = None
+    contato_nome: str | None = None
+    contato_telefone: str | None = None
+    contato_whatsapp: bool = False
     # Preenchido quando esta tarefa já está na agenda. É o que permite à aba
     # da oportunidade mostrar "Agendar" em umas e "Ver na agenda" em outras
     # sem uma segunda chamada por tarefa — o JOIN já está aqui, e um N+1 na
@@ -283,6 +301,9 @@ _SELECT_BASE = """
            t.prazo, t.concluida_em, t.resultado,
            t.cancelada_em, t.motivo_cancelamento,
            t.tarefa_anterior_id, t.criado_em,
+           t.contato_id, ctt.nome AS contato_nome,
+           ctt.telefone AS contato_telefone,
+           COALESCE(ctt.telefone_whatsapp, FALSE) AS contato_whatsapp,
            rn.id AS reuniao_id,
            rn.desfecho AS reuniao_desfecho,
            rn.duracao_min AS reuniao_duracao_min,
@@ -310,6 +331,7 @@ _SELECT_BASE = """
       LEFT JOIN contas co       ON co.id = o.conta_id
       LEFT JOIN contas cp       ON cp.id = t.conta_id
       LEFT JOIN usuarios u      ON u.id = t.responsavel_id
+      LEFT JOIN contatos ctt    ON ctt.id = t.contato_id
       LEFT JOIN reunioes rn     ON rn.tarefa_id = t.id
       LEFT JOIN tipos_reuniao trn ON trn.id = rn.tipo_id
 """
@@ -523,6 +545,74 @@ async def validar_referencias(
         raise HTTPException(422, "Responsável não encontrado ou inativo.")
 
 
+async def validar_contato(
+    conn,
+    tipo: str,
+    contato_id: UUID | None,
+    oportunidade_id: UUID | None,
+    conta_id: UUID | None,
+    *,
+    obrigatorio: bool = True,
+) -> None:
+    """
+    O contato da tarefa (045): obrigatório nos tipos de interação e, quando
+    vem, precisa ser uma pessoa ATIVA da empresa do alvo.
+
+    "Da empresa" é: vinculada à conta principal ou a um CNPJ adicional da
+    oportunidade, ou já no comitê dela; no parceiro, vinculada à conta do
+    parceiro. Uma pessoa de outra empresa numa tarefa desta faria a
+    contagem de "com quantas pessoas desta conta falamos" mentir.
+
+    `obrigatorio=False` só confere o vínculo — é o caminho das edições que
+    não mexem em tipo nem em contato (arrastar uma reunião antiga na grade
+    não pode travar por falta de um contato que ninguém está tocando).
+    """
+    if contato_id is None:
+        if obrigatorio:
+            try:
+                regras.validar_contato_obrigatorio(tipo, None)
+            except TarefaInvalida as e:
+                raise HTTPException(422, str(e))
+        return
+
+    if not await contato_ativo(conn, contato_id):
+        raise HTTPException(422, "Contato não encontrado ou inativo.")
+
+    if oportunidade_id is not None:
+        contas = await contas_da_oportunidade(conn, oportunidade_id)
+        no_comite = await conn.fetchval(
+            """
+            SELECT 1 FROM oportunidade_contatos
+             WHERE oportunidade_id = $1 AND contato_id = $2
+            """,
+            oportunidade_id, contato_id,
+        )
+        if no_comite or await contato_vinculado(conn, contato_id, contas):
+            return
+    elif conta_id is not None:
+        if await contato_vinculado(conn, contato_id, [conta_id]):
+            return
+    raise HTTPException(
+        422,
+        "Este contato não é da empresa desta tarefa. Escolha uma pessoa da "
+        "conta ou cadastre uma nova.",
+    )
+
+
+async def registrar_no_comite(
+    conn, oportunidade_id: UUID | None, contato_id: UUID | None, criado_por,
+) -> None:
+    """
+    Conversar com alguém é envolver essa pessoa: a tarefa põe o contato no
+    comitê da oportunidade (sem papel) se ele ainda não estiver lá. Chamar
+    DENTRO da transação que grava a tarefa.
+    """
+    if oportunidade_id is not None and contato_id is not None:
+        await incluir_no_comite(
+            conn, oportunidade_id, contato_id, criado_por=criado_por,
+        )
+
+
 async def _inserir(conn, dados, oportunidade_id: UUID | None,
                    conta_id: UUID | None, criado_por,
                    anterior_id: UUID | None) -> UUID:
@@ -530,14 +620,16 @@ async def _inserir(conn, dados, oportunidade_id: UUID | None,
         """
         INSERT INTO tarefas (
             oportunidade_id, conta_id, tipo, titulo, descricao,
-            responsavel_id, prazo, tarefa_anterior_id, criado_por
+            responsavel_id, prazo, tarefa_anterior_id, criado_por,
+            contato_id
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
         RETURNING id
         """,
         oportunidade_id, conta_id, dados.tipo, dados.titulo,
         (dados.descricao or "").strip() or None,
         dados.responsavel_id, dados.prazo, anterior_id, criado_por,
+        getattr(dados, "contato_id", None),
     )
 
 
@@ -578,14 +670,14 @@ async def inserir_tarefa_concluida(
         INSERT INTO tarefas (
             oportunidade_id, conta_id, tipo, titulo, descricao,
             responsavel_id, prazo, tarefa_anterior_id, criado_por,
-            concluida_em
+            concluida_em, contato_id
         )
-        VALUES ($1, NULL, $2, $3, $4, $5, $6, NULL, $7, NOW())
+        VALUES ($1, NULL, $2, $3, $4, $5, $6, NULL, $7, NOW(), $8)
         RETURNING id
         """,
         oportunidade_id, dados.tipo, dados.titulo,
         (dados.descricao or "").strip() or None,
-        responsavel_id, prazo, criado_por,
+        responsavel_id, prazo, criado_por, dados.contato_id,
     )
 
 
@@ -1072,9 +1164,18 @@ async def criar(
     await validar_referencias(
         conn, payload.oportunidade_id, payload.conta_id, payload.responsavel_id
     )
-    novo_id = await _inserir(
-        conn, payload, payload.oportunidade_id, payload.conta_id, user["id"], None
+    await validar_contato(
+        conn, payload.tipo, payload.contato_id,
+        payload.oportunidade_id, payload.conta_id,
     )
+    async with conn.transaction():
+        novo_id = await _inserir(
+            conn, payload, payload.oportunidade_id, payload.conta_id,
+            user["id"], None,
+        )
+        await registrar_no_comite(
+            conn, payload.oportunidade_id, payload.contato_id, user["id"]
+        )
     return await _obter(conn, novo_id)
 
 
@@ -1095,6 +1196,27 @@ async def editar(
     campos = {k: v for k, v in campos.items() if k in CAMPOS_EDITAVEIS}
     if not campos:
         return await _obter(conn, tarefa_id)
+
+    # ── Com quem (045) ──
+    # A obrigação do contato vale quando a edição mexe em TIPO ou CONTATO —
+    # que é o que o formulário de editar sempre manda. Arrastar uma reunião
+    # antiga na grade (só horário) não trava por um contato que ninguém
+    # está tocando; mas quem abre a tarefa para editar sai dela com o
+    # contato preenchido.
+    if "tipo" in campos or "contato_id" in campos:
+        atual = await conn.fetchrow(
+            "SELECT tipo, contato_id, oportunidade_id, conta_id"
+            "  FROM tarefas WHERE id = $1",
+            tarefa_id,
+        )
+        tipo_final = campos.get("tipo") or atual["tipo"]
+        contato_final = (
+            campos["contato_id"] if "contato_id" in campos else atual["contato_id"]
+        )
+        await validar_contato(
+            conn, tipo_final, contato_final,
+            atual["oportunidade_id"], atual["conta_id"],
+        )
 
     # ── Tarefa que está na agenda ──
     # Horário, dono e título de uma reunião moram na tarefa, mas mudá-los
@@ -1142,11 +1264,25 @@ async def editar(
         sets.append(f"{chave} = ${len(params)}")
     params.append(tarefa_id)
 
-    await conn.execute(
-        f"UPDATE tarefas SET {', '.join(sets)}, atualizado_em = NOW()"
-        f" WHERE id = ${len(params)}",
-        *params,
-    )
+    async with conn.transaction():
+        alvo = await conn.fetchrow(
+            f"UPDATE tarefas SET {', '.join(sets)}, atualizado_em = NOW()"
+            f" WHERE id = ${len(params)}"
+            " RETURNING oportunidade_id, contato_id",
+            *params,
+        )
+        if "contato_id" in campos:
+            # A reunião da agenda guarda o contato que recebe o convite. As
+            # duas colunas dizem a mesma coisa e não podem divergir.
+            if reuniao_id is not None:
+                await conn.execute(
+                    "UPDATE reunioes SET contato_id = $2, atualizado_em = NOW()"
+                    " WHERE id = $1",
+                    reuniao_id, campos["contato_id"],
+                )
+            await registrar_no_comite(
+                conn, alvo["oportunidade_id"], alvo["contato_id"], user["id"]
+            )
     return await _obter(conn, tarefa_id)
 
 
@@ -1188,6 +1324,10 @@ async def concluir(
         await validar_referencias(
             conn, oportunidade_id, conta_id, payload.proxima.responsavel_id
         )
+        await validar_contato(
+            conn, payload.proxima.tipo, payload.proxima.contato_id,
+            oportunidade_id, conta_id,
+        )
 
     async with conn.transaction():
         await _travar_alvo(conn, oportunidade_id, conta_id)
@@ -1219,6 +1359,9 @@ async def concluir(
             proxima_id = await _inserir(
                 conn, payload.proxima, oportunidade_id, conta_id,
                 user["id"], tarefa_id,
+            )
+            await registrar_no_comite(
+                conn, oportunidade_id, payload.proxima.contato_id, user["id"]
             )
 
     return {**await _obter(conn, tarefa_id), "proxima_id": proxima_id}

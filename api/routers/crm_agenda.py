@@ -48,7 +48,7 @@ from database import get_conn
 from routers.auth import usuario_atual
 from routers.crm_tarefas import (
     ProximaTarefa, TarefaBase, _inserir, _travar_alvo, contar_outras_abertas,
-    validar_referencias,
+    registrar_no_comite, validar_contato, validar_referencias,
 )
 from routers.permissions import requer_qualquer_modulo
 from services import agenda as regras
@@ -1494,6 +1494,12 @@ async def criar(
         conn, payload.tipo_id, payload.contato_id, payload.participantes,
         payload.agendado_por,
     )
+    # 045: reunião é interação — tem que ter alguém do outro lado. E o
+    # contato precisa ser da empresa da reunião.
+    await validar_contato(
+        conn, "reuniao", payload.contato_id,
+        payload.oportunidade_id, payload.conta_id,
+    )
     await _validar_horario(
         conn, payload.anfitriao_id, payload.inicio, payload.duracao_min
     )
@@ -1506,12 +1512,16 @@ async def criar(
         descricao=payload.descricao,
         responsavel_id=payload.anfitriao_id,
         prazo=payload.inicio,
+        contato_id=payload.contato_id,
     )
 
     async with conn.transaction():
         tarefa_id = await _inserir(
             conn, dados_tarefa,
             payload.oportunidade_id, payload.conta_id, user["id"], None,
+        )
+        await registrar_no_comite(
+            conn, payload.oportunidade_id, payload.contato_id, user["id"]
         )
         reuniao_id = await conn.fetchval(
             """
@@ -1616,7 +1626,7 @@ async def criar_de_tarefa(
     tarefa = await conn.fetchrow(
         """
         SELECT id, tipo, prazo, responsavel_id, concluida_em, cancelada_em,
-               oportunidade_id, conta_id
+               oportunidade_id, conta_id, contato_id
           FROM tarefas WHERE id = $1
         """,
         tarefa_id,
@@ -1647,15 +1657,31 @@ async def criar_de_tarefa(
     if await conn.fetchval("SELECT 1 FROM reunioes WHERE tarefa_id = $1", tarefa_id):
         raise HTTPException(409, "Esta tarefa já está na agenda.")
 
+    # 045: sem contato informado, vale o da tarefa. Reunião sem ninguém do
+    # outro lado não entra na agenda — o convite iria para ninguém.
+    contato_id = payload.contato_id or tarefa["contato_id"]
     await _validar_apoio(
-        conn, payload.tipo_id, payload.contato_id, payload.participantes,
+        conn, payload.tipo_id, contato_id, payload.participantes,
         payload.agendado_por,
+    )
+    await validar_contato(
+        conn, tarefa["tipo"], contato_id,
+        tarefa["oportunidade_id"], tarefa["conta_id"],
     )
     await _validar_horario(
         conn, tarefa["responsavel_id"], tarefa["prazo"], payload.duracao_min
     )
 
     async with conn.transaction():
+        if contato_id != tarefa["contato_id"]:
+            await conn.execute(
+                "UPDATE tarefas SET contato_id = $2, atualizado_em = NOW()"
+                " WHERE id = $1",
+                tarefa_id, contato_id,
+            )
+            await registrar_no_comite(
+                conn, tarefa["oportunidade_id"], contato_id, user["id"]
+            )
         reuniao_id = await conn.fetchval(
             """
             INSERT INTO reunioes (
@@ -1678,7 +1704,7 @@ async def criar_de_tarefa(
             tarefa_id, payload.duracao_min, payload.tipo_id, payload.modalidade,
             (payload.endereco or "").strip() or None,
             (payload.link_video or "").strip() or None,
-            payload.contato_id, payload.convidados,
+            contato_id, payload.convidados,
             (payload.observacoes or "").strip() or None,
             user["id"], payload.agendado_por or user["id"],
         )
@@ -1745,6 +1771,15 @@ async def editar(
         campos.get("participantes"),
         campos.get("agendado_por"),
     )
+    # 045: trocar o contato vale para a reunião E para a tarefa — as duas
+    # colunas dizem a mesma coisa. Tirar o contato não é aceito: reunião sem
+    # ninguém do outro lado. Editar só o horário de uma reunião antiga sem
+    # contato continua livre (ninguém está mexendo nele).
+    if "contato_id" in campos:
+        await validar_contato(
+            conn, "reuniao", campos["contato_id"],
+            atual["oportunidade_id"], atual["alvo_conta_id"],
+        )
 
     da_reuniao = {k: v for k, v in campos.items() if k in CAMPOS_EDITAVEIS}
     for texto in ("endereco", "link_video", "observacoes"):
@@ -1773,6 +1808,11 @@ async def editar(
             da_tarefa["titulo"] = campos["titulo"]
         if "descricao" in campos:
             da_tarefa["descricao"] = (campos["descricao"] or "").strip() or None
+        if "contato_id" in campos:
+            da_tarefa["contato_id"] = campos["contato_id"]
+            await registrar_no_comite(
+                conn, atual["oportunidade_id"], campos["contato_id"], user["id"]
+            )
         if da_tarefa:
             sets, params = [], []
             for chave, valor in da_tarefa.items():
@@ -1887,6 +1927,7 @@ async def registrar_desfecho_da_tarefa(
         """
         SELECT t.id AS tarefa_id, t.tipo, t.prazo AS inicio,
                t.concluida_em, t.cancelada_em, t.criado_por,
+               t.contato_id,
                t.oportunidade_id, t.conta_id AS alvo_conta_id,
                o.status AS status_oportunidade
           FROM tarefas t
@@ -1934,6 +1975,10 @@ async def _registrar_desfecho(conn, atual: dict, payload: DesfechoIn, user) -> d
         await validar_referencias(
             conn, atual["oportunidade_id"], atual["alvo_conta_id"],
             payload.proxima.responsavel_id,
+        )
+        await validar_contato(
+            conn, payload.proxima.tipo, payload.proxima.contato_id,
+            atual["oportunidade_id"], atual["alvo_conta_id"],
         )
 
     agora = _agora()
@@ -1997,6 +2042,10 @@ async def _registrar_desfecho(conn, atual: dict, payload: DesfechoIn, user) -> d
                 atual["oportunidade_id"], atual["alvo_conta_id"],
                 user["id"], atual["tarefa_id"],
             )
+            await registrar_no_comite(
+                conn, atual["oportunidade_id"], payload.proxima.contato_id,
+                user["id"],
+            )
         reuniao_id = atual["id"]
         if reuniao_id is None:
             # Dois cliques simultâneos na mesma tarefa: o segundo acharia o
@@ -2008,9 +2057,10 @@ async def _registrar_desfecho(conn, atual: dict, payload: DesfechoIn, user) -> d
             reuniao_id = await conn.fetchval(
                 """
                 INSERT INTO reunioes (
-                    tarefa_id, duracao_min, modalidade, criado_por, agendado_por
+                    tarefa_id, duracao_min, modalidade, criado_por, agendado_por,
+                    contato_id
                 )
-                VALUES ($1, $2, $3, $4, $5)
+                VALUES ($1, $2, $3, $4, $5, $6)
                 RETURNING id
                 """,
                 atual["tarefa_id"], regras.DURACAO_PADRAO_MIN,
@@ -2019,6 +2069,7 @@ async def _registrar_desfecho(conn, atual: dict, payload: DesfechoIn, user) -> d
                 # O crédito do agendamento é de quem criou a tarefa, não de
                 # quem está registrando o desfecho agora.
                 atual["criado_por"] or user["id"],
+                atual.get("contato_id"),
             )
         await conn.execute(
             """

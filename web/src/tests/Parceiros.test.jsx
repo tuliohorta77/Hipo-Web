@@ -143,6 +143,8 @@ const TAREFAS_DO_PARCEIRO = {
     prazo: '2026-08-14T12:00:00Z', situacao: 'futura',
     concluida_em: null, resultado: null, cancelada_em: null,
     motivo_cancelamento: null, tarefa_anterior_id: null,
+    contato_id: 'ct9', contato_nome: 'Carlos Contador',
+    contato_telefone: null, contato_whatsapp: false,
     criado_em: '2026-08-10T12:00:00Z',
   }],
 };
@@ -179,6 +181,11 @@ function respostas(url) {
   }
   if (url === '/crm/parceiros/p2/indicacoes') return Promise.resolve({ data: [] });
   if (url === '/crm/tarefas') return Promise.resolve({ data: TAREFAS_DO_PARCEIRO });
+  if (url === '/crm/contatos/por-alvo') {
+    return Promise.resolve({ data: [
+      { id: 'ct9', nome: 'Carlos Contador', cargo: 'Sócio', no_comite: false, principal: true, papel: null },
+    ] });
+  }
   return Promise.resolve({ data: [] });
 }
 
@@ -856,6 +863,11 @@ describe('Parceiros — reunião com o contador', () => {
       target: { value: '2026-09-21T10:00' },
     });
     fireEvent.change(screen.getByLabelText('Anfitrião'), { target: { value: USUARIOS[0].id } });
+    // 045: reunião exige contato — o contador.
+    await screen.findByText(/Carlos Contador/);
+    fireEvent.change(screen.getByLabelText('Contato do cliente (obrigatório)'), {
+      target: { value: 'ct9' },
+    });
     fireEvent.click(screen.getByText('Marcar e enviar convite'));
 
     await waitFor(() => expect(mockPost).toHaveBeenCalled());
@@ -863,6 +875,7 @@ describe('Parceiros — reunião com o contador', () => {
     expect(url).toBe('/crm/agenda/reunioes');
     expect(corpo.conta_id).toBe('p1');
     expect(corpo.oportunidade_id).toBeUndefined();
+    expect(corpo.contato_id).toBe('ct9');
   });
 });
 

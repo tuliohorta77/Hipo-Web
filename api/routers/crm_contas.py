@@ -229,6 +229,12 @@ class ContatoDaConta(BaseModel):
     data_nascimento: date | None
     cargo: str | None
     principal: bool
+    # 045: o que a ficha precisa para EDITAR sem uma segunda chamada.
+    telefone_whatsapp: bool = False
+    telefone_2: str | None = None
+    telefone_2_whatsapp: bool = False
+    linkedin: str | None = None
+    observacoes: str | None = None
 
 
 class OportunidadeDaConta(BaseModel):
@@ -599,7 +605,9 @@ async def obter(conta_id: UUID, conn=Depends(get_conn), user=Depends(usuario_atu
     contatos = await conn.fetch(
         """
         SELECT ct.id, ct.nome, ct.telefone, ct.email, ct.data_nascimento,
-               cc.cargo, cc.principal
+               cc.cargo, cc.principal,
+               ct.telefone_whatsapp, ct.telefone_2, ct.telefone_2_whatsapp,
+               ct.linkedin, ct.observacoes
         FROM conta_contatos cc
         JOIN contatos ct ON ct.id = cc.contato_id
         WHERE cc.conta_id = $1 AND cc.ativo AND ct.ativo

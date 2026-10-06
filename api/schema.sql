@@ -416,6 +416,11 @@ CREATE TABLE IF NOT EXISTS contatos (
     email            VARCHAR(150),
     data_nascimento  DATE,
     observacoes      TEXT,
+    -- 028: 2o telefone, marca de WhatsApp de cada numero e LinkedIn.
+    telefone_whatsapp   BOOLEAN NOT NULL DEFAULT FALSE,
+    telefone_2          VARCHAR(20),
+    telefone_2_whatsapp BOOLEAN NOT NULL DEFAULT FALSE,
+    linkedin            VARCHAR(300),
     ativo            BOOLEAN NOT NULL DEFAULT TRUE,
     criado_por       UUID REFERENCES usuarios(id) ON DELETE SET NULL,
     criado_em        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -426,6 +431,8 @@ CREATE TABLE IF NOT EXISTS contatos (
 CREATE INDEX IF NOT EXISTS idx_contatos_nome_trgm ON contatos USING gin (nome gin_trgm_ops);
 CREATE INDEX IF NOT EXISTS idx_contatos_email     ON contatos (lower(email));
 CREATE INDEX IF NOT EXISTS idx_contatos_telefone  ON contatos (telefone);
+CREATE INDEX IF NOT EXISTS idx_contatos_telefone_2 ON contatos (telefone_2)
+    WHERE telefone_2 IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS conta_contatos (
     conta_id    UUID NOT NULL REFERENCES contas(id)   ON DELETE CASCADE,
@@ -533,6 +540,41 @@ CREATE INDEX IF NOT EXISTS idx_opp_proxima     ON oportunidades (proxima_acao_em
 
 
 -- ---------------------------------------------------------------------------
+-- oportunidade_contatos  (espelha api/migrations/028_contatos_multithreading.sql)
+-- ---------------------------------------------------------------------------
+-- O COMITE da oportunidade (ABM / multithreading): varias pessoas da conta,
+-- cada uma com o seu papel na decisao, e no maximo UM principal.
+--
+-- oportunidades.contato_id continua existindo e e o ESPELHO do principal --
+-- relatorio, busca, proposta e RPeR leem a coluna. Quem mantem o espelho e
+-- a API (routers/crm_oportunidade_contatos.definir_principal), na mesma
+-- transacao de quem mexe na lista.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS oportunidade_contatos (
+    oportunidade_id  UUID NOT NULL REFERENCES oportunidades(id) ON DELETE CASCADE,
+    contato_id       UUID NOT NULL REFERENCES contatos(id)      ON DELETE CASCADE,
+    papel            VARCHAR(20),
+    principal        BOOLEAN NOT NULL DEFAULT FALSE,
+    criado_por       UUID REFERENCES usuarios(id) ON DELETE SET NULL,
+    criado_em        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    atualizado_em    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (oportunidade_id, contato_id),
+    CONSTRAINT ck_opp_contato_papel CHECK (
+        papel IS NULL OR papel IN (
+            'decisor', 'campeao', 'influenciador',
+            'operacional', 'compras', 'tecnico'
+        )
+    )
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_opp_contato_principal
+    ON oportunidade_contatos (oportunidade_id) WHERE principal;
+
+CREATE INDEX IF NOT EXISTS idx_opp_contatos_contato
+    ON oportunidade_contatos (contato_id);
+
+
+-- ---------------------------------------------------------------------------
 -- Relacionamentos da oportunidade
 -- ---------------------------------------------------------------------------
 -- Um mesmo usuario pode aparecer com mais de um papel (ex.: quem prospectou
@@ -622,6 +664,9 @@ CREATE TABLE IF NOT EXISTS tarefas (
     cancelada_em        TIMESTAMPTZ,
     motivo_cancelamento TEXT,
     tarefa_anterior_id  UUID REFERENCES tarefas(id) ON DELETE SET NULL,
+    -- 028: com quem e a interacao. Obrigatorio pela API (nao por CHECK) nos
+    -- tipos de interacao -- ver services/tarefa.TIPOS_EXIGEM_CONTATO.
+    contato_id          UUID REFERENCES contatos(id) ON DELETE SET NULL,
     criado_por          UUID REFERENCES usuarios(id) ON DELETE SET NULL,
     criado_em           TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     atualizado_em       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -674,6 +719,9 @@ CREATE INDEX IF NOT EXISTS idx_tarefas_abertas_por_opp
 CREATE INDEX IF NOT EXISTS idx_tarefas_anterior
     ON tarefas (tarefa_anterior_id)
     WHERE tarefa_anterior_id IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS idx_tarefas_contato
+    ON tarefas (contato_id) WHERE contato_id IS NOT NULL;
 
 
 -- ---------------------------------------------------------------------------

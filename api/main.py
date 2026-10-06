@@ -26,6 +26,7 @@ from routers import (
     crm_contatos,
     crm_dominio,
     crm_enriquecimento,
+    crm_oportunidade_contatos,
     crm_oportunidades,
     crm_parceiros,
     crm_propostas,
@@ -164,6 +165,17 @@ app.include_router(
 app.include_router(
     crm_oportunidades.router,
     prefix="/crm/oportunidades", tags=["CRM - Oportunidades"],
+    dependencies=[Depends(requer_modulo("crm"))],
+)
+
+# O comite da oportunidade (045 -- ABM / multithreading). Mesmo prefixo e
+# mesmo modulo: e a mesma oportunidade, vista pelas pessoas da conta. Router
+# separado porque crm_oportunidades.py ja passa de 60 KB, e porque crm_tarefas
+# precisa dos helpers daqui sem importar o modulo de oportunidades (que
+# importa crm_tarefas -- seria ciclo).
+app.include_router(
+    crm_oportunidade_contatos.router,
+    prefix="/crm/oportunidades", tags=["CRM - Contatos da oportunidade"],
     dependencies=[Depends(requer_modulo("crm"))],
 )
 

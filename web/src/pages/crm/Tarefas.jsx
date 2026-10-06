@@ -78,7 +78,7 @@ import CarregarMais, {
 } from '../../components/crm/CarregarMais';
 import {
   ABERTAS, ICONE_TIPO, SITUACAO,
-  PainelAcoesTarefa,
+  ContatoDaTarefa, PainelAcoesTarefa,
   corpoDaTarefa, dataCompleta, dataCurta, exigeProximaTarefa, mensagemDeErro,
 } from '../../components/crm/tarefaComum';
 
@@ -143,6 +143,12 @@ function Cartao({ tarefa, onAbrir }) {
         <span className="block text-xs text-hipo-slate truncate">
           {tarefa.conta_razao_social}
         </span>
+        {/* 045: com quem — só o nome no cartão; os telefones ficam no detalhe. */}
+        {tarefa.contato_nome && (
+          <span className="block text-xs text-hipo-slate truncate">
+            com {tarefa.contato_nome}
+          </span>
+        )}
         <span className="flex items-center gap-2 text-[11px] text-hipo-muted">
           {/*
             Tarefa de parceiro não tem número de oportunidade. Mostrar a
@@ -876,6 +882,14 @@ export default function Tarefas() {
               <div>
                 <dt className="inline text-hipo-slate">Responsável: </dt>
                 <dd className="inline text-hipo-ink">{aberta.responsavel_nome || '—'}</dd>
+              </div>
+              <div className="sm:col-span-2">
+                <dt className="inline text-hipo-slate">Contato: </dt>
+                <dd className="inline">
+                  {aberta.contato_id
+                    ? <ContatoDaTarefa tarefa={aberta} />
+                    : <span className="text-hipo-ink">—</span>}
+                </dd>
               </div>
               {aberta.concluida_em && (
                 <div>

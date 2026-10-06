@@ -96,7 +96,7 @@ beforeEach(() => {
   mockPatch.mockReset();
   mockGet.mockImplementation((url) => {
     if (url === '/crm/agenda/tipos') return Promise.resolve({ data: TIPOS });
-    if (url === '/crm/contatos') return Promise.resolve({ data: { itens: CONTATOS } });
+    if (url === '/crm/contatos/por-alvo') return Promise.resolve({ data: CONTATOS });
     return Promise.resolve({ data: [] });
   });
 });
@@ -621,7 +621,7 @@ describe('ModalReuniao — aberto a partir da tarefa', () => {
     mockGet.mockImplementation((url) => {
       if (url === '/crm/agenda/reunioes/r1') return Promise.resolve({ data: reuniao() });
       if (url === '/crm/agenda/tipos') return Promise.resolve({ data: TIPOS });
-      if (url === '/crm/contatos') return Promise.resolve({ data: { itens: CONTATOS } });
+      if (url === '/crm/contatos/por-alvo') return Promise.resolve({ data: CONTATOS });
       return Promise.resolve({ data: [] });
     });
     render(
@@ -685,10 +685,14 @@ describe('ModalReuniao — reunião com parceiro', () => {
     await abrir({ parceiro: PARCEIRO, anfitriaoInicial: 'u1' });
     expect(screen.queryByRole('radiogroup', { name: 'Reunião com' })).not.toBeInTheDocument();
     await waitFor(() => expect(mockGet).toHaveBeenCalledWith(
-      '/crm/contatos', { params: { conta_id: 'p1', limit: 100 } },
+      '/crm/contatos/por-alvo', { params: { conta_id: 'p1' } },
     ));
     fireEvent.change(screen.getByLabelText('Data e hora'), {
       target: { value: '2026-09-09T14:00' },
+    });
+    // 045: reunião exige contato — o contador do parceiro.
+    fireEvent.change(await screen.findByLabelText('Contato do cliente (obrigatório)'), {
+      target: { value: 'ct1' },
     });
     fireEvent.click(screen.getByText('Marcar e enviar convite'));
     await waitFor(() => expect(mockPost).toHaveBeenCalled());

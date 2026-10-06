@@ -24,7 +24,7 @@ from uuid import UUID
 import pytest
 
 from services import agenda as regras
-from tests.conftest import criar_usuario
+from tests.conftest import contato_do_alvo, contato_para_proxima, criar_usuario
 
 CNPJ_A = "11.222.333/0001-81"
 CNPJ_B = "11.444.777/0001-61"
@@ -82,6 +82,17 @@ async def nova_reuniao(client, headers, oportunidade_id, usuario_id, **extra):
         "inicio": as_horas(proxima_segunda(), 9),
     }
     corpo.update(extra)
+    # 045: reunião exige contato. Quem não está testando essa regra recebe
+    # o principal da oportunidade (ou um contato do parceiro).
+    if "contato_id" not in extra:
+        if corpo.get("oportunidade_id"):
+            corpo["contato_id"] = await contato_do_alvo(
+                client, headers, oportunidade_id=corpo["oportunidade_id"]
+            )
+        elif corpo.get("conta_id"):
+            corpo["contato_id"] = await contato_do_alvo(
+                client, headers, conta_id=corpo["conta_id"]
+            )
     resp = await client.post("/crm/agenda/reunioes", json=corpo, headers=headers)
     assert resp.status_code == 201, resp.text
     return resp.json()
@@ -95,9 +106,10 @@ async def cenario(db_conn, client, usuario_adm):
     opp = await nova_oportunidade(client, h, conta["id"])
     tipo = await novo_tipo(client, h)
     me = (await client.get("/auth/me", headers=h)).json()
+    contato_id = await contato_do_alvo(client, h, oportunidade_id=opp["id"])
     return {
         "headers": h, "conta": conta, "oportunidade": opp,
-        "tipo": tipo, "usuario_id": me["id"],
+        "tipo": tipo, "usuario_id": me["id"], "contato_id": contato_id,
     }
 
 
@@ -294,6 +306,7 @@ class TestCriar:
         resp = await client.post(
             "/crm/agenda/reunioes",
             json={
+                "contato_id": await contato_do_alvo(client, h, conta_id=parceiro["id"]),
                 "conta_id": parceiro["id"],
                 "anfitriao_id": cenario["usuario_id"],
                 "inicio": as_horas(proxima_segunda(), 10),
@@ -338,6 +351,7 @@ class TestCriar:
         resp = await client.post(
             "/crm/agenda/reunioes",
             json={
+                "contato_id": await contato_do_alvo(client, cenario["headers"], oportunidade_id=cenario["oportunidade"]["id"]),
                 "oportunidade_id": cenario["oportunidade"]["id"],
                 "anfitriao_id": cenario["usuario_id"],
                 "inicio": as_horas(dia, 9),
@@ -351,6 +365,7 @@ class TestCriar:
         resp = await client.post(
             "/crm/agenda/reunioes",
             json={
+                "contato_id": await contato_do_alvo(client, cenario["headers"], oportunidade_id=cenario["oportunidade"]["id"]),
                 "oportunidade_id": cenario["oportunidade"]["id"],
                 "anfitriao_id": cenario["usuario_id"],
                 "inicio": as_horas(proxima_segunda(), 9),
@@ -364,6 +379,7 @@ class TestCriar:
         resp = await client.post(
             "/crm/agenda/reunioes",
             json={
+                "contato_id": await contato_do_alvo(client, cenario["headers"], oportunidade_id=cenario["oportunidade"]["id"]),
                 "oportunidade_id": cenario["oportunidade"]["id"],
                 "anfitriao_id": cenario["usuario_id"],
                 "inicio": as_horas(proxima_segunda(), 9),
@@ -476,6 +492,7 @@ class TestParticipantes:
         resp = await client.post(
             "/crm/agenda/reunioes",
             json={
+                "contato_id": await contato_do_alvo(client, cenario["headers"], oportunidade_id=cenario["oportunidade"]["id"]),
                 "oportunidade_id": cenario["oportunidade"]["id"],
                 "anfitriao_id": cenario["usuario_id"],
                 "inicio": as_horas(proxima_segunda(), 9),
@@ -495,6 +512,7 @@ class TestConflito:
         resp = await client.post(
             "/crm/agenda/reunioes",
             json={
+                "contato_id": await contato_do_alvo(client, h, oportunidade_id=opp),
                 "oportunidade_id": opp, "anfitriao_id": uid,
                 "inicio": as_horas(proxima_segunda(), 9),
             },
@@ -512,6 +530,7 @@ class TestConflito:
         resp = await client.post(
             "/crm/agenda/reunioes",
             json={
+                "contato_id": await contato_do_alvo(client, h, oportunidade_id=opp),
                 "oportunidade_id": opp, "anfitriao_id": uid,
                 "inicio": as_horas(proxima_segunda(), 9),
             },
@@ -525,6 +544,7 @@ class TestConflito:
         resp = await client.post(
             "/crm/agenda/reunioes",
             json={
+                "contato_id": await contato_do_alvo(client, h, oportunidade_id=opp),
                 "oportunidade_id": opp, "anfitriao_id": uid,
                 "inicio": as_horas(proxima_segunda(), 9, 30),
             },
@@ -542,6 +562,7 @@ class TestConflito:
         resp = await client.post(
             "/crm/agenda/reunioes",
             json={
+                "contato_id": await contato_do_alvo(client, h, oportunidade_id=opp),
                 "oportunidade_id": opp, "anfitriao_id": uid,
                 "inicio": as_horas(proxima_segunda(), 9, 30),
             },
@@ -558,6 +579,7 @@ class TestConflito:
         resp = await client.post(
             "/crm/agenda/reunioes",
             json={
+                "contato_id": await contato_do_alvo(client, h, oportunidade_id=opp),
                 "oportunidade_id": opp, "anfitriao_id": me_ev["id"],
                 "inicio": as_horas(proxima_segunda(), 9),
             },
@@ -579,6 +601,7 @@ class TestConflito:
         resp = await client.post(
             "/crm/agenda/reunioes",
             json={
+                "contato_id": await contato_do_alvo(client, h, oportunidade_id=opp),
                 "oportunidade_id": opp, "anfitriao_id": uid,
                 "inicio": as_horas(proxima_segunda(), 9),
             },
@@ -598,7 +621,7 @@ class TestConflito:
             json={
                 "desfecho": "realizada",
                 "observacao": "aconteceu",
-                "proxima": {
+                "proxima": {"contato_id": await contato_para_proxima(client, h, f"/crm/agenda/reunioes/{r['id']}/desfecho"), 
                     "tipo": "ligacao", "titulo": "Retomar",
                     "responsavel_id": uid,
                     "prazo": as_horas(proxima_segunda(2), 9),
@@ -610,6 +633,7 @@ class TestConflito:
         resp = await client.post(
             "/crm/agenda/reunioes",
             json={
+                "contato_id": await contato_do_alvo(client, h, oportunidade_id=opp),
                 "oportunidade_id": opp, "anfitriao_id": uid,
                 "inicio": as_horas(proxima_segunda(), 9),
             },
@@ -642,6 +666,9 @@ class TestDeTarefa:
                 "titulo": "Apresentar a proposta",
                 "responsavel_id": uid,
                 "prazo": as_horas(proxima_segunda(), 14),
+                "contato_id": await contato_do_alvo(
+                    client, headers, oportunidade_id=opp_id
+                ),
             },
             headers=headers,
         )
@@ -823,7 +850,7 @@ class TestEditar:
             f"/crm/agenda/reunioes/{r['id']}/desfecho",
             json={
                 "desfecho": "realizada",
-                "proxima": {
+                "proxima": {"contato_id": await contato_para_proxima(client, h, f"/crm/agenda/reunioes/{r['id']}/desfecho"), 
                     "tipo": "ligacao", "titulo": "Retomar",
                     "responsavel_id": uid, "prazo": as_horas(proxima_segunda(2), 9),
                 },
@@ -1025,6 +1052,7 @@ class TestSemana:
         resp = await client.post(
             "/crm/agenda/reunioes",
             json={
+                "contato_id": await contato_do_alvo(client, h, oportunidade_id=opp),
                 "oportunidade_id": opp, "anfitriao_id": uid,
                 "inicio": as_horas(quarta, 9),
             },
@@ -1204,6 +1232,7 @@ class TestAgendadoPor:
         resp = await client.post(
             "/crm/agenda/reunioes",
             json={
+                "contato_id": await contato_do_alvo(client, cenario["headers"], oportunidade_id=cenario["oportunidade"]["id"]),
                 "oportunidade_id": cenario["oportunidade"]["id"],
                 "anfitriao_id": cenario["usuario_id"],
                 "inicio": as_horas(proxima_segunda(), 9),
@@ -1234,6 +1263,7 @@ class TestAgendadoPor:
         t = (await client.post(
             "/crm/tarefas",
             json={
+                "contato_id": await contato_do_alvo(client, h, oportunidade_id=opp),
                 "oportunidade_id": opp, "tipo": "reuniao", "titulo": "Apresentar",
                 "responsavel_id": uid, "prazo": as_horas(proxima_segunda(), 16),
             },
@@ -1249,10 +1279,11 @@ class TestAgendadoPor:
 
 # ── O desfecho ───────────────────────────────────────────────────────
 
-def proxima_de(uid, semanas=2):
+def proxima_de(uid, semanas=2, contato=None):
     return {
         "tipo": "ligacao", "titulo": "Retomar",
         "responsavel_id": uid, "prazo": as_horas(proxima_segunda(semanas), 9),
+        "contato_id": contato,
     }
 
 
@@ -1263,7 +1294,7 @@ class TestDesfecho:
         resp = await client.post(
             f"/crm/agenda/reunioes/{r['id']}/desfecho",
             json={"desfecho": "realizada", "observacao": "pediu proposta",
-                  "proxima": proxima_de(uid)},
+                  "proxima": {**proxima_de(uid), "contato_id": await contato_para_proxima(client, h, f"/crm/agenda/reunioes/{r['id']}/desfecho")}},
             headers=h,
         )
         assert resp.status_code == 200, resp.text
@@ -1305,6 +1336,7 @@ class TestDesfecho:
         """
         h, opp, uid = cenario["headers"], cenario["oportunidade"]["id"], cenario["usuario_id"]
         aberta = (await client.post("/crm/tarefas", json={
+            "contato_id": await contato_do_alvo(client, h, oportunidade_id=opp),
             "oportunidade_id": opp, "tipo": "ligacao", "titulo": "FUP do lead",
             "responsavel_id": uid, "prazo": as_horas(proxima_segunda(), 8),
         }, headers=h)).json()
@@ -1340,6 +1372,7 @@ class TestDesfecho:
         assert r["outras_abertas"] == 0
 
         await client.post("/crm/tarefas", json={
+            "contato_id": await contato_do_alvo(client, h, oportunidade_id=opp),
             "oportunidade_id": opp, "tipo": "ligacao", "titulo": "FUP",
             "responsavel_id": uid, "prazo": as_horas(proxima_segunda(), 8),
         }, headers=h)
@@ -1385,7 +1418,7 @@ class TestDesfecho:
         r = await nova_reuniao(client, h, opp, uid)
         resp = await client.post(
             f"/crm/agenda/reunioes/{r['id']}/desfecho",
-            json={"desfecho": "no_show", "proxima": proxima_de(uid)}, headers=h,
+            json={"desfecho": "no_show", "proxima": {**proxima_de(uid), "contato_id": await contato_para_proxima(client, h, f"/crm/agenda/reunioes/{r['id']}/desfecho")}}, headers=h,
         )
         assert resp.status_code == 200, resp.text
         assert await db_conn.fetchval(
@@ -1441,7 +1474,7 @@ class TestDesfecho:
         )
         resp = await client.post(
             f"/crm/agenda/reunioes/{r['id']}/desfecho",
-            json={"desfecho": "realizada", "proxima": proxima_de(uid)}, headers=h,
+            json={"desfecho": "realizada", "proxima": {**proxima_de(uid), "contato_id": await contato_para_proxima(client, h, f"/crm/agenda/reunioes/{r['id']}/desfecho")}}, headers=h,
         )
         assert resp.status_code == 422
         assert "já foi registrada" in resp.text
@@ -1544,7 +1577,7 @@ class TestDesfecho:
         r = await nova_reuniao(client, h, opp, uid)
         resp = await client.post(
             f"/crm/agenda/reunioes/{r['id']}/desfecho",
-            json={"desfecho": "realizada", "proxima": proxima_de(uid)}, headers=h,
+            json={"desfecho": "realizada", "proxima": {**proxima_de(uid), "contato_id": await contato_para_proxima(client, h, f"/crm/agenda/reunioes/{r['id']}/desfecho")}}, headers=h,
         )
         assert resp.status_code == 200, resp.text
 
@@ -1713,7 +1746,7 @@ class TestProdutividade:
         b = await nova_reuniao(client, h, opp, uid, inicio=as_horas(proxima_segunda(), 10))
         c = await nova_reuniao(client, h, opp, uid, inicio=as_horas(proxima_segunda(), 11))
         await client.post(f"/crm/agenda/reunioes/{a['id']}/desfecho",
-                          json={"desfecho": "realizada", "proxima": proxima_de(uid, 4)},
+                          json={"desfecho": "realizada", "proxima": {**proxima_de(uid, 4), "contato_id": await contato_para_proxima(client, h, f"/crm/agenda/reunioes/{a['id']}/desfecho")}},
                           headers=h)
         await client.post(f"/crm/agenda/reunioes/{b['id']}/desfecho",
                           json={"desfecho": "cancelada"}, headers=h)
@@ -1812,6 +1845,10 @@ async def tarefa_solta(client, headers, opp_id, uid, tipo="reuniao", **extra):
         "responsavel_id": uid, "prazo": as_horas(proxima_segunda(), 14),
     }
     corpo.update(extra)
+    if "contato_id" not in extra:
+        corpo["contato_id"] = await contato_do_alvo(
+            client, headers, oportunidade_id=opp_id
+        )
     resp = await client.post("/crm/tarefas", json=corpo, headers=headers)
     assert resp.status_code == 201, resp.text
     return resp.json()
@@ -1823,7 +1860,7 @@ class TestReuniaoPelaTarefa:
         r = await nova_reuniao(client, h, opp, uid)
         resp = await client.post(
             f"/crm/tarefas/{r['tarefa_id']}/concluir",
-            json={"resultado": "ok", "proxima": proxima_de(uid)}, headers=h,
+            json={"resultado": "ok", "proxima": {**proxima_de(uid), "contato_id": await contato_para_proxima(client, h, f"/crm/tarefas/{r['tarefa_id']}/concluir")}}, headers=h,
         )
         assert resp.status_code == 422
         assert "Realizada" in resp.json()["detail"]
@@ -1896,7 +1933,7 @@ class TestReuniaoPelaTarefa:
         t = await tarefa_solta(client, h, opp, uid)
         resp = await client.post(
             f"/crm/agenda/tarefas/{t['id']}/desfecho",
-            json={"desfecho": "realizada", "proxima": proxima_de(uid)}, headers=h,
+            json={"desfecho": "realizada", "proxima": {**proxima_de(uid), "contato_id": await contato_para_proxima(client, h, f"/crm/agenda/tarefas/{t['id']}/desfecho")}}, headers=h,
         )
         assert resp.status_code == 200, resp.text
         proxima_id = resp.json()["proxima_id"]
@@ -2046,6 +2083,7 @@ class TestReuniaoComParceiro:
         resp = await client.post(
             "/crm/agenda/reunioes",
             json={
+                "contato_id": await contato_do_alvo(client, sdr["headers"], conta_id=parceiro["id"]),
                 "conta_id": parceiro["id"],
                 "anfitriao_id": cenario["usuario_id"],
                 "inicio": as_horas(proxima_segunda(), 11),
@@ -2067,6 +2105,7 @@ class TestReuniaoComParceiro:
         resp = await client.post(
             "/crm/agenda/reunioes",
             json={
+                "contato_id": await contato_do_alvo(client, cenario["headers"], conta_id=cenario["conta"]["id"]),
                 "conta_id": cenario["conta"]["id"],
                 "anfitriao_id": cenario["usuario_id"],
                 "inicio": as_horas(proxima_segunda(), 11),
@@ -2082,6 +2121,7 @@ class TestReuniaoComParceiro:
         r = (await client.post(
             "/crm/agenda/reunioes",
             json={
+                "contato_id": await contato_do_alvo(client, h, conta_id=parceiro["id"]),
                 "conta_id": parceiro["id"],
                 "anfitriao_id": cenario["usuario_id"],
                 "inicio": as_horas(proxima_segunda(), 14),
@@ -2103,6 +2143,7 @@ class TestReuniaoComParceiro:
         r = (await client.post(
             "/crm/agenda/reunioes",
             json={
+                "contato_id": await contato_do_alvo(client, h, conta_id=parceiro["id"]),
                 "conta_id": parceiro["id"], "anfitriao_id": uid,
                 "inicio": as_horas(proxima_segunda(), 15),
             },
@@ -2115,7 +2156,7 @@ class TestReuniaoComParceiro:
         assert sem.status_code == 422
         com = await client.post(
             f"/crm/agenda/reunioes/{r['id']}/desfecho",
-            json={"desfecho": "realizada", "proxima": proxima_de(uid)}, headers=h,
+            json={"desfecho": "realizada", "proxima": {**proxima_de(uid), "contato_id": await contato_para_proxima(client, h, f"/crm/agenda/reunioes/{r['id']}/desfecho")}}, headers=h,
         )
         assert com.status_code == 200, com.text
         assert com.json()["desfecho"] == "realizada"
@@ -2142,6 +2183,7 @@ class TestFiltroPorAlvo:
             "conta_id": parceiro["id"],
             "anfitriao_id": uid,
             "inicio": as_horas(proxima_segunda(), 14),
+            "contato_id": await contato_do_alvo(client, h, conta_id=parceiro["id"]),
         }
         corpo.update(extra_parceiro)
         resp = await client.post("/crm/agenda/reunioes", json=corpo, headers=h)
@@ -2235,6 +2277,7 @@ class TestFiltroPorAlvo:
         await client.post(
             "/crm/agenda/reunioes",
             json={
+                "contato_id": await contato_do_alvo(client, h, conta_id=parceiro["id"]),
                 "conta_id": parceiro["id"], "anfitriao_id": uid,
                 "inicio": as_horas(proxima_segunda(), 10), "duracao_min": 90,
             },
@@ -2250,6 +2293,7 @@ class TestFiltroPorAlvo:
         r = (await client.post(
             "/crm/agenda/reunioes",
             json={
+                "contato_id": await contato_do_alvo(client, h, conta_id=parceiro["id"]),
                 "conta_id": parceiro["id"], "anfitriao_id": uid,
                 "inicio": as_horas(proxima_segunda(), 16),
             },
@@ -2343,6 +2387,7 @@ class TestAgendaDoParticipante:
         resp = await client.post(
             "/crm/agenda/reunioes",
             json={
+                "contato_id": await contato_do_alvo(client, h, oportunidade_id=opp),
                 "oportunidade_id": opp, "anfitriao_id": id_b,
                 "inicio": as_horas(proxima_segunda(), 9),
             },
@@ -2361,6 +2406,7 @@ class TestAgendaDoParticipante:
         segunda = await client.post(
             "/crm/agenda/reunioes",
             json={
+                "contato_id": await contato_do_alvo(client, h, oportunidade_id=opp),
                 "oportunidade_id": opp, "anfitriao_id": uid,
                 "inicio": as_horas(proxima_segunda(), 9), "participantes": [id_b],
             },
@@ -2394,6 +2440,7 @@ class TestAgendaDoParticipante:
         resp = await client.post(
             "/crm/agenda/reunioes",
             json={
+                "contato_id": await contato_do_alvo(client, h, oportunidade_id=opp),
                 "oportunidade_id": opp, "anfitriao_id": id_b,
                 "inicio": as_horas(proxima_segunda(), 9),
             },

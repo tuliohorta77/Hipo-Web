@@ -16,7 +16,7 @@ from datetime import date, datetime, timedelta
 import pytest
 
 from services import tarefa as regras_tarefa
-from tests.conftest import criar_usuario
+from tests.conftest import contato_do_alvo, contato_para_proxima, criar_usuario
 
 CNPJ_A = "11.222.333/0001-81"
 CNPJ_B = "11.444.777/0001-61"
@@ -171,6 +171,12 @@ class TestReunioes:
             "oportunidade_id": opp_id, "anfitriao_id": uid, "inicio": em(dia),
         }
         corpo.update(extra)
+        if "contato_id" not in extra:
+            corpo["contato_id"] = await contato_do_alvo(
+                client, h,
+                oportunidade_id=corpo.get("oportunidade_id"),
+                conta_id=None if corpo.get("oportunidade_id") else corpo.get("conta_id"),
+            )
         resp = await client.post("/crm/agenda/reunioes", json=corpo, headers=h)
         assert resp.status_code == 201, resp.text
         return resp.json()
@@ -201,7 +207,7 @@ class TestReunioes:
 
         await client.post(
             f"/crm/agenda/reunioes/{feita['id']}/desfecho",
-            json={"desfecho": "realizada", "proxima": {
+            json={"desfecho": "realizada", "proxima": {"contato_id": await contato_para_proxima(client, h, f"/crm/agenda/reunioes/{feita['id']}/desfecho"), 
                 "tipo": "ligacao", "titulo": "Retomar",
                 "responsavel_id": uid, "prazo": em(28),
             }},
@@ -255,7 +261,7 @@ class TestReunioes:
 
         resp = await client.post(
             f"/crm/agenda/reunioes/{r['id']}/desfecho",
-            json={"desfecho": "realizada", "proxima": {
+            json={"desfecho": "realizada", "proxima": {"contato_id": await contato_para_proxima(client, h, f"/crm/agenda/reunioes/{r['id']}/desfecho"), 
                 "tipo": "ligacao", "titulo": "Retomar",
                 "responsavel_id": uid, "prazo": em(28),
             }},
@@ -286,6 +292,7 @@ class TestReunioes:
         proxima = {
             "tipo": "ligacao", "titulo": "Retomar",
             "responsavel_id": uid, "prazo": em(28),
+            "contato_id": await contato_do_alvo(client, h, oportunidade_id=opp["id"]),
         }
 
         comercial = await self._reuniao(
@@ -304,7 +311,12 @@ class TestReunioes:
             )
             corpo = {"desfecho": desfecho}
             if desfecho == "realizada":
-                corpo["proxima"] = proxima
+                corpo["proxima"] = {
+                    **proxima,
+                    "contato_id": await contato_do_alvo(
+                        client, h, conta_id=parceiro["id"]
+                    ),
+                }
             resp = await client.post(
                 f"/crm/agenda/reunioes/{r['id']}/desfecho", json=corpo, headers=h,
             )
@@ -628,6 +640,9 @@ class TestDetalhe:
             corpo["oportunidade_id"] = opp_id
         if conta_id:
             corpo["conta_id"] = conta_id
+        corpo["contato_id"] = await contato_do_alvo(
+            client, h, oportunidade_id=opp_id, conta_id=None if opp_id else conta_id
+        )
         resp = await client.post("/crm/agenda/reunioes", json=corpo, headers=h)
         assert resp.status_code == 201, resp.text
         return resp.json()
@@ -638,6 +653,9 @@ class TestDetalhe:
             corpo["proxima"] = {
                 "tipo": "ligacao", "titulo": "Retomar",
                 "responsavel_id": uid, "prazo": em(28),
+                "contato_id": await contato_para_proxima(
+                    client, h, f"/crm/agenda/reunioes/{reuniao_id}/desfecho"
+                ),
             }
         resp = await client.post(
             f"/crm/agenda/reunioes/{reuniao_id}/desfecho", json=corpo, headers=h,

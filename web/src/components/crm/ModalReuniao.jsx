@@ -340,12 +340,21 @@ export default function ModalReuniao({
     || (form.alvo === 'parceiro'
       ? (form.parceiro?.id || parceiro?.id)
       : (form.oportunidade?.conta_id || oportunidade?.conta_id));
+  //
+  // 045: na oportunidade, vem do comitê + empresa + CNPJs adicionais
+  // (/crm/contatos/por-alvo) — é a mesma lista do seletor das tarefas.
+  const oppIdContatos = reuniao?.oportunidade_id
+    || (form.alvo === 'oportunidade'
+      ? (form.oportunidade?.id || oportunidade?.id)
+      : null);
   useEffect(() => {
-    if (!aberto || !contaId) { setContatos([]); return; }
-    api.get('/crm/contatos', { params: { conta_id: contaId, limit: 100 } })
-      .then(({ data }) => setContatos(data.itens || []))
+    if (!aberto || (!contaId && !oppIdContatos)) { setContatos([]); return; }
+    api.get('/crm/contatos/por-alvo', {
+      params: oppIdContatos ? { oportunidade_id: oppIdContatos } : { conta_id: contaId },
+    })
+      .then(({ data }) => setContatos(Array.isArray(data) ? data : []))
       .catch(() => setContatos([]));
-  }, [aberto, contaId]);
+  }, [aberto, contaId, oppIdContatos]);
 
   const set = (campo) => (e) => setForm((f) => ({ ...f, [campo]: e.target.value }));
 
@@ -355,8 +364,11 @@ export default function ModalReuniao({
     if (!form.anfitriao_id || !form.inicio) return true;
     if (!editando && form.alvo === 'oportunidade' && !form.oportunidade) return true;
     if (!editando && form.alvo === 'parceiro' && !form.parceiro) return true;
+    // 045: reunião é interação — tem que ter alguém do outro lado. Reunião
+    // antiga sem contato continua editável (horário, sala) sem travar.
+    if (!form.contato_id && (!editando || reuniao?.contato_id)) return true;
     return false;
-  }, [form, editando]);
+  }, [form, editando, reuniao]);
 
   const corpo = useCallback(() => {
     const base = {
@@ -378,7 +390,12 @@ export default function ModalReuniao({
       // melhor que gravar vazio.
       agendado_por: form.agendado_por || null,
     };
-    if (editando) return base;
+    if (editando) {
+      // Reunião antiga sem contato: não mandar o campo, senão o servidor
+      // entende "tirar o contato" e recusa.
+      if (!base.contato_id) delete base.contato_id;
+      return base;
+    }
     return form.alvo === 'parceiro'
       ? { ...base, conta_id: form.parceiro.id }
       : { ...base, oportunidade_id: form.oportunidade.id };
@@ -732,18 +749,24 @@ export default function ModalReuniao({
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <Select
               id="reuniao-contato"
-              label="Contato do cliente"
+              label="Contato do cliente (obrigatório)"
               value={form.contato_id}
               disabled={fechada}
               onChange={set('contato_id')}
             >
-              <option value="">— sem contato —</option>
+              <option value="">— com quem vai ser? —</option>
               {contatos.map((c) => (
                 <option key={c.id} value={c.id}>
                   {c.nome}{c.email ? ` · ${c.email}` : ' · sem e-mail'}
                 </option>
               ))}
             </Select>
+            {!fechada && contatos.length === 0 && (contaId || oppIdContatos) && (
+              <p className="md:col-span-2 -mt-1 text-xs text-hipo-warning">
+                Esta empresa ainda não tem contato cadastrado. Cadastre a pessoa
+                na aba Contatos (oportunidade) ou na ficha da conta antes de marcar.
+              </p>
+            )}
 
             <div>
               <span className="block text-sm font-medium text-hipo-ink mb-1.5">
