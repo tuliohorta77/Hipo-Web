@@ -1,11 +1,19 @@
 name: HIPO CI/CD
 
+# Na main o deploy aplica migration e faz rsync: cancelar no meio deixa
+# producao pela metade. Ali o run novo espera o anterior terminar; nos
+# outros branches (so testes) o novo continua cancelando o velho.
 concurrency:
   group: deploy-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 on:
   workflow_dispatch:
+    inputs:
+      pular_migrations:
+        description: "EMERGENCIA: deployar sem aplicar migrations (codigo que precisa delas da 500)"
+        type: boolean
+        default: false
   push:
     branches: [main, develop]
   pull_request:
@@ -51,11 +59,55 @@ jobs:
           cd api
           pip install -r requirements.txt
 
-      - name: Criar schema de teste
+      # O banco de teste sobe pelo MESMO caminho de producao: vazio -> 000 ->
+      # 001 -> ... -> ultima, pelo mesmo script que o deploy usa. A segunda
+      # passada prova que o script e idempotente (nada a aplicar).
+      - name: Aplicar migrations em sequencia
+        env:
+          DATABASE_URL: postgresql://hipo_test:hipo_test@localhost:5432/hipo_test
+          PYTHONPATH: ${{ github.workspace }}/api
+        run: |
+          cd api
+          python -m scripts.aplicar_migrations
+          python -m scripts.aplicar_migrations | tee /tmp/segunda.txt
+          grep -q "nada a aplicar" /tmp/segunda.txt \
+            || { echo "::error::a segunda passada aplicou algo -- o registro em schema_migrations falhou"; exit 1; }
+
+      # schema.sql e snapshot de referencia (comentado, para consulta). Nao
+      # bloqueia nada: so avisa quando a estrutura dele diverge da que as
+      # migrations produzem, e publica um pg_dump novo como artefato.
+      - name: Conferir snapshot api/schema.sql
         env:
           PGPASSWORD: hipo_test
+          PYTHONPATH: ${{ github.workspace }}/api
         run: |
-          psql -h localhost -U hipo_test -d hipo_test -f api/schema.sql
+          psql -h localhost -U hipo_test -d hipo_test -qc "CREATE DATABASE hipo_snapshot"
+          psql -h localhost -U hipo_test -d hipo_snapshot -q -v ON_ERROR_STOP=1 -f api/schema.sql >/dev/null
+          cd api
+          if python -m scripts.comparar_schema \
+               postgresql://hipo_test:hipo_test@localhost:5432/hipo_test \
+               postgresql://hipo_test:hipo_test@localhost:5432/hipo_snapshot > /tmp/drift.txt; then
+            echo "schema.sql em dia com as migrations"
+          else
+            cat /tmp/drift.txt
+            echo "::warning title=schema.sql desatualizado::a estrutura do api/schema.sql diverge das migrations. Espelhe a migration nele ou use o artefato schema-snapshot deste run."
+            { echo "### schema.sql desatualizado"; echo '```'; cat /tmp/drift.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          fi
+          psql -h localhost -U hipo_test -d hipo_test -qc "DROP DATABASE hipo_snapshot"
+
+      - name: Gerar snapshot (pg_dump) das migrations
+        env:
+          DATABASE_URL: postgresql://hipo_test:hipo_test@localhost:5432/hipo_test
+        run: |
+          mkdir -p /tmp/snapshot
+          bash api/scripts/gerar_schema_snapshot.sh /tmp/snapshot/schema.sql
+
+      - name: Upload do snapshot
+        uses: actions/upload-artifact@v4
+        with:
+          name: schema-snapshot
+          path: /tmp/snapshot/schema.sql
+          retention-days: 14
 
       - name: Executar testes com cobertura
         env:
@@ -222,9 +274,47 @@ jobs:
           # adiante, no rsync, com mensagem que nao aponta para ca.
           ssh-keyscan -H -T 15 "$EC2_HOST" >> ~/.ssh/known_hosts
           if ! grep -q . ~/.ssh/known_hosts; then
-            echo "::error::ssh-keyscan nao obteve chave de host. A janela no SG abriu, entao suspeite do valor do secret EC2_HOST."
+            echo "::error::ssh-keyscan nao obteve chave de host. A janela abriu no SG do secret EC2_SECURITY_GROUP_ID -- confira se e o SG que protege a instancia (ela tem mais de um) e so depois o EC2_HOST."
             exit 1
           fi
+
+      # Migrations ANTES de qualquer codigo novo tocar o servidor. O script e
+      # as migrations vao para uma pasta temporaria (o /home/hipo/app ainda
+      # e o da versao anterior) e rodam com o mesmo python da hipo-api,
+      # contra o RDS -- que o runner do GitHub nao alcanca, mas a EC2 sim.
+      #
+      # Falhou aqui = nada foi deployado: codigo antigo, schema antigo (cada
+      # migration e uma transacao). Por isso migration TEM que ser
+      # compativel com o codigo anterior: aditiva. Destrutiva precisa de
+      # export e do marcador (ver scripts/aplicar_migrations.py), e
+      # principal e MOS migram as duas antes de qualquer restart.
+      - name: Aplicar migrations (principal e MOS)
+        if: ${{ !inputs.pular_migrations }}
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_USER: ${{ secrets.EC2_USER }}
+        run: |
+          DIR="/tmp/hipo-migrar-${{ github.run_id }}-${{ github.run_attempt }}"
+          ssh $EC2_USER@$EC2_HOST "mkdir -p $DIR"
+          rsync -az --delete api/migrations api/scripts/aplicar_migrations.py $EC2_USER@$EC2_HOST:$DIR/
+          ssh $EC2_USER@$EC2_HOST "DIR=$DIR bash -s" <<'REMOTO'
+          set -euo pipefail
+          trap 'rm -rf "$DIR"' EXIT
+          PY="$(systemctl show -p ExecStart --value hipo-api 2>/dev/null | sed -n 's/.*path=\([^ ;]*\).*/\1/p' | head -1)"
+          PY="${PY:-/usr/bin/python3}"
+          for base in "principal:/home/hipo/app/.env" "mos:/home/hipo/mos/.env"; do
+            nome="${base%%:*}"; env_path="${base#*:}"
+            if [ "$nome" = "mos" ] && ! sudo test -f "$env_path"; then
+              echo "instancia MOS nao instalada (sem $env_path) -- pulando"
+              continue
+            fi
+            echo "::group::migrations -- base $nome"
+            # .env por stdin: o dono nao e o ec2-user em todo servidor, e a
+            # URL com senha nao passa por argumento (apareceria no ps).
+            sudo cat "$env_path" | "$PY" "$DIR/aplicar_migrations.py" --pasta "$DIR/migrations" --env-file /dev/stdin
+            echo "::endgroup::"
+          done
+          REMOTO
 
       - name: Deploy do Backend
         env:

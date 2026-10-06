@@ -25,8 +25,15 @@
 --                           das consultas de CNPJ e procedencia do numero
 --                           de funcionarios
 --
--- Este arquivo e a fonte usada para criar o banco de teste no CI e deve
--- refletir o estado acumulado das migrations.
+-- ATENCAO: este arquivo e SNAPSHOT DE REFERENCIA, nao fonte de verdade.
+-- A fonte de verdade e a sequencia em api/migrations/: o CI sobe o banco de
+-- teste e o deploy migra producao por api/scripts/aplicar_migrations.py.
+-- Aqui fica a versao comentada, para consulta e restauracao de emergencia.
+--
+-- O CI compara a estrutura deste arquivo com a das migrations
+-- (scripts/comparar_schema.py) e avisa quando divergem. Migration nova:
+-- espelhe aqui a mudanca, ou troque o arquivo pelo artefato
+-- "schema-snapshot" do run (pg_dump puro, sem estes comentarios).
 -- ============================================================================
 
 -- ---------------------------------------------------------------------------

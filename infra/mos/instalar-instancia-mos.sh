@@ -7,8 +7,8 @@
 #                                     banco hipo_mos no mesmo RDS (role hipo_mos)
 #
 # A base principal (hipogestao.com.br, 8001, /home/hipo/app, banco atual)
-# NAO e alterada por nenhuma fase daqui: o script so LE o .env e o
-# schema.sql dela.
+# NAO e alterada por nenhuma fase daqui: o script so LE o .env e as
+# migrations dela.
 #
 # Rodar NA EC2, como ec2-user, com terminal (ssh -t), UMA FASE POR VEZ e
 # nesta ordem:
@@ -302,10 +302,15 @@ SQL
     if [ "$(psql "$url_mos" -At -c "SELECT to_regclass('public.usuarios') IS NOT NULL")" = "t" ]; then
         ok "schema ja aplicado em $BANCO"
     else
-        psql "$url_mos" -v ON_ERROR_STOP=1 -q -f "$APP_MED/api/schema.sql" 2>&1 | grep -v NOTICE || true
+        # Desde a 049 o banco novo sobe pela sequencia de migrations (e nao
+        # pelo schema.sql, que virou snapshot de referencia): assim ele ja
+        # nasce com schema_migrations preenchida e o deploy do CI segue dali.
+        DATABASE_URL="$url_mos" PYTHONPATH="$APP_MED/api" "$(python_da_principal)" \
+            "$APP_MED/api/scripts/aplicar_migrations.py" --pasta "$APP_MED/api/migrations" \
+            || erro "as migrations nao subiram em $BANCO."
         [ "$(psql "$url_mos" -At -c "SELECT to_regclass('public.usuarios') IS NOT NULL")" = "t" ] \
-            || erro "o schema.sql nao criou as tabelas em $BANCO."
-        ok "schema.sql aplicado em $BANCO ($(psql "$url_mos" -At -c "SELECT count(*) FROM pg_tables WHERE schemaname='public'") tabelas)"
+            || erro "as migrations nao criaram as tabelas em $BANCO."
+        ok "migrations aplicadas em $BANCO ($(psql "$url_mos" -At -c "SELECT count(*) FROM pg_tables WHERE schemaname='public'") tabelas)"
     fi
 
     if [ -f "$ENV_MOS" ]; then

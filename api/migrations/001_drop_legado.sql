@@ -28,22 +28,33 @@ BEGIN
     RAISE EXCEPTION 'Tabela contas ja existe — a 001 ja rodou. Abortando.';
   END IF;
 
-  -- Banco precisa ser o do HIPO, com logins dentro.
-  IF to_regclass('public.usuarios') IS NULL
-     OR (SELECT count(*) FROM public.usuarios) = 0 THEN
-    RAISE EXCEPTION 'usuarios ausente ou vazia — banco errado. Abortando.';
+  -- Banco precisa ser o do HIPO.
+  IF to_regclass('public.usuarios') IS NULL THEN
+    RAISE EXCEPTION 'usuarios ausente — banco errado. Abortando.';
+  END IF;
+
+  -- Banco novo (CI, instancia nova): so as duas tabelas da 000 (mais a
+  -- schema_migrations do scripts/aplicar_migrations.py), nada a remover.
+  -- O loop abaixo vira no-op e a contagem final confere.
+  -- Banco com outras tabelas e usuarios vazia continua sendo banco errado.
+  IF (SELECT count(*) FROM public.usuarios) = 0
+     AND EXISTS (SELECT 1 FROM pg_tables
+                 WHERE schemaname = 'public'
+                   AND tablename NOT IN ('usuarios', 'dia_nao_util', 'schema_migrations')) THEN
+    RAISE EXCEPTION 'usuarios vazia num banco com outras tabelas — banco errado. Abortando.';
   END IF;
 
   FOR r IN SELECT tablename FROM pg_tables
            WHERE schemaname = 'public'
-             AND tablename NOT IN ('usuarios', 'dia_nao_util')
+             AND tablename NOT IN ('usuarios', 'dia_nao_util', 'schema_migrations')
            ORDER BY tablename
   LOOP
     EXECUTE format('DROP TABLE IF EXISTS public.%I CASCADE', r.tablename);
     RAISE NOTICE 'drop: %', r.tablename;
   END LOOP;
 
-  SELECT count(*) INTO n FROM pg_tables WHERE schemaname = 'public';
+  SELECT count(*) INTO n FROM pg_tables
+   WHERE schemaname = 'public' AND tablename <> 'schema_migrations';
   IF n <> 2 THEN
     RAISE EXCEPTION 'Esperava 2 tabelas (usuarios, dia_nao_util), restaram %. Rollback.', n;
   END IF;
