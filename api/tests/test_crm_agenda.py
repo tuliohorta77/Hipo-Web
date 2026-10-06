@@ -687,8 +687,11 @@ class TestDeTarefa:
         )
         assert resp.status_code == 201, resp.text
         assert resp.json()["tarefa_id"] == t["id"]
+        # A confirmação da véspera (029) é apêndice da reunião, não uma
+        # segunda tarefa dizendo a mesma coisa.
         assert await db_conn.fetchval(
-            "SELECT count(*) FROM tarefas WHERE oportunidade_id = $1", opp
+            "SELECT count(*) FROM tarefas"
+            " WHERE oportunidade_id = $1 AND confirmacao_de IS NULL", opp
         ) == 1
 
     async def test_herda_horario_titulo_e_dono(self, cenario, client):
@@ -1349,11 +1352,14 @@ class TestDesfecho:
         assert resp.status_code == 200, resp.text
         assert resp.json()["situacao"] == "concluida"
 
-        # A tarefa original continua de pé, e nenhuma foi inventada.
+        # A tarefa original continua de pé, e nenhuma foi inventada. A
+        # confirmação da véspera (029), se nasceu, foi cancelada pelo
+        # desfecho — por isso continua sobrando UMA aberta.
         lista = (await client.get(
             f"/crm/tarefas?oportunidade_id={opp}", headers=h
         )).json()
-        assert lista["total"] == 2
+        proprias = [i for i in lista["itens"] if i["confirmacao_de"] is None]
+        assert len(proprias) == 2
         assert lista["abertas"] == 1
         assert next(
             i for i in lista["itens"] if i["id"] == aberta["id"]

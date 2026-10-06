@@ -202,6 +202,9 @@ class TarefaOut(BaseModel):
     cancelada_em: datetime | None
     motivo_cancelamento: str | None
     tarefa_anterior_id: UUID | None
+    # 029: preenchido na confirmação da véspera — a tarefa da reunião que
+    # ela confirma. Criada e movida pela agenda, não por gente.
+    confirmacao_de: UUID | None = None
     # 045: com quem. Nome e telefone vêm prontos para o cartão mostrar
     # "com Fulana" e o botão de ligar/WhatsApp sem uma segunda chamada.
     contato_id: UUID | None = None
@@ -300,7 +303,7 @@ _SELECT_BASE = """
            t.responsavel_id, u.nome AS responsavel_nome,
            t.prazo, t.concluida_em, t.resultado,
            t.cancelada_em, t.motivo_cancelamento,
-           t.tarefa_anterior_id, t.criado_em,
+           t.tarefa_anterior_id, t.confirmacao_de, t.criado_em,
            t.contato_id, ctt.nome AS contato_nome,
            ctt.telefone AS contato_telefone,
            COALESCE(ctt.telefone_whatsapp, FALSE) AS contato_whatsapp,
@@ -322,6 +325,7 @@ _SELECT_BASE = """
            (SELECT count(*) FROM tarefas x
              WHERE x.id <> t.id
                AND x.concluida_em IS NULL AND x.cancelada_em IS NULL
+               AND x.confirmacao_de IS NULL
                AND (CASE WHEN t.oportunidade_id IS NOT NULL
                          THEN x.oportunidade_id = t.oportunidade_id
                          ELSE x.conta_id = t.conta_id END)
@@ -485,6 +489,12 @@ async def contar_outras_abertas(
     `tarefa_id` None conta TODAS as abertas do alvo: é o que a lista usa
     para avisar quantas existem, sem excluir nenhuma.
 
+    A CONFIRMAÇÃO DA VÉSPERA NÃO CONTA (029). Ela é apêndice da reunião,
+    não passo do funil: contada, registrar "Realizada" acharia "sobra
+    outra aberta" e deixaria de exigir a próxima — e logo em seguida a
+    própria confirmação é cancelada pelo desfecho, deixando a oportunidade
+    sem próximo passo.
+
     Usa `idx_tarefas_abertas_por_opp` (parcial, só as abertas) no caminho da
     oportunidade, e `idx_tarefas_conta` no do parceiro.
     """
@@ -495,6 +505,7 @@ async def contar_outras_abertas(
              WHERE oportunidade_id = $1
                AND concluida_em IS NULL AND cancelada_em IS NULL
                AND ($2::uuid IS NULL OR id <> $2)
+               AND confirmacao_de IS NULL
             """,
             oportunidade_id, tarefa_id,
         )
@@ -505,6 +516,7 @@ async def contar_outras_abertas(
              WHERE conta_id = $1
                AND concluida_em IS NULL AND cancelada_em IS NULL
                AND ($2::uuid IS NULL OR id <> $2)
+               AND confirmacao_de IS NULL
             """,
             conta_id, tarefa_id,
         )
@@ -1279,6 +1291,11 @@ async def editar(
                     "UPDATE reunioes SET contato_id = $2, atualizado_em = NOW()"
                     " WHERE id = $1",
                     reuniao_id, campos["contato_id"],
+                )
+                # A confirmação da véspera fala com esse contato.
+                from routers.crm_agenda import _sincronizar_confirmacao
+                await _sincronizar_confirmacao(
+                    conn, reuniao_id, remarcou=False, criado_por=user["id"]
                 )
             await registrar_no_comite(
                 conn, alvo["oportunidade_id"], alvo["contato_id"], user["id"]

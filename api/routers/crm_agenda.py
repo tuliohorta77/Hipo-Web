@@ -53,6 +53,7 @@ from routers.crm_tarefas import (
 from routers.permissions import requer_qualquer_modulo
 from services import agenda as regras
 from services import coleta_transcricao
+from services import confirmacao
 from services import google_agenda
 from services import tarefa as regras_tarefa
 from services.agenda import AgendaInvalida
@@ -75,6 +76,13 @@ CAMPOS_EDITAVEIS = {
 CAMPOS_QUE_REFAZEM_O_CONVITE = {
     "duracao_min", "tipo_id", "modalidade", "endereco", "link_video",
     "contato_id", "convidados", "inicio", "anfitriao_id", "titulo",
+}
+
+
+# Campos que mudam a confirmação da véspera: o dia (o prazo dela), quem
+# agendou (o dono dela) e o que vai escrito na mensagem.
+CAMPOS_DA_CONFIRMACAO = {
+    "inicio", "agendado_por", "anfitriao_id", "contato_id", "modalidade",
 }
 
 
@@ -569,6 +577,7 @@ _SELECT_BASE = """
            (SELECT count(*) FROM tarefas x
              WHERE x.id <> t.id
                AND x.concluida_em IS NULL AND x.cancelada_em IS NULL
+               AND x.confirmacao_de IS NULL
                AND (CASE WHEN t.oportunidade_id IS NOT NULL
                          THEN x.oportunidade_id = t.oportunidade_id
                          ELSE x.conta_id = t.conta_id END)
@@ -1011,6 +1020,175 @@ async def remover_evento_da_tarefa(conn, tarefa_id: UUID) -> None:
             "UPDATE reunioes SET google_erro = $2, atualizado_em = NOW() WHERE id = $1",
             row["id"], resultado.erro,
         )
+
+
+# ── Confirmação da véspera ───────────────────────────────────────────
+#
+# Reunião marcada numa oportunidade com folga abre uma tarefa de WhatsApp
+# para quem AGENDOU confirmar no dia útil anterior (roteiro de vendas). A
+# regra de quando cabe é pura, em services/confirmacao.prazo_da_confirmacao;
+# aqui só o banco.
+#
+# Para QUEM AGENDOU (`agendado_por`), e não para o anfitrião: é quem
+# combinou com o cliente e tem a conversa aberta no WhatsApp. No caso
+# comum é o SDR; quando o próprio EV marcou, é ele.
+#
+# Sempre DENTRO da transação de quem chama: a confirmação nasce, muda e
+# morre junto com a reunião — nunca uma sem a outra.
+
+MOTIVO_CONFIRMACAO_SEM_FOLGA = (
+    "Reunião remarcada sem dois dias úteis de antecedência: "
+    "não há véspera para confirmar."
+)
+MOTIVO_CONFIRMACAO_REUNIAO_CANCELADA = "Reunião cancelada."
+
+
+async def _dias_nao_uteis(conn, de: date, ate: date) -> set[date]:
+    rows = await conn.fetch(
+        "SELECT data FROM dia_nao_util WHERE data >= $1 AND data <= $2",
+        de, ate,
+    )
+    return {r["data"] for r in rows}
+
+
+async def _confirmacao_aberta(conn, tarefa_reuniao_id: UUID):
+    return await conn.fetchrow(
+        """
+        SELECT id, prazo FROM tarefas
+         WHERE confirmacao_de = $1
+           AND concluida_em IS NULL AND cancelada_em IS NULL
+        """,
+        tarefa_reuniao_id,
+    )
+
+
+async def encerrar_confirmacao(conn, tarefa_reuniao_id: UUID, motivo: str) -> None:
+    """
+    Cancela a confirmação ainda aberta da reunião, se houver.
+
+    Chamada quando a reunião deixa de existir como compromisso futuro
+    (desfecho registrado ou cancelamento). Confirmar uma reunião que não
+    vai acontecer — ou que já aconteceu — mandaria o SDR falar com o
+    cliente sobre algo que não existe mais.
+    """
+    await conn.execute(
+        """
+        UPDATE tarefas
+           SET cancelada_em = NOW(),
+               motivo_cancelamento = $2,
+               atualizado_em = NOW()
+         WHERE confirmacao_de = $1
+           AND concluida_em IS NULL AND cancelada_em IS NULL
+        """,
+        tarefa_reuniao_id, motivo,
+    )
+
+
+async def _sincronizar_confirmacao(
+    conn, reuniao_id: UUID, *, remarcou: bool, criado_por=None,
+) -> None:
+    """
+    Põe a confirmação da véspera de acordo com a reunião.
+
+    `remarcou` diz se o DIA da reunião é novo (marcação ou reagendamento):
+    só então a véspera é recalculada — e uma confirmação nasce, muda de dia
+    ou é cancelada por falta de folga. Sem remarcação, só o texto e o dono
+    acompanham (trocou o contato, o anfitrião, quem agendou, a
+    modalidade); o prazo fica, porque recalcular no próprio dia da véspera
+    acharia "sem folga" e cancelaria a confirmação que o SDR está prestes a
+    fazer.
+
+    Remarcação depois de já confirmada abre uma NOVA confirmação para o dia
+    novo: a concluída fica como histórico do que foi combinado antes.
+    """
+    row = await conn.fetchrow(
+        """
+        SELECT r.tarefa_id, r.modalidade, r.agendado_por, r.contato_id,
+               t.prazo AS inicio, t.oportunidade_id,
+               t.concluida_em, t.cancelada_em,
+               u.nome  AS anfitriao_nome,
+               ct.nome AS contato_nome,
+               COALESCE(c.nome_fantasia, c.razao_social) AS empresa
+          FROM reunioes r
+          JOIN tarefas t            ON t.id  = r.tarefa_id
+          LEFT JOIN usuarios u      ON u.id  = t.responsavel_id
+          LEFT JOIN contatos ct     ON ct.id = r.contato_id
+          LEFT JOIN oportunidades o ON o.id  = t.oportunidade_id
+          LEFT JOIN contas c        ON c.id  = o.conta_id
+         WHERE r.id = $1
+        """,
+        reuniao_id,
+    )
+    if row is None:
+        return
+    aberta = await _confirmacao_aberta(conn, row["tarefa_id"])
+
+    # Só reunião de VENDA, ainda de pé, com alguém para confirmar. Reunião
+    # de parceiro fica de fora: o roteiro é do funil comercial.
+    if (
+        row["oportunidade_id"] is None
+        or row["concluida_em"] is not None
+        or row["cancelada_em"] is not None
+        or row["agendado_por"] is None
+    ):
+        if aberta is not None:
+            await encerrar_confirmacao(
+                conn, row["tarefa_id"], MOTIVO_CONFIRMACAO_REUNIAO_CANCELADA
+            )
+        return
+
+    if remarcou:
+        agora = _agora()
+        hoje = regras.no_fuso(agora).date()
+        dia = regras.no_fuso(row["inicio"]).date()
+        nao_uteis = await _dias_nao_uteis(conn, hoje, dia)
+        prazo = confirmacao.prazo_da_confirmacao(row["inicio"], agora, nao_uteis)
+        if prazo is None:
+            if aberta is not None:
+                await encerrar_confirmacao(
+                    conn, row["tarefa_id"], MOTIVO_CONFIRMACAO_SEM_FOLGA
+                )
+            return
+    elif aberta is not None:
+        prazo = aberta["prazo"]
+    else:
+        return
+
+    mensagem = confirmacao.mensagem_confirmacao(
+        contato_nome=row["contato_nome"],
+        inicio=row["inicio"],
+        vespera=regras.no_fuso(prazo).date(),
+        anfitriao_nome=row["anfitriao_nome"],
+        modalidade=row["modalidade"],
+    )
+    titulo = confirmacao.titulo_confirmacao(empresa=row["empresa"], inicio=row["inicio"])
+    descricao = confirmacao.descricao_confirmacao(mensagem)
+
+    if aberta is not None:
+        await conn.execute(
+            """
+            UPDATE tarefas
+               SET titulo = $2, descricao = $3, responsavel_id = $4,
+                   contato_id = $5, prazo = $6, atualizado_em = NOW()
+             WHERE id = $1
+            """,
+            aberta["id"], titulo, descricao, row["agendado_por"],
+            row["contato_id"], prazo,
+        )
+        return
+
+    await conn.execute(
+        """
+        INSERT INTO tarefas (
+            oportunidade_id, tipo, titulo, descricao, responsavel_id,
+            prazo, contato_id, confirmacao_de, criado_por
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        """,
+        row["oportunidade_id"], confirmacao.TIPO_TAREFA_CONFIRMACAO, titulo,
+        descricao, row["agendado_por"], prazo, row["contato_id"],
+        row["tarefa_id"], criado_por,
+    )
 
 
 # ── Tipos de reunião ─────────────────────────────────────────────────
@@ -1550,6 +1728,9 @@ async def criar(
             user["id"], payload.agendado_por or user["id"],
         )
         await _gravar_participantes(conn, reuniao_id, payload.participantes)
+        await _sincronizar_confirmacao(
+            conn, reuniao_id, remarcou=True, criado_por=user["id"]
+        )
 
     return await _sincronizar(conn, reuniao_id)
 
@@ -1709,6 +1890,9 @@ async def criar_de_tarefa(
             user["id"], payload.agendado_por or user["id"],
         )
         await _gravar_participantes(conn, reuniao_id, payload.participantes)
+        await _sincronizar_confirmacao(
+            conn, reuniao_id, remarcou=True, criado_por=user["id"]
+        )
 
     return await _sincronizar(conn, reuniao_id)
 
@@ -1828,6 +2012,15 @@ async def editar(
         if "participantes" in campos:
             await _gravar_participantes(
                 conn, reuniao_id, campos["participantes"]
+            )
+
+        if CAMPOS_DA_CONFIRMACAO & set(campos):
+            await _sincronizar_confirmacao(
+                conn, reuniao_id,
+                remarcou=(
+                    "inicio" in campos and campos["inicio"] != atual["inicio"]
+                ),
+                criado_por=user["id"],
             )
 
     if CAMPOS_QUE_REFAZEM_O_CONVITE & set(campos) or "participantes" in campos:
@@ -2071,6 +2264,11 @@ async def _registrar_desfecho(conn, atual: dict, payload: DesfechoIn, user) -> d
                 atual["criado_por"] or user["id"],
                 atual.get("contato_id"),
             )
+        # Reunião com desfecho não tem mais o que confirmar.
+        await encerrar_confirmacao(
+            conn, atual["tarefa_id"],
+            f"Reunião registrada como {regras.ROTULO_DESFECHO[desfecho]}.",
+        )
         await conn.execute(
             """
             UPDATE reunioes
@@ -2125,16 +2323,20 @@ async def cancelar(
     except TarefaInvalida as e:
         raise HTTPException(422, str(e))
 
-    await conn.execute(
-        """
-        UPDATE tarefas
-           SET cancelada_em = NOW(),
-               motivo_cancelamento = $2,
-               atualizado_em = NOW()
-         WHERE id = $1
-        """,
-        atual["tarefa_id"], (payload.motivo or "").strip() or None,
-    )
+    async with conn.transaction():
+        await conn.execute(
+            """
+            UPDATE tarefas
+               SET cancelada_em = NOW(),
+                   motivo_cancelamento = $2,
+                   atualizado_em = NOW()
+             WHERE id = $1
+            """,
+            atual["tarefa_id"], (payload.motivo or "").strip() or None,
+        )
+        await encerrar_confirmacao(
+            conn, atual["tarefa_id"], MOTIVO_CONFIRMACAO_REUNIAO_CANCELADA
+        )
     await remover_evento_da_tarefa(conn, atual["tarefa_id"])
     return await _obter(conn, reuniao_id)
 

@@ -667,9 +667,17 @@ CREATE TABLE IF NOT EXISTS tarefas (
     -- 028: com quem e a interacao. Obrigatorio pela API (nao por CHECK) nos
     -- tipos de interacao -- ver services/tarefa.TIPOS_EXIGEM_CONTATO.
     contato_id          UUID REFERENCES contatos(id) ON DELETE SET NULL,
+    -- 029: tarefa de CONFIRMACAO DA VESPERA. Aponta para a tarefa da
+    -- reuniao que ela confirma; quem cria, move e cancela e a agenda
+    -- (routers/crm_agenda._sincronizar_confirmacao). NAO conta como
+    -- "proximo passo" da oportunidade -- ver contar_outras_abertas.
+    confirmacao_de      UUID REFERENCES tarefas(id) ON DELETE CASCADE,
     criado_por          UUID REFERENCES usuarios(id) ON DELETE SET NULL,
     criado_em           TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     atualizado_em       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT ck_tarefa_confirmacao CHECK (
+        confirmacao_de IS NULL OR confirmacao_de <> id
+    ),
     CONSTRAINT ck_tarefa_tipo CHECK (
         tipo IN ('ligacao', 'reuniao', 'visita', 'proposta',
                  'email', 'whatsapp', 'outro')
@@ -722,6 +730,13 @@ CREATE INDEX IF NOT EXISTS idx_tarefas_anterior
 
 CREATE INDEX IF NOT EXISTS idx_tarefas_contato
     ON tarefas (contato_id) WHERE contato_id IS NOT NULL;
+
+-- 029: no maximo UMA confirmacao aberta por reuniao. A concluida fica como
+-- historico; se a reuniao for remarcada para longe, nasce outra.
+CREATE UNIQUE INDEX IF NOT EXISTS uq_tarefas_confirmacao_aberta
+    ON tarefas (confirmacao_de)
+    WHERE confirmacao_de IS NOT NULL
+      AND concluida_em IS NULL AND cancelada_em IS NULL;
 
 
 -- ---------------------------------------------------------------------------
