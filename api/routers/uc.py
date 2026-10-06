@@ -201,9 +201,16 @@ class PerguntaQuiz(BaseModel):
 
 
 class ErradaOut(BaseModel):
+    """
+    Uma pergunta errada: o enunciado e a alternativa que a pessoa marcou.
+    Nunca a certa. `enunciado`/`sua_resposta` vêm nulos se a pergunta foi
+    apagada do banco depois de uma tentativa antiga.
+    """
     numero: int
     aula_ordem: int
     aula_titulo: str
+    enunciado: str | None = None
+    sua_resposta: str | None = None
 
 
 class TentativaOut(BaseModel):
@@ -848,7 +855,7 @@ async def _situacao_quiz(conn, t: dict, pessoa: dict, agora: datetime) -> dict:
     )
     tentativas = [dict(r) for r in await conn.fetch(
         """
-        SELECT acertos, total, nota, aprovada, erradas, criado_em
+        SELECT acertos, total, nota, aprovada, erradas, perguntas, respostas, criado_em
           FROM uc_tentativas_trilha
          WHERE usuario_id = $1 AND trilha_id = $2
          ORDER BY criado_em DESC
@@ -857,6 +864,8 @@ async def _situacao_quiz(conn, t: dict, pessoa: dict, agora: datetime) -> dict:
     )]
     aprovadas = [x for x in tentativas if x["aprovada"]]
     ultima = tentativas[0] if tentativas else None
+    if ultima is not None:
+        ultima["erradas"] = await _completar_erradas(conn, ultima)
     reprovada_em = ultima["criado_em"] if ultima and not ultima["aprovada"] else None
     semente = f"{pessoa['id']}:{t['id']}:{len(tentativas)}"
     sorteadas = regras.sortear_quiz(banco, semente)
@@ -878,6 +887,48 @@ async def _situacao_quiz(conn, t: dict, pessoa: dict, agora: datetime) -> dict:
     }
 
 
+def _dict_json(valor) -> dict:
+    if isinstance(valor, str):
+        return json.loads(valor)
+    return dict(valor or {})
+
+
+async def _completar_erradas(conn, tentativa: dict) -> list[dict]:
+    """
+    Tentativas gravadas antes de a correção guardar o texto das erradas só
+    têm número e aula. Completa com o enunciado e a alternativa marcada a
+    partir do sorteio e das respostas gravados. Nunca devolve a certa.
+    """
+    erradas = _lista_json(tentativa["erradas"])
+    faltam = [e for e in erradas if "enunciado" not in e]
+    if not faltam:
+        return erradas
+    perguntas = _lista_json(tentativa.get("perguntas"))
+    resps = _dict_json(tentativa.get("respostas"))
+    pares = {}
+    for e in faltam:
+        n = e.get("numero") or 0
+        if 1 <= n <= len(perguntas):
+            pid = perguntas[n - 1]
+            pares[n] = (pid, resps.get(pid))
+    if not pares:
+        return erradas
+    try:
+        pids = [UUID(pid) for pid, _ in pares.values()]
+        aids = [UUID(aid) for _, aid in pares.values() if aid]
+    except ValueError:
+        return erradas
+    enunciados = {str(r["id"]): r["enunciado"] for r in await conn.fetch(
+        "SELECT id, enunciado FROM uc_perguntas WHERE id = ANY($1::uuid[])", pids)}
+    textos = {str(r["id"]): r["texto"] for r in await conn.fetch(
+        "SELECT id, texto FROM uc_alternativas WHERE id = ANY($1::uuid[])", aids)}
+    for e in faltam:
+        pid, aid = pares.get(e.get("numero"), (None, None))
+        e["enunciado"] = enunciados.get(pid)
+        e["sua_resposta"] = textos.get(aid) if aid else None
+    return erradas
+
+
 def _quiz_out(q: dict, leitura: bool) -> dict:
     t = q["trilha"]
     ultima = q["ultima"]
@@ -892,7 +943,7 @@ def _quiz_out(q: dict, leitura: bool) -> dict:
         "liberado": q["liberado"], "aulas_pendentes": q["aulas_pendentes"],
         "ultima": None if ultima is None else {
             "acertos": ultima["acertos"], "total": ultima["total"], "nota": ultima["nota"],
-            "aprovada": ultima["aprovada"], "erradas": _lista_json(ultima["erradas"]),
+            "aprovada": ultima["aprovada"], "erradas": ultima["erradas"],
             "em": ultima["criado_em"],
         },
         "segundos_para_refazer": q["segundos_para_refazer"],
@@ -974,11 +1025,18 @@ async def responder_quiz(
         except regras.ConteudoInvalido as e:
             raise HTTPException(422, str(e))
         por_id = {str(p["id"]): (i, p) for i, p in enumerate(sorteadas, start=1)}
-        erradas = [
-            {"numero": por_id[pid][0], "aula_ordem": por_id[pid][1]["aula_ordem"],
-             "aula_titulo": por_id[pid][1]["aula_titulo"]}
-            for pid in c.erradas
-        ]
+        marcadas = {str(k): str(v) for k, v in body.respostas.items()}
+        # Guarda o texto da pergunta e da alternativa MARCADA (a errada), como
+        # estavam na hora: o estúdio pode editar o banco depois. A certa não.
+        erradas = []
+        for pid in c.erradas:
+            numero, p = por_id[pid]
+            marcada = next((a["texto"] for a in p["alternativas"]
+                            if str(a["id"]) == marcadas.get(pid)), None)
+            erradas.append({
+                "numero": numero, "aula_ordem": p["aula_ordem"], "aula_titulo": p["aula_titulo"],
+                "enunciado": p["enunciado"], "sua_resposta": marcada,
+            })
         await conn.execute(
             """
             INSERT INTO uc_tentativas_trilha
@@ -988,7 +1046,7 @@ async def responder_quiz(
             """,
             user["id"], trilha_id, c.acertos, c.total, c.nota, regras.NOTA_MINIMA_QUIZ, c.aprovada,
             json.dumps([str(p["id"]) for p in sorteadas]),
-            json.dumps({str(k): str(v) for k, v in body.respostas.items()}),
+            json.dumps(marcadas),
             json.dumps(erradas), agora,
         )
         q = await _situacao_quiz(conn, t, user, agora)

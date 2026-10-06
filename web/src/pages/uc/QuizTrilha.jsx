@@ -6,8 +6,9 @@
 // fica concluída com a aprovação.
 //
 // O que a tela NÃO sabe: o gabarito. As perguntas chegam sem `correta`,
-// com as alternativas já embaralhadas pelo servidor; o resultado diz quais
-// perguntas errou e de qual aula, nunca qual era a certa. Correção, nota e
+// com as alternativas já embaralhadas pelo servidor; o resultado mostra as
+// perguntas que errou (enunciado + a alternativa que marcou) e de qual aula,
+// nunca qual era a certa. Correção, nota e
 // esperas são do servidor (409/429 mandam); as contagens daqui são conforto.
 //
 // Estados: trancado (faltam aulas) · respondendo · esperando (reprovou,
@@ -30,10 +31,34 @@ import { tempoRestante, tomDoPilar } from '../../components/uc/ucComum';
 export function aulasParaRever(erradas) {
   const vistas = new Map();
   for (const e of erradas || []) {
-    if (!vistas.has(e.aula_ordem)) vistas.set(e.aula_ordem, { ...e, perguntas: [] });
-    vistas.get(e.aula_ordem).perguntas.push(e.numero);
+    if (!vistas.has(e.aula_ordem)) {
+      vistas.set(e.aula_ordem, { aula_ordem: e.aula_ordem, aula_titulo: e.aula_titulo, perguntas: [] });
+    }
+    vistas.get(e.aula_ordem).perguntas.push(e);
   }
-  return [...vistas.values()].sort((a, b) => a.aula_ordem - b.aula_ordem);
+  const grupos = [...vistas.values()].sort((a, b) => a.aula_ordem - b.aula_ordem);
+  for (const g of grupos) g.perguntas.sort((a, b) => a.numero - b.numero);
+  return grupos;
+}
+
+function PerguntaErrada({ e }) {
+  if (!e.enunciado) {
+    // Tentativa antiga cuja pergunta saiu do banco: só o número.
+    return <li className="text-hipo-slate">Pergunta {e.numero}</li>;
+  }
+  return (
+    <li data-testid="quiz-errada" className="rounded-lg border border-hipo-border bg-hipo-card px-3 py-2">
+      <p className="text-hipo-ink">
+        <span className="text-hipo-slate">{e.numero}.</span> {e.enunciado}
+      </p>
+      {e.sua_resposta && (
+        <p className="mt-1 flex items-start gap-1.5 text-hipo-slate">
+          <XCircle size={14} className="text-hipo-danger mt-0.5 shrink-0" aria-hidden="true" />
+          <span>Você marcou: <span className="line-through decoration-hipo-danger">{e.sua_resposta}</span></span>
+        </p>
+      )}
+    </li>
+  );
 }
 
 function Resultado({ quiz }) {
@@ -54,16 +79,24 @@ function Resultado({ quiz }) {
         {u.aprovada ? 'Aprovado' : 'Não foi desta vez'}: você acertou {u.acertos} de {u.total} ({u.nota}%).
       </p>
       {!u.aprovada && (
+        <p className="text-hipo-slate mt-1">Precisa de {quiz.acertos_para_aprovar} de {quiz.total}.</p>
+      )}
+      {rever.length > 0 && (
         <>
-          <p className="text-hipo-slate mt-1">Precisa de {quiz.acertos_para_aprovar} de {quiz.total}. Reveja:</p>
-          <ul className="mt-1 space-y-0.5">
+          <p className="text-hipo-slate mt-3">
+            {rever.reduce((n, a) => n + a.perguntas.length, 0) === 1 ? 'A pergunta que você errou' : 'As perguntas que você errou'}
+            {' '}(a resposta certa fica com você: volte à aula e descubra):
+          </p>
+          <div className="mt-2 space-y-3">
             {rever.map((a) => (
-              <li key={a.aula_ordem}>
-                <strong>Aula {a.aula_ordem}. {a.aula_titulo}</strong>
-                <span className="text-hipo-slate"> · pergunta{a.perguntas.length > 1 ? 's' : ''} {a.perguntas.join(', ')}</span>
-              </li>
+              <div key={a.aula_ordem}>
+                <p className="font-medium">Aula {a.aula_ordem}. {a.aula_titulo}</p>
+                <ul className="mt-1 space-y-1.5">
+                  {a.perguntas.map((e) => <PerguntaErrada key={e.numero} e={e} />)}
+                </ul>
+              </div>
             ))}
-          </ul>
+          </div>
         </>
       )}
     </div>

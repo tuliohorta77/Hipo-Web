@@ -3,7 +3,8 @@
 // O quiz final da trilha, na tela própria. O que estes testes seguram:
 //   1. trancado enquanto faltam aulas
 //   2. "Enviar" só com as 10 respondidas; manda {pergunta: alternativa}
-//   3. reprovado: placar e as AULAS a rever (sem gabarito), com a espera
+//   3. reprovado: placar, as perguntas erradas (enunciado + o que marcou,
+//      sem gabarito) agrupadas por aula, com a espera
 //   4. aprovado: trilha concluída
 //   5. o 429 do servidor aparece e a tela recarrega
 //   6. modo leitura: só o resumo
@@ -42,8 +43,8 @@ function quiz(extra = {}) {
 const REPROVADA = {
   acertos: 8, total: 10, nota: 80, aprovada: false, em: '2026-10-05T10:00:00Z',
   erradas: [
-    { numero: 2, aula_ordem: 1, aula_titulo: 'O HIPO no dia do SDR' },
-    { numero: 7, aula_ordem: 4, aula_titulo: 'Oportunidades' },
+    { numero: 2, aula_ordem: 1, aula_titulo: 'O HIPO no dia do SDR', enunciado: 'Onde fica a próxima tarefa?', sua_resposta: 'No relatório' },
+    { numero: 7, aula_ordem: 4, aula_titulo: 'Oportunidades', enunciado: 'Quando a fase muda?', sua_resposta: 'No fim do mês' },
   ],
 };
 
@@ -78,7 +79,7 @@ describe('aulasParaRever', () => {
       { numero: 1, aula_ordem: 1, aula_titulo: 'A' },
       { numero: 2, aula_ordem: 1, aula_titulo: 'A' },
     ]);
-    expect(r.map((a) => [a.aula_ordem, a.perguntas])).toEqual([[1, [1, 2]], [3, [9]]]);
+    expect(r.map((a) => [a.aula_ordem, a.perguntas.map((e) => e.numero)])).toEqual([[1, [1, 2]], [3, [9]]]);
   });
 });
 
@@ -118,8 +119,33 @@ describe('Quiz final da trilha', () => {
     expect(res.textContent).toMatch(/Precisa de 9 de 10/);
     expect(screen.getByText('Aula 1. O HIPO no dia do SDR')).toBeInTheDocument();
     expect(screen.getByText('Aula 4. Oportunidades')).toBeInTheDocument();
+    const erradas = screen.getAllByTestId('quiz-errada');
+    expect(erradas).toHaveLength(2);
+    expect(erradas[0].textContent).toMatch(/2\. Onde fica a próxima tarefa\?/);
+    expect(erradas[0].textContent).toMatch(/Você marcou: No relatório/);
+    expect(erradas[1].textContent).toMatch(/Você marcou: No fim do mês/);
+    expect(res.textContent).toMatch(/As perguntas que você errou/);
     expect(screen.getByText('9 min')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Tentar de novo/ })).toBeDisabled();
+  });
+
+  it('tentativa antiga sem o texto: mostra só o número da pergunta', async () => {
+    const antiga = { ...REPROVADA, erradas: [{ numero: 5, aula_ordem: 2, aula_titulo: 'Agenda', enunciado: null, sua_resposta: null }] };
+    mockGet.mockResolvedValue({ data: quiz({ tentativas: 1, ultima: antiga, segundos_para_refazer: 300, perguntas: [] }) });
+    renderizar();
+    const res = await screen.findByTestId('quiz-resultado');
+    expect(res.textContent).toMatch(/A pergunta que você errou/);
+    expect(screen.getByText('Pergunta 5')).toBeInTheDocument();
+    expect(screen.queryByTestId('quiz-errada')).toBeNull();
+  });
+
+  it('aprovado com um erro: mostra a que errou', async () => {
+    mockGet.mockResolvedValue({
+      data: quiz({ aprovado: true, tentativas: 1, perguntas: [], ultima: { ...REPROVADA, acertos: 9, nota: 90, aprovada: true, erradas: [REPROVADA.erradas[1]] } }),
+    });
+    renderizar();
+    expect(await screen.findByText('Trilha concluída')).toBeInTheDocument();
+    expect(screen.getByTestId('quiz-errada').textContent).toMatch(/Quando a fase muda\?/);
   });
 
   it('o 429 do servidor aparece e recarrega', async () => {

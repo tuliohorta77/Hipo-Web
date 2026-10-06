@@ -233,10 +233,16 @@ class TestQuizDaTrilha:
         d = r.json()
         assert d["aprovado"] is False and d["perguntas"] == []
         assert (d["ultima"]["acertos"], d["ultima"]["nota"]) == (8, 80)
-        assert d["ultima"]["erradas"] == [
-            {"numero": 1, "aula_ordem": 1, "aula_titulo": "Aula 1"},
-            {"numero": 2, "aula_ordem": 1, "aula_titulo": "Aula 1"},
+        erradas = d["ultima"]["erradas"]
+        assert [(e["numero"], e["aula_ordem"], e["aula_titulo"]) for e in erradas] == [
+            (1, 1, "Aula 1"), (2, 1, "Aula 1"),
         ]
+        # O enunciado e a alternativa MARCADA (errada); a certa não aparece.
+        for e, p in zip(erradas, q1["perguntas"][:2]):
+            assert e["enunciado"] == p["enunciado"]
+            n = p["enunciado"].split("Pergunta ")[1].rstrip("?")
+            assert e["sua_resposta"] in (f"Errada {n}a", f"Errada {n}b", f"Errada {n}c")
+        assert "Certa" not in str(erradas)
         assert 590 <= d["segundos_para_refazer"] <= 600
         assert not _tem_chave(d, "correta")
 
@@ -253,6 +259,28 @@ class TestQuizDaTrilha:
         ok = await responder(client, ev, t["id"], respostas(q2, gab, 0))
         assert ok.status_code == 200 and ok.json()["aprovado"] is True
         assert ok.json()["tentativas"] == 2
+
+    async def test_tentativa_antiga_ganha_o_texto_das_erradas(self, time, client):
+        """Gravada antes da 045 (erradas só com número e aula): completa na leitura."""
+        t, aulas = await trilha_com_quiz(client, time)
+        ev, conn = time["ev"], time["conn"]
+        await concluir_aulas(client, conn, ev, aulas)
+        q = await abrir_quiz(client, ev, t["id"])
+        await responder(client, ev, t["id"], respostas(q, await gabarito(conn), 3))
+        await conn.execute(
+            """UPDATE uc_tentativas_trilha SET erradas = (
+                 SELECT jsonb_agg(e - 'enunciado' - 'sua_resposta') FROM jsonb_array_elements(erradas) e)"""
+        )
+        r = await abrir_quiz(client, ev, t["id"])
+        erradas = r["ultima"]["erradas"]
+        assert [e["numero"] for e in erradas] == [1, 2, 3]
+        assert [e["enunciado"] for e in erradas] == [p["enunciado"] for p in q["perguntas"][:3]]
+        assert all(e["sua_resposta"].startswith("Errada ") for e in erradas)
+        # Pergunta apagada do banco depois: fica só o número.
+        await conn.execute("DELETE FROM uc_perguntas WHERE id = $1", UUID(q["perguntas"][0]["id"]))
+        r = await abrir_quiz(client, ev, t["id"])
+        assert r["ultima"]["erradas"][0]["enunciado"] is None
+        assert r["ultima"]["erradas"][0]["sua_resposta"] is None
 
     async def test_envio_incompleto_nao_gasta_tentativa(self, time, client):
         t, aulas = await trilha_com_quiz(client, time)
