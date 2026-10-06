@@ -584,8 +584,9 @@ A fase muda na hora (não precisa Salvar) e fica registrada no **Histórico**.
 
 Clique no nome da empresa no cartão. À esquerda ficam a empresa (abre a conta), **Fase**, **Temp.** e as abas:
 
-- **Dados**: contato, origem, previsão de fechamento, Finder (parceiro que indicou), descrição e observações.
-- **Tarefas**: as tarefas desta oportunidade, com **Nova tarefa**.
+- **Dados**: origem, previsão de fechamento, Finder (parceiro que indicou), descrição e observações. O contato principal aparece aqui; clicar nele abre a aba Contatos.
+- **Tarefas**: as tarefas desta oportunidade, com **Nova tarefa**. Ligação, reunião, visita, WhatsApp e e-mail pedem **o contato**: com quem vai ser a conversa.
+- **Contatos** (047): as pessoas da empresa nesta negociação, cada uma com o **papel** (decisor, campeão, operacional...), o **principal** e o **sinal de temperatura** (**Quente**, **Morno**, **Frio**). O farol no topo mostra se a oportunidade tem de 2 a 4 pessoas envolvidas e se o decisor já foi mapeado.
 - **Envolvidos**: quem é o SDR, o EV e o EC desta oportunidade.
 - **Histórico**: tudo o que aconteceu, com data e autor.
 
@@ -613,6 +614,10 @@ O que você descobriu na qualificação (fornecedor atual, número de unidades, 
                        "Clicando no nome da empresa abre o detalhe. Aqui à esquerda: a empresa, a **Fase** "
                        "(muda na hora), a **Temp.** e as abas.",
                        clicar=["opo-cartao-abrir"]),
+                _passo("/crm/oportunidades", "opo-det-conteudo", "Contatos e temperatura",
+                       "As pessoas da empresa nesta negociação, com papel e principal. O sinal ao lado do nome diz se a "
+                       "conversa está **Quente**, **Morna** ou **Fria**; clique nele para ver o porquê. Ideal: 2 a 4 pessoas.",
+                       clicar=["opo-cartao-abrir", "aba-contatos"]),
                 _passo("/crm/oportunidades", "opo-det-conteudo", "Envolvidos",
                        "Quem é o SDR, o EV e o EC desta oportunidade. Empresa puxada pela Prospecção já vem com você como SDR.",
                        clicar=["opo-cartao-abrir", "aba-envolvidos"]),
@@ -1413,8 +1418,9 @@ No kanban, clique no nome da empresa no cartão; na tabela, na linha. A oportuni
 
 ## As abas
 
-- **Dados**: contato, origem, previsão de fechamento, **Finder** (parceiro que indicou), descrição e observações.
-- **Tarefas**: atrasadas, em aberto e **Nova tarefa**. Reunião ou visita criada aqui vai direto para a agenda (**Marcar na agenda**).
+- **Dados**: origem, previsão de fechamento, **Finder** (parceiro que indicou), descrição e observações. O contato principal aparece aqui; clicar nele abre a aba Contatos.
+- **Tarefas**: atrasadas, em aberto e **Nova tarefa**. Reunião ou visita criada aqui vai direto para a agenda (**Marcar na agenda**). Ligação, reunião, visita, WhatsApp e e-mail pedem **o contato**.
+- **Contatos** (047): as pessoas da empresa nesta negociação, cada uma com o **papel** (decisor, campeão, operacional...), o **principal** e o **sinal de temperatura** (**Quente**, **Morno**, **Frio**). O farol no topo mostra se a oportunidade tem de 2 a 4 pessoas envolvidas e se o decisor já foi mapeado.
 - **Proposta**: mensalidade e a geração da proposta (próxima aula).
 - **Envolvidos**: quem é o SDR, o EV e o EC. Se você assumiu uma oportunidade, confira se está aqui como EV.
 - **Concorrentes**: com quem o cliente está comparando.
@@ -1439,6 +1445,10 @@ No kanban, clique no nome da empresa no cartão; na tabela, na linha. A oportuni
                 _passo("/crm/oportunidades", "opo-det-conteudo", "Tarefas da oportunidade",
                        "Atrasadas, em aberto e **Nova tarefa**. Reunião ou visita vai direto para a agenda.",
                        clicar=["opo-cartao-abrir", "aba-tarefas"]),
+                _passo("/crm/oportunidades", "opo-det-conteudo", "Contatos e temperatura",
+                       "As pessoas da empresa nesta negociação, com papel e principal. O sinal ao lado do nome diz se a "
+                       "conversa está **Quente**, **Morna** ou **Fria**; clique nele para ver o porquê. Ideal: 2 a 4 pessoas.",
+                       clicar=["opo-cartao-abrir", "aba-contatos"]),
                 _passo("/crm/oportunidades", "opo-det-conteudo", "Envolvidos",
                        "SDR, EV e EC desta oportunidade. Confira se você está como **EV**.",
                        clicar=["opo-cartao-abrir", "aba-envolvidos"]),

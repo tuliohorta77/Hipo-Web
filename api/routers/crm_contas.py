@@ -36,6 +36,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from database import get_conn
 from routers.auth import usuario_atual
+from routers.crm_oportunidade_contatos import temperaturas
 from routers.permissions import CARGOS_GESTAO
 from services import cnpj as cnpj_svc
 from services.texto import limpar_nome
@@ -235,6 +236,13 @@ class ContatoDaConta(BaseModel):
     telefone_2_whatsapp: bool = False
     linkedin: str | None = None
     observacoes: str | None = None
+    # 046: quente / morno / frio, pelas conversas concluídas com a pessoa.
+    temperatura: str = "frio"
+    temperatura_rotulo: str = "Frio"
+    temperatura_pontos: int = 0
+    interacoes_60d: int = 0
+    ultima_conversa: datetime | None = None
+    dias_desde_ultima_conversa: int | None = None
 
 
 class OportunidadeDaConta(BaseModel):
@@ -644,7 +652,8 @@ async def obter(conta_id: UUID, conn=Depends(get_conn), user=Depends(usuario_atu
 
     detalhe = _para_resumo(row)
     detalhe.pop("criado_por", None)
-    detalhe["contatos"] = [dict(c) for c in contatos]
+    temps = await temperaturas(conn, [c["id"] for c in contatos])
+    detalhe["contatos"] = [{**dict(c), **temps.get(c["id"], {})} for c in contatos]
     detalhe["oportunidades"] = [dict(o) for o in oportunidades]
     return detalhe
 

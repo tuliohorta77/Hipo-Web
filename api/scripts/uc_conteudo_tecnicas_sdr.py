@@ -1588,8 +1588,8 @@ O avaliador faz o papel da **Juliana, gerente de RH** de uma indústria de 180 f
 AULA_11 = {
     "id": _id("b071b"),
     "titulo": "Técnica 11 · Multithreading: de 2 a 4 pessoas na negociação",
-    "resumo": "Manter conversas simultâneas com várias pessoas da conta, ler o farol do comitê e fazer cada tarefa com a pessoa certa.",
-    "duracao_min": 10,
+    "resumo": "Manter conversas simultâneas com várias pessoas da conta, ler o farol do comitê e a temperatura de cada pessoa, e fazer cada tarefa com a pessoa certa.",
+    "duracao_min": 12,
     "conteudo_md": """\
 ## O que é
 
@@ -1614,6 +1614,21 @@ Na aba **Contatos** (e no cartão do funil):
 
 Abaixo de cada pessoa aparecem as **interações** (tarefas concluídas com ela) e **quando foi a última**. Três nomes na lista e todas as conversas com um só é single-thread com outro nome.
 
+## A temperatura de cada pessoa
+
+Ao lado do nome de cada contato há um **sinal colorido**: **Quente** (vermelho), **Morno** (amarelo) ou **Frio** (azul). Ele responde a uma pergunta só: *como está a conversa com esta pessoa?*
+
+- **Só conta conversa que aconteceu.** Tarefa concluída com o contato. Tarefa aberta, futura ou cancelada não conta, e isso inclui reunião que virou No-show.
+- **Recência pesa.** Conversa dos últimos 14 dias vale 3 pontos; de 15 a 30 dias, 2; de 31 a 60 dias, 1; mais antiga, nada.
+- **Sucesso forte vale o dobro.** Reunião ou visita realizada conta em dobro: a pessoa reservou tempo para você.
+- **Quente**: 6 pontos ou mais **e** a última conversa foi há até 14 dias. Duas ligações na semana, ou uma reunião realizada há dez dias.
+- **Morno**: 2 pontos ou mais. Um WhatsApp respondido há cinco dias, por exemplo.
+- **Frio**: o resto. Nunca falou, ou só conversa antiga.
+
+**Clique no sinal** para ver o porquê: quantas conversas concluídas nos últimos 60 dias e há quantos dias foi a última. A temperatura é **da pessoa**, não da oportunidade: se você falou com o Paulo em outra negociação, isso também conta.
+
+Como usar: o farol diz **quantas** pessoas estão na conversa; a temperatura diz **quais estão vivas**. Farol verde com todo mundo frio é uma lista de nomes, não um comitê. A próxima tarefa vai para quem esfriou e importa, a começar pelo decisor.
+
 ## Passo a passo
 
 1. **Olhe o farol antes de cada próxima tarefa.** Amarelo? A próxima tarefa abre um fio novo.
@@ -1632,12 +1647,13 @@ Abaixo de cada pessoa aparecem as **interações** (tarefas concluídas com ela)
 ## Erros comuns
 
 - **Multithreading de cadastro.** Pessoas na lista, nenhuma interação com elas.
-- **Só um fio quente.** O farol está verde, mas a última conversa com os outros foi há 40 dias.
+- **Só um fio quente.** O farol está verde, mas só um sinal está Quente; os outros estão Frios, com a última conversa há 40 dias.
+- **Esquentar com tarefa aberta.** Criar tarefa não esquenta ninguém. O sinal só muda quando a conversa acontece e a tarefa é concluída.
 - **Esquecer o decisor.** Três pessoas operacionais e ninguém com poder de assinar.
 
 ## Exercício (individual, 10 minutos)
 
-Abra **as cinco oportunidades mais avançadas** da sua fila. Para cada uma, anote o farol, se há decisor, com quem foi a última interação e quando. Em toda oportunidade amarela, crie uma tarefa **com uma pessoa nova** da conta. Em toda oportunidade sem decisor, a próxima tarefa é chegar até ele.
+Abra **as cinco oportunidades mais avançadas** da sua fila. Para cada uma, anote o farol, se há decisor e a temperatura de cada pessoa (clique no sinal para ver a última conversa). Em toda oportunidade amarela, crie uma tarefa **com uma pessoa nova** da conta. Em toda oportunidade sem decisor, a próxima tarefa é chegar até ele. Em toda oportunidade com o decisor Frio, a próxima tarefa é com ele.
 
 ## Role-play em dupla (10 minutos)
 
@@ -1656,8 +1672,9 @@ O avaliador mostra uma oportunidade com **farol amarelo**: um só contato, a Jul
     "tour": [
         _passo("/crm/oportunidades", "opo-cartao", "O farol no cartão",
                "Quantos contatos a oportunidade tem. **Amarelo** é uma pessoa só; **verde**, de 2 a 4."),
-        _passo("/crm/oportunidades", "opo-det-conteudo", "Interações por pessoa",
-               "Abaixo de cada contato: quantas conversas e quando foi a última. É o que mostra se o fio está vivo.",
+        _passo("/crm/oportunidades", "opo-det-conteudo", "Temperatura por pessoa",
+               "Ao lado de cada nome, o sinal **Quente**, **Morno** ou **Frio**, calculado pelas conversas "
+               "concluídas: quantidade, recência e reunião ou visita valendo o dobro. Clique no sinal para ver o porquê.",
                clicar=["opo-cartao-abrir", "aba-contatos"]),
         _passo("/crm/tarefas", "tar-cartao", "Toda tarefa tem com quem",
                "O cartão mostra **com quem** é a conversa. Ligação, reunião, visita, WhatsApp e e-mail exigem o contato."),
@@ -1700,12 +1717,12 @@ O avaliador mostra uma oportunidade com **farol amarelo**: um só contato, a Jul
             ],
         },
         {
-            "enunciado": "Você vai ligar para o técnico de segurança da conta. Qual assunto tem mais chance de abrir a conversa?",
+            "enunciado": "Quais tarefas contam para o sinal de temperatura (Quente, Morno, Frio) de um contato?",
             "alternativas": [
-                ("O preço por vida", False),
-                ("O PGR e os riscos psicossociais exigidos pela NR-01", True),
-                ("O prazo do admissional", False),
-                ("A forma de pagamento", False),
+                ("Todas as tarefas com o contato, inclusive as agendadas", False),
+                ("Só as tarefas concluídas com ele; abertas, futuras e canceladas (inclusive No-show) não contam", True),
+                ("Só as reuniões", False),
+                ("As tarefas da oportunidade, com qualquer contato", False),
             ],
         },
         {
@@ -1718,7 +1735,7 @@ O avaliador mostra uma oportunidade com **farol amarelo**: um só contato, a Jul
             ],
         },
         {
-            "enunciado": "Três pessoas no comitê, mas todas as interações foram com a mesma. Como chamar isso?",
+            "enunciado": "Três pessoas no comitê, mas só a Juliana está Quente; as outras duas estão Frias. Como chamar isso?",
             "alternativas": [
                 ("Multithreading completo", False),
                 ("ABM avançado", False),

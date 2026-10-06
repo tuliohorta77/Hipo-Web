@@ -16,7 +16,9 @@ import Button from '../ui/Button';
 import Badge from '../ui/Badge';
 import Empty from '../ui/Empty';
 import AlertMessage from '../ui/AlertMessage';
-import { FormContato, LinkLinkedin, TelefonesDoContato } from './contatoComum';
+import {
+  FormContato, LinkLinkedin, SinalTemperatura, TelefonesDoContato,
+} from './contatoComum';
 
 function mensagemDeErro(err, padrao) {
   const d = err?.response?.data?.detail;
@@ -152,6 +154,7 @@ export default function ContatosDaConta({ contaId, contatos, onMudou }) {
                 <div className="flex items-center gap-2">
                   <span className="text-sm font-medium text-hipo-ink truncate">{c.nome}</span>
                   {c.principal && <Badge tone="info">Principal</Badge>}
+                  {c.temperatura && <SinalTemperatura contato={c} />}
                 </div>
                 <div className="flex flex-wrap gap-x-3 text-xs text-hipo-slate">
                   {c.cargo && <span>{c.cargo}</span>}

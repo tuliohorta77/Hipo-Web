@@ -35,7 +35,7 @@ Regras puras em services/contato_oportunidade.py.
 """
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status as http
@@ -44,6 +44,7 @@ from pydantic import BaseModel, Field, field_validator
 from database import get_conn
 from routers.auth import usuario_atual
 from services import contato_oportunidade as regras
+from services import temperatura_contato as temp
 from services.contato_oportunidade import ContatoOportunidadeInvalido
 
 router = APIRouter()
@@ -96,6 +97,14 @@ class ContatoDoComite(BaseModel):
     interacoes: int
     ultima_interacao: datetime | None
     criado_em: datetime
+    # 046: a temperatura da PESSOA (todas as conversas com ela, em qualquer
+    # oportunidade) — `interacoes` acima é só desta negociação.
+    temperatura: str = "frio"
+    temperatura_rotulo: str = "Frio"
+    temperatura_pontos: int = 0
+    interacoes_60d: int = 0
+    ultima_conversa: datetime | None = None
+    dias_desde_ultima_conversa: int | None = None
 
 
 class FarolOut(BaseModel):
@@ -112,6 +121,55 @@ class ComiteOut(BaseModel):
     oportunidade_id: UUID
     itens: list[ContatoDoComite]
     farol: FarolOut
+
+
+# ── Temperatura do contato (046) ─────────────────────────────────────
+
+async def temperaturas(
+    conn, contato_ids, agora: datetime | None = None,
+) -> dict:
+    """
+    Temperatura (quente/morno/frio) de cada contato, a partir das tarefas
+    CONCLUÍDAS com ele em qualquer alvo. Regra em services/temperatura_contato.
+
+    Duas consultas e não uma por contato: a ficha da conta pode ter dezenas
+    de pessoas, e N+1 aqui seria uma ida ao banco por linha da lista.
+    """
+    ids = list({i for i in contato_ids if i is not None})
+    agora = agora or datetime.now(timezone.utc)
+    if not ids:
+        return {}
+    desde = agora - timedelta(days=temp.JANELA_DIAS + 1)
+    janela = await conn.fetch(
+        """
+        SELECT contato_id, tipo, concluida_em
+          FROM tarefas
+         WHERE contato_id = ANY($1::uuid[])
+           AND concluida_em IS NOT NULL AND cancelada_em IS NULL
+           AND concluida_em >= $2
+        """,
+        ids, desde,
+    )
+    ultimas = await conn.fetch(
+        """
+        SELECT contato_id, max(concluida_em) AS ultima
+          FROM tarefas
+         WHERE contato_id = ANY($1::uuid[])
+           AND concluida_em IS NOT NULL AND cancelada_em IS NULL
+         GROUP BY contato_id
+        """,
+        ids,
+    )
+    por_contato: dict = {i: [] for i in ids}
+    for r in janela:
+        por_contato[r["contato_id"]].append(
+            temp.Interacao(tipo=r["tipo"], concluida_em=r["concluida_em"])
+        )
+    ultima = {r["contato_id"]: r["ultima"] for r in ultimas}
+    return {
+        i: temp.como_dict(temp.calcular(por_contato[i], agora, ultima.get(i)))
+        for i in ids
+    }
 
 
 # ── Helpers reaproveitados por oportunidades e tarefas ───────────────
@@ -278,10 +336,12 @@ async def comite(conn, oportunidade_id: UUID) -> dict:
         """,
         oportunidade_id,
     )
+    temps = await temperaturas(conn, [r["contato_id"] for r in rows])
     itens = []
     for r in rows:
         d = dict(r)
         d["papel_rotulo"] = regras.ROTULOS_PAPEL.get(d["papel"]) if d["papel"] else None
+        d.update(temps.get(d["contato_id"], {}))
         itens.append(d)
 
     ativos = [i for i in itens if i["ativo"]]

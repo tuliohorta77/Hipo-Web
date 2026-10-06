@@ -25,6 +25,7 @@ import AbaContatos from '../components/crm/AbaContatos';
 import ContatosDaConta from '../components/crm/ContatosDaConta';
 import {
   FormContato, linkWhatsapp, tomDoComite, SeloComite,
+  SinalTemperatura, explicacaoTemperatura,
 } from '../components/crm/contatoComum';
 import {
   CamposTarefa, corpoDaTarefa, exigeContato, formIncompleto, tarefaVazia,
@@ -286,5 +287,44 @@ describe('CamposTarefa — contato', () => {
       nome: 'Davi', conta_id: 'c1',
     })));
     await waitFor(() => expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ contato_id: 'ct9' })));
+  });
+});
+
+// ── Temperatura do contato (046) ─────────────────────────────────────
+
+describe('SinalTemperatura', () => {
+  it('mostra a palavra e, ao clicar, o porquê', () => {
+    render(<SinalTemperatura contato={{
+      temperatura: 'quente', temperatura_rotulo: 'Quente',
+      interacoes_60d: 3, dias_desde_ultima_conversa: 2,
+    }} />);
+    const botao = screen.getByRole('button', { name: /Contato quente/ });
+    expect(botao).toHaveTextContent('Quente');
+    expect(screen.queryByText(/últimos 60 dias/)).not.toBeInTheDocument();
+    fireEvent.click(botao);
+    expect(screen.getByText('3 conversas concluídas nos últimos 60 dias · última há 2 dias')).toBeInTheDocument();
+  });
+
+  it('frio sem histórico explica que nunca houve conversa', () => {
+    expect(explicacaoTemperatura({ interacoes_60d: 0, dias_desde_ultima_conversa: null }))
+      .toBe('nenhuma conversa concluída nos últimos 60 dias · nunca houve conversa concluída');
+    expect(explicacaoTemperatura({ interacoes_60d: 1, dias_desde_ultima_conversa: 1 }))
+      .toBe('1 conversa concluída nos últimos 60 dias · última ontem');
+  });
+
+  it('aparece no comitê da oportunidade', async () => {
+    mockGet.mockResolvedValue({ data: comite([{ ...ANA, temperatura: 'morno', temperatura_rotulo: 'Morno' }]) });
+    render(<AbaContatos oportunidade={OPP} />);
+    expect(await screen.findByRole('button', { name: /Contato morno/ })).toBeInTheDocument();
+  });
+
+  it('aparece na ficha da conta', () => {
+    render(
+      <ContatosDaConta
+        contaId="c1" onMudou={() => {}}
+        contatos={[{ id: 'ct1', nome: 'Ana', principal: true, temperatura: 'frio', temperatura_rotulo: 'Frio' }]}
+      />,
+    );
+    expect(screen.getByRole('button', { name: /Contato frio/ })).toBeInTheDocument();
   });
 });

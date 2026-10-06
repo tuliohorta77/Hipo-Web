@@ -244,3 +244,61 @@ export function FormContato({ contato, contaId, cargoAtual, onSalvo, onCancelar 
     </div>
   );
 }
+
+// ── Temperatura do contato (046) ─────────────────────────────────────
+
+/*
+  Quente / morno / frio, calculado no servidor (services/temperatura_contato)
+  pelas conversas CONCLUÍDAS com a pessoa: quantas, quão recentes e se foram
+  reunião/visita realizada (vale o dobro). Tarefa futura, aberta ou
+  cancelada (inclui no-show) não conta.
+
+  Cor + palavra: cor sozinha não carrega informação para quem não distingue
+  tons.
+*/
+const SINAL = {
+  quente: { ponto: 'bg-hipo-danger', caixa: 'border-hipo-dangerBorder bg-hipo-dangerSoft text-hipo-danger' },
+  morno: { ponto: 'bg-hipo-warning', caixa: 'border-hipo-warningBorder bg-hipo-warningSoft text-hipo-warning' },
+  frio: { ponto: 'bg-hipo-blue', caixa: 'border-hipo-blueSoft bg-hipo-blueSoft text-hipo-blueDark' },
+};
+
+export function explicacaoTemperatura(c) {
+  const n = c.interacoes_60d || 0;
+  const conversas = n === 0
+    ? 'nenhuma conversa concluída nos últimos 60 dias'
+    : `${n} conversa${n === 1 ? '' : 's'} concluída${n === 1 ? '' : 's'} nos últimos 60 dias`;
+  const d = c.dias_desde_ultima_conversa;
+  const ultima = d == null
+    ? 'nunca houve conversa concluída'
+    : d === 0 ? 'última hoje' : d === 1 ? 'última ontem' : `última há ${d} dias`;
+  return `${conversas} · ${ultima}`;
+}
+
+/**
+ * O sinal de temperatura. Botão: clicar mostra/esconde o porquê (quantas
+ * conversas e quando foi a última), sem tooltip — tooltip não existe no
+ * celular, e o vendedor usa o HIPO no celular.
+ */
+export function SinalTemperatura({ contato }) {
+  const [aberto, setAberto] = useState(false);
+  const nivel = contato.temperatura || 'frio';
+  const s = SINAL[nivel] || SINAL.frio;
+  const rotulo = contato.temperatura_rotulo || nivel;
+  return (
+    <span className="inline-flex flex-wrap items-center gap-1.5">
+      <button
+        type="button"
+        onClick={() => setAberto((v) => !v)}
+        aria-expanded={aberto}
+        aria-label={`Contato ${rotulo.toLowerCase()}: ver o porquê`}
+        className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full border text-xs font-medium ${s.caixa}`}
+      >
+        <span aria-hidden="true" className={`w-2 h-2 rounded-full ${s.ponto}`} />
+        {rotulo}
+      </button>
+      {aberto && (
+        <span className="text-xs text-hipo-slate">{explicacaoTemperatura(contato)}</span>
+      )}
+    </span>
+  );
+}

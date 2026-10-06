@@ -23,7 +23,7 @@ import Empty from '../ui/Empty';
 import AlertMessage from '../ui/AlertMessage';
 import { Select } from '../ui/Input';
 import {
-  FormContato, LinkLinkedin, PAPEIS, TelefonesDoContato, mensagemDeErro,
+  FormContato, SinalTemperatura, LinkLinkedin, PAPEIS, TelefonesDoContato, mensagemDeErro,
 } from './contatoComum';
 
 function quando(iso) {
@@ -210,6 +210,7 @@ export default function AbaContatos({ oportunidade, onMudou }) {
                     {c.nome}
                   </span>
                   {c.principal && <Badge tone="info">Principal</Badge>}
+                  {c.ativo && <SinalTemperatura contato={c} />}
                   {!c.ativo && <Badge tone="neutral">inativo</Badge>}
                   {c.cargo && <span className="text-xs text-hipo-slate">{c.cargo}</span>}
                 </div>
