@@ -4,8 +4,9 @@ HIPO — Carreira · PDI (/carreira/pdi), com banco.
 Reaproveita o agosto/2026 da RPeR: o EV fechou NMRR 450 contra meta 900
 (50%), então o HIPO sugere uma ação de Desempenho.
 """
-from datetime import date, timedelta
+from datetime import timedelta
 
+from routers.carreira import _hoje
 from tests.test_carreira import _login, _meta
 from tests.test_rper import agosto, time  # noqa: F401  (fixtures)
 
@@ -13,7 +14,9 @@ HOJE = "2026-08-31"
 
 
 def _prazo(dias=20):
-    return (date.today() + timedelta(days=dias)).isoformat()
+    # "Hoje" no fuso da operacao, como o servidor: date.today() do runner
+    # (UTC) ja e amanha depois das 21h em Sao Paulo.
+    return (_hoje() + timedelta(days=dias)).isoformat()
 
 
 async def _pdi(client, h, **params):
@@ -90,7 +93,7 @@ class TestAcoes:
         assert r.status_code == 422 and "objetivo" in r.json()["detail"]
         r = await client.post("/carreira/pdi/acoes", headers=agosto["h"], json={
             "usuario_id": str(agosto["ev"]), "objetivo": "Ok ok", "o_que_fazer": "y" * 5,
-            "prazo": (date.today() - timedelta(days=1)).isoformat()})
+            "prazo": _prazo(-1)})
         assert r.status_code == 422 and "passado" in r.json()["detail"]
 
     async def test_dono_marca_feita_e_desfaz(self, agosto, client):  # noqa: F811
