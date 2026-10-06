@@ -268,3 +268,50 @@ class TestClone:
         with pytest.raises(CloneRecusado, match="prefixo"):
             await clonar(db_conn, destino, Opcoes(bucket_origem="b", bucket_destino="b"),
                          executar=True, s3=S3Falso(), log=lambda *_: None)
+
+
+class TestStreaming:
+    """
+    06/10/2026: a cópia via arquivo temporário encheu o /tmp da EC2 com a base
+    da Receita (4,8 mi de linhas). Agora o COPY vai direto de uma conexão para
+    a outra; este teste passa muitos blocos pela fila.
+    """
+
+    async def test_base_da_receita_em_volume(self, db_conn, destino):
+        await db_conn.execute(
+            """
+            INSERT INTO receita_estabelecimentos
+                (cnpj, cnpj_basico, matriz, razao_social, cnae_principal, cnaes_secundarios,
+                 uf, municipio_codigo)
+            SELECT lpad(g::text, 14, '0'), lpad((g / 10)::text, 8, '0'), g % 10 = 1,
+                   'Empresa ' || g || ' ' || repeat('x', 120), '8630501', ARRAY['8630502'],
+                   'SP', '6477'
+              FROM generate_series(1, 20000) g
+            """
+        )
+        resultado = await clonar(
+            db_conn, destino, Opcoes(com_receita=True), executar=True,
+            log=lambda *_: None,
+        )
+        assert resultado["receita_estabelecimentos"] == 20000
+        assert await destino.fetchval(
+            "SELECT cnaes_secundarios FROM receita_estabelecimentos WHERE cnpj = $1",
+            "00000000012345",
+        ) == ["8630502"]
+
+    async def test_erro_no_meio_desfaz_tudo(self, db_conn, destino, monkeypatch):
+        """Falha numa tabela tardia não deixa as anteriores gravadas."""
+        from scripts import clonar_config as cc
+        await _semear_origem(db_conn)
+        original = cc.copiar_tabela
+
+        async def quebra(origem, dest, tabela):
+            if tabela == "uc_aulas":
+                raise OSError(28, "No space left on device")
+            return await original(origem, dest, tabela)
+
+        monkeypatch.setattr(cc, "copiar_tabela", quebra)
+        with pytest.raises(OSError):
+            await clonar(db_conn, destino, Opcoes(), executar=True, log=lambda *_: None)
+        assert await destino.fetchval("SELECT count(*) FROM verticais") == 0
+        assert await destino.fetchval("SELECT count(*) FROM tipos_reuniao") == 5  # seed intacta

@@ -57,9 +57,9 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import contextlib
 import os
 import sys
-import tempfile
 from dataclasses import dataclass
 from urllib.parse import urlparse
 
@@ -278,6 +278,50 @@ async def _acertar_sequencias(conn: asyncpg.Connection, tabela: str) -> None:
         )
 
 
+# Quantos blocos do COPY ficam em trânsito entre as duas conexões. Cada bloco
+# tem algumas dezenas de KB; 64 seguram poucos MB na memória.
+_FILA_COPY = 64
+
+
+async def transmitir(
+    origem: asyncpg.Connection, destino: asyncpg.Connection,
+    consulta: str, tabela: str, colunas: list[str],
+) -> None:
+    """
+    COPY da origem direto para o COPY do destino, bloco a bloco, sem passar
+    por disco nem acumular a tabela na memória.
+
+    Era um arquivo temporário: em 06/10/2026 a base da Receita (4,8 milhões
+    de linhas) encheu o /tmp da EC2 (`OSError: [Errno 28] No space left on
+    device`). Aqui uma fila limitada faz a leitura esperar a escrita.
+    """
+    fila: asyncio.Queue = asyncio.Queue(maxsize=_FILA_COPY)
+    fim = object()
+
+    async def ler() -> None:
+        try:
+            await origem.copy_from_query(consulta, output=fila.put, format="binary")
+        finally:
+            await fila.put(fim)
+
+    async def blocos():
+        while True:
+            b = await fila.get()
+            if b is fim:
+                return
+            yield b
+
+    leitor = asyncio.create_task(ler())
+    try:
+        await destino.copy_to_table(tabela, source=blocos(), columns=colunas, format="binary")
+    except BaseException:
+        leitor.cancel()
+        with contextlib.suppress(BaseException):
+            await leitor
+        raise
+    await leitor  # erro do lado da origem sobe aqui
+
+
 async def copiar_tabela(
     origem: asyncpg.Connection, destino: asyncpg.Connection, tabela: str,
 ) -> int:
@@ -287,12 +331,7 @@ async def copiar_tabela(
         raise CloneRecusado(f"Tabela {tabela} ausente na origem ou no destino.")
     nomes, exprs = plano_de_colunas(cols_o, cols_d)
     consulta = f"SELECT {', '.join(exprs)} FROM {_ident(tabela)}"
-    # Arquivo temporário, e não memória: a base da Receita passa de milhões
-    # de linhas. COPY binário porque o schema é o mesmo dos dois lados.
-    with tempfile.TemporaryFile() as buf:
-        await origem.copy_from_query(consulta, output=buf, format="binary")
-        buf.seek(0)
-        await destino.copy_to_table(tabela, source=buf, columns=nomes, format="binary")
+    await transmitir(origem, destino, consulta, tabela, nomes)
     await _acertar_sequencias(destino, tabela)
     return await destino.fetchval(f"SELECT count(*) FROM {_ident(tabela)}")
 

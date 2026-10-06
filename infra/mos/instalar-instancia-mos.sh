@@ -434,8 +434,15 @@ fase_nginx() {
     sudo nginx -t
     sudo systemctl reload nginx
 
-    local r
-    r="$(curl -s -H "Host: $DOMINIO" http://127.0.0.1/api/health || true)"
+    # O reload e assincrono: o systemctl volta antes de os workers novos
+    # assumirem, e um curl imediato cai num worker velho (sem o bloco da
+    # MOS) -> server padrao -> 404. Foi o que derrubou a primeira tentativa.
+    local r i
+    for i in $(seq 1 15); do
+        r="$(curl -s -H "Host: $DOMINIO" http://127.0.0.1/api/health || true)"
+        echo "$r" | grep -q "\"instancia\":\"$SIGLA\"" && break
+        sleep 1
+    done
     echo "  via nginx, Host $DOMINIO: $r"
     echo "$r" | grep -q "\"instancia\":\"$SIGLA\"" || erro "o nginx nao entregou $DOMINIO para a $PORTA."
     r="$(curl -s -H "Host: $DOMINIO_MED" http://127.0.0.1/api/health || true)"
