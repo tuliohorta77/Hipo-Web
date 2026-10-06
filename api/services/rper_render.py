@@ -671,4 +671,6 @@ def nome_do_arquivo(r: dict, formato: str) -> str:
     """RPeR_OUTUBRO_2026_CONTROLLER_MEDSEG.pptx — o nome que a operação já usava."""
     mes = regras.rotulo_mes(r["ano_novo"], r["mes_novo"], com_ano=False).upper()
     mes = (mes.replace("Ç", "C").replace("Ã", "A"))
-    return f"RPeR_{mes}_{r['ano_novo']}_CONTROLLER_MEDSEG.{formato}"
+    from services.instancia import empresa_nome, slug_arquivo
+
+    return f"RPeR_{mes}_{r['ano_novo']}_{slug_arquivo(empresa_nome())}.{formato}"

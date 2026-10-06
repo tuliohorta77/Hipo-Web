@@ -97,7 +97,7 @@ export default function TabelaPrecos({ tabela, onSalva }) {
           </ul>
           <p className="text-[11px] text-hipo-muted">
             {tabela.padrao
-              ? 'Tabela padrão da Controller MedSeg.'
+              ? 'Tabela padrão do sistema (ainda não editada).'
               : `Atualizada${tabela.atualizado_por_nome ? ` por ${tabela.atualizado_por_nome}` : ''}.`}
           </p>
         </>

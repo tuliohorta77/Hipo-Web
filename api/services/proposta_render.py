@@ -246,7 +246,11 @@ def montar_pptx(
     escrever num diretório temporário só criaria lixo para limpar (e uma
     corrida entre dois vendedores gerando ao mesmo tempo).
     """
-    modelo = Path(caminho_modelo or CAMINHO_MODELO)
+    from services.instancia import modelo_proposta
+
+    # CAMINHO_MODELO segue sendo o versionado; o .env pode apontar outro
+    # (PROPOSTA_MODELO_ARQUIVO, 046) para a instancia de outra empresa.
+    modelo = Path(caminho_modelo or modelo_proposta())
     if not modelo.is_file():
         raise ModeloIndisponivel(
             f"Modelo da proposta não encontrado em {modelo}. "

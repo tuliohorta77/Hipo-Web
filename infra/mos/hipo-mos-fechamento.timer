@@ -1,0 +1,14 @@
+[Unit]
+Description=HIPO -- dispara o fechamento diario da MOS
+Documentation=file:///home/hipo/mos/api/scripts/fechamento_diario.py
+
+[Timer]
+# Mesma regra do timer da base principal (infra/hipo-fechamento.timer):
+# Ter..Sab fecha Seg..Sex; fuso como SUFIXO da expressao. Cinco minutos
+# depois do da principal para as duas nao disputarem a IA no mesmo segundo.
+OnCalendar=Tue..Sat *-*-* 03:15:00 America/Sao_Paulo
+Persistent=true
+RandomizedDelaySec=180
+
+[Install]
+WantedBy=timers.target

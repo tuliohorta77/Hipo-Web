@@ -1,0 +1,32 @@
+[Unit]
+# HIPO -- fechamento diario da instancia MOS (entrega 046).
+# Copia de infra/hipo-fechamento.service apontando para /home/hipo/mos.
+# Os comentarios de la (User=ec2-user, EnvironmentFile) valem aqui igual.
+Description=HIPO -- fechamento diario da MOS (telemetria + relatorio por e-mail)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=ec2-user
+Group=ec2-user
+WorkingDirectory=/home/hipo/mos/api
+# Precisa de RELATORIO_DESTINATARIOS no /home/hipo/mos/.env. Sem ele o
+# timer nem e ligado (fase fechamento do instalador).
+EnvironmentFile=/home/hipo/mos/.env
+Environment=PYTHONPATH=/home/hipo/mos/api
+Environment=PYTHONUNBUFFERED=1
+
+ExecStart=/usr/bin/python3 -m scripts.fechamento_diario
+
+Restart=on-failure
+RestartSec=300
+StartLimitBurst=2
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=read-only
+
+[Install]
+WantedBy=multi-user.target

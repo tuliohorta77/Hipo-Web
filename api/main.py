@@ -14,6 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from config import resolver_origens_cors, settings
 from database import criar_pool
+from services.instancia import empresa_nome, empresa_sigla
 from middleware.telemetria import TelemetriaMiddleware, buffer, descarga_periodica
 from routers import (
     carreira,
@@ -392,4 +393,10 @@ async def health():
         "sistema": "HIPO",
         "versao": app.version,
         "pool": app.state.pool is not None,
+        # 046: qual base respondeu. E a conferencia do deploy em cada
+        # instancia -- o mesmo codigo responde em hipogestao.com.br e em
+        # mos.hipogestao.com.br, e o smoke precisa provar que cada dominio
+        # caiu no servico (e no banco) certo.
+        "empresa": empresa_nome(),
+        "instancia": empresa_sigla() or None,
     }

@@ -263,6 +263,16 @@ export default function Layout() {
   const [chaveTela, setChaveTela] = useState(0);
   const remontarTela = useCallback(() => setChaveTela((k) => k + 1), []);
 
+  // 046: rotulo da instancia ('MOS'), vindo do /auth/me gravado no login.
+  // Ausente na base principal. Quem opera as duas bases precisa saber em
+  // qual esta antes de clicar -- por isso aparece ao lado do logo E no
+  // titulo da aba, que e o que se ve com varias abas abertas.
+  const instancia = user?.instancia || null;
+
+  useEffect(() => {
+    document.title = instancia ? `Hipo · ${instancia}` : 'Hipo';
+  }, [instancia]);
+
   const itensVisiveis = NAV_ITEMS.filter((item) => itemVisivel(item, modulos, cargo));
   const temNav = itensVisiveis.length > 0;
 
@@ -300,6 +310,15 @@ export default function Layout() {
           <NavLink to="/" className="flex items-center gap-2 shrink-0">
             <Logo size={24} />
             <LogoWordmark />
+            {instancia && (
+              <span
+                data-testid="selo-instancia"
+                title={`Base ${instancia}`}
+                className="px-1.5 py-0.5 rounded-md text-[11px] font-semibold tracking-wide bg-hipo-blueSoft text-hipo-blue border border-hipo-blue/30"
+              >
+                {instancia}
+              </span>
+            )}
           </NavLink>
 
           {temNav && (

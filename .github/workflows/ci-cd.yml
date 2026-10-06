@@ -241,6 +241,30 @@ jobs:
           ssh $EC2_USER@$EC2_HOST "sudo systemctl restart hipo-api"
           ssh $EC2_USER@$EC2_HOST 'for i in $(seq 1 30); do curl -sf http://localhost:8001/health && exit 0; sleep 2; done; echo "API nao respondeu em 60 s"; sudo journalctl -u hipo-api -n 40 --no-pager; exit 1'
 
+      # 046: segunda base (MOS) na mesma EC2 -- mesmo codigo, banco, .env e
+      # servico proprios (hipo-mos-api na 8002, /home/hipo/mos). O .env da
+      # MOS e o sinal de que a instancia existe: antes de o
+      # infra/mos/instalar-instancia-mos.sh rodar, este passo so avisa e
+      # segue, para o deploy da base principal nao depender da MOS.
+      - name: Deploy do Backend (MOS)
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_USER: ${{ secrets.EC2_USER }}
+        run: |
+          if ! ssh $EC2_USER@$EC2_HOST 'test -f /home/hipo/mos/.env'; then
+            echo "instancia MOS nao instalada (sem /home/hipo/mos/.env) -- pulando"
+            exit 0
+          fi
+          rsync -avz --delete \
+            --exclude='.venv' \
+            --exclude='__pycache__' \
+            --exclude='*.pyc' \
+            --exclude='uploads/' \
+            --exclude='.env' \
+            api/ $EC2_USER@$EC2_HOST:/home/hipo/mos/api/
+          ssh $EC2_USER@$EC2_HOST "sudo systemctl restart hipo-mos-api"
+          ssh $EC2_USER@$EC2_HOST 'for i in $(seq 1 30); do curl -sf http://localhost:8002/health && exit 0; sleep 2; done; echo "API da MOS nao respondeu em 60 s"; sudo journalctl -u hipo-mos-api -n 40 --no-pager; exit 1'
+
       - name: Deploy do Frontend
         env:
           EC2_HOST: ${{ secrets.EC2_HOST }}
@@ -248,6 +272,14 @@ jobs:
         run: |
           rsync -avz --delete web/dist/ $EC2_USER@$EC2_HOST:/var/www/hipo/
           ssh $EC2_USER@$EC2_HOST "sudo chmod -R 755 /var/www/hipo"
+          # 046: o mesmo build serve a MOS (o front fala com /api da propria
+          # origem). Pasta ausente = instancia nao instalada.
+          if ssh $EC2_USER@$EC2_HOST 'test -d /var/www/hipo-mos'; then
+            rsync -avz --delete web/dist/ $EC2_USER@$EC2_HOST:/var/www/hipo-mos/
+            ssh $EC2_USER@$EC2_HOST "sudo chmod -R 755 /var/www/hipo-mos"
+          else
+            echo "instancia MOS nao instalada (sem /var/www/hipo-mos) -- pulando"
+          fi
 
       - name: Verificar deploy
         env:

@@ -61,6 +61,28 @@ class Settings(BaseSettings):
     BCRYPT_ROUNDS: int = 12
     BRIDGE_TOKEN: str = ""
 
+    # -- Instancia (046) -------------------------------------------------
+    # O mesmo codigo roda mais de uma base: hipogestao.com.br (Controller
+    # MedSeg) e mos.hipogestao.com.br (MOS), cada uma com banco, .env e
+    # servico proprios. Estes tres campos sao o que muda de uma para outra
+    # no que o CLIENTE e a equipe leem.
+    #
+    # Os padroes reproduzem a base principal tal como era antes da 046: com
+    # o .env da MedSeg intocado, nada muda -- convite da agenda, nome do
+    # RPeR, assunto do e-mail e modelo da proposta saem identicos.
+    #
+    # EMPRESA_NOME: vai no titulo do convite do Google Calendar e no nome do
+    #   arquivo do RPeR.
+    # EMPRESA_SIGLA: rotulo curto da instancia. Vazio = base principal. Com
+    #   valor, aparece ao lado do logo, no titulo da aba do navegador e no
+    #   assunto do fechamento diario ("HIPO MOS 15/09 -- ...") -- quem opera
+    #   as duas bases precisa saber em qual esta antes de clicar.
+    # PROPOSTA_MODELO_ARQUIVO: PPTX da proposta comercial. Vazio = o modelo
+    #   versionado em api/templates/proposta_modelo.pptx.
+    EMPRESA_NOME: str = "Controller MedSeg"
+    EMPRESA_SIGLA: str = ""
+    PROPOSTA_MODELO_ARQUIVO: str = ""
+
     # ── Telemetria e fechamento diario ──────────────────────────────
     # Vazio = desligado. Nenhum destes campos e obrigatorio: sem chave a IA
     # nao roda, sem remetente o e-mail nao sai, e a API sobe igual nos dois

@@ -301,3 +301,35 @@ describe('Layout — Carreira', () => {
     expect(within(nav).getByText('Tarefas').className).not.toContain('text-hipo-blue');
   });
 });
+
+// 046: o mesmo front atende hipogestao.com.br e mos.hipogestao.com.br. O
+// /auth/me da MOS traz `instancia: 'MOS'`; o da base principal traz null.
+describe('Layout — selo da instancia', () => {
+  afterEach(() => {
+    document.title = 'Hipo';
+  });
+
+  it('base principal: sem selo e titulo da aba so "Hipo"', () => {
+    renderLayout();
+    expect(screen.queryByTestId('selo-instancia')).not.toBeInTheDocument();
+    expect(document.title).toBe('Hipo');
+  });
+
+  it('instancia MOS: selo ao lado do logo e sigla no titulo da aba', () => {
+    mockGetUser.mockReturnValue({
+      nome: 'Tulio Horta',
+      email: 'tulio@teste.com',
+      cargo: 'Franqueado',
+      instancia: 'MOS',
+    });
+    renderLayout();
+    expect(screen.getByTestId('selo-instancia')).toHaveTextContent('MOS');
+    expect(document.title).toBe('Hipo · MOS');
+  });
+
+  it('login antigo (sem a chave instancia) se comporta como a base principal', () => {
+    mockGetUser.mockReturnValue({ nome: 'X', email: 'x@t.com', cargo: 'Franqueado', instancia: null });
+    renderLayout();
+    expect(screen.queryByTestId('selo-instancia')).not.toBeInTheDocument();
+  });
+});

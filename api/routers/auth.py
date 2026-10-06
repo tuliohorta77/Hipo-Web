@@ -17,6 +17,7 @@ from pydantic import BaseModel, Field
 import bcrypt
 from database import get_conn
 from config import settings
+from services.instancia import empresa_sigla
 
 router = APIRouter()
 oauth2 = OAuth2PasswordBearer(tokenUrl="/auth/login")
@@ -98,6 +99,9 @@ async def me(user=Depends(usuario_atual)):
         # Perfil poder exibir e editar sem uma segunda chamada.
         "telefone": user.get("telefone"),
         "modulos": sorted(modulos_do_cargo(user.get("cargo"))),
+        # 046: rotulo da instancia (None na base principal). O front grava
+        # junto com o resto no login e mostra ao lado do logo.
+        "instancia": empresa_sigla() or None,
     }
 
 

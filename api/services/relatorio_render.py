@@ -775,4 +775,6 @@ def assunto(metricas: dict) -> str:
         partes.append(f"{re_.get('realizadas', 0)}/{re_['total']} "
                       f"{'reunião realizada' if re_['total'] == 1 else 'reuniões realizadas'}")
 
-    return f"HIPO {dia.strftime('%d/%m')} — " + ", ".join(partes)
+    from services.instancia import prefixo_assunto
+
+    return f"{prefixo_assunto()} {dia.strftime('%d/%m')} — " + ", ".join(partes)

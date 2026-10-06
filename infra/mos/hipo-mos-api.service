@@ -1,0 +1,26 @@
+[Unit]
+# HIPO -- API da instancia MOS (entrega 046).
+#
+# Mesmo codigo da base principal (hipo-api.service, porta 8001), outro
+# banco, outro .env, outra porta. Instalada por
+# infra/mos/instalar-instancia-mos.sh (fase app); o CI reinicia depois de
+# cada deploy (passo "Deploy do Backend (MOS)").
+#
+# User=ec2-user, como a API principal: o .env e 600 ec2-user e o
+# pydantic-settings o abre de dentro do processo (ver config.py).
+Description=HIPO FastAPI -- instancia MOS
+After=network.target
+
+[Service]
+User=ec2-user
+WorkingDirectory=/home/hipo/mos/api
+EnvironmentFile=/home/hipo/mos/.env
+# 2 workers, e nao 4: a t3.medium ja carrega os 4 da base principal, e a
+# MOS comeca com poucas pessoas. Com DB_POOL_MAX=3 no .env sao no maximo 6
+# conexoes no RDS (db.t4g.micro), somadas as 20 da principal.
+ExecStart=/usr/bin/python3 -m uvicorn main:app --host 127.0.0.1 --port 8002 --workers 2
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

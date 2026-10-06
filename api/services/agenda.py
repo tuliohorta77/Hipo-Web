@@ -660,6 +660,8 @@ def rotulo(
 # leem esse desenho, e mudá-lo junto com a automação misturaria duas
 # mudanças numa só.
 
+# Padrao da base principal. O nome que vale em tempo de execucao vem de
+# services.instancia.empresa_nome() -- EMPRESA_NOME no .env (046).
 EMPRESA = "Controller MedSeg"
 
 
@@ -683,7 +685,9 @@ def titulo_evento(
     esquerda = " ".join(
         p for p in ((razao_social or "").strip(), formatar_cnpj(cnpj)) if p
     )
-    direita = " ".join(p for p in ((tipo_nome or "").strip(), EMPRESA) if p)
+    from services.instancia import empresa_nome
+
+    direita = " ".join(p for p in ((tipo_nome or "").strip(), empresa_nome()) if p)
     return " | ".join(p for p in (esquerda, direita) if p)
 
 
