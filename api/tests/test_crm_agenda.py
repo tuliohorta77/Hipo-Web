@@ -461,6 +461,46 @@ class TestConvite:
         assert "11.222.333" not in r["rotulo"]
 
 
+    async def test_contato_com_dois_emails_vira_dois_convidados(
+        self, cenario, client, monkeypatch
+    ):
+        """
+        Regressão: o campo de e-mail do contato com dois endereços ia
+        inteiro como UM convidado e o Google recusava o evento todo com
+        400 "Invalid attendee email".
+        """
+        from routers import crm_agenda
+        from services import google_agenda
+
+        enviados: list = []
+
+        async def falso_criar(dados):
+            enviados.append(dados)
+            return google_agenda.ResultadoSync(ok=False, erro="capturado no teste")
+
+        monkeypatch.setattr(crm_agenda.google_agenda, "criar_evento", falso_criar)
+
+        h = cenario["headers"]
+        contato = (await client.post(
+            "/crm/contatos",
+            json={
+                "nome": "Kethlleen",
+                "email": "kethlleen@wprado.com.br, Financeiro@WPrado.com.br",
+                "conta_id": cenario["conta"]["id"],
+            },
+            headers=h,
+        )).json()
+        await nova_reuniao(
+            client, h, cenario["oportunidade"]["id"], cenario["usuario_id"],
+            contato_id=contato["id"],
+        )
+        assert enviados, "a sincronizacao nao chamou o Google"
+        emails = google_agenda._emails(enviados[-1])
+        assert "kethlleen@wprado.com.br" in emails
+        assert "financeiro@wprado.com.br" in emails
+        assert all(";" not in e and "," not in e for e in emails)
+
+
 # ── Participantes ────────────────────────────────────────────────────
 
 class TestParticipantes:

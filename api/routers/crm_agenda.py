@@ -58,7 +58,7 @@ from services import google_agenda
 from services import tarefa as regras_tarefa
 from services.agenda import AgendaInvalida
 from services.tarefa import EstadoTarefa, TarefaInvalida
-from services.texto import limpar_nome, slugify
+from services.texto import limpar_nome, separar_emails, slugify
 
 router = APIRouter()
 
@@ -917,8 +917,10 @@ async def _sincronizar(conn, reuniao_id: UUID) -> dict:
         return await _obter(conn, reuniao_id)
 
     convidados = await _emails_dos_participantes(conn, reuniao_id)
-    if row["contato_email"]:
-        convidados.append(row["contato_email"])
+    # O campo do contato pode ter mais de um endereço ("a@x; b@y"):
+    # cada um vira um convidado. Mandado inteiro, o Google recusa o
+    # evento todo com 400 "Invalid attendee email".
+    convidados.extend(separar_emails(row["contato_email"]))
     convidados.extend(list(row["convidados"] or []))
 
     inicio = regras.no_fuso(row["inicio"])

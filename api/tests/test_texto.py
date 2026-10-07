@@ -7,7 +7,9 @@ Se ele deixar passar variação de caixa, acento ou espaço, o banco acumula
 """
 import pytest
 
-from services.texto import limpar_nome, slugify
+from services.texto import (
+    email_unico_valido, limpar_nome, normalizar_emails, separar_emails, slugify,
+)
 
 
 class TestSlugify:
@@ -60,3 +62,45 @@ class TestLimparNome:
 
     def test_none(self):
         assert limpar_nome(None) == ""
+
+
+class TestSepararEmails:
+    @pytest.mark.parametrize("entrada", [
+        "a@x.com; b@y.com",
+        "a@x.com,b@y.com",
+        "a@x.com , b@y.com",
+        "a@x.com b@y.com",
+        "a@x.com;\nb@y.com;",
+    ])
+    def test_separadores(self, entrada):
+        assert separar_emails(entrada) == ["a@x.com", "b@y.com"]
+
+    def test_repetido_por_caixa_sai(self):
+        assert separar_emails("Ana@x.com; ana@X.com") == ["Ana@x.com"]
+
+    def test_vazio(self):
+        assert separar_emails("") == []
+        assert separar_emails(None) == []
+        assert separar_emails(" ; , ") == []
+
+
+class TestNormalizarEmails:
+    def test_um_endereco(self):
+        assert normalizar_emails(" Maria@Empresa.COM ") == "maria@empresa.com"
+
+    def test_dois_enderecos(self):
+        assert normalizar_emails("a@x.com,B@y.com") == "a@x.com; b@y.com"
+
+    def test_vazio_vira_none(self):
+        assert normalizar_emails("") is None
+        assert normalizar_emails(None) is None
+        assert normalizar_emails(" ; ") is None
+
+    @pytest.mark.parametrize("entrada", ["invalido", "a@x.com; sem-arroba", "a@x"])
+    def test_invalido_levanta(self, entrada):
+        with pytest.raises(ValueError):
+            normalizar_emails(entrada)
+
+    def test_email_unico_recusa_lista(self):
+        assert email_unico_valido("a@x.com")
+        assert not email_unico_valido("a@x.com; b@y.com")

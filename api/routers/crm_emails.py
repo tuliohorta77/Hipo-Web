@@ -60,6 +60,7 @@ from services import gmail
 from services import proposta as regras_proposta
 from services import proposta_render as render
 from services.instancia import empresa_nome
+from services.texto import separar_emails
 
 router = APIRouter()
 
@@ -465,7 +466,7 @@ async def rascunho(
     else:
         assunto_txt, corpo_txt = "", ""
 
-    para = [contato["email"]] if contato.get("email") else []
+    para = separar_emails(contato.get("email"))
     if not para:
         avisos.append(
             f"{contato['nome']} não tem e-mail no cadastro. Digite o endereço "

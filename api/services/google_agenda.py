@@ -83,6 +83,7 @@ from datetime import datetime
 
 from config import settings
 from services.agenda import FUSO_OPERACAO
+from services.texto import separar_emails
 
 log = logging.getLogger("hipo.google_agenda")
 
@@ -230,12 +231,15 @@ def _emails(dados: DadosEvento) -> list[str]:
     """
     vistos: set[str] = set()
     saida: list[str] = []
-    for e in [dados.anfitriao_email, *dados.convidados]:
-        limpo = (e or "").strip()
-        chave = limpo.lower()
-        if limpo and chave not in vistos:
-            vistos.add(chave)
-            saida.append(limpo)
+    # Cada entrada pode ser um campo com vários endereços ("a@x; b@y")
+    # vindo de cadastro antigo: separa aqui também, como última barreira
+    # antes do Google, que recusa o evento inteiro por um endereço ruim.
+    for campo in [dados.anfitriao_email, *dados.convidados]:
+        for limpo in separar_emails(campo):
+            chave = limpo.lower()
+            if chave not in vistos:
+                vistos.add(chave)
+                saida.append(limpo)
     return saida
 
 

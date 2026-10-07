@@ -28,7 +28,7 @@ from pydantic import BaseModel, Field, field_validator
 from database import get_conn
 from routers.auth import usuario_atual
 from services import auditoria
-from services.texto import limpar_nome
+from services.texto import limpar_nome, normalizar_emails
 
 router = APIRouter()
 
@@ -87,12 +87,7 @@ class ContatoBase(BaseModel):
     @field_validator("email")
     @classmethod
     def _email(cls, v: str | None) -> str | None:
-        if not v:
-            return None
-        e = v.strip().lower()
-        if "@" not in e:
-            raise ValueError("E-mail inválido.")
-        return e
+        return normalizar_emails(v)
 
     @field_validator("telefone", "telefone_2")
     @classmethod
@@ -321,7 +316,9 @@ async def duplicatas(
         """
         SELECT ct.id, ct.nome, ct.telefone, ct.email,
                CASE
-                   WHEN $1::text IS NOT NULL AND lower(ct.email) = $1 THEN 'email'
+                   WHEN $1::text IS NOT NULL
+                        AND regexp_split_to_array(lower(ct.email), '[;,[:space:]]+')
+                         && regexp_split_to_array($1, '[;,[:space:]]+') THEN 'email'
                    ELSE 'telefone'
                END AS motivo,
                COALESCE(
@@ -333,7 +330,9 @@ async def duplicatas(
         LEFT JOIN contas c ON c.id = cc.conta_id
         WHERE ct.ativo
           AND (
-                ($1::text IS NOT NULL AND lower(ct.email) = $1)
+                ($1::text IS NOT NULL
+                        AND regexp_split_to_array(lower(ct.email), '[;,[:space:]]+')
+                         && regexp_split_to_array($1, '[;,[:space:]]+'))
              OR ($2::text IS NOT NULL AND (ct.telefone = $2 OR ct.telefone_2 = $2))
           )
         GROUP BY ct.id, ct.nome, ct.telefone, ct.email

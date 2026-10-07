@@ -74,6 +74,24 @@ class TestCriar:
         )
         assert resp.status_code == 422
 
+    async def test_dois_emails_normalizados_com_ponto_e_virgula(
+        self, db_conn, client, usuario_adm
+    ):
+        c = await criar_contato(
+            client, usuario_adm["headers"],
+            email="Ana@Empresa.com , ana.silva@gmail.com",
+        )
+        assert c["email"] == "ana@empresa.com; ana.silva@gmail.com"
+
+    async def test_um_dos_emails_invalido_recusa(self, db_conn, client, usuario_adm):
+        resp = await client.post(
+            "/crm/contatos",
+            json={"nome": "Ana", "email": "ana@empresa.com; invalido"},
+            headers=usuario_adm["headers"],
+        )
+        assert resp.status_code == 422
+        assert "invalido" in resp.text
+
     async def test_conta_inexistente_recusada(self, db_conn, client, usuario_adm):
         resp = await client.post(
             "/crm/contatos",
@@ -328,6 +346,25 @@ class TestDuplicatas:
             "/crm/contatos/duplicatas?email=MARIA@ALFA.COM", headers=usuario_adm["headers"]
         )
         assert len(resp.json()) == 1
+
+    async def test_acha_pelo_segundo_email_do_contato(self, db_conn, client, usuario_adm):
+        await criar_contato(
+            client, usuario_adm["headers"], email="maria@alfa.com; maria@gmail.com"
+        )
+        resp = await client.get(
+            "/crm/contatos/duplicatas?email=Maria@Gmail.com",
+            headers=usuario_adm["headers"],
+        )
+        assert len(resp.json()) == 1
+        assert resp.json()[0]["motivo"] == "email"
+
+    async def test_email_parecido_nao_e_duplicata(self, db_conn, client, usuario_adm):
+        await criar_contato(client, usuario_adm["headers"], email="maria@alfa.com")
+        resp = await client.get(
+            "/crm/contatos/duplicatas?email=ana.maria@alfa.com",
+            headers=usuario_adm["headers"],
+        )
+        assert resp.json() == []
 
     async def test_acha_por_telefone(self, db_conn, client, usuario_adm):
         await criar_contato(client, usuario_adm["headers"], telefone="11999990000")

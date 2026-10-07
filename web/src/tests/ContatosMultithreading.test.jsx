@@ -216,6 +216,19 @@ describe('FormContato', () => {
     ));
   });
 
+  it('aceita dois e-mails no mesmo campo e avisa como separar', async () => {
+    mockPatch.mockResolvedValue({ data: {} });
+    render(<FormContato contato={CONTATO} contaId="c1" cargoAtual="RH" onSalvo={() => {}} />);
+    const campo = screen.getByLabelText('E-mail');
+    expect(campo).toHaveAttribute('type', 'text');
+    expect(screen.getByText(/Separe com ponto e vírgula/)).toBeInTheDocument();
+    fireEvent.change(campo, { target: { value: 'ana@x.com; financeiro@x.com' } });
+    fireEvent.click(screen.getByText('Salvar contato'));
+    await waitFor(() => expect(mockPatch).toHaveBeenCalledWith(
+      '/crm/contatos/ct1', expect.objectContaining({ email: 'ana@x.com; financeiro@x.com' }),
+    ));
+  });
+
   it('mostra o erro do servidor (LinkedIn inválido)', async () => {
     mockPatch.mockRejectedValue({ response: { data: { detail: [{ msg: 'Informe o endereço do perfil no LinkedIn' }] } } });
     render(<FormContato contato={CONTATO} onSalvo={() => {}} />);

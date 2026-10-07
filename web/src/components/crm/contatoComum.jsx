@@ -222,7 +222,16 @@ export function FormContato({ contato, contaId, cargoAtual, onSalvo, onCancelar 
           <Input id={id('telefone2')} label="2º telefone" value={form.telefone_2} onChange={set('telefone_2')} />
           <Marca id={id('wa2')} label="É WhatsApp" checked={form.telefone_2_whatsapp} onChange={marca('telefone_2_whatsapp')} />
         </div>
-        <Input id={id('email')} label="E-mail" type="email" value={form.email} onChange={set('email')} />
+        <Input
+          id={id('email')}
+          label="E-mail"
+          type="text"
+          inputMode="email"
+          autoComplete="email"
+          hint="Mais de um? Separe com ponto e vírgula — todos recebem o convite."
+          value={form.email}
+          onChange={set('email')}
+        />
         <Input
           id={id('linkedin')}
           label="LinkedIn"
