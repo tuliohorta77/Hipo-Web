@@ -127,7 +127,11 @@ jobs:
         run: |
           mkdir -p /tmp/hipo_uploads
           cd api
-          pytest --cov=. --cov-report=xml --cov-report=term-missing
+          # -n auto: um worker por vCPU, cada um com banco proprio clonado do
+          # hipo_test ja migrado (ver conftest). --dist loadfile mantem cada
+          # arquivo inteiro no mesmo worker. A suite e limitada por espera do
+          # Postgres, nao por CPU, por isso paraleliza bem.
+          pytest -n auto --dist loadfile --cov=. --cov-report=xml --cov-report=term-missing
 
       # continue-on-error: o fail_ci_if_error=false nao segura erro de rede
       # do proprio action (handshake SSL com o Codecov). Cobertura e

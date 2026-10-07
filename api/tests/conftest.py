@@ -81,6 +81,67 @@ def _abortar_se_producao(db_url: str) -> None:
 _abortar_se_producao(_DB_URL)
 
 
+# ---------------------------------------------------------------------------
+# UM BANCO POR WORKER (pytest-xdist)
+# ---------------------------------------------------------------------------
+# Com `pytest -n N`, cada worker roda num processo proprio. Como db_conn
+# esvazia o banco inteiro a cada teste, dois workers no mesmo banco
+# apagariam os dados um do outro no meio do teste. Cada worker clona o
+# banco ja migrado (CREATE DATABASE ... TEMPLATE) e passa a usar o clone.
+#
+# Tem que acontecer AQUI: antes do `from main import app` (config le o
+# DATABASE_URL uma vez so, no import) e antes dos modulos de teste que
+# leem os.environ["DATABASE_URL"] no proprio import.
+#
+# O comando sai de uma conexao ao banco `postgres`: o Postgres recusa
+# clonar um template com qualquer sessao aberta nele, inclusive a de quem
+# esta pedindo o clone. Sem xdist (PYTEST_XDIST_WORKER ausente), nada muda.
+# ---------------------------------------------------------------------------
+def _url_com_banco(url: str, banco: str) -> str:
+    from urllib.parse import urlparse, urlunparse
+    return urlunparse(urlparse(url)._replace(path=f"/{banco}"))
+
+
+def _banco_do_worker(db_url: str, worker: str) -> str:
+    import asyncio
+    from urllib.parse import urlparse
+
+    base = urlparse(db_url).path.lstrip("/")
+    clone = f"{base}_{worker}"
+
+    async def _clonar():
+        admin = await asyncpg.connect(_url_com_banco(db_url, "postgres"))
+        try:
+            await admin.execute(f'DROP DATABASE IF EXISTS "{clone}" WITH (FORCE)')
+            # Varios workers clonam o mesmo template ao mesmo tempo; se um
+            # deles ainda estiver no meio, o Postgres devolve "source database
+            # is being accessed by other users". Tenta de novo por ate ~30 s.
+            for tentativa in range(60):
+                try:
+                    await admin.execute(f'CREATE DATABASE "{clone}" TEMPLATE "{base}"')
+                    return
+                except asyncpg.ObjectInUseError:
+                    if tentativa == 59:
+                        raise
+                    await asyncio.sleep(0.5)
+        finally:
+            await admin.close()
+
+    asyncio.run(_clonar())
+    return _url_com_banco(db_url, clone)
+
+
+# A marca no ambiente segura o caso de este arquivo ser importado duas
+# vezes no mesmo processo (test_crm_avaliacao faz `from tests.conftest
+# import ...`): sem ela, a segunda importacao clonaria o clone e o teste
+# falaria com um banco diferente do da API.
+_WORKER = os.environ.get("PYTEST_XDIST_WORKER")
+if _WORKER and os.environ.get("HIPO_TEST_DB_WORKER") != _WORKER:
+    _DB_URL = _banco_do_worker(_DB_URL, _WORKER)
+    os.environ["DATABASE_URL"] = _DB_URL
+    os.environ["HIPO_TEST_DB_WORKER"] = _WORKER
+
+
 from main import app  # noqa: E402  (import após o safeguard, de propósito)
 
 
@@ -119,28 +180,44 @@ async def telemetria_sem_descarga_automatica():
     buffer.idade_maxima = original_idade
 
 
+# Limpeza entre testes. Antes era TRUNCATE usuarios CASCADE + 3 TRUNCATEs
+# avulsos (~50 ms por teste: TRUNCATE troca o arquivo fisico de cada uma
+# das ~55 tabelas, mesmo vazias). Com ~3000 testes eram ~2,5 min so de
+# limpeza. DELETE em tabela com meia duzia de linhas custa quase nada.
+#
+# Efeito igual ao anterior: toda tabela do schema public fica vazia, menos
+# schema_migrations (que nao tem FK para usuarios e nunca foi tocada).
+# session_replication_role=replica desliga os triggers de FK durante o
+# DELETE, entao a ordem das tabelas nao importa. Sequences nao sao
+# reiniciadas -- o TRUNCATE antigo tambem nao reiniciava (sem RESTART
+# IDENTITY). Tabela nova entra sozinha: a lista vem do catalogo.
+_PRESERVAR = {"schema_migrations"}
+_tabelas_cache: list[str] | None = None
+
+
+async def _limpar_banco(conn) -> None:
+    global _tabelas_cache
+    if _tabelas_cache is None:
+        linhas = await conn.fetch(
+            "SELECT tablename FROM pg_tables WHERE schemaname = 'public' ORDER BY tablename"
+        )
+        _tabelas_cache = [r["tablename"] for r in linhas if r["tablename"] not in _PRESERVAR]
+    sql = "SET session_replication_role = replica;\n" + "".join(
+        f'DELETE FROM "{t}";\n' for t in _tabelas_cache
+    ) + "SET session_replication_role = DEFAULT;"
+    await conn.execute(sql)
+
+
 @pytest.fixture
 async def db_conn():
     """
-    Conexão direta por teste, com event loop próprio.
+    Conexão direta por teste, com o banco esvaziado antes (ver _limpar_banco).
 
-    O CASCADE puxa todo o CRM junto: contas, contatos, conta_contatos,
-    oportunidades e derivados, listas de domínio e dia_nao_util — todas têm
-    FK para usuarios.
+    Todo teste começa do zero: contas, contatos, oportunidades, listas de
+    domínio, dia_nao_util, base da Receita -- tudo, menos schema_migrations.
     """
     conn = await asyncpg.connect(_DB_URL)
-    await conn.execute("TRUNCATE TABLE usuarios CASCADE")
-    # relatorios_diarios NAO tem FK para usuarios (o fechamento sobrevive a
-    # saida de quem o gerou), entao o CASCADE acima nao a alcanca. Sem este
-    # TRUNCATE explicito, o dia gravado por um teste colide com o do proximo
-    # na PK e a suite falha por ordem de execucao.
-    await conn.execute("TRUNCATE TABLE relatorios_diarios")
-    # Base da Receita (022): escrita so pelo script de carga, sem FK para
-    # usuarios -- o CASCADE acima nao a alcanca.
-    await conn.execute(
-        "TRUNCATE TABLE receita_estabelecimentos, receita_municipios, "
-        "receita_cnaes, receita_cargas"
-    )
+    await _limpar_banco(conn)
     yield conn
     await conn.close()
 

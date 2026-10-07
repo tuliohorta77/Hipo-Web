@@ -1,4 +1,4 @@
-﻿# ==========================================================
+# ==========================================================
 # HIPO - .gitignore
 # Revisado em 2026-09-22. Consolidado: regras duplicadas e
 # padroes de backup redundantes foram unificados.
@@ -99,3 +99,4 @@ mensagem-do-commit.txt
 # "git status" -- os 18 que estao lá hoje sobreviveram porque
 # foram adicionados antes ou com "git add -f".
 # ----------------------------------------------------------
+.coverage.*
