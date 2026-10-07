@@ -228,3 +228,44 @@ def test_curso_de_pdi_descreve_as_regras_do_sistema():
     assert f"até {regras.DIAS_ALERTA} dias" in texto
     assert "três piores" in texto and regras.MAX_SUGESTOES_DESEMPENHO == 3
     assert "duas ou mais vezes" in texto and regras.QUIZ_TENTATIVAS_SUGESTAO == 2
+
+
+# ── 06 · Fechamento: os três 10 e como pedir o sim ───────────────────
+
+def test_fechamento_para_ev_e_ec_com_pratica_em_cada_aula():
+    """Pedido de 07/10/2026: os três 10 (Belfort) e as técnicas de fechamento."""
+    from scripts import uc_conteudo_fechamento as f
+    t = f.TECNICA_06_FECHAMENTO
+    assert t in c.TRILHAS and t["pilar"] == "tecnica" and t["titulo"].startswith("06 · ")
+    assert t["obrigatorios"] == ("EV", "EC")
+    assert set(t["opcionais"]) == {"SDR", "ADM", "Franqueado"}
+    assert len(t["aulas"]) == 7
+    for a in t["aulas"]:
+        md = a["conteudo_md"]
+        for secao in ("## O que é", "## Por que funciona", "## Exercício", "## Role-play"):
+            assert secao in md, (a["titulo"], secao)
+        assert "Critérios" in md, a["titulo"]
+
+
+def test_fechamento_ensina_os_tres_10_e_as_tecnicas():
+    from scripts import uc_conteudo_fechamento as f
+    texto = " ".join(a["conteudo_md"] for a in f.TECNICA_06_FECHAMENTO["aulas"])
+    for conceito in ("10 no produto", "10 em você", "10 na empresa", "Limiar de ação",
+                     "Looping", "LAER", "Pergunta de teste", "Resumo de valor",
+                     "Alternativa", "Presumido", "Passo de baixo risco", "Futuro",
+                     "Guia do roteiro"):
+        assert conceito in texto, conceito
+    # Os fatos são os do Roteiro do EV, sem número novo.
+    for fato in ("45 minutos", "3 minutos", "6 ou mais verdes", "48h",
+                 "60 dias antes", "Tem alguma coisa que possa impedir"):
+        assert fato in texto, fato
+    assert "limite ético" in texto.lower()
+
+
+def test_fechamento_depois_dos_roteiros_e_antes_da_energia():
+    from scripts import uc_conteudo_energia as e
+    from scripts import uc_conteudo_fechamento as f
+    from scripts import uc_conteudo_roteiros as r
+    prazo = f.TECNICA_06_FECHAMENTO["prazo_dias"]
+    assert c.METODO_01["prazo_dias"] < prazo and r.METODO_03["prazo_dias"] < prazo
+    assert prazo < e.ENERGIA_01["prazo_dias"]

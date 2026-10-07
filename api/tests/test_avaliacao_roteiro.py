@@ -332,3 +332,41 @@ class TestChamada:
         cliente_falso(monkeypatch, _Resp(200, {"content": [{"type": "text", "text": "oi"}]}))
         a = await aval.avaliar(TRANSCRICAO, {})
         assert "formato esperado" in a.erro
+
+
+# ── Guia rápido do roteiro (botão na reunião, 07/10/2026) ─────────────
+
+class TestGuiaRapido:
+    def test_um_guia_por_item_do_scorecard(self):
+        assert sorted(sc.GUIA_POR_ITEM) == [i.numero for i in sc.ITENS]
+        for g in sc.GUIA:
+            assert g.fazer.strip() and g.evitar.strip()
+            assert 1 <= len(g.exemplos) <= 3, g.item
+
+    def test_todo_item_cai_numa_etapa_e_o_tempo_fecha_45(self):
+        guia = sc.guia_rapido()
+        numeros = [i["item"] for e in guia["etapas"] for i in e["itens"]]
+        assert numeros == list(range(1, sc.QTD_ITENS + 1))
+        assert sum(e.minutos or 0 for e in sc.ETAPAS) == sc.DURACAO_REUNIAO_MIN == 45
+
+    def test_vale_2_e_o_criterio_da_avaliacao(self):
+        """O guia mostra o MESMO critério de 2 pontos que a IA aplica."""
+        guia = sc.guia_rapido()
+        for e in guia["etapas"]:
+            for i in e["itens"]:
+                assert i["vale_2"] == sc.POR_NUMERO[i["item"]].criterio_2
+
+    def test_tres_dez_e_fechamento_batem_com_a_trilha_da_uc(self):
+        from scripts import uc_conteudo_fechamento as f
+        texto = " ".join(a["conteudo_md"] for a in f.TECNICA_06_FECHAMENTO["aulas"])
+        assert [c.nome for c in sc.TRES_DEZ] == ["Produto", "Você", "Controller"]
+        assert "O que faltaria para ser 10?" in texto
+        assert "Até duas voltas" in texto and sc.LOOPING_MAXIMO == 2
+        assert sc.PERGUNTA_FINAL in texto
+        for fe in sc.FECHAMENTOS:
+            assert fe.tecnica.lower() in texto.lower(), fe.tecnica
+
+    def test_guia_nao_muda_a_versao_da_avaliacao(self):
+        """O guia é apoio: não vai no prompt, então não pode mexer na versão."""
+        assert sc.VERSAO == "2026-09-30"
+        assert "Linha Reta" not in sc.ROTEIRO and "três 10" not in sc.texto_dos_itens()

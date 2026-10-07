@@ -35,7 +35,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   CalendarPlus, RefreshCw, CheckCircle2,
-  Mail, X, Plus, ExternalLink, Radio,
+  Mail, X, Plus, ExternalLink, Radio, BookOpenCheck,
 } from 'lucide-react';
 
 import api, { getUser } from '../../api';
@@ -54,6 +54,7 @@ import {
 } from './DesfechoReuniao';
 import AnexosTarefa from './AnexosTarefa';
 import TranscricaoReuniao from './TranscricaoReuniao';
+import GuiaRoteiro from './GuiaRoteiro';
 
 function formVazio(usuarioPadrao = '') {
   return {
@@ -288,6 +289,7 @@ export default function ModalReuniao({
   const [contatos, setContatos] = useState([]);
   const [erro, setErro] = useState(null);
   const [ocupado, setOcupado] = useState(false);
+  const [guiaAberto, setGuiaAberto] = useState(false);
 
   // Quem está na tela agora — o padrão de "Agendado por" na criação.
   const usuarioLogado = useMemo(() => getUser(), []);
@@ -873,20 +875,52 @@ export default function ModalReuniao({
           Só online e não cancelada — a captura precisa do áudio da aba da
           chamada. A própria tela diz se ainda é cedo ou tarde demais.
         */}
-        {editando && reuniao.modalidade === 'online' && !reuniao.cancelada_em && (
-          <a
-            href={`/crm/agenda/ao-vivo/${reuniao.tarefa_id}`}
-            target="_blank"
-            rel="noreferrer"
-            className={
-              'inline-flex items-center gap-1.5 text-xs font-medium text-hipo-blue '
-              + 'hover:underline focus:outline-none focus-visible:ring-2 '
-              + 'focus-visible:ring-hipo-blue rounded'
-            }
-          >
-            <Radio size={13} aria-hidden="true" />
-            Reunião ao vivo (transcrição durante a call)
-          </a>
+        {/*
+          Guia do roteiro (07/10/2026): o script resumido do scorecard, com
+          falas de exemplo, os três 10 e as técnicas de fechamento — para o
+          vendedor ter à mão durante a call. Só reunião com cliente
+          (oportunidade): o scorecard não avalia reunião de parceiro, e um
+          guia de venda ali ensinaria o roteiro errado.
+        */}
+        {editando && !reuniao.cancelada_em
+          && (reuniao.oportunidade_id || reuniao.modalidade === 'online') && (
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+            {reuniao.oportunidade_id && (
+              <Button
+                size="sm"
+                variant="secondary"
+                icon={BookOpenCheck}
+                type="button"
+                data-tour="reuniao-guia-roteiro"
+                onClick={() => setGuiaAberto(true)}
+              >
+                Guia do roteiro
+              </Button>
+            )}
+            {reuniao.modalidade === 'online' && (
+              <a
+                href={`/crm/agenda/ao-vivo/${reuniao.tarefa_id}`}
+                target="_blank"
+                rel="noreferrer"
+                className={
+                  'inline-flex items-center gap-1.5 text-xs font-medium text-hipo-blue '
+                  + 'hover:underline focus:outline-none focus-visible:ring-2 '
+                  + 'focus-visible:ring-hipo-blue rounded'
+                }
+              >
+                <Radio size={13} aria-hidden="true" />
+                Reunião ao vivo (transcrição durante a call)
+              </a>
+            )}
+          </div>
+        )}
+
+        {editando && reuniao.oportunidade_id && (
+          <GuiaRoteiro
+            aberto={guiaAberto}
+            onFechar={() => setGuiaAberto(false)}
+            nivel={nivel + 1}
+          />
         )}
 
         {editando && (

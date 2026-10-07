@@ -10,6 +10,7 @@ agenda — é a mesma reunião, vista depois da call.
   PATCH  /tarefas/{id}/avaliacao/itens/{item}    gestão: nota de um item
   POST   /tarefas/{id}/avaliacao/validar         gestão: põe o selo
   DELETE /tarefas/{id}/avaliacao/validar         gestão: tira o selo
+  GET    /roteiro/guia                           o guia rápido do roteiro (07/10/2026)
 
 A nota da IA vale assim que sai (decisão do Tulio, 02/10). O ajuste e o
 selo são da gestão — Franqueado e ADM —, e o vendedor vê os dois.
@@ -27,6 +28,7 @@ from routers.auth import usuario_atual
 from routers.permissions import CARGOS_GESTAO
 from services import coleta_avaliacao
 from services import coleta_transcricao
+from services import roteiro_scorecard
 
 router = APIRouter()
 
@@ -96,6 +98,52 @@ class AvaliacaoOut(BaseModel):
     pode_ajustar: bool = False
 
 
+class GuiaItemOut(BaseModel):
+    item: int
+    nome: str
+    # O critério de 2 pontos: o que o vendedor precisa fazer para gabaritar.
+    vale_2: str
+    fazer: str
+    exemplos: list[str]
+    evitar: str
+
+
+class GuiaEtapaOut(BaseModel):
+    nome: str
+    minutos: int | None
+    itens: list[GuiaItemOut]
+
+
+class GuiaCertezaOut(BaseModel):
+    nome: str
+    sinal_baixo: str
+    como_subir: str
+
+
+class GuiaTresDezOut(BaseModel):
+    certezas: list[GuiaCertezaOut]
+    pergunta_calibracao: str
+    pergunta_o_que_falta: str
+    looping_maximo: int
+
+
+class GuiaFechamentoOut(BaseModel):
+    situacao: str
+    tecnica: str
+    frase: str
+
+
+class GuiaRoteiroOut(BaseModel):
+    versao_roteiro: str
+    duracao_min: int
+    meta_fala_pct: float
+    nota_maxima: int
+    etapas: list[GuiaEtapaOut]
+    tres_dez: GuiaTresDezOut
+    fechamentos: list[GuiaFechamentoOut]
+    pergunta_final: str
+
+
 class AjusteIn(BaseModel):
     # None desfaz o ajuste: volta a valer a nota da IA.
     nota: int | None = Field(None, ge=0, le=2)
@@ -128,6 +176,16 @@ def _saida(estado: dict, user) -> dict:
 
 
 # ── Rotas ────────────────────────────────────────────────────────────
+
+
+@router.get("/roteiro/guia", response_model=GuiaRoteiroOut)
+async def guia_do_roteiro(user=Depends(usuario_atual)):
+    """
+    O script resumido do scorecard, para o vendedor ter ao lado durante a
+    call: as etapas com tempo, os 10 itens com exemplo de fala, os três 10
+    e as técnicas de fechamento. Igual para todo mundo do CRM; sem banco.
+    """
+    return roteiro_scorecard.guia_rapido()
 
 
 @router.get("/tarefas/{tarefa_id}/avaliacao", response_model=AvaliacaoOut)

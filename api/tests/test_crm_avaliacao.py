@@ -527,3 +527,24 @@ class TestPassadaDoTimer:
         monkeypatch.setattr(aval, "configurado", lambda: False)
         await reuniao(base, client)
         assert await script.avaliar_pendentes(base["conn"], time.monotonic()) == 0
+
+
+# ── Guia rápido do roteiro (botão na reunião, 07/10/2026) ─────────────
+
+class TestGuiaDoRoteiro:
+    async def test_qualquer_cargo_do_crm_le_o_guia(self, db_conn, client):
+        ev = await criar_usuario(db_conn, client, "EV", "ev-guia@teste.com")
+        resp = await client.get("/crm/agenda/roteiro/guia", headers=ev["headers"])
+        assert resp.status_code == 200
+        corpo = resp.json()
+        assert corpo["versao_roteiro"] == sc.VERSAO
+        assert corpo["duracao_min"] == 45
+        itens = [i for e in corpo["etapas"] for i in e["itens"]]
+        assert [i["item"] for i in itens] == list(range(1, 11))
+        assert all(i["exemplos"] for i in itens)
+        assert len(corpo["tres_dez"]["certezas"]) == 3
+        assert corpo["pergunta_final"] == sc.PERGUNTA_FINAL
+
+    async def test_sem_login_nao_le(self, client):
+        resp = await client.get("/crm/agenda/roteiro/guia")
+        assert resp.status_code in (401, 403)

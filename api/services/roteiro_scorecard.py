@@ -246,3 +246,256 @@ def faixa(total: float | None) -> str | None:
     if total >= 10:
         return "media"
     return "baixa"
+
+
+# ═════════════════════════════════════════════════════════════════════
+# Guia rápido do vendedor (botão "Guia do roteiro" na reunião da Agenda)
+# ═════════════════════════════════════════════════════════════════════
+#
+# Pedido do Tulio (07/10/2026): dentro da reunião, um botão que abre o
+# script resumido do scorecard, com exemplos rápidos, para o EV usar como
+# guia durante a call.
+#
+# Mora aqui, ao lado dos ITENS, para que guia e avaliação nunca divirjam:
+# o vendedor lê na tela exatamente os 10 itens em que vai ser avaliado.
+# Um teste trava um guia por item. O guia NÃO entra no prompt da avaliação:
+# é material de apoio, e mudá-lo não muda nota nenhuma (por isso não sobe
+# `VERSAO`).
+#
+# Os três 10 e as técnicas de fechamento são os da trilha
+# "06 · Fechamento" da UC (scripts/uc_conteudo_fechamento.py).
+
+
+@dataclass(frozen=True)
+class Etapa:
+    nome: str          # igual ao `Item.etapa`, para agrupar
+    minutos: int | None
+
+
+ETAPAS: tuple[Etapa, ...] = (
+    Etapa("Antes da reunião", None),
+    Etapa("1. Abertura", 5),
+    Etapa("2. Diagnóstico (SPIN)", 15),
+    Etapa("3. Qualificação", 5),
+    Etapa("4. Solução", 12),
+    Etapa("5. Objeções", 5),
+    Etapa("6. Fechamento", 3),
+)
+
+DURACAO_REUNIAO_MIN = 45
+
+
+@dataclass(frozen=True)
+class Guia:
+    item: int
+    fazer: str
+    exemplos: tuple[str, ...]
+    evitar: str
+
+
+GUIA: tuple[Guia, ...] = (
+    Guia(
+        1, "Cite um dado que você pesquisou e use nas perguntas.",
+        (
+            "Vi que vocês abriram a unidade de Guarulhos. Como ficou o admissional lá?",
+            "Vocês são grau de risco 3, então audiometria entra no periódico, certo?",
+        ),
+        "\"O SDR te explicou o que é a Controller?\"",
+    ),
+    Guia(
+        2, "Combine tempo, pauta e que no final se decide junto o próximo passo.",
+        (
+            "Combinamos 45 minutos. A ideia é eu entender primeiro como vocês cuidam "
+            "hoje da saúde e segurança, depois mostro o que faz sentido, e no final a "
+            "gente decide junto se vale um próximo passo ou se não é o momento. Pode ser?",
+            "Para eu não te mostrar coisa que não serve, posso te fazer algumas perguntas?",
+        ),
+        "Abrir compartilhando a tela ou falar da empresa por mais de 1 minuto.",
+    ),
+    Guia(
+        3, "No máximo 4 perguntas de dado, só o que a pesquisa não respondeu.",
+        (
+            "Quantos funcionários vocês têm hoje, e em quantos CNPJs?",
+            "Quem cuida hoje dos exames e do PGR?",
+        ),
+        "Interrogatório de dados antes de chegar ao problema.",
+    ),
+    Guia(
+        4, "Faça o cliente falar de dificuldade, não de dado.",
+        (
+            "O que te incomoda no modelo atual?",
+            "Já aconteceu de um admissional atrasar o início de alguém?",
+            "O PGR de vocês já inclui os riscos psicossociais?",
+        ),
+        "Pular direto para a solução depois do primeiro problema.",
+    ),
+    Guia(
+        5, "Pergunte, e deixe o CLIENTE dizer o custo do problema.",
+        (
+            "Quanto custa um dia de funcionário parado esperando o ASO?",
+            "Se um fiscal chegasse amanhã e pedisse PGR, PCMSO e ASOs, o que encontraria?",
+            "O que acontece se nada mudar nos próximos 6 meses?",
+        ),
+        "Afirmar o risco (\"vocês podem ser multados\") em vez de perguntar.",
+    ),
+    Guia(
+        6, "Resuma com as palavras dele e peça a confirmação antes de apresentar.",
+        (
+            "Deixa eu ver se entendi: hoje vocês têm..., e o que mais pesa é... É isso?",
+        ),
+        "Apresentar sem o \"é isso\" do cliente.",
+    ),
+    Guia(
+        7, "Saia com prazo, decisor e consequência respondidos.",
+        (
+            "Quando isso precisa estar resolvido? O contrato atual vence quando?",
+            "Além de você, quem participa da decisão?",
+            "O que acontece se nada mudar?",
+        ),
+        "Mandar proposta sem saber quem decide e até quando.",
+    ),
+    Guia(
+        8, "Dor » solução » prova. Benefício, não recurso. Confirme a cada bloco.",
+        (
+            "Você me falou que o admissional atrasa: com o plano, o ASO sai na clínica "
+            "perto da unidade e você vê todos os vencimentos em tempo real.",
+            "Isso resolveria o que você comentou?",
+        ),
+        "\"Temos o SOC\" (recurso solto, sem ligar a uma dor).",
+    ),
+    Guia(
+        9, "Ouça até o fim, acolha e explore com uma pergunta ANTES de responder.",
+        (
+            "Caro comparado a quê? No que vocês pagam hoje estão inclusos PGR, eSocial e gestão?",
+            "O contador cuida dos exames e do PGR ou só do envio do eSocial?",
+            "O que exatamente você quer avaliar: o preço, o escopo ou o momento?",
+        ),
+        "Rebater na hora, dar desconto sem contrapartida ou aceitar sem explorar.",
+    ),
+    Guia(
+        10, "Termine com dia e hora aceitos e o convite enviado na hora.",
+        (
+            "Te apresento a proposta na quinta às 10h ou na sexta às 15h?",
+            "Já estou mandando o convite. Mais alguém precisa estar?",
+            "Tem alguma coisa que possa impedir a gente de avançar que eu ainda não sei?",
+        ),
+        "\"Te mando por e-mail e a gente vai conversando.\"",
+    ),
+)
+
+GUIA_POR_ITEM = {g.item: g for g in GUIA}
+
+
+@dataclass(frozen=True)
+class Certeza:
+    nome: str
+    sinal_baixo: str
+    como_subir: str
+
+
+# Os três 10 (método Linha Reta, de Jordan Belfort, adaptado à Controller).
+TRES_DEZ: tuple[Certeza, ...] = (
+    Certeza(
+        "Produto",
+        "\"Isso a gente já tem\", \"não sei se precisa\", \"está caro\".",
+        "Volte à dor com as palavras dele, faça uma pergunta de implicação e "
+        "mostre o benefício.",
+    ),
+    Certeza(
+        "Você",
+        "Respostas curtas, câmera fechada, \"manda por e-mail\".",
+        "Resumo nas palavras dele, um insight (psicossocial no PGR) e diga também "
+        "o que não recomenda.",
+    ),
+    Certeza(
+        "Controller",
+        "\"Nunca ouvi falar\", \"e se a clínica não atender?\".",
+        "Caso do mesmo setor ou porte; desde 1991, mais de 500 clientes, "
+        "atendimento nacional por clínicas credenciadas.",
+    ),
+)
+
+PERGUNTA_CALIBRACAO = "De 0 a 10, quanto isso resolve o que você me contou sobre [dor]?"
+PERGUNTA_O_QUE_FALTA = "O que faltaria para ser um 10?"
+LOOPING_MAXIMO = 2
+
+
+@dataclass(frozen=True)
+class Fechamento:
+    situacao: str
+    tecnica: str
+    frase: str
+
+
+FECHAMENTOS: tuple[Fechamento, ...] = (
+    Fechamento(
+        "Toda abertura de fechamento", "Resumo de valor",
+        "Você me contou que [dor] está custando [implicação]. Com [solução] isso "
+        "se resolve. Combinamos decidir juntos o próximo passo: faz sentido seguirmos?",
+    ),
+    Fechamento(
+        "Decisor presente, 6 ou mais verdes", "Direto",
+        "Podemos começar a implantação no dia [X]? Preciso só dos dados para o contrato.",
+    ),
+    Fechamento(
+        "Decisor presente, quer ver números", "Alternativa",
+        "Te apresento a proposta na quinta às 10h ou na sexta às 15h?",
+    ),
+    Fechamento(
+        "Decisor ausente", "Reunião com o decisor",
+        "Vamos marcar 20 minutos com o [diretor] esta semana? Eu levo a proposta pronta.",
+    ),
+    Fechamento(
+        "Inseguro sobre trocar", "Passo de baixo risco",
+        "Que tal começarmos com um diagnóstico da documentação atual?",
+    ),
+    Fechamento(
+        "Contrato vigente", "Futuro",
+        "Seu contrato vence em [mês]. Vamos marcar agora a revisão para 60 dias antes?",
+    ),
+)
+
+PERGUNTA_FINAL = "Tem alguma coisa que possa impedir a gente de avançar que eu ainda não sei?"
+
+
+def guia_rapido() -> dict:
+    """
+    O guia inteiro, pronto para a tela: as etapas com tempo, os 10 itens do
+    scorecard (nome, o que vale 2 pontos, o que fazer, exemplos, o que
+    evitar), os três 10, as técnicas de fechamento e a pergunta final.
+    """
+    etapas = []
+    for e in ETAPAS:
+        itens = [
+            {
+                "item": i.numero,
+                "nome": i.nome,
+                "vale_2": i.criterio_2,
+                "fazer": GUIA_POR_ITEM[i.numero].fazer,
+                "exemplos": list(GUIA_POR_ITEM[i.numero].exemplos),
+                "evitar": GUIA_POR_ITEM[i.numero].evitar,
+            }
+            for i in ITENS if i.etapa == e.nome
+        ]
+        etapas.append({"nome": e.nome, "minutos": e.minutos, "itens": itens})
+    return {
+        "versao_roteiro": VERSAO,
+        "duracao_min": DURACAO_REUNIAO_MIN,
+        "meta_fala_pct": META_FALA_PCT,
+        "nota_maxima": NOTA_MAXIMA,
+        "etapas": etapas,
+        "tres_dez": {
+            "certezas": [
+                {"nome": c.nome, "sinal_baixo": c.sinal_baixo, "como_subir": c.como_subir}
+                for c in TRES_DEZ
+            ],
+            "pergunta_calibracao": PERGUNTA_CALIBRACAO,
+            "pergunta_o_que_falta": PERGUNTA_O_QUE_FALTA,
+            "looping_maximo": LOOPING_MAXIMO,
+        },
+        "fechamentos": [
+            {"situacao": f.situacao, "tecnica": f.tecnica, "frase": f.frase}
+            for f in FECHAMENTOS
+        ],
+        "pergunta_final": PERGUNTA_FINAL,
+    }

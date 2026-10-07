@@ -3682,8 +3682,11 @@ from scripts.uc_conteudo_energia import TRILHAS_ENERGIA  # noqa: E402
 from scripts.uc_conteudo_tecnicas_sdr import TRILHAS_TECNICAS_SDR  # noqa: E402
 # Como criar e seguir um bom PDI (pilar Técnica, entrega 044).
 from scripts.uc_conteudo_pdi import TRILHAS_PDI  # noqa: E402
+# Fechamento: os três 10 e as técnicas de fechamento (pilar Técnica, 07/10/2026).
+from scripts.uc_conteudo_fechamento import TRILHAS_FECHAMENTO  # noqa: E402
 
 TRILHAS: list[dict] = [
     TRILHA_01, TRILHA_02, TRILHA_03, TRILHA_04, METODO_01,
     *TRILHAS_HIPO, *TRILHAS_ROTEIROS, *TRILHAS_ENERGIA, *TRILHAS_TECNICAS_SDR, *TRILHAS_PDI,
+    *TRILHAS_FECHAMENTO,
 ]

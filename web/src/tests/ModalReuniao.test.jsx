@@ -756,3 +756,63 @@ describe('ModalReuniao — reunião ao vivo', () => {
     expect(screen.queryByText(ROTULO)).not.toBeInTheDocument();
   });
 });
+
+
+// ── Guia do roteiro (07/10/2026) ─────────────────────────────────────
+
+describe('ModalReuniao — guia do roteiro', () => {
+  const BOTAO = { name: /Guia do roteiro/ };
+  const GUIA = {
+    versao_roteiro: '2026-09-30', duracao_min: 45, meta_fala_pct: 40, nota_maxima: 20,
+    etapas: [{
+      nome: '1. Abertura', minutos: 5,
+      itens: [{
+        item: 2, nome: 'Contrato de abertura', vale_2: 'x', fazer: 'y',
+        exemplos: ['Combinamos 45 minutos.'], evitar: 'z',
+      }],
+    }],
+    tres_dez: {
+      certezas: [], pergunta_calibracao: 'a', pergunta_o_que_falta: 'b', looping_maximo: 2,
+    },
+    fechamentos: [],
+    pergunta_final: 'c',
+  };
+
+  it('reunião com cliente: o botão abre o guia por cima da reunião', async () => {
+    mockGet.mockImplementation((url) => {
+      if (url === '/crm/agenda/tipos') return Promise.resolve({ data: TIPOS });
+      if (url === '/crm/contatos/por-alvo') return Promise.resolve({ data: CONTATOS });
+      if (url === '/crm/agenda/roteiro/guia') return Promise.resolve({ data: GUIA });
+      return Promise.resolve({ data: [] });
+    });
+    await abrir({ reuniao: reuniao() });
+    expect(mockGet).not.toHaveBeenCalledWith('/crm/agenda/roteiro/guia');
+    fireEvent.click(screen.getByRole('button', BOTAO));
+    expect(await screen.findByText('Contrato de abertura')).toBeInTheDocument();
+    expect(mockGet).toHaveBeenCalledWith('/crm/agenda/roteiro/guia');
+  });
+
+  it('presencial também tem o guia', async () => {
+    await abrir({ reuniao: reuniao({ modalidade: 'presencial', modalidade_rotulo: 'Presencial' }) });
+    expect(screen.getByRole('button', BOTAO)).toBeInTheDocument();
+  });
+
+  it('reunião de parceiro: não oferece — o roteiro é de venda', async () => {
+    await abrir({
+      reuniao: reuniao({ oportunidade_id: null, oportunidade_numero: null }),
+    });
+    expect(screen.queryByRole('button', BOTAO)).not.toBeInTheDocument();
+  });
+
+  it('cancelada: não oferece', async () => {
+    await abrir({
+      reuniao: reuniao({ situacao: 'cancelada', cancelada_em: '2026-09-07T12:00:00Z' }),
+    });
+    expect(screen.queryByRole('button', BOTAO)).not.toBeInTheDocument();
+  });
+
+  it('marcando uma nova: ainda não oferece', async () => {
+    await abrir({ slotInicial: '2026-09-09T14:00', anfitriaoInicial: 'u1' });
+    expect(screen.queryByRole('button', BOTAO)).not.toBeInTheDocument();
+  });
+});
