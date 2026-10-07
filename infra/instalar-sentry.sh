@@ -51,8 +51,10 @@ usuario_da_unidade() {
 }
 
 existe_unidade() {
-    systemctl list-unit-files --type=service --no-legend 2>/dev/null \
-        | awk '{print $1}' | grep -qx "$1.service"
+    # `systemctl cat` acha a unidade onde quer que ela esteja (/etc ou
+    # /usr/lib); o arquivo em /etc/systemd/system e a rede de seguranca.
+    systemctl cat "$1.service" >/dev/null 2>&1 \
+        || sudo test -f "/etc/systemd/system/$1.service"
 }
 
 FALHOU=0
