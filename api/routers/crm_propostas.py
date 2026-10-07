@@ -43,6 +43,7 @@ Decisões que este módulo materializa:
 """
 from __future__ import annotations
 
+import asyncio
 import json
 from datetime import date, datetime
 from decimal import Decimal
@@ -409,7 +410,7 @@ async def _buscar(conn, proposta_id: UUID) -> dict:
     return _linha(row, itens)
 
 
-def _montar_pptx(proposta: dict, item: dict | None = None) -> bytes:
+def _entrada_render(proposta: dict, item: dict | None = None) -> dict:
     """
     Consolidada (item=None): todos os CNPJs, uma linha por CNPJ na lista.
     Por CNPJ: cliente, vidas e mensalidade daquele CNPJ, só a linha dele e
@@ -460,7 +461,54 @@ def _montar_pptx(proposta: dict, item: dict | None = None) -> bytes:
         valor_excedente=(proposta.get("valor_vida_excedente")
                          or regras.excedente_padrao(faixas)),
     )
-    return render.montar_pptx(subs, linhas, modalidade=modalidade, escala_escopo=escala)
+    return {"substituicoes": subs, "escopo": linhas, "modalidade": modalidade,
+            "escala_escopo": escala}
+
+
+def _montar_pptx(proposta: dict, item: dict | None = None) -> bytes:
+    e = _entrada_render(proposta, item)
+    return render.montar_pptx(e["substituicoes"], e["escopo"],
+                              modalidade=e["modalidade"],
+                              escala_escopo=e["escala_escopo"])
+
+
+def _montar_pdf(proposta: dict, item: dict | None = None) -> bytes:
+    e = _entrada_render(proposta, item)
+    return render.montar_pdf(e["substituicoes"], e["escopo"],
+                             modalidade=e["modalidade"],
+                             escala_escopo=e["escala_escopo"])
+
+
+# Um PDF por vez para cada (proposta, CNPJ): o visualizador e o e-mail
+# pedindo o mesmo arquivo ao mesmo tempo esperam um único LibreOffice, e o
+# segundo pega do cache. Travas por chave, criadas sob demanda.
+_travas_pdf: dict[str, asyncio.Lock] = {}
+
+
+async def pdf_da_proposta(proposta: dict, item: dict | None = None) -> bytes:
+    """
+    O PDF da proposta (ou de um CNPJ dela), do cache quando já foi montado.
+
+    Proposta não muda depois de gerada, então o arquivo pode ser guardado
+    (052). A montagem roda fora do event loop: são segundos de python-pptx
+    e LibreOffice, e no loop eles travariam a API para todo mundo.
+
+    Erros de ambiente sobem como as exceções do render (ModeloIndisponivel,
+    BibliotecaIndisponivel, PdfIndisponivel) — quem chama decide o HTTP.
+    """
+    chave = render.chave_pdf(proposta["id"], item["id"] if item else None)
+    pronto = render.pdf_do_cache(chave)
+    if pronto is not None:
+        return pronto
+    trava = _travas_pdf.setdefault(chave, asyncio.Lock())
+    async with trava:
+        pronto = render.pdf_do_cache(chave)
+        if pronto is not None:
+            return pronto
+        pdf = await asyncio.to_thread(_montar_pdf, proposta, item)
+        render.guardar_pdf(chave, pdf)
+    _travas_pdf.pop(chave, None)
+    return pdf
 
 
 # ── Tabela de preço ──────────────────────────────────────────────────
@@ -932,20 +980,16 @@ async def baixar(
     )
 
     try:
-        pptx = _montar_pptx(proposta, escolhido)
-    except (render.ModeloIndisponivel, render.BibliotecaIndisponivel) as erro:
+        if formato == "pptx":
+            corpo = await asyncio.to_thread(_montar_pptx, proposta, escolhido)
+            tipo = ("application/vnd.openxmlformats-officedocument."
+                    "presentationml.presentation")
+        else:
+            corpo = await pdf_da_proposta(proposta, escolhido)
+            tipo = "application/pdf"
+    except (render.ModeloIndisponivel, render.BibliotecaIndisponivel,
+            render.PdfIndisponivel) as erro:
         raise HTTPException(503, str(erro))
-
-    if formato == "pptx":
-        corpo = pptx
-        tipo = ("application/vnd.openxmlformats-officedocument."
-                "presentationml.presentation")
-    else:
-        try:
-            corpo = render.para_pdf(pptx)
-        except render.PdfIndisponivel as erro:
-            raise HTTPException(503, str(erro))
-        tipo = "application/pdf"
 
     nome = regras.nome_do_arquivo(
         numero or "PROPOSTA",

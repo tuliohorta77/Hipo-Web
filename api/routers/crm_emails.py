@@ -31,14 +31,12 @@ Decisões que este módulo materializa:
     reunião e mostra "sem convite": lá a reunião existe mesmo sem o
     Google; aqui, e-mail que não saiu não existe.
 
-  * O PDF É REMONTADO NO ENVIO, pela mesma rota do download
-    (crm_propostas._montar_pptx + render.para_pdf). A proposta continua sem
-    arquivo guardado; o que o cliente recebe é o mesmo que o vendedor
-    baixaria naquele momento.
+  * O PDF vem de crm_propostas.pdf_da_proposta — o mesmo que o EV viu no
+    visualizador e aprovou, guardado em cache desde a 052 (proposta não
+    muda depois de gerada). Se ainda não existir, é montado na hora.
 """
 from __future__ import annotations
 
-import asyncio
 from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
@@ -48,7 +46,7 @@ from pydantic import BaseModel, Field
 from database import get_conn
 from routers.auth import usuario_atual
 from routers.crm_propostas import _buscar as buscar_proposta
-from routers.crm_propostas import _eh_gestao, _montar_pptx
+from routers.crm_propostas import _eh_gestao, pdf_da_proposta
 from routers.crm_tarefas import (
     TarefaDeFinalizacao,
     inserir_tarefa_concluida,
@@ -530,9 +528,9 @@ async def enviar(
     anexo = None
     if proposta is not None:
         try:
-            pptx = _montar_pptx(proposta, item)
-            # LibreOffice e subprocesso de segundos: fora do event loop.
-            pdf = await asyncio.to_thread(render.para_pdf, pptx)
+            # 052: o mesmo PDF que o EV viu no visualizador, do cache —
+            # montado fora do event loop quando ainda não existe.
+            pdf = await pdf_da_proposta(proposta, item)
         except (render.ModeloIndisponivel, render.BibliotecaIndisponivel,
                 render.PdfIndisponivel) as e:
             raise HTTPException(503, f"A proposta não pôde ser anexada: {e}")

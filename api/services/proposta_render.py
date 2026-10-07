@@ -38,10 +38,12 @@ no fim. Escrever os itens com '\\n' num run só perderia a marcação de lista.
 from __future__ import annotations
 
 import copy
+import hashlib
 import os
 import shutil
 import subprocess
 import tempfile
+import threading
 from io import BytesIO
 from pathlib import Path
 
@@ -93,6 +95,39 @@ PADROES_LIBREOFFICE = (
 # 120s é folga para o primeiro uso, quando o LibreOffice ainda monta o
 # perfil do usuário.
 TIMEOUT_PDF_S = 120
+
+# ── Velocidade do PDF (052) ──────────────────────────────────────────
+#
+# Medido numa máquina de 2 vCPU (como a t3.medium), com o modelo da 051:
+# python-pptx 1-4 s + LibreOffice ~17 s + 7 MB para baixar. O visualizador
+# ficava 20 s em "Montando o PDF". O que mudou:
+#
+#  1. Imagens a 200 dpi no PDF (ReduceImageResolution). O LibreOffice
+#     gastava a maior parte do tempo recomprimindo imagens de 2000-3000 px
+#     sem perda. 200 dpi num slide de 20 pol. são 4000 px de largura: não
+#     se vê diferença na tela nem impresso. PDF de 7 MB para ~3 MB.
+#  2. Slides FIXOS (os institucionais, iguais em toda proposta) viram PDF
+#     uma vez só e ficam em cache; cada proposta converte só os slides que
+#     mudam e junta as páginas (pypdf). ~3 s por proposta, não ~20.
+#  3. Cada PDF montado fica em cache em disco (proposta não muda depois
+#     de gerada): reabrir o visualizador e anexar no e-mail é imediato.
+#
+# Sem pypdf no servidor, o item 2 é pulado e o PDF sai inteiro pelo
+# LibreOffice, como antes — mais lento, mas sai.
+MAX_DPI_PDF = 200
+FILTRO_PDF = (
+    'pdf:impress_pdf_Export:{'
+    '"ReduceImageResolution":{"type":"boolean","value":"true"},'
+    f'"MaxImageResolution":{{"type":"long","value":"{MAX_DPI_PDF}"}},'
+    '"Quality":{"type":"long","value":"85"}}'
+)
+
+# Muda quando a montagem do PDF muda de um jeito que invalida o que já está
+# em cache (o modelo trocado já invalida sozinho, pelo hash).
+VERSAO_RENDER = "052"
+
+# Quantos PDFs de proposta ficam guardados. ~3 MB cada.
+MAX_PDFS_EM_CACHE = 300
 
 
 class BibliotecaIndisponivel(RuntimeError):
@@ -278,6 +313,81 @@ def _remover_slide(prs, slide) -> None:
             return
 
 
+def _caminho_do_modelo(caminho_modelo: Path | str | None) -> Path:
+    from services.instancia import modelo_proposta
+
+    # CAMINHO_MODELO segue sendo o versionado; o .env pode apontar outro
+    # (PROPOSTA_MODELO_ARQUIVO, 046) para a instancia de outra empresa.
+    modelo = Path(caminho_modelo or modelo_proposta())
+    if not modelo.is_file():
+        raise ModeloIndisponivel(
+            f"Modelo da proposta não encontrado em {modelo}. "
+            "Ele é versionado em api/templates/ — confira se o deploy copiou a pasta."
+        )
+    return modelo
+
+
+def _slide_fixo(slide) -> bool:
+    """
+    Slide que sai IGUAL em toda proposta: nenhum marcador {{...}} (nem
+    dentro de grupo) e nenhuma etiqueta de modalidade. No modelo da MedSeg
+    são os quatro institucionais. É o que o PDF reaproveita (052).
+    """
+    from pptx.oxml.ns import qn
+    if _modalidade_do_slide(slide) is not None:
+        return False
+    texto = "".join(t.text or "" for t in slide._element.iter(qn("a:t")))
+    return "{{" not in texto
+
+
+def _preparar(
+    substituicoes: dict[str, str],
+    escopo: list[str],
+    caminho_modelo: Path | str | None,
+    modalidade: str,
+    escala_escopo,
+):
+    """
+    Abre o modelo, tira os slides da outra modalidade e preenche o resto.
+
+    Devolve (apresentação, modelo, papéis): papéis tem um item por slide
+    que FICOU, na ordem — o índice do slide no modelo original quando ele é
+    fixo, ou None quando é preenchido por proposta.
+    """
+    modelo = _caminho_do_modelo(caminho_modelo)
+    Presentation = _presentation()
+    prs = Presentation(str(modelo))
+
+    originais = {id(s.part): i for i, s in enumerate(prs.slides)}
+
+    # Primeiro sai o que não é desta modalidade; depois se preenche o resto.
+    for slide in list(prs.slides):
+        etiqueta = _modalidade_do_slide(slide)
+        if etiqueta is not None and etiqueta != modalidade:
+            _remover_slide(prs, slide)
+
+    papeis = [
+        originais[id(slide.part)] if _slide_fixo(slide) else None
+        for slide in prs.slides
+    ]
+
+    for slide in prs.slides:
+        _preencher_escopo(slide, escopo, escala_escopo)
+        for shape in slide.shapes:
+            _substituir_no_texto(shape, substituicoes)
+            if shape.name == SHAPE_MENSALIDADE:
+                _caber_numa_linha(shape)
+
+    _propriedades(prs, substituicoes)
+    return prs, modelo, papeis
+
+
+def _salvar(prs) -> bytes:
+    buffer = BytesIO()
+    prs.save(buffer)
+    return buffer.getvalue()
+
+
 def montar_pptx(
     substituicoes: dict[str, str],
     escopo: list[str],
@@ -293,38 +403,8 @@ def montar_pptx(
     escrever num diretório temporário só criaria lixo para limpar (e uma
     corrida entre dois vendedores gerando ao mesmo tempo).
     """
-    from services.instancia import modelo_proposta
-
-    # CAMINHO_MODELO segue sendo o versionado; o .env pode apontar outro
-    # (PROPOSTA_MODELO_ARQUIVO, 046) para a instancia de outra empresa.
-    modelo = Path(caminho_modelo or modelo_proposta())
-    if not modelo.is_file():
-        raise ModeloIndisponivel(
-            f"Modelo da proposta não encontrado em {modelo}. "
-            "Ele é versionado em api/templates/ — confira se o deploy copiou a pasta."
-        )
-
-    Presentation = _presentation()
-    prs = Presentation(str(modelo))
-
-    # Primeiro sai o que não é desta modalidade; depois se preenche o resto.
-    for slide in list(prs.slides):
-        etiqueta = _modalidade_do_slide(slide)
-        if etiqueta is not None and etiqueta != modalidade:
-            _remover_slide(prs, slide)
-
-    for slide in prs.slides:
-        _preencher_escopo(slide, escopo, escala_escopo)
-        for shape in slide.shapes:
-            _substituir_no_texto(shape, substituicoes)
-            if shape.name == SHAPE_MENSALIDADE:
-                _caber_numa_linha(shape)
-
-    _propriedades(prs, substituicoes)
-
-    buffer = BytesIO()
-    prs.save(buffer)
-    return buffer.getvalue()
+    prs, _, _ = _preparar(substituicoes, escopo, caminho_modelo, modalidade, escala_escopo)
+    return _salvar(prs)
 
 
 # ── PDF ──────────────────────────────────────────────────────────────
@@ -345,7 +425,7 @@ def libreoffice_disponivel() -> str | None:
     return None
 
 
-def para_pdf(pptx: bytes) -> bytes:
+def para_pdf(pptx: bytes, filtro: str = FILTRO_PDF) -> bytes:
     """
     Converte via LibreOffice headless.
 
@@ -374,7 +454,7 @@ def para_pdf(pptx: bytes) -> bytes:
         try:
             resultado = subprocess.run(
                 [binario, "--headless", "--norestore", "--invisible",
-                 "--convert-to", "pdf", "--outdir", tmp, entrada],
+                 "--convert-to", filtro, "--outdir", tmp, entrada],
                 capture_output=True, timeout=TIMEOUT_PDF_S, env=ambiente,
             )
         except subprocess.TimeoutExpired as exc:
@@ -392,3 +472,239 @@ def para_pdf(pptx: bytes) -> bytes:
             )
         with open(saida, "rb") as f:
             return f.read()
+
+
+# ── PDF rápido: slides fixos em cache (052) ──────────────────────────
+
+_trava_fixos = threading.Lock()
+_hash_modelo: dict[tuple, str] = {}
+
+
+def _pypdf():
+    """pypdf, importado tarde (mesma razão do python-pptx). None se faltar."""
+    try:
+        import pypdf
+    except ImportError:
+        return None
+    return pypdf
+
+
+def pypdf_disponivel() -> bool:
+    return _pypdf() is not None
+
+
+def diretorio_cache() -> Path:
+    """
+    Onde ficam os PDFs. HIPO_CACHE_PROPOSTAS no ambiente troca o lugar; o
+    padrão é o /tmp do processo. É cache: apagar a pasta só custa refazer.
+    """
+    base = os.environ.get("HIPO_CACHE_PROPOSTAS") or os.path.join(
+        tempfile.gettempdir(), "hipo-propostas"
+    )
+    caminho = Path(base)
+    caminho.mkdir(parents=True, exist_ok=True)
+    return caminho
+
+
+def assinatura_modelo(caminho_modelo: Path | str | None = None) -> str:
+    """
+    Hash do conteúdo do modelo, guardado por (caminho, tamanho, mtime): o
+    arquivo tem MB e é lido uma vez por troca, não por proposta.
+    """
+    modelo = _caminho_do_modelo(caminho_modelo)
+    st = modelo.stat()
+    chave = (str(modelo), st.st_size, st.st_mtime_ns)
+    if chave not in _hash_modelo:
+        _hash_modelo[chave] = hashlib.sha1(modelo.read_bytes()).hexdigest()[:16]
+    return _hash_modelo[chave]
+
+
+def _gravar_atomico(caminho: Path, dados: bytes) -> None:
+    tmp = caminho.with_name(f".{caminho.name}.{os.getpid()}.{threading.get_ident()}")
+    tmp.write_bytes(dados)
+    os.replace(tmp, caminho)
+
+
+def _paginas(pypdf, dados: bytes):
+    """Páginas do PDF, ou None se os bytes não forem um PDF legível."""
+    try:
+        return list(pypdf.PdfReader(BytesIO(dados)).pages)
+    except Exception:  # noqa: BLE001 -- qualquer falha = não reaproveita
+        return None
+
+
+class _trava_entre_processos:
+    """
+    flock num arquivo: os workers do uvicorn sobem juntos e todos aquecem o
+    cache — sem isto, cada um rodaria o mesmo LibreOffice de 10 s ao mesmo
+    tempo na mesma máquina. Onde não há fcntl (Windows, testes locais),
+    não trava: o pior caso é converter duas vezes.
+    """
+
+    def __init__(self, caminho: Path):
+        self.caminho = caminho
+        self.arquivo = None
+
+    def __enter__(self):
+        try:
+            import fcntl
+        except ImportError:
+            return self
+        self.arquivo = open(self.caminho, "a+")
+        fcntl.flock(self.arquivo, fcntl.LOCK_EX)
+        return self
+
+    def __exit__(self, *exc):
+        if self.arquivo is not None:
+            import fcntl
+            fcntl.flock(self.arquivo, fcntl.LOCK_UN)
+            self.arquivo.close()
+        return False
+
+
+def aquecer_cache(caminho_modelo: Path | str | None = None) -> bool:
+    """
+    Monta o PDF dos slides fixos na subida da API (thread do lifespan), para
+    a PRIMEIRA proposta depois de um deploy não pagar os ~10 s. Sem
+    LibreOffice ou pypdf não faz nada. Nunca levanta: é só preparação.
+    """
+    import logging
+    log = logging.getLogger("hipo.proposta")
+    try:
+        if libreoffice_disponivel() is None or _pypdf() is None or not pptx_disponivel():
+            return False
+        modelo = _caminho_do_modelo(caminho_modelo)
+        prs = _presentation()(str(modelo))
+        fixos = [i for i, slide in enumerate(prs.slides) if _slide_fixo(slide)]
+        if not fixos:
+            return False
+        ok = _pdf_dos_fixos(modelo, fixos) is not None
+        log.info("cache do PDF da proposta: slides fixos %s %s", fixos, "prontos" if ok else "falhou")
+        return ok
+    except Exception as e:  # noqa: BLE001
+        log.warning("cache do PDF da proposta nao aqueceu: %s", e)
+        return False
+
+
+def _pdf_dos_fixos(modelo: Path, indices: list[int]) -> bytes | None:
+    """
+    O PDF só com os slides fixos, na ordem — do cache ou feito agora.
+
+    Só entra no cache se for um PDF legível com exatamente uma página por
+    slide; qualquer coisa diferente devolve None e a proposta sai pelo
+    caminho inteiro.
+    """
+    pypdf = _pypdf()
+    chave = hashlib.sha1(
+        f"{assinatura_modelo(modelo)}|{indices}|{FILTRO_PDF}|{VERSAO_RENDER}".encode()
+    ).hexdigest()[:20]
+    arquivo = diretorio_cache() / f"fixos-{chave}.pdf"
+    if arquivo.is_file():
+        return arquivo.read_bytes()
+
+    with _trava_fixos, _trava_entre_processos(arquivo.with_suffix(".trava")):
+        if arquivo.is_file():
+            return arquivo.read_bytes()
+        prs = _presentation()(str(modelo))
+        manter = set(indices)
+        for i, slide in reversed(list(enumerate(list(prs.slides)))):
+            if i not in manter:
+                _remover_slide(prs, slide)
+        pdf = para_pdf(_salvar(prs))
+        paginas = _paginas(pypdf, pdf)
+        if paginas is None or len(paginas) != len(indices):
+            return None
+        _gravar_atomico(arquivo, pdf)
+        return pdf
+
+
+def montar_pdf(
+    substituicoes: dict[str, str],
+    escopo: list[str],
+    caminho_modelo: Path | str | None = None,
+    *,
+    modalidade: str = "por_vida",
+    escala_escopo=None,
+) -> bytes:
+    """
+    O PDF da proposta, convertendo só os slides que mudam por proposta.
+
+    Os fixos vêm de _pdf_dos_fixos; os variáveis passam pelo LibreOffice; as
+    páginas são intercaladas na ordem do modelo. Se algo não bater (pypdf
+    ausente, número de páginas diferente do de slides), cai no caminho
+    antigo: o arquivo inteiro pelo LibreOffice. O resultado é o mesmo; só
+    o tempo muda.
+    """
+    prs, modelo, papeis = _preparar(
+        substituicoes, escopo, caminho_modelo, modalidade, escala_escopo,
+    )
+    pypdf = _pypdf()
+    fixos = [i for i in papeis if i is not None]
+    if pypdf is None or not fixos or len(fixos) == len(papeis):
+        return para_pdf(_salvar(prs))
+
+    inteiro = _salvar(prs)  # antes de tirar os fixos: é o plano B
+    pdf_fixos = _pdf_dos_fixos(modelo, fixos)
+    if pdf_fixos is None:
+        return para_pdf(inteiro)
+
+    for slide, papel in zip(list(prs.slides), papeis):
+        if papel is not None:
+            _remover_slide(prs, slide)
+    pdf_variaveis = para_pdf(_salvar(prs))
+
+    pag_fixos = _paginas(pypdf, pdf_fixos)
+    pag_variaveis = _paginas(pypdf, pdf_variaveis)
+    n_variaveis = len(papeis) - len(fixos)
+    if (pag_fixos is None or pag_variaveis is None
+            or len(pag_fixos) != len(fixos) or len(pag_variaveis) != n_variaveis):
+        return para_pdf(inteiro)
+
+    escritor = pypdf.PdfWriter()
+    it_fixos, it_variaveis = iter(pag_fixos), iter(pag_variaveis)
+    for papel in papeis:
+        escritor.add_page(next(it_fixos) if papel is not None else next(it_variaveis))
+    # Título e autor do arquivo vêm da parte variável (_propriedades).
+    try:
+        meta = pypdf.PdfReader(BytesIO(pdf_variaveis)).metadata
+        if meta:
+            escritor.add_metadata({k: str(v) for k, v in meta.items()})
+    except Exception:  # noqa: BLE001 -- metadado é enfeite, não trava o PDF
+        pass
+    saida = BytesIO()
+    escritor.write(saida)
+    return saida.getvalue()
+
+
+# ── Cache do PDF de cada proposta (052) ──────────────────────────────
+
+def chave_pdf(proposta_id, item_id=None, caminho_modelo=None) -> str:
+    """
+    Proposta não muda depois de gerada; o que pode mudar é o modelo (hash)
+    e o jeito de montar (VERSAO_RENDER). Os três entram na chave.
+    """
+    return (f"{proposta_id}-{item_id or 'todos'}-"
+            f"{assinatura_modelo(caminho_modelo)}-{VERSAO_RENDER}")
+
+
+def pdf_do_cache(chave: str) -> bytes | None:
+    arquivo = diretorio_cache() / f"proposta-{chave}.pdf"
+    if arquivo.is_file():
+        try:
+            os.utime(arquivo)  # mais recente = último a sair na limpeza
+        except OSError:
+            pass
+        return arquivo.read_bytes()
+    return None
+
+
+def guardar_pdf(chave: str, dados: bytes) -> None:
+    """Grava e apaga os mais antigos além de MAX_PDFS_EM_CACHE."""
+    pasta = diretorio_cache()
+    _gravar_atomico(pasta / f"proposta-{chave}.pdf", dados)
+    try:
+        todos = sorted(pasta.glob("proposta-*.pdf"), key=lambda p: p.stat().st_mtime)
+        for velho in todos[:-MAX_PDFS_EM_CACHE]:
+            velho.unlink(missing_ok=True)
+    except OSError:
+        pass

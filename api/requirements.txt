@@ -11,6 +11,11 @@ openpyxl==3.1.2
 # Proposta comercial: preenche api/templates/proposta_modelo.pptx.
 # ATENCAO: o deploy faz rsync e reinicia, NAO roda pip install. Instalar na
 # EC2 a mao antes do primeiro uso:  sudo -iu hipo pip install python-pptx==1.0.2
+# Proposta (052): junta o PDF dos slides fixos (em cache) com o dos slides
+# da proposta. MESMA ARMADILHA: o deploy nao roda pip install -- o
+# infra/instalar-pypdf.sh instala na EC2. Sem ele o PDF sai igual, so
+# mais devagar (tudo pelo LibreOffice).
+pypdf==6.19.0
 # O PDF depende do LibreOffice, que e pacote do sistema:
 #   sudo dnf install -y libreoffice-impress
 python-pptx==1.0.2

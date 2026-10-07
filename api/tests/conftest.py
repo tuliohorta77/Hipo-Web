@@ -28,6 +28,11 @@ os.environ.setdefault("JWT_EXPIRE_HOURS", "1")
 # ambiente uma vez so.
 os.environ.setdefault("ENVIRONMENT", "test")
 os.environ.setdefault("BCRYPT_ROUNDS", "4")
+# 052: os PDFs de proposta ficam em cache em disco. Na suite, uma pasta
+# propria e descartavel -- teste que simula o LibreOffice nao pode deixar
+# PDF falso no cache de quem roda o HIPO na mesma maquina.
+import tempfile as _tempfile  # noqa: E402
+os.environ.setdefault("HIPO_CACHE_PROPOSTAS", _tempfile.mkdtemp(prefix="hipo-teste-pdf-"))
 
 _SENHA_TESTE = "test123"
 _DB_URL = os.environ["DATABASE_URL"]

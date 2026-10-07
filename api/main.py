@@ -6,6 +6,7 @@ contatos, o que é o que impede cadastro duplicado de CNPJ. O filtro por
 envolvimento vale para oportunidades, e é aplicado no repositório, não aqui.
 """
 import asyncio
+import threading
 import logging
 from contextlib import asynccontextmanager, suppress
 
@@ -104,6 +105,15 @@ async def ciclo_de_vida(app: FastAPI):
     tarefa = None
     if settings.TELEMETRIA_ATIVA:
         tarefa = asyncio.create_task(descarga_periodica(buffer))
+
+    # PROPOSTA (052): o PDF dos slides fixos (os institucionais) e montado
+    # uma vez e fica em cache. Fazer isso na subida, numa thread, poupa os
+    # ~10 s da primeira proposta depois de cada deploy. Daemon: nao segura
+    # o desligamento; se falhar, a primeira proposta monta sozinha.
+    from services import proposta_render
+    threading.Thread(
+        target=proposta_render.aquecer_cache, name="aquecer-pdf-proposta", daemon=True,
+    ).start()
 
     yield
 

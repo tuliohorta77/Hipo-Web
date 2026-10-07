@@ -655,3 +655,34 @@ class TestPropriedadesDoArquivo:
         assert props.title == "Proposta Comercial - PATIMIRIM PARTICIPACOES LTDA"
         assert "SOLAR" not in (props.title or "")
         assert props.author == p["executivo_nome"]
+
+
+class TestPdfEmCache:
+    async def test_segundo_pedido_vem_do_cache(self, db_conn, client, usuario_adm, monkeypatch):
+        """052: proposta não muda; o PDF é montado uma vez por (versão, CNPJ)."""
+        from services import proposta_render as render
+
+        chamadas = []
+
+        def falso(pptx):
+            chamadas.append(1)
+            return b"%PDF-1.4 falso"
+
+        monkeypatch.setattr(render, "libreoffice_disponivel", lambda: "/usr/bin/soffice")
+        monkeypatch.setattr(render, "para_pdf", falso)
+        h = usuario_adm["headers"]
+        opp, contas = await grupo(client, h, filiais=1)
+        p = (await client.post(
+            f"/crm/oportunidades/{opp['id']}/propostas",
+            json=corpo([{"conta_id": contas[0]["id"], "vidas": 4},
+                        {"conta_id": contas[1]["id"], "vidas": 6}]),
+            headers=h)).json()
+        url = f"/crm/propostas/{p['id']}/arquivo"
+        r1 = await client.get(url, params={"formato": "pdf"}, headers=h)
+        n = len(chamadas)
+        r2 = await client.get(url, params={"formato": "pdf"}, headers=h)
+        assert r1.status_code == r2.status_code == 200
+        assert r1.content == r2.content == b"%PDF-1.4 falso"
+        assert len(chamadas) == n                      # nada de LibreOffice de novo
+        await client.get(url, params={"formato": "pdf", "item": p["itens"][1]["id"]}, headers=h)
+        assert len(chamadas) > n                       # outro CNPJ, outro arquivo
