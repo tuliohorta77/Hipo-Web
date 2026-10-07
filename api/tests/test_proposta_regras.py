@@ -190,8 +190,8 @@ class TestSubstituicoes:
             "{{TREINAMENTOS}}", "{{LAUDOS}}", "{{INVESTIMENTO}}",
             "{{EXECUTIVO_NOME}}", "{{EXECUTIVO_EMAIL}}", "{{EXECUTIVO_TELEFONE}}",
             "{{CIDADE}}", "{{DATA_EXTENSO}}", "{{VALIDADE}}",
-            # 042: rodapé do slide da tabela de preços.
-            "{{TABELA_RODAPE}}",
+            # 051: rótulo da mensalidade e valor por vida excedente.
+            "{{ROTULO_MENSALIDADE}}", "{{VALOR_EXCEDENTE}}",
         }
         assert set(self._subs()) == esperados
 
@@ -246,16 +246,21 @@ class TestTabelaDePreco:
             "CNPJs acima de 20 funcionários registrados – R$ 15,00 por funcionário/mês",
         ]
 
-    def test_rodape_sai_da_faixa_aberta(self):
-        """Reajuste da tabela tem que mudar o rodapé junto, sem editar slide."""
+    def test_excedente_sugerido_e_a_faixa_aberta_por_vida(self):
+        """A sugestão acompanha o reajuste da tabela."""
         tabela = regras.normalizar_tabela([
             {"vidas_ate": 30, "tipo": "fixo", "valor": "400"},
             {"vidas_ate": None, "tipo": "por_vida", "valor": "12.5"},
         ])
-        rodape = regras.rodape_tabela(tabela)
-        assert "limite de 30 funcionários" in rodape
-        assert "R$ 12,50" in rodape
-        assert "Para até 30 vidas" in rodape
+        assert regras.excedente_padrao(tabela) == Decimal("12.50")
+        assert regras.excedente_padrao(TABELA) == Decimal("15.00")
+
+    def test_faixa_aberta_fixa_nao_sugere_excedente(self):
+        tabela = regras.normalizar_tabela([
+            {"vidas_ate": 10, "tipo": "fixo", "valor": "200"},
+            {"vidas_ate": None, "tipo": "fixo", "valor": "500"},
+        ])
+        assert regras.excedente_padrao(tabela) is None
 
     def test_normaliza_fora_de_ordem(self):
         tabela = regras.normalizar_tabela([
@@ -363,10 +368,23 @@ class TestListaDoSlide:
                 "mensalidade": Decimal("180")}
         assert len(regras.linha_cnpj(item)) < 90
 
-    def test_um_cnpj_so_nao_lista_cnpj(self):
-        """Com um CNPJ, a lista é só o escopo — como sempre foi."""
-        itens = [{"cnpj": "1", "razao_social": "A", "vidas": 4, "mensalidade": 180}]
+    def test_tabela_com_um_cnpj_mostra_a_faixa(self):
+        """
+        051: a tabela não vai para o cliente; a faixa contratada aparece na
+        linha do CNPJ — com um CNPJ só também.
+        """
+        itens = [{"cnpj": "11222333000181", "razao_social": "A", "vidas": 18,
+                  "mensalidade": 300}]
         assert regras.linhas_da_lista(modalidade="tabela", escopo=["PGR"],
+                                      itens=itens, faixas=TABELA) == [
+            "PGR",
+            "A (11.222.333/0001-81) - 16 a 20 vidas - Mensalidade R$ 300,00",
+        ]
+
+    def test_por_vida_com_um_cnpj_so_escopo(self):
+        """Por vida com um CNPJ: o quadro de investimento já diz tudo."""
+        itens = [{"cnpj": "1", "razao_social": "A", "vidas": 4, "mensalidade": 80}]
+        assert regras.linhas_da_lista(modalidade="por_vida", escopo=["PGR"],
                                       itens=itens) == ["PGR"]
 
     def test_varios_cnpjs_entram_depois_do_escopo(self):
@@ -378,13 +396,14 @@ class TestListaDoSlide:
         assert linhas[0] == "PGR"
         assert linhas[1].startswith("A (") and linhas[2].startswith("B (")
 
-    def test_proposta_por_cnpj_nao_lista_os_outros(self):
-        itens = [
-            {"cnpj": "11222333000181", "razao_social": "A", "vidas": 4, "mensalidade": 180},
-            {"cnpj": "11222333000262", "razao_social": "B", "vidas": 5, "mensalidade": 180},
-        ]
-        assert regras.linhas_da_lista(modalidade="tabela", escopo=["PGR"], itens=itens,
-                                      consolidada=False) == ["PGR"]
+    def test_proposta_por_cnpj_lista_so_o_dele_e_sem_extras(self):
+        """Quem chama passa só o CNPJ do arquivo; extras são do negócio todo."""
+        item = {"cnpj": "11222333000262", "razao_social": "B", "vidas": 5,
+                "mensalidade": 180}
+        linhas = regras.linhas_da_lista(modalidade="tabela", escopo=["PGR"], itens=[item],
+                                        consolidada=False, treinamentos=Decimal("500"),
+                                        faixas=TABELA)
+        assert linhas == ["PGR", "B (11.222.333/0002-62) - 1 a 5 vidas - Mensalidade R$ 180,00"]
 
     def test_extras_viram_linha_na_tabela(self):
         """A modalidade tabela não tem o quadro de investimento."""
@@ -419,12 +438,21 @@ class TestEscala:
 class TestValidarItens:
     def _ok(self, **troca):
         base = dict(modalidade="tabela", itens=[_item(4, 180)], valor_por_vida=None,
-                    escopo=["PGR"])
+                    escopo=["PGR"], valor_excedente=Decimal("15"))
         base.update(troca)
         return regras.validar_itens(**base)
 
     def test_valido(self):
         self._ok()
+
+    def test_tabela_sem_excedente(self):
+        """051: o rodapé diz quanto custa cada vida a mais — não pode sair vazio."""
+        with pytest.raises(regras.PropostaInvalida, match="excedente"):
+            self._ok(valor_excedente=None)
+
+    def test_por_vida_nao_pede_excedente(self):
+        self._ok(modalidade="por_vida", valor_por_vida=Decimal("20"),
+                 valor_excedente=None)
 
     def test_sem_cnpj(self):
         with pytest.raises(regras.PropostaInvalida, match="pelo menos um CNPJ"):
@@ -477,3 +505,55 @@ class TestSubstituicoesPorCnpj:
         s = self._subs(sem_extras=True)
         assert s["{{TREINAMENTOS}}"] == "—"
         assert s["{{INVESTIMENTO}}"] == "R$ 180,00"
+
+
+# ── 051: faixa no lugar da tabela ────────────────────────────────────
+
+class TestFaixaNaProposta:
+    @pytest.mark.parametrize("vidas,esperado", [
+        (1, "1 a 5 vidas"), (5, "1 a 5 vidas"),
+        (6, "6 a 10 vidas"), (18, "16 a 20 vidas"), (20, "16 a 20 vidas"),
+        (21, "21 vidas"), (200, "200 vidas"),   # acima das faixas: o número
+    ])
+    def test_rotulo_da_faixa(self, vidas, esperado):
+        assert regras.rotulo_faixa(vidas, TABELA) == esperado
+
+    def test_faixa_de_um_numero_so(self):
+        tabela = regras.normalizar_tabela([
+            {"vidas_ate": 1, "tipo": "fixo", "valor": "100"},
+            {"vidas_ate": None, "tipo": "por_vida", "valor": "15"},
+        ])
+        assert regras.rotulo_faixa(1, tabela) == "1 vida"
+        assert regras.rotulo_faixa(2, tabela) == "2 vidas"
+
+    def test_linha_do_material_do_tulio(self):
+        """'CNPJ 3 – 16 a 20 vidas - Mensalidade R$ 300,00'."""
+        item = {"cnpj": "11222333000343", "razao_social": "CNPJ 3", "vidas": 17,
+                "mensalidade": Decimal("300")}
+        assert regras.linha_cnpj(item, TABELA) == (
+            "CNPJ 3 (11.222.333/0003-43) - 16 a 20 vidas - Mensalidade R$ 300,00"
+        )
+
+    def test_rotulo_da_mensalidade(self):
+        assert regras.rotulo_mensalidade(1) == "Mensalidade"
+        assert regras.rotulo_mensalidade(5) == "Mensalidade total para os 5 CNPJs -"
+
+    def test_excedente_vai_no_mapa(self):
+        s = regras.substituicoes(
+            cliente="A", vidas=4, valor_por_vida=None, treinamentos=Decimal(0),
+            laudos=Decimal(0), executivo_nome="B", executivo_email="b@x",
+            executivo_telefone="1", data_proposta=date(2026, 10, 7),
+            validade=date(2026, 10, 17), mensal=Decimal("180"), qtd_cnpjs=5,
+            valor_excedente=Decimal("17.5"),
+        )
+        assert s["{{VALOR_EXCEDENTE}}"] == "R$ 17,50"
+        assert s["{{ROTULO_MENSALIDADE}}"] == "Mensalidade total para os 5 CNPJs -"
+
+    def test_por_vida_o_excedente_e_o_valor_por_vida(self):
+        s = regras.substituicoes(
+            cliente="A", vidas=4, valor_por_vida=Decimal("20"), treinamentos=Decimal(0),
+            laudos=Decimal(0), executivo_nome="B", executivo_email="b@x",
+            executivo_telefone="1", data_proposta=date(2026, 10, 7),
+            validade=date(2026, 10, 17),
+        )
+        assert s["{{VALOR_EXCEDENTE}}"] == "R$ 20,00"

@@ -392,10 +392,16 @@ class TestArquivos:
         assert r.status_code == 200, r.text
         texto = _texto_pptx(r.content)
         assert not re.findall(r"\{\{\w+\}\}", texto)
-        assert "TABELA DE PREÇOS" in texto
-        assert "CNPJs até 05 funcionários registrados – R$ 180,00 mensais" in texto
-        assert "Mensalidade R$ 299,00" in texto           # linha do 3º CNPJ
+        # 051: a tabela de preços NÃO vai para o cliente; cada CNPJ mostra
+        # a faixa em que foi enquadrado.
+        assert "TABELA DE PREÇOS" not in texto
+        assert "funcionários registrados" not in texto
+        assert "(11.222.333/0001-81) - 1 a 5 vidas - Mensalidade R$ 180,00" in texto
+        assert "(11.222.333/0002-62) - 11 a 15 vidas - Mensalidade R$ 260,00" in texto
+        assert "- 23 vidas - Mensalidade R$ 299,00" in texto   # acima das faixas
+        assert "Mensalidade total para os 3 CNPJs -" in texto
         assert "R$ 739,00" in texto                       # 180 + 260 + 299
+        assert "será acrescido o valor de R$ 15,00 mensais" in texto
         assert "QTDE. VIDAS: 38" in texto
         assert "Treinamentos - R$ 500,00" in texto
         assert "INVESTIMENTO" not in texto                # slide por vida saiu
@@ -416,7 +422,9 @@ class TestArquivos:
         assert "R$ 260,00" in texto
         assert "R$ 739,00" not in texto                   # nada do consolidado
         assert "Treinamentos" not in texto
-        assert "Mensalidade R$ 180,00" not in texto       # sem a lista dos outros
+        assert "Mensalidade R$ 180,00" not in texto       # sem a linha dos outros
+        assert "- 11 a 15 vidas - Mensalidade R$ 260,00" in texto   # só a dele
+        assert "Mensalidade total" not in texto
         assert item["cnpj"] in r.headers["content-disposition"]
 
     async def test_item_de_outra_proposta_e_404(self, db_conn, client, usuario_adm):
@@ -464,7 +472,7 @@ class TestTabelaDePreco:
         assert d["padrao"] is False
         assert [f["vidas_ate"] for f in d["faixas"]] == [10, None]
         assert d["atualizado_por_nome"]
-        assert "R$ 16,00" in d["rodape"]
+        assert d["excedente_padrao"] == "16.00"
 
     @pytest.mark.parametrize("cargo", ["EV", "EC", "SDR", "EP"])
     async def test_operacional_le_mas_nao_edita(self, db_conn, client, cargo):
@@ -516,3 +524,134 @@ class TestProspeccao:
         assert r.status_code == 200, r.text
         sit = {i["cnpj"]: i["situacao"] for i in r.json()["itens"]}
         assert sit[BETA] == "em_negociacao"
+
+
+# ── 7. 051: valor por vida excedente e aprovação ─────────────────────
+
+class TestExcedente:
+    async def test_sem_informar_vem_da_tabela(self, db_conn, client, usuario_adm):
+        h = usuario_adm["headers"]
+        opp, contas = await grupo(client, h, filiais=0)
+        p = (await client.post(f"/crm/oportunidades/{opp['id']}/propostas",
+                               json=corpo([{"conta_id": contas[0]["id"], "vidas": 4}]),
+                               headers=h)).json()
+        assert Decimal(p["valor_vida_excedente"]) == Decimal("15.00")
+
+    async def test_ev_escolhe_e_sai_no_arquivo(self, db_conn, client, usuario_adm):
+        h = usuario_adm["headers"]
+        opp, contas = await grupo(client, h, filiais=0)
+        p = (await client.post(
+            f"/crm/oportunidades/{opp['id']}/propostas",
+            json=corpo([{"conta_id": contas[0]["id"], "vidas": 18}],
+                       valor_vida_excedente="12.50"),
+            headers=h)).json()
+        assert Decimal(p["valor_vida_excedente"]) == Decimal("12.50")
+        texto = _texto_pptx((await client.get(f"/crm/propostas/{p['id']}/arquivo",
+                                              headers=h)).content)
+        assert "será acrescido o valor de R$ 12,50 mensais" in texto
+        assert "- 16 a 20 vidas - Mensalidade R$ 300,00" in texto
+        assert "Mensalidade R$ 300,00" in texto              # um CNPJ: rótulo curto
+
+    async def test_padrao_repete_o_da_ultima(self, db_conn, client, usuario_adm):
+        h = usuario_adm["headers"]
+        opp, contas = await grupo(client, h, filiais=0)
+        await client.post(
+            f"/crm/oportunidades/{opp['id']}/propostas",
+            json=corpo([{"conta_id": contas[0]["id"], "vidas": 4}], valor_vida_excedente="13"),
+            headers=h)
+        d = (await client.get(f"/crm/oportunidades/{opp['id']}/proposta-padrao",
+                              headers=h)).json()
+        assert Decimal(d["valor_vida_excedente"]) == Decimal("13.00")
+
+    async def test_tabela_sem_faixa_por_vida_exige_o_campo(self, db_conn, client, usuario_adm):
+        h = usuario_adm["headers"]
+        await client.put("/crm/tabela-precos", json={"faixas": [
+            {"vidas_ate": 10, "tipo": "fixo", "valor": "200.00"},
+            {"vidas_ate": None, "tipo": "fixo", "valor": "500.00"},
+        ]}, headers=h)
+        opp, contas = await grupo(client, h, filiais=0)
+        r = await client.post(f"/crm/oportunidades/{opp['id']}/propostas",
+                              json=corpo([{"conta_id": contas[0]["id"], "vidas": 4}]),
+                              headers=h)
+        assert r.status_code == 422
+        assert "excedente" in r.json()["detail"]
+
+    async def test_por_vida_ignora_o_campo(self, db_conn, client, usuario_adm):
+        h = usuario_adm["headers"]
+        opp, contas = await grupo(client, h, filiais=0)
+        p = (await client.post(
+            f"/crm/oportunidades/{opp['id']}/propostas",
+            json=corpo([{"conta_id": contas[0]["id"], "vidas": 4}], modalidade="por_vida",
+                       valor_por_vida="20.00", valor_vida_excedente="99"),
+            headers=h)).json()
+        assert p["valor_vida_excedente"] is None
+
+
+class TestAprovacao:
+    async def _gerada(self, client, h):
+        opp, contas = await grupo(client, h, filiais=0)
+        r = await client.post(f"/crm/oportunidades/{opp['id']}/propostas",
+                              json=corpo([{"conta_id": contas[0]["id"], "vidas": 4}]),
+                              headers=h)
+        return opp, r.json()
+
+    async def test_nasce_sem_aprovacao(self, db_conn, client, usuario_adm):
+        _, p = await self._gerada(client, usuario_adm["headers"])
+        assert p["aprovada_em"] is None
+        assert p["aprovada_por_nome"] is None
+
+    async def test_aprovar_grava_quem_e_quando(self, db_conn, client, usuario_adm):
+        h = usuario_adm["headers"]
+        opp, p = await self._gerada(client, h)
+        r = await client.post(f"/crm/propostas/{p['id']}/aprovar", headers=h)
+        assert r.status_code == 200, r.text
+        assert r.json()["aprovada_em"]
+        assert r.json()["aprovada_por_nome"]
+        [lida] = (await client.get(f"/crm/oportunidades/{opp['id']}/propostas",
+                                   headers=h)).json()
+        assert lida["aprovada_em"] == r.json()["aprovada_em"]
+
+    async def test_aprovar_de_novo_nao_troca_quem_aprovou(self, db_conn, client, usuario_adm):
+        h = usuario_adm["headers"]
+        _, p = await self._gerada(client, h)
+        primeira = (await client.post(f"/crm/propostas/{p['id']}/aprovar", headers=h)).json()
+        outro = await criar_usuario(db_conn, client, "EV", "ev-aprova@teste.com")
+        segunda = (await client.post(f"/crm/propostas/{p['id']}/aprovar",
+                                     headers=outro["headers"])).json()
+        assert segunda["aprovada_em"] == primeira["aprovada_em"]
+        assert segunda["aprovada_por_nome"] == primeira["aprovada_por_nome"]
+
+    async def test_versao_nova_nasce_sem_aprovacao(self, db_conn, client, usuario_adm):
+        h = usuario_adm["headers"]
+        opp, p = await self._gerada(client, h)
+        await client.post(f"/crm/propostas/{p['id']}/aprovar", headers=h)
+        conta_id = p["itens"][0]["conta_id"]
+        v2 = (await client.post(f"/crm/oportunidades/{opp['id']}/propostas",
+                                json=corpo([{"conta_id": conta_id, "vidas": 6}]),
+                                headers=h)).json()
+        assert v2["versao"] == 2 and v2["aprovada_em"] is None
+
+    async def test_inexistente_404(self, db_conn, client, usuario_adm):
+        r = await client.post(f"/crm/propostas/{uuid.uuid4()}/aprovar",
+                              headers=usuario_adm["headers"])
+        assert r.status_code == 404
+
+
+class TestPropriedadesDoArquivo:
+    async def test_titulo_do_arquivo_e_do_cliente_certo(self, db_conn, client, usuario_adm):
+        """
+        051: o modelo carregava o título de outra proposta ("SOLAR DOS
+        PAMPAS") e todo PDF saía com o nome de outro cliente na barra.
+        """
+        from pptx import Presentation
+
+        h = usuario_adm["headers"]
+        opp, contas = await grupo(client, h, filiais=0)
+        p = (await client.post(f"/crm/oportunidades/{opp['id']}/propostas",
+                               json=corpo([{"conta_id": contas[0]["id"], "vidas": 4}]),
+                               headers=h)).json()
+        r = await client.get(f"/crm/propostas/{p['id']}/arquivo", headers=h)
+        props = Presentation(BytesIO(r.content)).core_properties
+        assert props.title == "Proposta Comercial - PATIMIRIM PARTICIPACOES LTDA"
+        assert "SOLAR" not in (props.title or "")
+        assert props.author == p["executivo_nome"]

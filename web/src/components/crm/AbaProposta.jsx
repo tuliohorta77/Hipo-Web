@@ -16,11 +16,18 @@
 // Duas modalidades:
 //   * Tabela por faixa — o valor de cada CNPJ vem da tabela de preços
 //     (até 5 vidas R$ 180, ...) e pode ser negociado; a tela mostra o
-//     desconto contra a tabela.
+//     desconto contra a tabela. A TABELA NÃO VAI PARA O CLIENTE (051): no
+//     arquivo, cada CNPJ mostra a faixa ("16 a 20 vidas"), e o rodapé o
+//     valor por vida excedente que o EV escolheu aqui.
 //   * Valor por vida — vidas x valor por vida, derivado (não se digita).
 //
 // O arquivo sai consolidado (todos os CNPJs, no estilo do material
 // "VARIOS CNPJs") ou só de um CNPJ, pela lista da versão.
+//
+// ── Ver e aprovar (051) ──────────────────────────────────────────────
+// Gerar abre o visualizador (VisualizadorProposta): o EV vê o PDF que o
+// cliente vai receber e aprova. Só versão aprovada vai anexada na aba
+// E-mails — o vendedor não precisa mais baixar e abrir no PC.
 //
 // ── Por que versão, e não edição ─────────────────────────────────────
 // Proposta enviada não se corrige: se refaz. Cada geração vira uma versão
@@ -31,7 +38,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   FileText, Plus, X, Download, FileType2, Loader2, History, Building2,
-  ChevronDown, ChevronRight, Send,
+  ChevronDown, ChevronRight, Send, Eye,
 } from 'lucide-react';
 
 import api from '../../api';
@@ -42,6 +49,7 @@ import Empty from '../ui/Empty';
 import AlertMessage from '../ui/AlertMessage';
 import EntityPicker from '../EntityPicker';
 import TabelaPrecos from './TabelaPrecos';
+import VisualizadorProposta from './VisualizadorProposta';
 import {
   numero, valorTabela, descontoPercentual, mensalidadeDaLinha,
 } from './propostaCalculo';
@@ -256,15 +264,27 @@ function LinhaCnpj({
 
 // ── Uma versão na lista ──────────────────────────────────────────────
 
-function BotoesArquivo({ ocupado, pdfDisponivel, onBaixar, onEnviar }) {
+function BotoesArquivo({
+  ocupado, pdfDisponivel, aprovada, onBaixar, onEnviar, onVer,
+}) {
   return (
-    <div className="flex gap-1 shrink-0">
+    <div className="flex flex-wrap justify-end gap-1 shrink-0">
+      {/*
+        051: "Ver" abre o visualizador do HIPO — conferir não exige mais
+        baixar e abrir no PC. É lá que o EV aprova.
+      */}
+      {onVer && (
+        <Button size="sm" variant={aprovada ? 'secondary' : 'primary'} icon={Eye}
+          disabled={ocupado} onClick={onVer}>
+          {aprovada ? 'Ver' : 'Ver e aprovar'}
+        </Button>
+      )}
       {/*
         050: a proposta vai por e-mail em PDF, da caixa do vendedor. Mesma
         regra do botão de PDF: sem LibreOffice no servidor, não há anexo, e
-        o botão não aparece.
+        o botão não aparece. 051: e só depois do ok do EV.
       */}
-      {onEnviar && pdfDisponivel && (
+      {onEnviar && pdfDisponivel && aprovada && (
         <Button size="sm" variant="secondary" icon={Send} disabled={ocupado}
           onClick={onEnviar} aria-label="Enviar por e-mail">
           E-mail
@@ -289,7 +309,7 @@ function BotoesArquivo({ ocupado, pdfDisponivel, onBaixar, onEnviar }) {
   );
 }
 
-function Versao({ proposta, ocupado, pdfDisponivel, onBaixar, onEnviar }) {
+function Versao({ proposta, ocupado, pdfDisponivel, onBaixar, onEnviar, onVer }) {
   const [aberta, setAberta] = useState(false);
   const itens = proposta.itens || [];
   const varios = itens.length > 1;
@@ -297,7 +317,9 @@ function Versao({ proposta, ocupado, pdfDisponivel, onBaixar, onEnviar }) {
   return (
     <li className="border border-hipo-border rounded-lg p-3 bg-hipo-card">
       <div className="flex items-start gap-2">
-        <Badge tone="info">v{proposta.versao}</Badge>
+        <div className="flex flex-col items-start gap-1 shrink-0">
+          <Badge tone="info">v{proposta.versao}</Badge>
+        </div>
         <div className="min-w-0 flex-1">
           <p className="text-sm font-medium text-hipo-ink">
             {formatarMoeda(proposta.investimento)}
@@ -320,12 +342,23 @@ function Versao({ proposta, ocupado, pdfDisponivel, onBaixar, onEnviar }) {
               && proposta.criado_por_nome !== proposta.executivo_nome
               && ` · gerada por ${proposta.criado_por_nome}`}
           </p>
+          <p className="mt-1">
+            {proposta.aprovada_em ? (
+              <Badge tone="success">
+                Aprovada{proposta.aprovada_por_nome ? ` por ${proposta.aprovada_por_nome}` : ''}
+              </Badge>
+            ) : (
+              <Badge tone="warning">Aguardando aprovação</Badge>
+            )}
+          </p>
         </div>
         <BotoesArquivo
           ocupado={ocupado}
           pdfDisponivel={pdfDisponivel}
+          aprovada={Boolean(proposta.aprovada_em)}
           onBaixar={(formato) => onBaixar(proposta, formato)}
           onEnviar={onEnviar ? () => onEnviar(proposta) : undefined}
+          onVer={onVer ? () => onVer(proposta) : undefined}
         />
       </div>
 
@@ -360,8 +393,10 @@ function Versao({ proposta, ocupado, pdfDisponivel, onBaixar, onEnviar }) {
                     <BotoesArquivo
                       ocupado={ocupado}
                       pdfDisponivel={pdfDisponivel}
+                      aprovada={Boolean(proposta.aprovada_em)}
                       onBaixar={(formato) => onBaixar(proposta, formato, i)}
                       onEnviar={onEnviar ? () => onEnviar(proposta, i) : undefined}
+                      onVer={onVer ? () => onVer(proposta, i) : undefined}
                     />
                   )}
                 </li>
@@ -390,6 +425,8 @@ export default function AbaProposta({ oportunidade, onGerada, onCnpjsMudaram, on
   const [linhas, setLinhas] = useState([]);
   const [tabela, setTabela] = useState(null);
   const [valorVida, setValorVida] = useState('');
+  const [excedente, setExcedente] = useState('');
+  const [visualizando, setVisualizando] = useState(null);
   const [treinamentos, setTreinamentos] = useState('0');
   const [laudos, setLaudos] = useState('0');
   const [escopo, setEscopo] = useState([]);
@@ -419,6 +456,8 @@ export default function AbaProposta({ oportunidade, onGerada, onCnpjsMudaram, on
       // A última proposta é o ponto de partida do "ajustar o desconto":
       // muda um valor, o resto continua igual.
       if (d.valor_por_vida != null) setValorVida(String(d.valor_por_vida));
+      // 051: o excedente da última proposta, ou a sugestão da tabela.
+      if (d.valor_vida_excedente != null) setExcedente(String(d.valor_vida_excedente));
 
       const ultimos = d.ultimos_itens || [];
       const cnpjs = d.cnpjs || [];
@@ -530,6 +569,7 @@ export default function AbaProposta({ oportunidade, onGerada, onCnpjsMudaram, on
         cidade: cidade.trim(),
       };
       if (modalidade === 'por_vida') corpo.valor_por_vida = numero(valorVida);
+      else corpo.valor_vida_excedente = numero(excedente);
 
       const { data } = await api.post(
         `/crm/oportunidades/${oportunidade.id}/propostas`, corpo,
@@ -539,7 +579,9 @@ export default function AbaProposta({ oportunidade, onGerada, onCnpjsMudaram, on
       // é o que mantém o cartão do funil e o trilho coerentes com o que
       // acabou de ser gerado.
       onGerada?.(data);
-      await baixar(data, 'pptx');
+      // 051: em vez de baixar, abre o visualizador — o EV confere aqui e
+      // aprova, sem sair do HIPO.
+      setVisualizando({ proposta: data, item: null });
     } catch (err) {
       setErro(mensagemDeErro(err, 'Não foi possível gerar a proposta.'));
     } finally {
@@ -607,6 +649,7 @@ export default function AbaProposta({ oportunidade, onGerada, onCnpjsMudaram, on
     && incluidas.length > 0
     && incluidas.every((l) => Number(l.vidas) >= 1)
     && (modalidade !== 'por_vida' || numero(valorVida) > 0)
+    && (modalidade !== 'tabela' || numero(excedente) > 0)
     && totais.completo && totais.mensal > 0
     && escopo.some((i) => i.trim())
     && dataProposta && validade && validade >= dataProposta;
@@ -638,6 +681,28 @@ export default function AbaProposta({ oportunidade, onGerada, onCnpjsMudaram, on
                 step="0.01"
                 value={valorVida}
                 onChange={(e) => setValorVida(e.target.value)}
+              />
+            </div>
+          )}
+
+          {/*
+            051: na modalidade tabela, o que cada vida acima do plano
+            acrescenta. Sai no rodapé da proposta ("Para cada vida adicional,
+            será acrescido o valor de R$ 15,00 mensais"). A tabela de preço
+            em si não vai para o cliente.
+          */}
+          {modalidade === 'tabela' && (
+            <div className="max-w-[16rem]">
+              <Input
+                label="Valor por vida excedente (R$)"
+                type="number"
+                min="0"
+                step="0.01"
+                value={excedente}
+                onChange={(e) => setExcedente(e.target.value)}
+                hint={tabela?.excedente_padrao
+                  ? `Tabela: ${formatarMoeda(tabela.excedente_padrao)} por vida acima do plano`
+                  : 'Por vida acima do plano escolhido'}
               />
             </div>
           )}
@@ -842,8 +907,8 @@ export default function AbaProposta({ oportunidade, onGerada, onCnpjsMudaram, on
             {gerando ? 'Gerando…' : 'Gerar proposta'}
           </Button>
           <p className="text-xs text-hipo-muted">
-            Gerar cria a versão {(versoes[0]?.versao ?? 0) + 1} e baixa o PPTX
-            {incluidas.length > 1 ? ' consolidado. A proposta de cada CNPJ fica na versão.' : '.'}
+            Gerar cria a versão {(versoes[0]?.versao ?? 0) + 1} e abre a proposta
+            para você conferir e aprovar. Só proposta aprovada vai por e-mail.
           </p>
         </div>
 
@@ -870,6 +935,7 @@ export default function AbaProposta({ oportunidade, onGerada, onCnpjsMudaram, on
                   pdfDisponivel={padrao?.pdf_disponivel}
                   onBaixar={baixar}
                   onEnviar={onEnviarPorEmail}
+                  onVer={(prop, item) => setVisualizando({ proposta: prop, item: item || null })}
                 />
               ))}
             </ul>
@@ -893,6 +959,18 @@ export default function AbaProposta({ oportunidade, onGerada, onCnpjsMudaram, on
           )}
         </div>
       </div>
+
+      <VisualizadorProposta
+        proposta={visualizando?.proposta || null}
+        itemInicial={visualizando?.item || null}
+        pdfDisponivel={padrao?.pdf_disponivel}
+        onFechar={() => setVisualizando(null)}
+        onBaixar={baixar}
+        onAprovada={(aprovada) => {
+          setVersoes((atual) => atual.map((v) => (v.id === aprovada.id ? aprovada : v)));
+          setVisualizando((v) => (v ? { ...v, proposta: aprovada } : v));
+        }}
+      />
     </div>
   );
 }

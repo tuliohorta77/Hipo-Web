@@ -212,7 +212,8 @@ def substituicoes(
     cidade: str = CIDADE_PADRAO,
     mensal: Decimal | None = None,
     sem_extras: bool = False,
-    faixas: list[dict] | None = None,
+    qtd_cnpjs: int = 1,
+    valor_excedente: Decimal | None = None,
 ) -> dict[str, str]:
     """
     O mapa marcador -> texto que o render aplica no modelo.
@@ -242,7 +243,17 @@ def substituicoes(
         "{{TREINAMENTOS}}": "—" if sem_extras else moeda(treinamentos),
         "{{LAUDOS}}": "—" if sem_extras else moeda(laudos),
         "{{INVESTIMENTO}}": moeda(investimento(mensal, treinamentos, laudos)),
-        "{{TABELA_RODAPE}}": rodape_tabela(faixas or TABELA_PADRAO),
+        # 051: o rótulo da mensalidade fala quantos CNPJs ela cobre — é a
+        # frase que o material da equipe usava ("Mensalidade total para os
+        # 5 CNPJs - R$ 4.500,00").
+        "{{ROTULO_MENSALIDADE}}": rotulo_mensalidade(qtd_cnpjs),
+        # O que cada vida além do contratado acrescenta. Na modalidade
+        # tabela é um campo da proposta (o EV escolhe); na por vida é o
+        # próprio valor por vida, e o slide dela já usa {{VALOR_VIDA}}.
+        "{{VALOR_EXCEDENTE}}": (
+            moeda(valor_excedente) if valor_excedente
+            else (moeda(valor_por_vida) if valor_por_vida else "—")
+        ),
         "{{EXECUTIVO_NOME}}": executivo_nome,
         "{{EXECUTIVO_EMAIL}}": executivo_email,
         "{{EXECUTIVO_TELEFONE}}": (executivo_telefone or "").strip() or "—",
@@ -305,25 +316,15 @@ TABELA_PADRAO: list[dict] = [
 MAX_FAIXAS = 8
 MAX_CNPJS = 30
 
-# Texto fixo do rodapé do slide da tabela; a frase do excedente é montada
-# a partir da faixa aberta.
-RODAPE_TABELA_BASE = (
-    "Assessoria permanente em segurança e Medicina do Trabalho enquanto "
-    "vigorar o contrato*** Os exames complementares (quando necessários) "
-    "terão seus valores acertados de acordo com a tabela vigente na data de "
-    "realização. A mensalidade apresentada considera o número de vidas "
-    "informado nesta proposta."
-)
-
 # ── Capacidade da lista no slide ──
 #
 # A caixa do escopo tem altura fixa e entrelinha fixa (36,39 pt). Contado
 # no material: no slide por vida cabem 9 linhas acima do quadro de
-# investimento; no slide da tabela, 12 acima da mensalidade. Passando
+# investimento; no slide da modalidade tabela, 12 acima da mensalidade. Passando
 # disso, fonte e entrelinha encolhem juntas até ESCALA_MINIMA — abaixo
 # dela o texto fica pequeno demais para um cliente ler, e a proposta é
 # recusada com a sugestão de gerar por CNPJ.
-CAPACIDADE_LINHAS = {"por_vida": 9, "tabela": 12, "faixas": 6}
+CAPACIDADE_LINHAS = {"por_vida": 9, "tabela": 12}
 CARACTERES_POR_LINHA = 88
 ESCALA_MINIMA = Decimal("0.6")
 
@@ -346,7 +347,7 @@ def normalizar_tabela(faixas: list[dict]) -> list[dict]:
         raise PropostaInvalida("A tabela precisa de pelo menos uma faixa.")
     if len(faixas) > MAX_FAIXAS:
         raise PropostaInvalida(
-            f"A tabela cabe em até {MAX_FAIXAS} faixas no slide."
+            f"A tabela tem no máximo {MAX_FAIXAS} faixas."
         )
 
     limpas = []
@@ -415,13 +416,27 @@ def valor_tabela(vidas: int, faixas: list[dict]) -> Decimal:
     return _dinheiro(f["valor"])
 
 
+def excedente_padrao(faixas: list[dict]) -> Decimal | None:
+    """
+    Sugestão do valor por vida excedente: o valor da faixa aberta quando
+    ela é cobrada por vida (R$ 15,00 na tabela da MedSeg). Faixa aberta de
+    valor fixo não diz quanto vale UMA vida — aí não há sugestão.
+    """
+    aberta = next((f for f in faixas if f["vidas_ate"] is None), None)
+    if aberta and aberta["tipo"] == "por_vida":
+        return _dinheiro(aberta["valor"])
+    return None
+
+
 def _dois(n: int) -> str:
     return f"{n:02d}"
 
 
 def linhas_tabela(faixas: list[dict]) -> list[str]:
     """
-    As linhas do slide da tabela, no texto do material:
+    A tabela por extenso, para a TELA (card "Tabela de preços" da aba
+    Proposta). Não vai para o arquivo do cliente desde a 051 — lá aparece só
+    a faixa de cada CNPJ (`rotulo_faixa`).
 
         CNPJs até 05 funcionários registrados – R$ 180,00 mensais
         CNPJs entre 06 e 10 funcionários registrados – R$ 220,00 mensais
@@ -446,33 +461,6 @@ def linhas_tabela(faixas: list[dict]) -> list[str]:
         if f["vidas_ate"] is not None:
             anterior = f["vidas_ate"]
     return linhas
-
-
-def rodape_tabela(faixas: list[dict]) -> str:
-    """
-    O rodapé do slide da tabela. A frase do excedente sai da faixa aberta
-    — escrita fixa no slide, ela mentiria no primeiro reajuste.
-    """
-    aberta = faixas[-1]
-    fechadas = [f for f in faixas if f["vidas_ate"] is not None]
-    if not fechadas:
-        return RODAPE_TABELA_BASE
-    limite = fechadas[-1]["vidas_ate"]
-    if aberta["tipo"] == "por_vida":
-        excedente = (
-            f" Fica estabelecido que cada vida adicional que ultrapassar o "
-            f"limite de {limite} funcionários acarretará o acréscimo de "
-            f"{moeda(aberta['valor'])} ao valor mensal."
-        )
-    else:
-        excedente = (
-            f" Acima de {limite} funcionários, a mensalidade é de "
-            f"{moeda(aberta['valor'])}."
-        )
-    return (
-        f"{RODAPE_TABELA_BASE}{excedente} Para até {limite} vidas, "
-        "prevalecem os valores indicados na tabela acima."
-    )
 
 
 # ── Itens (CNPJs) ────────────────────────────────────────────────────
@@ -546,22 +534,68 @@ def desconto_percentual(mensal: Decimal | None, tabela: Decimal | None) -> Decim
     return ((t - m) / t * 100).quantize(Decimal("0.1"), rounding=ROUND_HALF_UP)
 
 
-def linha_cnpj(item: dict) -> str:
+def rotulo_mensalidade(qtd_cnpjs: int) -> str:
+    """
+    >>> rotulo_mensalidade(1)
+    'Mensalidade'
+    >>> rotulo_mensalidade(5)
+    'Mensalidade total para os 5 CNPJs -'
+    """
+    if qtd_cnpjs > 1:
+        return f"Mensalidade total para os {qtd_cnpjs} CNPJs -"
+    return "Mensalidade"
+
+
+def rotulo_faixa(vidas: int, faixas: list[dict]) -> str:
+    """
+    Como as vidas de um CNPJ aparecem na proposta da modalidade tabela.
+
+    A tabela de preço NÃO vai para o cliente (decisão do Tulio, 07/10): ela
+    é a base do vendedor. O cliente vê a FAIXA em que o CNPJ foi
+    enquadrado; acima da última faixa fechada, o número de vidas — é lá que
+    o preço passa a ser por vida.
+
+    >>> rotulo_faixa(18, TABELA_PADRAO)
+    '16 a 20 vidas'
+    >>> rotulo_faixa(4, TABELA_PADRAO)
+    '1 a 5 vidas'
+    >>> rotulo_faixa(200, TABELA_PADRAO)
+    '200 vidas'
+    """
+    anterior = 0
+    for f in faixas:
+        if f["vidas_ate"] is None:
+            break
+        if vidas <= f["vidas_ate"]:
+            inicio, fim = anterior + 1, f["vidas_ate"]
+            if inicio == fim:
+                return f"{fim} vida{'s' if fim != 1 else ''}"
+            return f"{inicio} a {fim} vidas"
+        anterior = f["vidas_ate"]
+    return f"{vidas} vida{'s' if vidas != 1 else ''}"
+
+
+def linha_cnpj(item: dict, faixas: list[dict] | None = None) -> str:
     """
     A linha de um CNPJ no slide, no formato do material:
 
-        METALURGICA ALFA LTDA (11.222.333/0001-81) - 4 vidas - Mensalidade R$ 180,00
+        METALURGICA ALFA LTDA (11.222.333/0001-81) - 16 a 20 vidas - Mensalidade R$ 300,00
 
-    A razão social é cortada em 34 caracteres para a linha caber numa só —
-    linha que dobra come o espaço de outro CNPJ.
+    Com `faixas` (modalidade tabela) as vidas saem como a faixa; sem, como
+    o número. A razão social é cortada em 34 caracteres para a linha caber
+    numa só — linha que dobra come o espaço de outro CNPJ.
     """
     from services.cnpj import formatar
     razao = " ".join((item.get("razao_social") or "").split())
     if len(razao) > 34:
         razao = razao[:33].rstrip() + "…"
     vidas = int(item["vidas"])
+    if faixas:
+        quantidade = rotulo_faixa(vidas, faixas)
+    else:
+        quantidade = f"{vidas} vida{'s' if vidas != 1 else ''}"
     return (
-        f"{razao} ({formatar(item['cnpj'])}) - {vidas} vida{'s' if vidas != 1 else ''}"
+        f"{razao} ({formatar(item['cnpj'])}) - {quantidade}"
         f" - Mensalidade {moeda(item['mensalidade'])}"
     )
 
@@ -574,15 +608,25 @@ def linhas_da_lista(
     treinamentos: Decimal = Decimal(0),
     laudos: Decimal = Decimal(0),
     consolidada: bool = True,
+    faixas: list[dict] | None = None,
 ) -> list[str]:
     """
     O que vai na lista do slide do escopo: os itens de escopo, depois uma
-    linha por CNPJ (só na consolidada com mais de um), depois os extras na
-    modalidade tabela — que não tem o quadro de investimento onde eles
-    apareciam.
+    linha por CNPJ, depois os extras na modalidade tabela — que não tem o
+    quadro de investimento onde eles apareciam.
+
+    `itens` são os CNPJs QUE ESTE ARQUIVO MOSTRA: todos na consolidada, só
+    um na proposta por CNPJ.
+
+    Modalidade tabela: sempre há linha de CNPJ, mesmo com um só — é nela
+    que aparece a faixa contratada ("16 a 20 vidas"), já que a tabela não
+    vai para o cliente. Modalidade por vida: só com mais de um CNPJ (com
+    um, o quadro de investimento já diz tudo).
     """
     linhas = list(escopo)
-    if consolidada and len(itens) > 1:
+    if modalidade == "tabela":
+        linhas += [linha_cnpj(i, faixas or TABELA_PADRAO) for i in itens]
+    elif len(itens) > 1:
         linhas += [linha_cnpj(i) for i in itens]
     if consolidada and modalidade == "tabela":
         if treinamentos and Decimal(str(treinamentos)) > 0:
@@ -619,8 +663,10 @@ def validar_itens(
     escopo: list[str],
     treinamentos: Decimal = Decimal(0),
     laudos: Decimal = Decimal(0),
+    valor_excedente: Decimal | None = None,
+    faixas: list[dict] | None = None,
 ) -> None:
-    """Regras da 042, depois de `validar`. Mensagens para o vendedor."""
+    """Regras da 042/051, depois de `validar`. Mensagens para o vendedor."""
     if modalidade not in MODALIDADES:
         raise PropostaInvalida("Modalidade inválida: use por vida ou tabela.")
     if modalidade == "por_vida" and (valor_por_vida is None or Decimal(valor_por_vida) <= 0):
@@ -645,10 +691,17 @@ def validar_itens(
             raise PropostaInvalida("A mensalidade de um CNPJ não pode ser negativa.")
     if total_itens(itens) <= 0:
         raise PropostaInvalida("A mensalidade total precisa ser maior que zero.")
+    if modalidade == "tabela" and (
+        valor_excedente is None or Decimal(str(valor_excedente)) <= 0
+    ):
+        raise PropostaInvalida(
+            "Informe o valor por vida excedente — é o que o cliente paga por "
+            "vida acima do plano escolhido."
+        )
 
     linhas = linhas_da_lista(
         modalidade=modalidade, escopo=escopo, itens=itens,
-        treinamentos=treinamentos, laudos=laudos,
+        treinamentos=treinamentos, laudos=laudos, faixas=faixas,
     )
     if escala_da_lista(linhas, CAPACIDADE_LINHAS[modalidade]) is None:
         raise PropostaInvalida(

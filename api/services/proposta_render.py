@@ -12,10 +12,13 @@ os campos variáveis trocados por marcadores `{{ASSIM}}`. Os slides 1 a 4
 são institucionais e não têm marcador nenhum — o código nem os visita.
 
 Desde a 042 o modelo tem os slides das DUAS modalidades (5: escopo com
-quadro de investimento, por vida; 6 e 7: tabela de preços e escopo com
-mensalidade, tabela). Cada um leva a etiqueta `hipo-modalidade:<x>` no
-nome de um shape, e `montar_pptx` apaga os da modalidade que não foi
+quadro de investimento, por vida; 6: escopo com uma linha por CNPJ e a
+mensalidade total, tabela). Cada um leva a etiqueta `hipo-modalidade:<x>`
+no nome de um shape, e `montar_pptx` apaga os da modalidade que não foi
 escolhida antes de preencher.
+
+A 051 tirou o slide da tabela de preços: a tabela é base do vendedor e não
+vai para o cliente. O cliente vê a faixa de cada CNPJ na própria linha.
 
 Cada marcador vive num run ÚNICO dentro do parágrafo. Isso não é detalhe:
 o PowerPoint quebra texto em runs por corretor ortográfico e formatação, e
@@ -58,7 +61,14 @@ from pathlib import Path
 CAMINHO_MODELO = Path(__file__).resolve().parent.parent / "templates" / "proposta_modelo.pptx"
 
 MARCADOR_ESCOPO = "{{ESCOPO_ITEM}}"
-MARCADOR_FAIXA = "{{FAIXA_ITEM}}"
+
+# A caixa "Mensalidade total para os 5 CNPJs - R$ 4.500,00" (slide da
+# modalidade tabela). O texto muda de tamanho com o número de CNPJs e com o
+# valor; acima de CARACTERES_MENSALIDADE a fonte encolhe para a frase caber
+# numa linha, até ESCALA_MINIMA_MENSALIDADE.
+SHAPE_MENSALIDADE = "hipo-mensalidade"
+CARACTERES_MENSALIDADE = 34
+ESCALA_MINIMA_MENSALIDADE = 0.6
 
 # Os slides que só valem para uma modalidade levam esta etiqueta no nome de
 # um shape (ver scripts/gerar_modelo_proposta_tabela.py). Slide sem
@@ -207,6 +217,45 @@ def _preencher_escopo(slide, itens: list[str], escala=None) -> bool:
     return _preencher_lista(slide, MARCADOR_ESCOPO, itens, escala)
 
 
+def _propriedades(prs, substituicoes: dict[str, str]) -> None:
+    """
+    Título e autor do ARQUIVO (não dos slides): é o que o leitor de PDF
+    mostra na barra e o que o Windows mostra em Propriedades.
+
+    O modelo veio do material de outra proposta, e o título dele era
+    "(modelo) Proposta Comercial - SOLAR DOS PAMPAS ..." — todo PDF gerado
+    levava o nome de outro cliente na barra do visualizador. Visto no
+    visualizador da 051.
+    """
+    cliente = substituicoes.get("{{CLIENTE}}", "").strip()
+    executivo = substituicoes.get("{{EXECUTIVO_NOME}}", "").strip()
+    props = prs.core_properties
+    props.title = f"Proposta Comercial - {cliente}" if cliente else "Proposta Comercial"
+    props.subject = ""
+    props.keywords = ""
+    props.comments = ""
+    props.author = executivo
+    props.last_modified_by = executivo
+
+
+def _caber_numa_linha(shape) -> None:
+    """
+    Encolhe a fonte da caixa da mensalidade quando a frase passa de
+    CARACTERES_MENSALIDADE. Proporcional ao comprimento: "Mensalidade
+    R$ 300,00" fica do tamanho do material; "Mensalidade total para os 12
+    CNPJs - R$ 14.500,00" encolhe o bastante para não quebrar a linha.
+    """
+    from pptx.oxml.ns import qn
+    texto = shape.text_frame.text.strip()
+    if len(texto) <= CARACTERES_MENSALIDADE:
+        return
+    fator = max(ESCALA_MINIMA_MENSALIDADE, CARACTERES_MENSALIDADE / len(texto))
+    for rpr in shape._element.iter(qn("a:rPr")):
+        base = rpr.get("sz")
+        if base:
+            rpr.set("sz", str(round(int(base) * fator)))
+
+
 def _modalidade_do_slide(slide) -> str | None:
     """A etiqueta `hipo-modalidade:<x>` no nome de um shape, se houver."""
     for shape in slide.shapes:
@@ -235,9 +284,7 @@ def montar_pptx(
     caminho_modelo: Path | str | None = None,
     *,
     modalidade: str = "por_vida",
-    faixas: list[str] | None = None,
     escala_escopo=None,
-    escala_faixas=None,
 ) -> bytes:
     """
     Devolve o .pptx preenchido, em memória.
@@ -268,9 +315,12 @@ def montar_pptx(
 
     for slide in prs.slides:
         _preencher_escopo(slide, escopo, escala_escopo)
-        _preencher_lista(slide, MARCADOR_FAIXA, faixas or [], escala_faixas)
         for shape in slide.shapes:
             _substituir_no_texto(shape, substituicoes)
+            if shape.name == SHAPE_MENSALIDADE:
+                _caber_numa_linha(shape)
+
+    _propriedades(prs, substituicoes)
 
     buffer = BytesIO()
     prs.save(buffer)

@@ -213,7 +213,8 @@ function opcoesDeProposta(versoes) {
 }
 
 function Compositor({
-  oportunidade, modelos, contatos, versoes, preset, pdfDisponivel, onEnviado, onCancelar,
+  oportunidade, modelos, contatos, versoes, pendentes = 0, preset, pdfDisponivel, onEnviado,
+  onCancelar,
 }) {
   const oppId = oportunidade.id;
   const principal = contatos.find((c) => c.principal) || contatos[0];
@@ -343,7 +344,7 @@ function Compositor({
           onChange={(e) => setPropostaSel(e.target.value)}
           disabled={versoes.length === 0}
         >
-          <option value="">{versoes.length ? 'Sem anexo' : 'Nenhuma proposta gerada'}</option>
+          <option value="">{versoes.length ? 'Sem anexo' : 'Nenhuma proposta aprovada'}</option>
           {opcoesDeProposta(versoes).map((o) => <option key={o.valor} value={o.valor}>{o.rotulo}</option>)}
         </Select>
       </div>
@@ -355,6 +356,13 @@ function Compositor({
             Preencher de novo
           </button>{' '}
           (substitui o que você escreveu).
+        </AlertMessage>
+      )}
+      {modeloAtual?.anexa_proposta && versoes.length === 0 && (
+        <AlertMessage tipo="aviso">
+          {pendentes > 0
+            ? 'Há proposta gerada esperando aprovação. Abra-a na aba Proposta, confira o arquivo e clique em Aprovar — só proposta aprovada vai anexada.'
+            : 'Nenhuma proposta aprovada nesta oportunidade. Gere e aprove na aba Proposta.'}
         </AlertMessage>
       )}
       {avisos.length > 0 && (
@@ -414,6 +422,7 @@ export default function AbaEmails({ oportunidade, preset, onPresetUsado, agora }
   const [config, setConfig] = useState(null);
   const [contatos, setContatos] = useState([]);
   const [versoes, setVersoes] = useState([]);
+  const [pendentes, setPendentes] = useState(0);
   const [compondo, setCompondo] = useState(null);
   const [verificando, setVerificando] = useState(false);
   const [aviso, setAviso] = useState(null);
@@ -431,7 +440,11 @@ export default function AbaEmails({ oportunidade, preset, onPresetUsado, agora }
       setEmails(l.data);
       setConfig(m.data);
       setContatos(c.data || []);
-      setVersoes(p.data || []);
+      // 051: só proposta APROVADA (vista no visualizador da aba Proposta)
+      // vai anexada. O servidor recusa as outras; aqui elas nem aparecem.
+      const todas = p.data || [];
+      setVersoes(todas.filter((v) => v.aprovada_em));
+      setPendentes(todas.filter((v) => !v.aprovada_em).length);
     } catch (err) {
       setErro(mensagemDeErro(err, 'Não foi possível carregar os e-mails.'));
       setEmails((e) => e || []);
@@ -525,6 +538,7 @@ export default function AbaEmails({ oportunidade, preset, onPresetUsado, agora }
           modelos={config.modelos}
           contatos={contatos}
           versoes={versoes}
+          pendentes={pendentes}
           preset={compondo}
           pdfDisponivel={config.pdf_disponivel}
           onCancelar={() => setCompondo(null)}

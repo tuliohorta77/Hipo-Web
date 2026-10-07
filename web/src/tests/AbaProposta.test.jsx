@@ -49,7 +49,7 @@ const TABELA = {
     'CNPJs até 05 funcionários registrados – R$ 180,00 mensais',
     'CNPJs acima de 20 funcionários registrados – R$ 15,00 por funcionário/mês',
   ],
-  rodape: '...',
+  excedente_padrao: '15.00',
   padrao: true,
   atualizado_em: null,
   atualizado_por_nome: null,
@@ -76,6 +76,7 @@ const PADRAO = {
   modalidade: 'tabela',
   vidas: null,
   valor_por_vida: null,
+  valor_vida_excedente: '15.00',
   ultimos_itens: [],
   cnpjs: [MATRIZ],
   tabela: TABELA,
@@ -108,6 +109,8 @@ const V1 = {
   executivo_email: 'bruno@controllermedseg.com',
   executivo_telefone: '+55 (11) 9 9571-3682',
   criado_por_nome: 'Bruno Gonçalo', criado_em: '2026-09-04T12:00:00Z',
+  valor_vida_excedente: '15.00',
+  aprovada_em: '2026-09-04T12:05:00Z', aprovada_por_nome: 'Bruno Gonçalo',
 };
 
 function respostas(padrao = PADRAO, versoes = []) {
@@ -585,5 +588,108 @@ describe('AbaProposta — telefone do executivo', () => {
     montar();
     await vidasDe('Metalurgica Alfa LTDA');
     expect(screen.queryByText(/telefone não está no cadastro/)).not.toBeInTheDocument();
+  });
+});
+
+// ── 051: excedente, visualizador e aprovação ─────────────────────────
+
+const PENDENTE = { ...V1, id: 'p2', versao: 2, aprovada_em: null, aprovada_por_nome: null };
+
+function comPdf(versoes = [PENDENTE], padrao = PADRAO) {
+  mockGet.mockImplementation((url, cfg) => {
+    if (url.startsWith('/crm/propostas/') && url.endsWith('/arquivo')) {
+      return Promise.resolve({ data: new Blob(['%PDF'], { type: 'application/pdf' }), headers: {} });
+    }
+    return respostas(padrao, versoes)(url, cfg);
+  });
+}
+
+describe('AbaProposta — valor por vida excedente (051)', () => {
+  it('vem preenchido e vai no corpo da modalidade tabela', async () => {
+    mockGet.mockImplementation(respostas());
+    montar();
+    fireEvent.change(await vidasDe('Metalurgica Alfa LTDA'), { target: { value: '4' } });
+    const campo = screen.getByLabelText('Valor por vida excedente (R$)');
+    expect(campo.value).toBe('15.00');
+    fireEvent.change(campo, { target: { value: '12.5' } });
+    fireEvent.click(screen.getByText('Gerar proposta'));
+    await waitFor(() => expect(mockPost).toHaveBeenCalled());
+    expect(mockPost.mock.calls[0][1].valor_vida_excedente).toBe(12.5);
+  });
+
+  it('sem excedente não gera na modalidade tabela', async () => {
+    montar();
+    fireEvent.change(await vidasDe('Metalurgica Alfa LTDA'), { target: { value: '4' } });
+    fireEvent.change(screen.getByLabelText('Valor por vida excedente (R$)'), { target: { value: '' } });
+    expect(screen.getByText('Gerar proposta').closest('button')).toBeDisabled();
+  });
+
+  it('na modalidade por vida o campo some', async () => {
+    montar();
+    await vidasDe('Metalurgica Alfa LTDA');
+    fireEvent.click(screen.getByRole('radio', { name: 'Valor por vida' }));
+    expect(screen.queryByLabelText('Valor por vida excedente (R$)')).not.toBeInTheDocument();
+  });
+});
+
+describe('AbaProposta — ver e aprovar (051)', () => {
+  it('gerar abre o visualizador com o PDF, em vez de baixar', async () => {
+    comPdf([]);
+    mockPost.mockResolvedValue({ data: PENDENTE });
+    montar();
+    fireEvent.change(await vidasDe('Metalurgica Alfa LTDA'), { target: { value: '4' } });
+    fireEvent.click(screen.getByText('Gerar proposta'));
+    expect(await screen.findByTitle('Visualização da proposta')).toBeInTheDocument();
+    const pdf = mockGet.mock.calls.find(([u]) => u === '/crm/propostas/p2/arquivo');
+    expect(pdf[1].params).toEqual({ formato: 'pdf' });
+    expect(mockGet.mock.calls.some(([, c]) => c?.params?.formato === 'pptx')).toBe(false);
+    expect(screen.getByRole('button', { name: /Aprovar para envio/ })).toBeInTheDocument();
+  });
+
+  it('versão pendente: badge, "Ver e aprovar" e nada de e-mail', async () => {
+    comPdf();
+    montar({ onEnviarPorEmail: vi.fn() });
+    const lista = within(await screen.findByLabelText('Versões da proposta'));
+    expect(lista.getByText('Aguardando aprovação')).toBeInTheDocument();
+    expect(lista.getByRole('button', { name: 'Ver e aprovar' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Enviar por e-mail' })).not.toBeInTheDocument();
+  });
+
+  it('aprovar no visualizador libera o e-mail da versão', async () => {
+    comPdf();
+    mockPost.mockImplementation((url) => {
+      if (url === '/crm/propostas/p2/aprovar') {
+        return Promise.resolve({ data: {
+          ...PENDENTE, aprovada_em: '2026-10-07T15:00:00Z', aprovada_por_nome: 'Bruno Gonçalo',
+        } });
+      }
+      return Promise.reject(new Error(`POST inesperado: ${url}`));
+    });
+    montar({ onEnviarPorEmail: vi.fn() });
+    fireEvent.click(await screen.findByRole('button', { name: 'Ver e aprovar' }));
+    fireEvent.click(await screen.findByRole('button', { name: /Aprovar para envio/ }));
+    await waitFor(() => expect(mockPost).toHaveBeenCalledWith('/crm/propostas/p2/aprovar', {}));
+    expect(await screen.findAllByText(/Aprovada por Bruno Gonçalo/)).not.toHaveLength(0);
+    expect(screen.getAllByRole('button', { name: 'Enviar por e-mail' }).length).toBeGreaterThan(0);
+  });
+
+  it('com vários CNPJs, troca entre a consolidada e a de um CNPJ', async () => {
+    comPdf([V1]);
+    montar();
+    fireEvent.click(await screen.findByRole('button', { name: 'Ver' }));
+    await screen.findByTitle('Visualização da proposta');
+    fireEvent.change(screen.getByLabelText('Qual arquivo ver'), { target: { value: 'i2' } });
+    await waitFor(() => {
+      const ultima = mockGet.mock.calls.filter(([u]) => u === '/crm/propostas/p1/arquivo').at(-1);
+      expect(ultima[1].params).toEqual({ formato: 'pdf', item: 'i2' });
+    });
+  });
+
+  it('servidor sem PDF: avisa e oferece o PPTX', async () => {
+    comPdf([PENDENTE], { ...PADRAO, pdf_disponivel: false });
+    montar();
+    fireEvent.click(await screen.findByRole('button', { name: 'Ver e aprovar' }));
+    expect(await screen.findByText(/não gera PDF/)).toBeInTheDocument();
+    expect(screen.queryByTitle('Visualização da proposta')).not.toBeInTheDocument();
   });
 });

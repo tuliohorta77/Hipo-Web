@@ -2028,3 +2028,17 @@ CREATE INDEX IF NOT EXISTS idx_leituras_sensiveis_criado
 COMMENT ON TABLE leituras_sensiveis IS
     'Quem leu dado pessoal (contato, socio) e quando. Guarda os ids, nunca o conteudo.';
 
+-- =====================================================================
+-- 033 -- proposta: valor por vida excedente e aprovacao do EV. Detalhes
+-- no cabecalho de migrations/033_proposta_aprovacao_excedente.sql.
+-- =====================================================================
+ALTER TABLE propostas
+    ADD COLUMN IF NOT EXISTS valor_vida_excedente NUMERIC(12,2);
+ALTER TABLE propostas
+    ADD COLUMN IF NOT EXISTS aprovada_em TIMESTAMPTZ;
+ALTER TABLE propostas
+    ADD COLUMN IF NOT EXISTS aprovada_por UUID REFERENCES usuarios(id) ON DELETE SET NULL;
+
+ALTER TABLE propostas DROP CONSTRAINT IF EXISTS ck_proposta_excedente;
+ALTER TABLE propostas ADD CONSTRAINT ck_proposta_excedente
+    CHECK (valor_vida_excedente IS NULL OR valor_vida_excedente > 0);

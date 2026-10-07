@@ -266,6 +266,14 @@ async def _proposta_escolhida(
     proposta = await buscar_proposta(conn, proposta_id)
     if proposta["oportunidade_id"] != oportunidade_id:
         raise HTTPException(422, "Esta proposta é de outra oportunidade.")
+    # 051: só vai para o cliente a versão que o EV viu no visualizador e
+    # aprovou. Gerar e mandar sem olhar o arquivo é o erro que a trava evita.
+    if proposta.get("aprovada_em") is None:
+        raise HTTPException(
+            422,
+            f"A proposta v{proposta['versao']} ainda não foi aprovada. Abra-a na "
+            "aba Proposta, confira o arquivo e clique em Aprovar.",
+        )
     item = None
     if item_id is not None:
         item = next((i for i in proposta["itens"] if i["id"] == item_id), None)

@@ -86,6 +86,9 @@ class PropostaIn(BaseModel):
     itens: list[ItemIn] | None = Field(default=None, max_length=regras.MAX_CNPJS)
     treinamentos: Decimal = Field(default=Decimal(0), ge=0)
     laudos: Decimal = Field(default=Decimal(0), ge=0)
+    # 051: modalidade tabela -- o que cada vida acima do plano acrescenta.
+    # Em branco, a sugestao da tabela (valor da faixa aberta).
+    valor_vida_excedente: Decimal | None = Field(default=None, gt=0)
     escopo: list[str] = Field(..., min_length=1)
     data_proposta: date
     validade: date
@@ -149,6 +152,11 @@ class PropostaOut(BaseModel):
     executivo_telefone: str | None
     criado_por_nome: str | None
     criado_em: object
+    valor_vida_excedente: Decimal | None = None
+    # 051: o "ok" do EV depois de ver o arquivo no visualizador. Só
+    # proposta aprovada vai anexada no e-mail.
+    aprovada_em: datetime | None = None
+    aprovada_por_nome: str | None = None
 
 
 class CnpjDaOportunidade(BaseModel):
@@ -171,7 +179,8 @@ class VincularIn(BaseModel):
 class TabelaOut(BaseModel):
     faixas: list[FaixaPreco]
     linhas: list[str]
-    rodape: str
+    # Sugestão do valor por vida excedente (faixa aberta por vida).
+    excedente_padrao: Decimal | None
     # True quando o banco está vazio e vale a tabela padrão do código.
     padrao: bool
     atualizado_em: datetime | None
@@ -197,6 +206,7 @@ class PadraoProposta(BaseModel):
     modalidade: str
     vidas: int | None
     valor_por_vida: Decimal | None
+    valor_vida_excedente: Decimal | None
     # Itens da última proposta (conta_id -> vidas/mensalidade): o "ajustar
     # o desconto" de uma proposta com cinco CNPJs não pode obrigar a
     # redigitar as cinco linhas.
@@ -351,7 +361,7 @@ def _tabela_out(faixas: list[dict], meta: dict, user: dict) -> dict:
     return {
         "faixas": faixas,
         "linhas": regras.linhas_tabela(faixas),
-        "rodape": regras.rodape_tabela(faixas),
+        "excedente_padrao": regras.excedente_padrao(faixas),
         "pode_editar": _eh_gestao(user),
         **meta,
     }
@@ -383,9 +393,11 @@ async def _executivo(conn, executivo_id: UUID | None, user: dict) -> dict:
 async def _buscar(conn, proposta_id: UUID) -> dict:
     row = await conn.fetchrow(
         """
-        SELECT p.*, u.nome AS criado_por_nome, o.numero AS oportunidade_numero
+        SELECT p.*, u.nome AS criado_por_nome, o.numero AS oportunidade_numero,
+               ap.nome AS aprovada_por_nome
           FROM propostas p
           LEFT JOIN usuarios u     ON u.id = p.criado_por
+          LEFT JOIN usuarios ap    ON ap.id = p.aprovada_por
           JOIN oportunidades o     ON o.id = p.oportunidade_id
          WHERE p.id = $1
         """,
@@ -400,8 +412,11 @@ async def _buscar(conn, proposta_id: UUID) -> dict:
 def _montar_pptx(proposta: dict, item: dict | None = None) -> bytes:
     """
     Consolidada (item=None): todos os CNPJs, uma linha por CNPJ na lista.
-    Por CNPJ: cliente, vidas e mensalidade daquele CNPJ, sem a lista de
-    CNPJs e sem treinamentos/laudos (que são do negócio inteiro).
+    Por CNPJ: cliente, vidas e mensalidade daquele CNPJ, só a linha dele e
+    sem treinamentos/laudos (que são do negócio inteiro).
+
+    A tabela de preço não entra no arquivo (051): na modalidade tabela,
+    cada linha de CNPJ mostra a faixa em que ele foi enquadrado.
     """
     modalidade = proposta["modalidade"]
     faixas = proposta["tabela_preco"] or regras.TABELA_PADRAO
@@ -410,25 +425,22 @@ def _montar_pptx(proposta: dict, item: dict | None = None) -> bytes:
         cliente = proposta["cliente_razao_social"]
         vidas = proposta["vidas"]
         mensal = proposta["mensalidade"]
-        consolidada = True
+        mostrados = itens
     else:
         cliente = item["razao_social"]
         vidas = item["vidas"]
         mensal = Decimal(str(item["mensalidade"]))
-        consolidada = False
+        mostrados = [item]
 
     linhas = regras.linhas_da_lista(
-        modalidade=modalidade, escopo=proposta["escopo"], itens=itens,
+        modalidade=modalidade, escopo=proposta["escopo"], itens=mostrados,
         treinamentos=proposta["treinamentos"], laudos=proposta["laudos"],
-        consolidada=consolidada,
+        consolidada=item is None, faixas=faixas,
     )
     # Proposta gravada passou na validação, então cabe; o "or" mínimo é só
     # para nunca recusar o download de uma versão já enviada.
     escala = (regras.escala_da_lista(linhas, regras.CAPACIDADE_LINHAS[modalidade])
               or regras.ESCALA_MINIMA)
-    faixas_linhas = regras.linhas_tabela(faixas)
-    escala_faixas = (regras.escala_da_lista(faixas_linhas, regras.CAPACIDADE_LINHAS["faixas"])
-                     or regras.ESCALA_MINIMA)
 
     subs = regras.substituicoes(
         cliente=cliente,
@@ -443,13 +455,12 @@ def _montar_pptx(proposta: dict, item: dict | None = None) -> bytes:
         validade=proposta["validade"],
         cidade=proposta["cidade"],
         mensal=mensal,
-        sem_extras=not consolidada,
-        faixas=faixas,
+        sem_extras=item is not None,
+        qtd_cnpjs=len(mostrados),
+        valor_excedente=(proposta.get("valor_vida_excedente")
+                         or regras.excedente_padrao(faixas)),
     )
-    return render.montar_pptx(
-        subs, linhas, modalidade=modalidade, faixas=faixas_linhas,
-        escala_escopo=escala, escala_faixas=escala_faixas,
-    )
+    return render.montar_pptx(subs, linhas, modalidade=modalidade, escala_escopo=escala)
 
 
 # ── Tabela de preço ──────────────────────────────────────────────────
@@ -643,7 +654,8 @@ async def padrao(
     # muda um valor, o resto continua igual.
     ultima = await conn.fetchrow(
         """
-        SELECT id, modalidade, vidas, valor_por_vida FROM propostas
+        SELECT id, modalidade, vidas, valor_por_vida, valor_vida_excedente
+          FROM propostas
          WHERE oportunidade_id = $1
          ORDER BY versao DESC LIMIT 1
         """,
@@ -662,6 +674,10 @@ async def padrao(
         "modalidade": ultima["modalidade"] if ultima else regras.MODALIDADE_PADRAO,
         "vidas": ultima["vidas"] if ultima else None,
         "valor_por_vida": ultima["valor_por_vida"] if ultima else None,
+        "valor_vida_excedente": (
+            (ultima["valor_vida_excedente"] if ultima else None)
+            or regras.excedente_padrao(faixas)
+        ),
         "ultimos_itens": ultimos,
         "cnpjs": await _cnpjs(conn, oportunidade_id),
         "tabela": _tabela_out(faixas, meta, user),
@@ -687,9 +703,10 @@ async def listar(
     """Versões da oportunidade, da mais nova para a mais antiga."""
     rows = await conn.fetch(
         """
-        SELECT p.*, u.nome AS criado_por_nome
+        SELECT p.*, u.nome AS criado_por_nome, ap.nome AS aprovada_por_nome
           FROM propostas p
-          LEFT JOIN usuarios u ON u.id = p.criado_por
+          LEFT JOIN usuarios u  ON u.id = p.criado_por
+          LEFT JOIN usuarios ap ON ap.id = p.aprovada_por
          WHERE p.oportunidade_id = $1
          ORDER BY p.versao DESC
         """,
@@ -753,6 +770,9 @@ async def criar(
     if modalidade == "tabela":
         faixas, _ = await _tabela_vigente(conn)
     valor_por_vida = payload.valor_por_vida if modalidade == "por_vida" else None
+    excedente = None
+    if modalidade == "tabela":
+        excedente = payload.valor_vida_excedente or regras.excedente_padrao(faixas)
 
     try:
         itens = regras.calcular_itens(
@@ -773,7 +793,7 @@ async def criar(
         regras.validar_itens(
             modalidade=modalidade, itens=itens, valor_por_vida=valor_por_vida,
             escopo=payload.escopo, treinamentos=payload.treinamentos,
-            laudos=payload.laudos,
+            laudos=payload.laudos, valor_excedente=excedente, faixas=faixas,
         )
     except regras.PropostaInvalida as erro:
         raise HTTPException(422, str(erro))
@@ -801,10 +821,10 @@ async def criar(
                 laudos, escopo, cidade, data_proposta, validade,
                 cliente_razao_social, executivo_id, executivo_nome,
                 executivo_email, executivo_telefone, criado_por,
-                modalidade, tabela_preco
+                modalidade, tabela_preco, valor_vida_excedente
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10,
-                    $11, $12, $13, $14, $15, $16, $17, $18::jsonb)
+                    $11, $12, $13, $14, $15, $16, $17, $18::jsonb, $19)
             RETURNING *
             """,
             oportunidade_id, proxima, vidas_total, valor_por_vida,
@@ -814,6 +834,7 @@ async def criar(
             executivo["email"], executivo.get("telefone"), user["id"],
             modalidade,
             json.dumps(regras.tabela_para_json(faixas)) if faixas else None,
+            excedente,
         )
 
         gravados = []
@@ -847,6 +868,34 @@ async def criar(
     d = _linha(row, gravados)
     d["criado_por_nome"] = user["nome"]
     return d
+
+
+# ── Aprovação ────────────────────────────────────────────────────────
+
+@router.post("/propostas/{proposta_id}/aprovar", response_model=PropostaOut)
+async def aprovar(
+    proposta_id: UUID,
+    conn=Depends(get_conn),
+    user=Depends(usuario_atual),
+):
+    """
+    O "ok" do EV: viu o arquivo no visualizador do HIPO e libera a versão
+    para ir anexada no e-mail.
+
+    Idempotente — aprovar de novo não troca quem aprovou nem quando. Não
+    há "desaprovar": proposta não se edita, se refaz; a versão nova nasce
+    sem aprovação.
+    """
+    await _buscar(conn, proposta_id)
+    await conn.execute(
+        """
+        UPDATE propostas
+           SET aprovada_em = NOW(), aprovada_por = $2
+         WHERE id = $1 AND aprovada_em IS NULL
+        """,
+        proposta_id, user["id"],
+    )
+    return await _buscar(conn, proposta_id)
 
 
 # ── Download ─────────────────────────────────────────────────────────

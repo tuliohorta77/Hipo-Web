@@ -110,6 +110,8 @@ CATALOGO: dict[tuple[str, str], Tipo] = {
     ("POST", "/crm/oportunidades/{oportunidade_id}/cnpjs"): _t("Propostas", "CNPJ adicionado à oportunidade", 41),
     ("DELETE", "/crm/oportunidades/{oportunidade_id}/cnpjs/{conta_id}"): _t("Propostas", "CNPJ retirado da oportunidade", 42),
     ("PUT", "/crm/tabela-precos"): _t("Propostas", "Tabela de preços alterada", 43),
+    # 051: o "ok" do EV depois de ver a proposta no visualizador.
+    ("POST", "/crm/propostas/{proposta_id}/aprovar"): _t("Propostas", "Proposta aprovada para envio", 45),
     # 050: e-mail comercial pelo Gmail. O envio e a atividade; o rascunho
     # (leitura que viaja em POST) e a verificacao de resposta nao produzem nada.
     ("POST", "/crm/oportunidades/{oportunidade_id}/emails"): _t("Propostas", "E-mail enviado ao cliente", 44),

@@ -21,6 +21,19 @@ from tests.test_crm_propostas import corpo_proposta, nova_conta, nova_oportunida
 PDF_FALSO = b"%PDF-1.4 proposta de teste"
 
 
+async def proposta_aprovada(client, opp, headers, **troca):
+    """
+    Gera a proposta e dá o "ok" do EV (051): só proposta aprovada vai
+    anexada no e-mail.
+    """
+    r = await client.post(f"/crm/oportunidades/{opp['id']}/propostas",
+                          json=corpo_proposta(**troca), headers=headers)
+    assert r.status_code == 201, r.text
+    r = await client.post(f"/crm/propostas/{r.json()['id']}/aprovar", headers=headers)
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
 class GmailFalso:
     """Guarda o que foi enviado e responde como o Gmail responderia."""
 
@@ -210,10 +223,7 @@ class TestRascunho:
 
     async def test_proposta_com_versao(self, db_conn, client, g, pdf):
         u, _, opp, ct = await cenario(client, db_conn)
-        p = (await client.post(
-            f"/crm/oportunidades/{opp['id']}/propostas",
-            json=corpo_proposta(), headers=u["headers"],
-        )).json()
+        p = await proposta_aprovada(client, opp, u["headers"])
         b = (await client.post(
             f"/crm/oportunidades/{opp['id']}/emails/rascunho",
             json={"modelo": "proposta", "contato_id": ct["id"], "proposta_id": p["id"]},
@@ -226,10 +236,7 @@ class TestRascunho:
     async def test_sem_pdf_no_servidor_avisa(self, db_conn, client, g, monkeypatch):
         monkeypatch.setattr(render, "libreoffice_disponivel", lambda: None)
         u, _, opp, ct = await cenario(client, db_conn)
-        p = (await client.post(
-            f"/crm/oportunidades/{opp['id']}/propostas",
-            json=corpo_proposta(), headers=u["headers"],
-        )).json()
+        p = await proposta_aprovada(client, opp, u["headers"])
         b = (await client.post(
             f"/crm/oportunidades/{opp['id']}/emails/rascunho",
             json={"modelo": "proposta", "contato_id": ct["id"], "proposta_id": p["id"]},
@@ -330,10 +337,7 @@ class TestEnvio:
 
     async def test_proposta_vai_em_pdf(self, db_conn, client, g, pdf):
         u, _, opp, ct = await cenario(client, db_conn)
-        p = (await client.post(
-            f"/crm/oportunidades/{opp['id']}/propostas",
-            json=corpo_proposta(), headers=u["headers"],
-        )).json()
+        p = await proposta_aprovada(client, opp, u["headers"])
         r = await client.post(
             f"/crm/oportunidades/{opp['id']}/emails",
             json=corpo_envio(ct["id"], modelo="proposta", proposta_id=p["id"]),
@@ -347,12 +351,26 @@ class TestEnvio:
         assert anexos[0].get_content() == PDF_FALSO
         assert anexos[0].get_filename() == r.json()["anexo_nome"]
 
-    async def test_proposta_de_um_cnpj(self, db_conn, client, g, pdf):
+    async def test_proposta_nao_aprovada_nao_vai(self, db_conn, client, g, pdf):
+        """051: proposta que ninguém viu no visualizador não sai do HIPO."""
         u, _, opp, ct = await cenario(client, db_conn)
         p = (await client.post(
             f"/crm/oportunidades/{opp['id']}/propostas",
             json=corpo_proposta(), headers=u["headers"],
         )).json()
+        assert p["aprovada_em"] is None
+        r = await client.post(
+            f"/crm/oportunidades/{opp['id']}/emails",
+            json=corpo_envio(ct["id"], modelo="proposta", proposta_id=p["id"]),
+            headers=u["headers"],
+        )
+        assert r.status_code == 422
+        assert "não foi aprovada" in r.json()["detail"]
+        assert g.enviadas == []
+
+    async def test_proposta_de_um_cnpj(self, db_conn, client, g, pdf):
+        u, _, opp, ct = await cenario(client, db_conn)
+        p = await proposta_aprovada(client, opp, u["headers"])
         item = p["itens"][0]
         r = await client.post(
             f"/crm/oportunidades/{opp['id']}/emails",
@@ -369,10 +387,7 @@ class TestEnvio:
             raise render.PdfIndisponivel("LibreOffice não está instalado.")
         monkeypatch.setattr(render, "para_pdf", falha)
         u, _, opp, ct = await cenario(client, db_conn)
-        p = (await client.post(
-            f"/crm/oportunidades/{opp['id']}/propostas",
-            json=corpo_proposta(), headers=u["headers"],
-        )).json()
+        p = await proposta_aprovada(client, opp, u["headers"])
         r = await client.post(
             f"/crm/oportunidades/{opp['id']}/emails",
             json=corpo_envio(ct["id"], modelo="proposta", proposta_id=p["id"]),
@@ -553,10 +568,7 @@ class TestTarefaDoEnvio:
 
     async def test_proposta_vira_tarefa_de_proposta(self, db_conn, client, g, pdf):
         u, _, opp, ct = await cenario(client, db_conn)
-        p = (await client.post(
-            f"/crm/oportunidades/{opp['id']}/propostas",
-            json=corpo_proposta(), headers=u["headers"],
-        )).json()
+        p = await proposta_aprovada(client, opp, u["headers"])
         e = (await client.post(
             f"/crm/oportunidades/{opp['id']}/emails",
             json=corpo_envio(ct["id"], modelo="proposta", proposta_id=p["id"]),

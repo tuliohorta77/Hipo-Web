@@ -45,8 +45,8 @@ MARCADORES = {
     "{{TREINAMENTOS}}", "{{LAUDOS}}", "{{INVESTIMENTO}}", "{{CLIENTE}}",
     "{{EXECUTIVO_NOME}}", "{{EXECUTIVO_EMAIL}}", "{{EXECUTIVO_TELEFONE}}",
     "{{CIDADE}}", "{{DATA_EXTENSO}}", "{{VALIDADE}}",
-    # 042: slides da modalidade tabela.
-    "{{FAIXA_ITEM}}", "{{TABELA_RODAPE}}",
+    # 042/051: slide da modalidade tabela (sem a tabela de preços).
+    "{{ROTULO_MENSALIDADE}}", "{{VALOR_EXCEDENTE}}",
 }
 
 # Os números do material original. Se a conta mudar, é para doer aqui.
@@ -130,6 +130,9 @@ def _conferir_tabela(Presentation) -> list[str]:
     042: a modalidade tabela, com os cinco CNPJs do material "VARIOS
     CNPJs" (4, 5, 11, 23 e 27 vidas; os dois últimos negociados). A soma
     tem que dar os R$ 1.270,00 do material.
+
+    051: a tabela de preços NÃO pode aparecer; cada CNPJ mostra a faixa, e
+    o rodapé, o valor por vida excedente escolhido.
     """
     problemas = []
     faixas = regras.normalizar_tabela(regras.TABELA_PADRAO)
@@ -148,17 +151,17 @@ def _conferir_tabela(Presentation) -> list[str]:
     )
     mensal = regras.total_itens(itens)
     linhas = regras.linhas_da_lista(modalidade="tabela", escopo=regras.ESCOPO_PADRAO,
-                                    itens=itens)
+                                    itens=itens, faixas=faixas)
     subs = regras.substituicoes(
         cliente=CLIENTE, vidas=regras.vidas_itens(itens), valor_por_vida=None,
         treinamentos=Decimal(0), laudos=Decimal(0),
         executivo_nome="Fulano de Tal", executivo_email="fulano@exemplo.com",
         executivo_telefone="11 90000-0000",
         data_proposta=date(2026, 9, 4), validade=date(2026, 9, 25),
-        mensal=mensal, faixas=faixas,
+        mensal=mensal, qtd_cnpjs=len(itens), valor_excedente=Decimal("17.50"),
     )
     arquivo = render.montar_pptx(
-        subs, linhas, modalidade="tabela", faixas=regras.linhas_tabela(faixas),
+        subs, linhas, modalidade="tabela",
         escala_escopo=regras.escala_da_lista(linhas, regras.CAPACIDADE_LINHAS["tabela"]),
     )
     texto = _texto(Presentation(BytesIO(arquivo)))
@@ -168,13 +171,16 @@ def _conferir_tabela(Presentation) -> list[str]:
     for rotulo, trecho in {
         "mensalidade do material": "R$ 1.270,00",
         "quantidade de vidas": "QTDE. VIDAS: 70",
-        "primeira faixa": "CNPJs até 05 funcionários registrados – R$ 180,00 mensais",
-        "faixa aberta": "R$ 15,00 por funcionário/mês",
-        "linha de CNPJ": "CNPJ QUATRO LTDA (11.222.333/0004-24) - 23 vidas - Mensalidade R$ 299,00",
-        "rodapé": "limite de 20 funcionários",
+        "rótulo da mensalidade": "Mensalidade total para os 5 CNPJs -",
+        "CNPJ na faixa": "CNPJ TRES LTDA (11.222.333/0003-43) - 11 a 15 vidas - Mensalidade R$ 260,00",
+        "CNPJ acima das faixas": "CNPJ QUATRO LTDA (11.222.333/0004-24) - 23 vidas - Mensalidade R$ 299,00",
+        "rodapé com o excedente": "será acrescido o valor de R$ 17,50 mensais",
     }.items():
         if trecho not in texto:
             problemas.append(f"tabela, {rotulo}: esperava encontrar {trecho!r}")
+    for vazou in ("TABELA DE PREÇOS", "funcionários registrados"):
+        if vazou in texto:
+            problemas.append(f"tabela: a tabela de preços vazou para o arquivo ({vazou!r})")
     if "INVESTIMENTO" in texto:
         problemas.append("modalidade tabela: o slide por vida não foi removido")
     return problemas

@@ -1,34 +1,35 @@
 """
-Acrescenta ao modelo da proposta os dois slides da modalidade "tabela de
-preço por faixa" (entrega 042).
+Acrescenta ao modelo da proposta o slide da modalidade "tabela por faixa"
+(entregas 042 e 051).
 
     python -m scripts.gerar_modelo_proposta_tabela "PROPOSTA ... VARIOS CNPJs.pptx"
 
-## O que sai
-
-`api/templates/proposta_modelo.pptx` passa a ter 8 slides:
+Parte do modelo SEM os slides da tabela (o da 041, ou o que sair do
+gerar_modelo_proposta.py numa arte nova) e devolve 7 slides:
 
     1-4  institucionais (não mudam)
     5    escopo + quadro de investimento   -> modalidade por_vida
-    6    tabela de preços                  -> modalidade tabela
-    7    escopo + mensalidade              -> modalidade tabela
-    8    fechamento
+    6    escopo + uma linha por CNPJ + mensalidade total -> modalidade tabela
+    7    fechamento
 
-O render (services/proposta_render.py) apaga os slides da modalidade que
-não foi escolhida. Cada slide variável leva uma etiqueta no NOME de um
-shape (`hipo-modalidade:por_vida` / `hipo-modalidade:tabela`) — é assim que
-o render sabe o que apagar sem depender de posição.
+O render (services/proposta_render.py) apaga o slide da modalidade que não
+foi escolhida. Cada slide variável leva uma etiqueta no NOME de um shape
+(`hipo-modalidade:por_vida` / `hipo-modalidade:tabela`).
+
+## 051: a tabela de preços NÃO vai para o cliente
+
+Até a 042 havia um slide "Tabela de preços" (do material). Saiu: a tabela
+é a base do vendedor. O cliente vê, em cada linha de CNPJ, a faixa em que
+ele foi enquadrado ("16 a 20 vidas - Mensalidade R$ 300,00"), a frase
+"Mensalidade total para os N CNPJs - R$ X" e, no rodapé, o valor por vida
+excedente que o EV escolheu ({{VALOR_EXCEDENTE}}).
 
 ## Por que copiar do material, e não desenhar
 
-Os slides 6 e 7 vêm do material "VARIOS CNPJs" da Controller MedSeg: mesma
-moldura, mesmas faixas verdes. O fundo deles usa exatamente as mesmas
-imagens do slide 5 do modelo (conferido por hash), então a cópia não
-acrescenta mídia nenhuma — o arquivo não engorda.
-
-A imagem da tabela de preços do material NÃO é copiada: vira lista de
-texto com o marcador {{FAIXA_ITEM}}, montada a partir da tabela que a
-gestão edita no HIPO. Imagem fixa mentiria no dia do primeiro reajuste.
+O slide 6 vem do material "VARIOS CNPJs" da Controller MedSeg: mesma
+moldura, mesmas faixas verdes. O fundo usa exatamente as mesmas imagens do
+slide 5 do modelo (conferido por hash), então a cópia não acrescenta mídia
+nenhuma — o arquivo não engorda.
 
 ## Um run por marcador
 
@@ -52,11 +53,8 @@ ETIQUETA = "hipo-modalidade:"
 
 # Índices no MODELO atual (0-based).
 SLIDE_POR_VIDA = 4
-# Índices no material "VARIOS CNPJs".
-ORIGEM_TABELA = 4
+# Índice no material "VARIOS CNPJs" (o slide do escopo com os CNPJs).
 ORIGEM_ESCOPO = 5
-
-RODAPE = "{{TABELA_RODAPE}}"
 
 
 def _shape(slide, nome):
@@ -155,12 +153,19 @@ def _mover(prs, slide, para_indice: int) -> None:
     lista.insert(para_indice, alvo)
 
 
+def _proximo_id(slide) -> int:
+    return max(int(el.get("id")) for el in slide._element.iter(qn("p:cNvPr"))) + 1
+
+
 def gerar(material: str, modelo: Path = MODELO) -> Path:
     prs = Presentation(str(modelo))
     for slide in prs.slides:
         for sh in slide.shapes:
             if sh.name.startswith(ETIQUETA):
-                raise SystemExit("o modelo já tem os slides da tabela — nada a fazer.")
+                raise SystemExit(
+                    "o modelo já tem slides etiquetados — parta do modelo sem "
+                    "eles (o da 041 ou o do gerar_modelo_proposta.py)."
+                )
 
     origem = Presentation(material)
     s5 = prs.slides[SLIDE_POR_VIDA]
@@ -175,36 +180,46 @@ def gerar(material: str, modelo: Path = MODELO) -> Path:
 
     molde_escopo = _shape(s5, "TextBox 8").text_frame._txBody
 
-    # ── Slide da tabela de preços ──
-    tabela = _copiar_slide(prs, origem.slides[ORIGEM_TABELA], layout, por_hash)
-    lista = _shape(tabela, "TextBox 8")
-    novo_corpo = copy.deepcopy(molde_escopo)
-    lista._element.replace(lista._element.txBody, novo_corpo)
-    _texto_unico(lista, "{{FAIXA_ITEM}}")
-    # Ocupa o lugar da imagem que saiu.
-    lista.left, lista.top = 3657600, 2550000
-    lista.width, lista.height = 11071516, 2700000
-    _texto_unico(_shape(tabela, "TextBox 15"), RODAPE)
-    lista.name = f"{ETIQUETA}tabela"
-
-    # ── Slide do escopo com mensalidade ──
     escopo = _copiar_slide(prs, origem.slides[ORIGEM_ESCOPO], layout, por_hash)
     caixa = _shape(escopo, "TextBox 8")
     caixa._element.replace(caixa._element.txBody, copy.deepcopy(molde_escopo))
+    caixa.name = f"{ETIQUETA}tabela"
     _texto_unico(_shape(escopo, "TextBox 16"), "QTDE. VIDAS: {{VIDAS}}")
-    _texto_unico(_shape(escopo, "TextBox 24"), "{{MENSALIDADE}}")
-    _texto_unico(_shape(escopo, "TextBox 25"), "Mensalidade")
-    for vazio in ("TextBox 18", "TextBox 19"):
+
+    # Mensalidade: uma caixa só, da largura do quadro, centralizada —
+    # "Mensalidade total para os 5 CNPJs - R$ 4.500,00". Rótulo e valor
+    # continuam em runs separados, cada um com a formatação do material.
+    rotulo = _shape(escopo, "TextBox 25")
+    valor = _shape(escopo, "TextBox 24")
+    run_valor = copy.deepcopy(valor.text_frame.paragraphs[0].runs[0]._r)
+    _texto_unico(rotulo, "{{ROTULO_MENSALIDADE}} ")
+    paragrafo = rotulo.text_frame.paragraphs[0]
+    paragrafo._p.append(run_valor)
+    paragrafo.runs[1].text = "{{MENSALIDADE}}"
+    from pptx.enum.text import PP_ALIGN
+    paragrafo.alignment = PP_ALIGN.CENTER
+    rotulo.left, rotulo.width = caixa.left, caixa.width
+    rotulo.text_frame.word_wrap = False
+    rotulo.name = "hipo-mensalidade"
+    for vazio in ("TextBox 18", "TextBox 19", "TextBox 24"):
         sh = _shape(escopo, vazio)
         sh._element.getparent().remove(sh._element)
-    caixa.name = f"{ETIQUETA}tabela"
+
+    # Rodapé: o mesmo do slide por vida, com o excedente que o EV escolhe.
+    rodape = copy.deepcopy(_shape(s5, "TextBox 15")._element)
+    rodape.find(f"{qn('p:nvSpPr')}/{qn('p:cNvPr')}").set("id", str(_proximo_id(escopo)))
+    escopo.shapes._spTree.append(rodape)
+    rodape_shape = escopo.shapes[-1]
+    run = rodape_shape.text_frame.paragraphs[0].runs[0]
+    if "{{VALOR_VIDA}}" not in run.text:
+        raise RuntimeError("o rodapé do slide por vida mudou — confira o modelo.")
+    run.text = run.text.replace("{{VALOR_VIDA}}", "{{VALOR_EXCEDENTE}}")
 
     # Etiqueta do slide por vida.
     _shape(s5, "TextBox 8").name = f"{ETIQUETA}por_vida"
 
-    # Ordem: 1-4, 5 por vida, 6 tabela, 7 escopo tabela, 8 fechamento.
-    _mover(prs, tabela, SLIDE_POR_VIDA + 1)
-    _mover(prs, escopo, SLIDE_POR_VIDA + 2)
+    # Ordem: 1-4, 5 por vida, 6 tabela, 7 fechamento.
+    _mover(prs, escopo, SLIDE_POR_VIDA + 1)
 
     prs.save(str(modelo))
     return modelo

@@ -1535,13 +1535,16 @@ No kanban, clique no nome da empresa no cartão; na tabela, na linha. A oportuni
 
 Na aba **Proposta** da oportunidade:
 
-- **Modalidade**: **Tabela por faixa** (até 5 vidas R$ 180, 6 a 10 R$ 220, 11 a 15 R$ 260, 16 a 20 R$ 300, acima de 20 R$ 15 por vida) ou **Valor por vida**.
+- **Modalidade**: **Tabela por faixa** (até 5 vidas R$ 180, 6 a 10 R$ 220, 11 a 15 R$ 260, 16 a 20 R$ 300, acima de 20 R$ 15 por vida) ou **Valor por vida**. A tabela é a sua base: ela **não vai para o cliente**. Na proposta, cada CNPJ aparece com a faixa ("16 a 20 vidas - Mensalidade R$ 300,00").
+- **Valor por vida excedente** (modalidade tabela): o que o cliente paga por vida acima do plano. Vem sugerido pela tabela e sai no rodapé da proposta.
 - **CNPJs da proposta**: o CNPJ da oportunidade já vem. Cliente com vários CNPJs é **uma oportunidade só**: use **Adicionar CNPJ do mesmo cliente**. Cada CNPJ tem as suas **vidas**; na tabela, o valor vem sugerido e pode ser negociado (a tela mostra o desconto).
 - **Treinamentos (R$)** e **Laudos / outros (R$)**.
 - **Data da proposta** e **Válida até** (não pode ser antes da data).
 - **Cidade** e o **Escopo**: pelo menos um item (**+ Item**).
 
-**Gerar proposta** cria uma nova versão, baixa o PPTX consolidado e recalcula a mensalidade da oportunidade (soma dos CNPJs). Em **Versões geradas** ficam todas, com **PPTX** e **PDF**; em **Proposta por CNPJ**, cada CNPJ baixa a sua. O seu telefone no slide de fechamento vem do **Perfil**.
+**Gerar proposta** cria uma nova versão, recalcula a mensalidade da oportunidade (soma dos CNPJs) e **abre a proposta na tela**, como o cliente vai receber. Confira e clique em **Aprovar para envio**. Só proposta **aprovada** aparece para anexar na aba **E-mails** — não precisa baixar nem abrir no computador. Achou algo errado? Feche, ajuste e gere outra versão.
+
+Em **Versões geradas** ficam todas, com o selo **Aprovada** ou **Aguardando aprovação**, o botão **Ver** e os downloads; em **Proposta por CNPJ**, cada CNPJ tem a sua. O seu telefone no slide de fechamento vem do **Perfil**.
 
 O CNPJ adicionado fica **vinculado** à oportunidade: a conta dele mostra o aviso com o número da oportunidade, e o HIPO não deixa abrir outra oportunidade para ele enquanto esta estiver aberta.
 
@@ -1567,6 +1570,7 @@ Finalizada por engano? **Reabrir** no topo da oportunidade. Fica registrado no H
                 _passo("/crm/oportunidades", "opo-det-conteudo", "A aba Proposta",
                        "Modalidade (tabela por faixa ou valor por vida), os CNPJs com as vidas de cada um, extras, datas e "
                        "escopo. **Gerar proposta** cria a versão nova (consolidada ou por CNPJ) e recalcula a mensalidade. "
+                       "Gerar abre a proposta na tela para você conferir e aprovar — só aprovada vai por e-mail. "
                        "(O tour não gera nada.)",
                        clicar=["opo-cartao-abrir", "aba-proposta"]),
                 _passo("/crm/oportunidades", "opo-det-finalizar", "Finalizar",
@@ -1618,12 +1622,12 @@ Finalizada por engano? **Reabrir** no topo da oportunidade. Fica registrado no H
                     ],
                 },
                 {
-                    "enunciado": "Onde você encontra as propostas que já gerou, em PPTX e PDF?",
+                    "enunciado": "Você gerou a proposta, mas ela não aparece para anexar na aba E-mails. Por quê?",
                     "alternativas": [
-                        ("Em Versões geradas, na aba Proposta", True),
-                        ("Na aba Histórico da oportunidade", False),
-                        ("Nos anexos da conta", False),
-                        ("Em Relatórios, fonte Propostas", False),
+                        ("Falta mudar a fase para Negociação", False),
+                        ("Ela ainda não foi aprovada: abra, confira na tela e clique em Aprovar para envio", True),
+                        ("É preciso baixar o PPTX antes", False),
+                        ("Só a gestão pode anexar proposta", False),
                     ],
                 },
                 {

@@ -57,8 +57,10 @@ const CONTATOS = [
 ];
 
 const VERSOES = [
-  { id: 'p2', versao: 2, cliente_razao_social: 'NN LTDA', itens: [{ id: 'i1', razao_social: 'NN LTDA' }] },
-  { id: 'p1', versao: 1, cliente_razao_social: 'NN LTDA', itens: [{ id: 'i0', razao_social: 'NN LTDA' }] },
+  { id: 'p2', versao: 2, cliente_razao_social: 'NN LTDA', itens: [{ id: 'i1', razao_social: 'NN LTDA' }],
+    aprovada_em: '2026-10-07T12:00:00Z' },
+  { id: 'p1', versao: 1, cliente_razao_social: 'NN LTDA', itens: [{ id: 'i0', razao_social: 'NN LTDA' }],
+    aprovada_em: '2026-10-06T12:00:00Z' },
 ];
 
 const ENVIADO = {
@@ -244,6 +246,35 @@ describe('AbaEmails', () => {
       '/crm/oportunidades/o1/emails/rascunho',
       { modelo: 'proposta', contato_id: 'k1', proposta_id: 'p2', proposta_item_id: null },
     ));
+  });
+
+  it('só proposta aprovada aparece para anexar (051)', async () => {
+    montarGets({ versoes: [
+      { ...VERSOES[0], id: 'p3', versao: 3, aprovada_em: null },
+      ...VERSOES,
+    ] });
+    mockPost.mockResolvedValue({ data: rascunho() });
+    render(<AbaEmails oportunidade={OPP} agora={AGORA} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Novo e-mail' }));
+    await waitFor(() => expect(mockPost).toHaveBeenCalled());
+    fireEvent.change(screen.getByLabelText('Modelo'), { target: { value: 'proposta' } });
+    // A mais nova APROVADA é a v2 — a v3 espera o ok do EV.
+    await waitFor(() => expect(mockPost).toHaveBeenLastCalledWith(
+      '/crm/oportunidades/o1/emails/rascunho',
+      { modelo: 'proposta', contato_id: 'k1', proposta_id: 'p2', proposta_item_id: null },
+    ));
+    const opcoes = [...screen.getByLabelText('Proposta anexada').options].map((o) => o.textContent);
+    expect(opcoes.some((t) => t.startsWith('v3'))).toBe(false);
+  });
+
+  it('sem proposta aprovada, diz o que fazer', async () => {
+    montarGets({ versoes: [{ ...VERSOES[0], aprovada_em: null }] });
+    mockPost.mockResolvedValue({ data: rascunho() });
+    render(<AbaEmails oportunidade={OPP} agora={AGORA} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Novo e-mail' }));
+    fireEvent.change(await screen.findByLabelText('Modelo'), { target: { value: 'proposta' } });
+    expect(await screen.findByText(/esperando aprovação/)).toBeInTheDocument();
+    expect(screen.getByText('Nenhuma proposta aprovada')).toBeInTheDocument();
   });
 
   it('erro do envio aparece e o rascunho continua', async () => {
