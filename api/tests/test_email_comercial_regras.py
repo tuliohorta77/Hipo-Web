@@ -314,3 +314,19 @@ class TestGmailTraducao:
         assert gmail.escolher_assinatura(lista, "EU@x.com") == "<b>EU</b>"
         assert gmail.escolher_assinatura(lista, "outro@x.com") == "<b>EU</b>"
         assert gmail.escolher_assinatura({}, "eu@x.com") is None
+
+
+class TestTarefaDoEnvio:
+    def test_email(self):
+        t = r.tarefa_do_envio(assunto="  Oi   tudo ", para=["a@x.com", "b@x.com"])
+        assert (t.tipo, t.titulo) == ("email", "E-mail enviado: Oi tudo")
+        assert t.resultado == "Enviado pelo HIPO para a@x.com, b@x.com"
+
+    def test_proposta(self):
+        t = r.tarefa_do_envio(assunto="x", para=["a@x.com"], anexo_nome="P.pdf",
+                              proposta_versao=3)
+        assert (t.tipo, t.titulo) == ("proposta", "Proposta v3 enviada por e-mail")
+        assert t.resultado.endswith("· anexo P.pdf")
+
+    def test_titulo_cabe_na_coluna(self):
+        assert len(r.tarefa_do_envio(assunto="a" * 400, para=["a@x.com"]).titulo) == 200

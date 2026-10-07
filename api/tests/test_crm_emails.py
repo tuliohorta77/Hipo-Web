@@ -521,3 +521,107 @@ class TestVerificar:
         from scripts import verificar_respostas_email as script
         monkeypatch.setattr(gmail, "configurado", lambda: False)
         assert await script.executar() == 0
+
+
+# ── O envio como tarefa (050c) ───────────────────────────────────────
+
+class TestTarefaDoEnvio:
+    async def test_envio_vira_tarefa_concluida(self, db_conn, client, g):
+        u, _, opp, ct = await cenario(client, db_conn)
+        e = (await client.post(
+            f"/crm/oportunidades/{opp['id']}/emails",
+            json=corpo_envio(ct["id"]), headers=u["headers"],
+        )).json()
+        assert e["tarefa_id"]
+        t = await client.get(f"/crm/tarefas/{e['tarefa_id']}", headers=u["headers"])
+        assert t.status_code == 200, t.text
+        t = t.json()
+        assert t["tipo"] == "email"
+        assert t["situacao"] == "concluida"
+        assert t["titulo"] == "E-mail enviado: Medicina Ocupacional e Segurança do Trabalho"
+        assert t["resultado"] == "Enviado pelo HIPO para nivaldo@nnredutores.com.br"
+        assert t["contato_id"] == ct["id"]
+        assert t["oportunidade_id"] == opp["id"]
+        # aparece na lista de tarefas da oportunidade
+        lista = await client.get(
+            "/crm/tarefas", params={"oportunidade_id": opp["id"]}, headers=u["headers"],
+        )
+        assert lista.status_code == 200, lista.text
+        corpo = lista.json()
+        itens = corpo["itens"] if isinstance(corpo, dict) else corpo
+        assert e["tarefa_id"] in [i["id"] for i in itens]
+
+    async def test_proposta_vira_tarefa_de_proposta(self, db_conn, client, g, pdf):
+        u, _, opp, ct = await cenario(client, db_conn)
+        p = (await client.post(
+            f"/crm/oportunidades/{opp['id']}/propostas",
+            json=corpo_proposta(), headers=u["headers"],
+        )).json()
+        e = (await client.post(
+            f"/crm/oportunidades/{opp['id']}/emails",
+            json=corpo_envio(ct["id"], modelo="proposta", proposta_id=p["id"]),
+            headers=u["headers"],
+        )).json()
+        t = (await client.get(f"/crm/tarefas/{e['tarefa_id']}", headers=u["headers"])).json()
+        assert t["tipo"] == "proposta"
+        assert t["titulo"] == "Proposta v1 enviada por e-mail"
+        assert "anexo " + e["anexo_nome"] in t["resultado"]
+
+    async def test_nao_abre_nem_exige_proximo_passo(self, db_conn, client, g):
+        """A tarefa nasce fechada: não mexe na contagem de abertas."""
+        u, _, opp, ct = await cenario(client, db_conn)
+        antes = await db_conn.fetchval(
+            "SELECT count(*) FROM tarefas WHERE oportunidade_id = $1 "
+            "AND concluida_em IS NULL AND cancelada_em IS NULL",
+            uuid.UUID(opp["id"]),
+        )
+        await client.post(f"/crm/oportunidades/{opp['id']}/emails",
+                          json=corpo_envio(ct["id"]), headers=u["headers"])
+        depois = await db_conn.fetchval(
+            "SELECT count(*) FROM tarefas WHERE oportunidade_id = $1 "
+            "AND concluida_em IS NULL AND cancelada_em IS NULL",
+            uuid.UUID(opp["id"]),
+        )
+        assert antes == depois
+
+    async def test_falha_do_gmail_nao_cria_tarefa(self, db_conn, client, g):
+        g.erro_envio = "recusado"
+        u, _, opp, ct = await cenario(client, db_conn)
+        await client.post(f"/crm/oportunidades/{opp['id']}/emails",
+                          json=corpo_envio(ct["id"]), headers=u["headers"])
+        assert await db_conn.fetchval(
+            "SELECT count(*) FROM tarefas WHERE oportunidade_id = $1 AND tipo = 'email'",
+            uuid.UUID(opp["id"]),
+        ) == 0
+
+    async def test_backfill_da_031(self, db_conn, client, g):
+        """E-mail gravado antes da 031 (sem tarefa) ganha a tarefa ao reaplicar o bloco."""
+        from pathlib import Path
+        u, _, opp, ct = await cenario(client, db_conn)
+        e = (await client.post(f"/crm/oportunidades/{opp['id']}/emails",
+                               json=corpo_envio(ct["id"], cc=["rh@cliente.com"]),
+                               headers=u["headers"])).json()
+        eid = uuid.UUID(e["id"])
+        await db_conn.execute("UPDATE emails_enviados SET tarefa_id = NULL WHERE id = $1", eid)
+        await db_conn.execute("DELETE FROM tarefas WHERE id = $1", uuid.UUID(e["tarefa_id"]))
+
+        sql = (Path(__file__).resolve().parent.parent / "migrations" / "031_email_tarefa.sql").read_text("utf-8")
+        await db_conn.execute(sql)
+        await db_conn.execute(sql)  # idempotente
+
+        linhas = await db_conn.fetch(
+            "SELECT t.* FROM tarefas t JOIN emails_enviados e ON e.tarefa_id = t.id WHERE e.id = $1",
+            eid,
+        )
+        assert len(linhas) == 1
+        t = linhas[0]
+        assert t["tipo"] == "email"
+        assert t["concluida_em"] is not None
+        assert t["titulo"] == "E-mail enviado: Medicina Ocupacional e Segurança do Trabalho"
+        assert t["resultado"] == (
+            "Enviado pelo HIPO para nivaldo@nnredutores.com.br (cc rh@cliente.com)"
+        )
+        assert await db_conn.fetchval(
+            "SELECT count(*) FROM tarefas WHERE oportunidade_id = $1 AND tipo = 'email'",
+            uuid.UUID(opp["id"]),
+        ) == 1

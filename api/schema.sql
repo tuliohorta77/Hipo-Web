@@ -1934,6 +1934,8 @@ CREATE TABLE IF NOT EXISTS emails_enviados (
     gmail_message_id  VARCHAR(64) NOT NULL,
     gmail_thread_id   VARCHAR(64),
     enviado_em        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    -- 031: a tarefa concluida que o envio gravou (lista de tarefas).
+    tarefa_id         UUID REFERENCES tarefas(id) ON DELETE SET NULL,
 
     -- Resposta do cliente (scripts/verificar_respostas_email, a cada 15
     -- min, e o botao da tela). So cabecalhos: o corpo da resposta nao e lido.
@@ -1956,3 +1958,5 @@ CREATE INDEX IF NOT EXISTS idx_emails_oportunidade
 CREATE INDEX IF NOT EXISTS idx_emails_sem_resposta
     ON emails_enviados (enviado_em)
     WHERE respondido_em IS NULL AND gmail_thread_id IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS idx_emails_tarefa ON emails_enviados (tarefa_id);

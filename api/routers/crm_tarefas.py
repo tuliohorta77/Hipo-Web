@@ -658,6 +658,7 @@ async def inserir_tarefa_concluida(
     *,
     oportunidade_id: UUID,
     criado_por,
+    resultado: str | None = None,
 ) -> UUID:
     """
     Grava o registro do fechamento: tarefa que NASCE concluída.
@@ -674,6 +675,10 @@ async def inserir_tarefa_concluida(
 
     Sem `tarefa_anterior_id`: o registro do fechamento não continua corrente
     de follow-up nenhuma. Ele a encerra.
+
+    050: também grava o e-mail comercial enviado pelo HIPO
+    (routers/crm_emails.enviar) — o envio É a tarefa de e-mail, feita.
+    `resultado` é o relato curto ("Enviado para ...").
     """
     responsavel_id = dados.responsavel_id or criado_por
     prazo = dados.prazo or _agora()
@@ -682,14 +687,15 @@ async def inserir_tarefa_concluida(
         INSERT INTO tarefas (
             oportunidade_id, conta_id, tipo, titulo, descricao,
             responsavel_id, prazo, tarefa_anterior_id, criado_por,
-            concluida_em, contato_id
+            concluida_em, contato_id, resultado
         )
-        VALUES ($1, NULL, $2, $3, $4, $5, $6, NULL, $7, NOW(), $8)
+        VALUES ($1, NULL, $2, $3, $4, $5, $6, NULL, $7, NOW(), $8, $9)
         RETURNING id
         """,
         oportunidade_id, dados.tipo, dados.titulo,
         (dados.descricao or "").strip() or None,
         responsavel_id, prazo, criado_por, dados.contato_id,
+        (resultado or "").strip() or None,
     )
 
 

@@ -49,6 +49,11 @@ from database import get_conn
 from routers.auth import usuario_atual
 from routers.crm_propostas import _buscar as buscar_proposta
 from routers.crm_propostas import _eh_gestao, _montar_pptx
+from routers.crm_tarefas import (
+    TarefaDeFinalizacao,
+    inserir_tarefa_concluida,
+    registrar_no_comite,
+)
 from services import cnpj as cnpj_svc
 from services import email_comercial as regras
 from services import gmail
@@ -150,6 +155,7 @@ class EmailOut(BaseModel):
     corpo: str
     com_assinatura: bool
     gmail_thread_id: str | None
+    tarefa_id: UUID | None = None
     enviado_em: datetime
     respondido_em: datetime | None
     resposta_de: str | None
@@ -537,23 +543,45 @@ async def enviar(
     if not resultado.ok:
         raise HTTPException(502, resultado.erro or "O Gmail recusou o envio.")
 
-    novo_id = await conn.fetchval(
-        """
-        INSERT INTO emails_enviados (
-            oportunidade_id, contato_id, modelo_slug, proposta_id,
-            proposta_item_id, anexo_nome, remetente_id, remetente_email,
-            para, cc, assunto, corpo, com_assinatura,
-            gmail_message_id, gmail_thread_id
-        )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
-        RETURNING id
-        """,
-        oportunidade_id, contato["id"], payload.modelo,
-        proposta["id"] if proposta else None, item["id"] if item else None,
-        anexo.nome if anexo else None, user["id"], user["email"],
-        envio.para, envio.cc, envio.assunto, envio.corpo, bool(a.html),
-        resultado.message_id, resultado.thread_id,
+    # O e-mail já saiu: daqui em diante nada pode impedir o registro. O
+    # envio vira, na mesma transação, a tarefa concluída que o põe na lista
+    # de tarefas e na linha do tempo da oportunidade (050c).
+    registro = regras.tarefa_do_envio(
+        assunto=envio.assunto, para=envio.para, cc=envio.cc,
+        anexo_nome=anexo.nome if anexo else None,
+        proposta_versao=proposta["versao"] if proposta else None,
     )
+    async with conn.transaction():
+        tarefa_id = await inserir_tarefa_concluida(
+            conn,
+            TarefaDeFinalizacao(
+                tipo=registro.tipo, titulo=registro.titulo,
+                descricao=envio.corpo, responsavel_id=user["id"],
+                contato_id=contato["id"],
+            ),
+            oportunidade_id=oportunidade_id,
+            criado_por=user["id"],
+            resultado=registro.resultado,
+        )
+        await registrar_no_comite(conn, oportunidade_id, contato["id"], user["id"])
+        novo_id = await conn.fetchval(
+            """
+            INSERT INTO emails_enviados (
+                oportunidade_id, contato_id, modelo_slug, proposta_id,
+                proposta_item_id, anexo_nome, remetente_id, remetente_email,
+                para, cc, assunto, corpo, com_assinatura,
+                gmail_message_id, gmail_thread_id, tarefa_id
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
+                    $14, $15, $16)
+            RETURNING id
+            """,
+            oportunidade_id, contato["id"], payload.modelo,
+            proposta["id"] if proposta else None, item["id"] if item else None,
+            anexo.nome if anexo else None, user["id"], user["email"],
+            envio.para, envio.cc, envio.assunto, envio.corpo, bool(a.html),
+            resultado.message_id, resultado.thread_id, tarefa_id,
+        )
     row = await conn.fetchrow(_SELECT_EMAIL + " WHERE e.id = $1", novo_id)
     return _email_out(row)
 

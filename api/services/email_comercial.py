@@ -616,3 +616,45 @@ def detectar_resposta(
         return None
     quando, de = min(candidatas)
     return Resposta(datetime.fromtimestamp(quando / 1000, tz=timezone.utc), de[:200])
+
+
+# ── O envio como tarefa (050c) ───────────────────────────────────────
+#
+# Todo e-mail que sai pelo HIPO vira uma tarefa JÁ CONCLUÍDA da
+# oportunidade, em nome de quem enviou e com o contato. É o que faz o envio
+# aparecer na lista de tarefas, na linha do tempo da oportunidade e na
+# produção do mês, ao lado das ligações e reuniões — e não só na aba
+# E-mails. A mesma regra está em SQL na migration 031 (backfill).
+
+@dataclass(frozen=True)
+class TarefaDoEnvio:
+    tipo: str
+    titulo: str
+    resultado: str
+
+
+def tarefa_do_envio(
+    *, assunto: str, para: list[str], cc: list[str] | None = None,
+    anexo_nome: str | None = None, proposta_versao: int | None = None,
+) -> TarefaDoEnvio:
+    """
+    >>> t = tarefa_do_envio(assunto="Medicina Ocupacional", para=["a@x.com"])
+    >>> t.tipo, t.titulo, t.resultado
+    ('email', 'E-mail enviado: Medicina Ocupacional', 'Enviado pelo HIPO para a@x.com')
+    >>> t = tarefa_do_envio(assunto="Proposta", para=["a@x.com"], cc=["b@x.com"],
+    ...                     anexo_nome="OPP_v2.pdf", proposta_versao=2)
+    >>> t.tipo, t.titulo
+    ('proposta', 'Proposta v2 enviada por e-mail')
+    >>> t.resultado
+    'Enviado pelo HIPO para a@x.com (cc b@x.com) · anexo OPP_v2.pdf'
+    """
+    if proposta_versao is not None:
+        tipo, titulo = "proposta", f"Proposta v{proposta_versao} enviada por e-mail"
+    else:
+        tipo, titulo = "email", f"E-mail enviado: {' '.join((assunto or '').split())}"
+    resultado = "Enviado pelo HIPO para " + ", ".join(para)
+    if cc:
+        resultado += f" (cc {', '.join(cc)})"
+    if anexo_nome:
+        resultado += f" · anexo {anexo_nome}"
+    return TarefaDoEnvio(tipo, titulo[:200], resultado)
