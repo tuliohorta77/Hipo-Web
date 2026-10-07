@@ -96,12 +96,37 @@ else
     echo "   binario: $BIN"
 fi
 
-# Bibliotecas que o soffice headless pede e a AL2023 minima nao traz.
-# Sem elas a conversao morre com "error while loading shared libraries".
-# Uma por vez: nome que nao existe no repositorio nao derruba as outras.
-for pkg in fontconfig cairo libXinerama dbus-libs cups-libs nss libSM libICE; do
-    sudo dnf install -y -q "$pkg" >/dev/null 2>&1 \
-        || echo "   AVISO: $pkg nao instalou -- o ensaio abaixo diz se faz falta."
+# Bibliotecas de sistema que o soffice pede e a AL2023 minima nao traz
+# (o pacote oficial nao declara dependencia delas: o primeiro sintoma e
+# "error while loading shared libraries: libX11-xcb.so.1"). Em vez de uma
+# lista fixa, pergunta ao proprio ldd o que falta e pede ao dnf o pacote
+# que fornece cada .so -- repete ate nao faltar nada.
+DIR_LO="$(dirname "$BIN")"
+for rodada in 1 2 3 4 5; do
+    # So o nucleo que a conversao headless carrega. Os plugins de interface
+    # (gtk3, kf5, qt) e o java ficam de fora de proposito: perguntar ao ldd
+    # por eles faria o dnf puxar GTK e Qt inteiros para uma maquina sem tela.
+    NUCLEO=""
+    for f in soffice.bin oosplash libmergedlo.so libsofficeapp.so libvclplug_svplo.so \
+             libuno_sal.so.3 libuno_cppu.so.3 libuno_cppuhelpergcc3.so.3; do
+        [ -e "$DIR_LO/$f" ] && NUCLEO="$NUCLEO $DIR_LO/$f"
+    done
+    FALTAM=$(for f in $NUCLEO; do LD_LIBRARY_PATH="$DIR_LO" ldd "$f" 2>/dev/null; done \
+        | awk '/not found/ {print $1}' | sort -u || true)
+    # Lib do proprio LibreOffice que o ldd isolado nao achou nao e de sistema.
+    FALTAM=$(for lib in $FALTAM; do [ -e "$DIR_LO/$lib" ] || echo "$lib"; done)
+    [ -z "$FALTAM" ] && break
+    echo "== rodada $rodada: bibliotecas de sistema faltando:" $FALTAM
+    for lib in $FALTAM; do
+        sudo dnf install -y -q "${lib}()(64bit)" >/dev/null 2>&1 \
+            && echo "   + $lib" \
+            || echo "   AVISO: nenhum pacote fornece $lib"
+    done
+done
+# Fontes basicas e fontconfig: sem elas o texto que nao usa a fonte da
+# marca vira quadradinho.
+for pkg in fontconfig dejavu-sans-fonts liberation-sans-fonts; do
+    sudo dnf install -y -q "$pkg" >/dev/null 2>&1 || true
 done
 
 "$BIN" --version || true
