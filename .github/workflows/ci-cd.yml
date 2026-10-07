@@ -36,6 +36,11 @@ jobs:
           POSTGRES_USER: hipo_test
           POSTGRES_PASSWORD: hipo_test
           POSTGRES_DB: hipo_test
+          # Sem senha no container de teste: o postgres:15 usa SCRAM por padrao,
+          # ~33 ms por conexao, e a suite abre uma por teste e uma por request.
+          # Medido: 4m28 com SCRAM, 2m07 com trust. O container so existe no
+          # runner e so tem dado de teste; o RDS de producao nao muda.
+          POSTGRES_HOST_AUTH_METHOD: trust
         ports:
           - 5432:5432
         options: >-
