@@ -38,11 +38,12 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status as http
+from fastapi import APIRouter, Depends, HTTPException, Request, status as http
 from pydantic import BaseModel, Field, field_validator
 
 from database import get_conn
 from routers.auth import usuario_atual
+from services import auditoria
 from services import contato_oportunidade as regras
 from services import temperatura_contato as temp
 from services.contato_oportunidade import ContatoOportunidadeInvalido
@@ -361,9 +362,18 @@ async def comite(conn, oportunidade_id: UUID) -> dict:
 
 @router.get("/{oportunidade_id}/contatos", response_model=ComiteOut)
 async def listar(
-    oportunidade_id: UUID, conn=Depends(get_conn), user=Depends(usuario_atual)
+    oportunidade_id: UUID,
+    request: Request,
+    conn=Depends(get_conn),
+    user=Depends(usuario_atual),
 ):
-    return await comite(conn, oportunidade_id)
+    resultado = await comite(conn, oportunidade_id)
+    await auditoria.registrar_leitura(
+        conn, request, user, auditoria.RECURSO_CONTATO,
+        [i["contato_id"] for i in resultado["itens"]],
+        {"oportunidade_id": oportunidade_id},
+    )
+    return resultado
 
 
 @router.post(

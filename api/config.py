@@ -211,6 +211,34 @@ class Settings(BaseSettings):
     # aqui viraria erro 500 onde hoje so ha lentidao.
     DB_COMMAND_TIMEOUT_S: int = 0
 
+    # -- Limite de tentativas de login (032) -----------------------------
+    # Falhas dentro da janela. O limite por E-MAIL protege a conta de quem
+    # tem a senha atacada; o por IP pega quem varre varios e-mails a partir
+    # da mesma maquina. Sucesso zera a contagem daquele e-mail (a falha
+    # anterior ao acerto nao conta contra a pessoa), mas nao a do IP.
+    # LOGIN_LIMITE_ATIVO=false desliga tudo -- escotilha de emergencia, nao
+    # configuracao normal.
+    LOGIN_LIMITE_ATIVO: bool = True
+    LOGIN_JANELA_MIN: int = 15
+    LOGIN_MAX_FALHAS_EMAIL: int = 5
+    LOGIN_MAX_FALHAS_IP: int = 20
+    # Linhas de login_tentativas mais velhas que isto saem no fechamento
+    # diario, junto com a retencao da telemetria.
+    LOGIN_RETENCAO_DIAS: int = 180
+
+    # -- Observabilidade (Sentry) ----------------------------------------
+    # Vazio = desligado, e a API sobe igual -- mesma regra do SES, do S3 e
+    # da chave da IA. O DSN nao e segredo de verdade (vai ate no front de
+    # quem usa Sentry no navegador), mas mora no .env para cada instancia
+    # (principal, MOS) mandar para o projeto certo.
+    SENTRY_DSN: str = ""
+    # Vazio = vale ENVIRONMENT + sigla da instancia ("production",
+    # "production-mos"). E o filtro de ambiente na tela do Sentry.
+    SENTRY_AMBIENTE: str = ""
+    # Fracao das requests que viram trace de performance. 0 = so erros,
+    # que e o que o plano gratuito comporta sem estourar a cota.
+    SENTRY_TRACES_SAMPLE_RATE: float = 0.0
+
     class Config:
         env_file = _ENV_FILE
 

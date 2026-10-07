@@ -47,8 +47,33 @@ if [ -z "$VARIAVEL" ]; then
     echo "ERRO: falta o nome da variavel."
     echo
     echo "Uso:  bash $0 NOME_DA_VARIAVEL"
+    echo "      bash $0 NOME_DA_VARIAVEL --valor VALOR   (so para valor publico)"
     echo "Ex.:  bash $0 ECONODATA_API_KEY"
+    echo "      bash $0 ENRIQUECIMENTO_FONTES --valor brasilapi,oportunidados"
     exit 1
+fi
+
+# ── --valor: sem prompt nenhum ────────────────────────────────────────
+#
+# Prompt interativo dentro de `ssh -t` chamado de um script do PowerShell
+# embaralha na tela: a saida do ssh e a do PowerShell se intercalam e a
+# pergunta aparece fora de ordem, as vezes depois do que vem DEPOIS dela.
+# Duas vezes seguidas isso fez a ENRIQUECIMENTO_FONTES receber a coisa
+# errada -- primeiro um token colado, depois um Enter vazio.
+#
+# Valor publico nao precisa de prompt. Passar por argumento e seguro aqui
+# porque nao e segredo -- e a checagem abaixo garante que so valor publico
+# pode vir por esse caminho.
+VALOR_ARG=""
+TEM_VALOR_ARG=0
+if [ "${2:-}" = "--valor" ]; then
+    if [ "$#" -lt 3 ]; then
+        echo "ERRO: --valor sem valor depois."
+        exit 1
+    fi
+    shift 2
+    VALOR_ARG="$*"
+    TEM_VALOR_ARG=1
 fi
 case "$VARIAVEL" in
     [A-Za-z_]*) ;;
@@ -57,6 +82,49 @@ esac
 case "$VARIAVEL" in
     *[!A-Za-z0-9_]*) echo "ERRO: nome de variavel invalido: $VARIAVEL"; exit 1 ;;
 esac
+
+FONTES_PY="$APP_DIR/services/enriquecimento/fontes.py"
+
+# ── SEGREDO OU NAO ────────────────────────────────────────────────────
+#
+# Nem toda variavel do .env e chave. URL, caminho, nome de header, lista
+# de fontes -- nada disso e segredo, e esconder o que voce digita nesses
+# casos nao protege nada: tira a unica chance de ver que a area de
+# transferencia ainda tinha o token da variavel anterior.
+#
+# Foi exatamente isso em 23/09/2026. O token da Oportunidados foi colado
+# no primeiro prompt e colado DE NOVO no segundo, onde devia ir
+# "brasilapi,oportunidados". Como `read -rs` nao ecoa, nada na tela
+# desmentiu. A ENRIQUECIMENTO_FONTES ficou com 64 caracteres de hex, o
+# enriquecimento ficou sem nenhuma fonte valida, e o token foi parar no
+# log de erro do script seguinte -- ou seja, vazou por ter sido gravado
+# no lugar errado.
+#
+# Valor que nao e segredo ECOA, e conferido, e e confirmado antes de
+# gravar.
+case "$VARIAVEL" in
+    *_KEY|*_TOKEN|*_SECRET|*_PASSWORD|*_SENHA|DATABASE_URL)
+        SEGREDO=1 ;;
+    ENRIQUECIMENTO_*|*_URL|*_CAMINHO|*_CAMINHO_*|*_HEADER|*_PREFIXO_HEADER|\
+    *_BLOCOS|*_MODEL|*_ARQUIVO|*_BUCKET|*_REMETENTE|*_DESTINATARIOS|\
+    AWS_REGION|ENVIRONMENT|*_FUSO|*_DIAS|*_ATIVA|*_ROUNDS)
+        SEGREDO=0 ;;
+    # Na duvida, trata como segredo: esconder valor publico e so
+    # incomodo, ecoar valor secreto e vazamento.
+    *) SEGREDO=1 ;;
+esac
+
+# Segredo por argumento vaza em tres lugares de uma vez: historico do
+# shell da sua maquina, `ps` de qualquer usuario do servidor, e a tela.
+# Por isso --valor so existe para valor publico.
+if [ "$TEM_VALOR_ARG" = "1" ] && [ "$SEGREDO" = "1" ]; then
+    echo "ERRO: $VARIAVEL e segredo -- nao aceita --valor."
+    echo
+    echo "Valor em linha de comando aparece no historico do seu shell e"
+    echo "no 'ps' de qualquer usuario da maquina enquanto o comando roda."
+    echo "Rode sem --valor (com 'ssh -t') e cole no prompt."
+    exit 1
+fi
 
 linha() { printf '%s\n' "------------------------------------------------------"; }
 
@@ -133,17 +201,35 @@ fi
 
 # ── 3. a chave ────────────────────────────────────────────────────────
 linha
-if ! ( exec 3< /dev/tty ) 2>/dev/null; then
+if [ "$TEM_VALOR_ARG" = "1" ]; then
+    # Veio por argumento: nenhum prompt, nenhum /dev/tty, nada para
+    # embaralhar na tela. O caminho existe so para valor publico -- a
+    # checagem de segredo ja aconteceu la em cima.
+    CHAVE="$VALOR_ARG"
+    echo "Valor recebido por --valor (sem prompt)."
+elif ! ( exec 3< /dev/tty ) 2>/dev/null; then
     echo "ERRO: sem terminal. Rode com 'ssh -t'."
+    echo
+    if [ "$SEGREDO" = "0" ]; then
+        echo "Ou, para valor publico como este, passe direto:"
+        echo "  bash $0 $VARIAVEL --valor SEU_VALOR"
+    fi
     desfazer
     exit 1
+elif [ "$SEGREDO" = "1" ]; then
+    echo "Cole o valor de $VARIAVEL (NAO vai aparecer enquanto voce digita)."
+    echo "Enter vazio = nao mexer no valor, so manter a limpeza do CRLF."
+    printf '  valor: '
+    read -rs CHAVE < /dev/tty
+    echo
+else
+    echo "Digite o valor de $VARIAVEL -- ele APARECE na tela, de proposito."
+    echo "Isto aqui nao e segredo, e ver o que voce colou e a unica defesa"
+    echo "contra a area de transferencia ainda estar com a chave anterior."
+    echo "Enter vazio = nao mexer no valor, so manter a limpeza do CRLF."
+    printf '  valor: '
+    read -r CHAVE < /dev/tty
 fi
-
-echo "Cole o valor de $VARIAVEL (NAO vai aparecer enquanto voce digita)."
-echo "Enter vazio = nao mexer no valor, so manter a limpeza do CRLF."
-printf '  valor: '
-read -rs CHAVE < /dev/tty
-echo
 
 # Cola de painel web costuma trazer espaco, aspas ou quebra de linha
 # junto. Limpar aqui e melhor que descobrir depois por um 401.
@@ -152,7 +238,17 @@ CHAVE=$(printf '%s' "$CHAVE" | tr -d '\r\n' \
           -e 's/^"//' -e 's/"$//' -e "s/^'//" -e "s/'$//")
 
 if [ -z "$CHAVE" ]; then
-    echo "$VARIAVEL nao alterada."
+    # Enter vazio ja passou despercebido no meio de saida embaralhada de
+    # PowerShell + ssh -t, e o valor errado ficou no .env mais uma rodada.
+    # Entao isto grita, em vez de sussurrar uma linha.
+    echo
+    echo "######################################################"
+    echo "#  NADA FOI DIGITADO -- $VARIAVEL NAO MUDOU"
+    echo "#"
+    echo "#  O valor que ja estava no .env continua la, seja ele"
+    echo "#  qual for. Se voce esperava trocar, rode de novo."
+    echo "######################################################"
+    echo
 else
     case "$CHAVE" in
         *[![:print:]]*)
@@ -161,7 +257,77 @@ else
             desfazer
             exit 1 ;;
     esac
-    echo "$VARIAVEL recebida: ${CHAVE:0:4}... (${#CHAVE} caracteres)"
+
+    # ── o valor tem cara do que a variavel pede? ──────────────────────
+    #
+    # Blob longo sem pontuacao e chave, nunca lista de fontes nem URL. A
+    # barreira aqui e barata e pega o erro que ja aconteceu: chave colada
+    # no lugar de um valor publico.
+    if [ "$SEGREDO" = "0" ] \
+       && printf '%s' "$CHAVE" | grep -qE '^[A-Za-z0-9+/=_-]{32,}$'; then
+        echo
+        echo "ERRO: isso tem cara de chave/token, nao de valor de $VARIAVEL."
+        echo "      ${#CHAVE} caracteres, sem ponto, barra nem virgula."
+        echo
+        echo "A area de transferencia ainda esta com a chave anterior?"
+        echo "DIGITE o valor em vez de colar."
+        desfazer
+        exit 1
+    fi
+
+    # ── a lista de fontes existe no codigo que esta rodando? ──────────
+    #
+    # Fonte desconhecida e IGNORADA em silencio pelo fontes_habilitadas()
+    # -- de proposito, para erro de digitacao nao derrubar a API. O preco
+    # e que um .env errado nao reclama: o enriquecimento simplesmente
+    # para de trazer dado. Entao quem reclama e aqui, na hora de gravar.
+    if [ "$VARIAVEL" = "ENRIQUECIMENTO_FONTES" ]; then
+        CONHECIDAS=$(sudo grep -oE '^[A-Z_]+ = "[a-z0-9_]+"' "$FONTES_PY" 2>/dev/null \
+            | sed 's/.*"\(.*\)"/\1/' | sort -u)
+        if [ -z "$CONHECIDAS" ]; then
+            echo "AVISO: nao consegui ler as fontes registradas em"
+            echo "       $FONTES_PY -- vou gravar sem conferir os nomes."
+        else
+            DESCONHECIDAS=""
+            RESTO="$CHAVE"
+            while [ -n "$RESTO" ]; do
+                UMA=${RESTO%%,*}
+                if [ "$UMA" = "$RESTO" ]; then RESTO=""; else RESTO=${RESTO#*,}; fi
+                UMA=$(printf '%s' "$UMA" | tr -d '[:space:]' | tr 'A-Z' 'a-z')
+                [ -n "$UMA" ] || continue
+                printf '%s\n' "$CONHECIDAS" | grep -qx "$UMA" \
+                    || DESCONHECIDAS="$DESCONHECIDAS $UMA"
+            done
+            if [ -n "$DESCONHECIDAS" ]; then
+                echo
+                echo "ERRO: o codigo em producao nao conhece:$DESCONHECIDAS"
+                echo
+                echo "Registradas hoje: $(printf '%s' "$CONHECIDAS" | tr '\n' ' ')"
+                echo
+                echo "Fonte desconhecida e ignorada em silencio. Gravar isso"
+                echo "deixaria o enriquecimento sem fonte nenhuma, e nada"
+                echo "na tela diria por que."
+                desfazer
+                exit 1
+            fi
+        fi
+    fi
+
+    if [ "$SEGREDO" = "1" ]; then
+        echo "$VARIAVEL recebida: ${CHAVE:0:4}... (${#CHAVE} caracteres)"
+    elif [ "$TEM_VALOR_ARG" = "1" ]; then
+        # Sem pergunta: o valor esta no comando que voce mesmo escreveu.
+        echo "Vai gravar:  $VARIAVEL=$CHAVE"
+    else
+        echo
+        echo "Vai gravar:  $VARIAVEL=$CHAVE"
+        printf '  Confere? [s/N] '
+        read -r RESP < /dev/tty
+        case "$RESP" in
+            s|S) ;;
+            *) echo "Nada gravado. O .env ficou como estava."; desfazer; exit 0 ;;
+        esac
+    fi
 
     # Gravar com `sed` embutiria a chave na linha de comando do sed, que
     # aparece no `ps`. Reescrever o arquivo por fora e mais seguro: a

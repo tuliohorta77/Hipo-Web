@@ -54,6 +54,8 @@ sys.path.insert(0, __file__.rsplit("/scripts/", 1)[0])  # permite rodar de api/
 from config import settings  # noqa: E402
 from services import email_ses, ia, relatorio_render  # noqa: E402
 from services import telemetria as tel  # noqa: E402
+from services import login_limite, observabilidade  # noqa: E402
+from services.instancia import empresa_sigla  # noqa: E402
 
 logging.basicConfig(
     level=logging.INFO,
@@ -181,12 +183,32 @@ async def executar(dia: date, enviar_email: bool, forcar_email: bool, so_imprime
         if apagados:
             log.info("retenção: %d evento(s) com mais de %d dias apagado(s)",
                      apagados, settings.TELEMETRIA_RETENCAO_DIAS)
+        # 032: tentativas de login tem retencao propria (mais longa: e
+        # trilha de seguranca, e incidente costuma ser descoberto tarde).
+        # leituras_sensiveis NAO tem retencao -- e o registro que a LGPD
+        # pede, e ele so cresce quando alguem abre dado pessoal.
+        login_apagados = await login_limite.aplicar_retencao(
+            conn, settings.LOGIN_RETENCAO_DIAS,
+        )
+        if login_apagados:
+            log.info("retenção: %d tentativa(s) de login com mais de %d dias apagada(s)",
+                     login_apagados, settings.LOGIN_RETENCAO_DIAS)
         return 0
     finally:
         await conn.close()
 
 
 def main() -> int:
+    # O timer roda de madrugada, sem ninguem olhando o journal: falha do
+    # fechamento (IA fora, SES recusando, banco travado) vira alerta no
+    # Sentry pelo log.error. Sem SENTRY_DSN, nao faz nada.
+    observabilidade.iniciar(
+        settings.SENTRY_DSN,
+        ambiente=settings.SENTRY_AMBIENTE
+        or observabilidade.ambiente_padrao(settings.ENVIRONMENT, empresa_sigla()),
+        release="hipo-fechamento",
+        instancia=empresa_sigla(),
+    )
     p = argparse.ArgumentParser(description="Fechamento diário do HIPO")
     p.add_argument("--dia", help="AAAA-MM-DD (padrão: ontem no fuso da operação)")
     p.add_argument("--sem-email", action="store_true", help="calcula e grava, não envia")

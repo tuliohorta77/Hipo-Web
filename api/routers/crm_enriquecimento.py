@@ -32,12 +32,13 @@ from __future__ import annotations
 from datetime import date, datetime
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
 from database import get_conn
 from routers.auth import usuario_atual
 from routers.permissions import CARGOS_GESTAO
+from services import auditoria
 from services import cnpj as cnpj_svc
 from services import enriquecimento as enriq
 
@@ -242,6 +243,7 @@ async def _cnae_completo(conn, codigo: str | None) -> dict | None:
 @router.get("/cnpj/{cnpj}", response_model=SugestaoOut)
 async def consultar_cnpj(
     cnpj: str,
+    request: Request,
     forcar: bool = Query(False, description="Ignora o cache e vai à fonte."),
     conn=Depends(get_conn),
     user=Depends(usuario_atual),
@@ -295,6 +297,16 @@ async def consultar_cnpj(
     # existir. Registrar o código não classifica nada — nasce não mapeado.
     cnae = await enriq.garantir_cnae(conn, dados.cnae_codigo, dados.cnae_descricao)
     cnae_completo = await _cnae_completo(conn, dados.cnae_codigo)
+
+    # Socio e pessoa fisica: a consulta que devolve o QSA entra na trilha.
+    # Sem id ainda (o socio so vira linha no "aplicar"), o que situa a
+    # leitura e o CNPJ -- dado publico da empresa, nao da pessoa.
+    if dados.socios:
+        await auditoria.registrar_leitura(
+            conn, request, user, auditoria.RECURSO_SOCIO, [],
+            {"cnpj": digitos, "qtd_socios": len(dados.socios),
+             "conta_id": existente["id"] if existente else None},
+        )
 
     return {
         **base,
@@ -586,6 +598,7 @@ async def mapear_cnae(
 @router.get("/contas/{conta_id}/socios", response_model=list[SocioOut])
 async def socios_da_conta(
     conta_id: UUID,
+    request: Request,
     conn=Depends(get_conn),
     user=Depends(usuario_atual),
 ):
@@ -608,11 +621,16 @@ async def socios_da_conta(
         """,
         conta_id,
     )
+    await auditoria.registrar_leitura(
+        conn, request, user, auditoria.RECURSO_SOCIO, [r["id"] for r in rows],
+        {"conta_id": conta_id},
+    )
     return [dict(r) for r in rows]
 
 
 @router.get("/socios/empresas", response_model=EmpresasDoSocioOut)
 async def empresas_do_socio(
+    request: Request,
     nome: str = Query(..., min_length=3, max_length=200),
     documento: str | None = Query(None, max_length=20),
     excluir_conta_id: UUID | None = None,
@@ -697,6 +715,14 @@ async def empresas_do_socio(
             "externa": True,
         })
 
+    # A busca reversa e por PESSOA: o nome buscado entra no contexto (e o
+    # que responde "quem pesquisou as empresas de Fulano"); o documento
+    # mascarado nao, porque ja identifica sozinho.
+    await auditoria.registrar_leitura(
+        conn, request, user, auditoria.RECURSO_SOCIO, [],
+        {"nome": nome.strip()[:200], "com_documento": bool(doc),
+         "qtd_empresas": len(empresas)},
+    )
     return {"nome": nome, "avisos": avisos, "empresas": empresas}
 
 

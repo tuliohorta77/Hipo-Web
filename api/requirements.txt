@@ -36,6 +36,14 @@ boto3==1.43.74
 google-api-python-client==2.149.0
 google-auth==2.35.0
 
+# Observabilidade (032): erros de producao no Sentry.
+# ATENCAO, MESMA ARMADILHA DO python-pptx ACIMA: o deploy faz rsync e
+# reinicia, NAO roda pip install. Instalar na EC2 uma vez, com o mesmo
+# python da hipo-api:  bash infra/instalar-sentry.sh
+# Sem o pacote a API sobe igual -- so nao manda erro (o /health mostra
+# "sentry": false). services/observabilidade.py.
+sentry-sdk[fastapi]==2.71.0
+
 # Tests
 anyio[trio]==4.4.0
 pytest==8.3.2

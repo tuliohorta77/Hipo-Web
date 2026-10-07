@@ -2,22 +2,27 @@
 HIPO — Autenticação e gestão do próprio perfil.
 
 Endpoints:
-  POST /auth/login     — gera JWT
+  POST /auth/login     — gera JWT (com limite de tentativas, ver
+                         services/login_limite.py)
   GET  /auth/me        — dados do usuário logado + módulos visíveis
   PUT  /auth/senha     — troca senha do próprio usuário
 
 Cargo é VARCHAR(80) livre em 'usuarios.cargo'. Permissões por cargo
 são definidas em routers/permissions.py (modulos_do_cargo).
 """
+import logging
 from datetime import datetime, timedelta
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Request
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from jose import jwt, JWTError
 from pydantic import BaseModel, Field
 import bcrypt
 from database import get_conn
 from config import settings
+from services import login_limite, observabilidade
 from services.instancia import empresa_sigla
+
+log = logging.getLogger("hipo.auth")
 
 router = APIRouter()
 oauth2 = OAuth2PasswordBearer(tokenUrl="/auth/login")
@@ -71,18 +76,72 @@ async def usuario_atual(token: str = Depends(oauth2), conn=Depends(get_conn)):
     )
     if not user:
         raise HTTPException(401, "Usuário não encontrado")
-    return dict(user)
+    user = dict(user)
+    # Erro desta request chega no Sentry dizendo QUEM (id + cargo). No-op
+    # sem Sentry.
+    observabilidade.marcar_usuario(user)
+    return user
 
 
 # ── Endpoints ────────────────────────────────────────────────────
 
 @router.post("/login")
-async def login(form: OAuth2PasswordRequestForm = Depends(), conn=Depends(get_conn)):
+async def login(
+    request: Request,
+    form: OAuth2PasswordRequestForm = Depends(),
+    conn=Depends(get_conn),
+):
+    """
+    Troca e-mail + senha por um JWT.
+
+    ORDEM: limite primeiro, senha depois. Barrado, nem o bcrypt roda --
+    ver services/login_limite.py. Toda tentativa vira linha em
+    login_tentativas, inclusive a barrada (sem contar contra o limite).
+
+    A resposta de credencial errada e a MESMA para e-mail inexistente e
+    senha errada: diferenciar diria a quem testa quais e-mails existem.
+    """
+    email = login_limite.normalizar_email(form.username)
+    ip = login_limite.ip_do_cliente(request)
+    ua = request.headers.get("user-agent")
+
+    # Falha na checagem (tabela fora, migration pulada no deploy de
+    # emergencia) libera o login em vez de derrubar todo mundo. O log.error
+    # vira alerta: e o sinal de que o limite parou de proteger.
+    try:
+        decisao = await login_limite.verificar(conn, email, ip)
+    except Exception:
+        log.error("limite de login indisponivel; seguindo sem ele", exc_info=True)
+        decisao = login_limite.Decisao(bloqueado=False)
+
+    if decisao.bloqueado:
+        await login_limite.registrar(
+            conn, email, ip, sucesso=False, motivo="bloqueado", user_agent=ua,
+        )
+        raise HTTPException(
+            429, decisao.mensagem(),
+            headers={"Retry-After": str(decisao.segundos)},
+        )
+
+    # lower() dos dois lados: quem digitou "Fulano@" nao pode ter o login
+    # recusado, nem ser contado no limite como alvo diferente de "fulano@".
+    # O token segue levando o e-mail como esta no cadastro.
     user = await conn.fetchrow(
-        "SELECT * FROM usuarios WHERE email = $1 AND ativo = TRUE", form.username
+        "SELECT * FROM usuarios WHERE lower(email) = $1 AND ativo = TRUE", email
     )
-    if not user or not _verificar_senha(form.password, user["senha_hash"]):
+    if not user:
+        await login_limite.registrar(
+            conn, email, ip, sucesso=False, motivo="inativo_ou_inexistente",
+            user_agent=ua,
+        )
         raise HTTPException(401, "Credenciais inválidas")
+    if not _verificar_senha(form.password, user["senha_hash"]):
+        await login_limite.registrar(
+            conn, email, ip, sucesso=False, motivo="senha", user_agent=ua,
+        )
+        raise HTTPException(401, "Credenciais inválidas")
+
+    await login_limite.registrar(conn, email, ip, sucesso=True, user_agent=ua)
     return {"access_token": criar_token(user["email"]), "token_type": "bearer"}
 
 

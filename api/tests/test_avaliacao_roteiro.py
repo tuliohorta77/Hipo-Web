@@ -108,6 +108,27 @@ class TestEvidencia:
     def test_trecho_inventado_nao_confere(self):
         assert not aval.evidencia_confere("quanto custa um dia de admissão parada", TRANSCRICAO)
 
+    def test_trecho_atravessa_a_troca_de_quem_fala(self):
+        """
+        Pergunta do vendedor + resposta do cliente: entre as duas a
+        transcricao tem "[hh:mm] Nome:". Antes desta correcao o trecho nunca
+        conferia, e os itens 7 e 10 eram descartados em massa (02/10).
+        """
+        t = ("[10:05] Bruno Gonçalo: Fechamos terça às 10 para ver a proposta?\n"
+             "[10:05] Cliente Alfa: Pode ser, terça às 10 está ótimo.")
+        assert aval.evidencia_confere(
+            "Fechamos terça às 10 para ver a proposta? Pode ser, terça às 10", t)
+        # A IA as vezes poe o nome de quem fala: tambem confere.
+        assert aval.evidencia_confere(
+            "Bruno Gonçalo: Fechamos terça às 10? ... Cliente Alfa: Pode ser, terça às 10", t)
+        # Mas nao inventa: frase que ninguem disse continua sem conferir.
+        assert not aval.evidencia_confere("Fechamos quarta às 15", t)
+
+    def test_so_falas_tira_o_prefixo_e_guarda_os_nomes(self):
+        falas, nomes = aval.so_falas("[09:00] Ana: oi\n[09:01] Cliente X: ola")
+        assert falas == "oi\nola"
+        assert nomes == ["Ana", "Cliente X"]
+
     def test_trecho_curto_demais_nao_prova(self):
         assert not aval.evidencia_confere("o", TRANSCRICAO)
         assert not aval.evidencia_confere("...", TRANSCRICAO)

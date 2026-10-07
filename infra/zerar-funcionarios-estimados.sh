@@ -196,9 +196,20 @@ FONTES="${ENRIQUECIMENTO_FONTES:-}"
 case ",$FONTES," in
     *,oportunidados,*) ;;
     *)
+        # O valor NAO vai para a tela. Esta variavel deveria ser publica,
+        # mas ja recebeu um token colado por engano -- e foi este echo que
+        # o imprimiu inteiro em 23/09/2026. Diagnostico nao precisa do
+        # valor: o formato e o tamanho dizem o que houve.
+        if printf '%s' "$FONTES" | grep -qE '^[A-Za-z0-9+/=_-]{32,}$'; then
+            RESUMO="um blob de ${#FONTES} caracteres -- parece uma CHAVE colada no lugar errado"
+        elif [ -z "$FONTES" ]; then
+            RESUMO="(vazio)"
+        else
+            RESUMO="$(printf '%s' "$FONTES" | tr ',' '\n' | grep -c .) nome(s), nenhum deles 'oportunidados'"
+        fi
         echo
         echo "ERRO: ENRIQUECIMENTO_FONTES nao inclui 'oportunidados'."
-        echo "  valor atual: '${FONTES:-(vazio)}'"
+        echo "  o que tem la: $RESUMO"
         echo
         echo "Sem a fonte ligada, os campos zerados ficam vazios para"
         echo "sempre. Ajuste o .env primeiro:"

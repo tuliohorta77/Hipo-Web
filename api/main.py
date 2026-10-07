@@ -14,7 +14,22 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from config import resolver_origens_cors, settings
 from database import criar_pool
+from services import observabilidade
 from services.instancia import empresa_nome, empresa_sigla
+
+VERSAO = "2.5.0"
+
+# Sentry ANTES de FastAPI(...): as integracoes de Starlette/FastAPI se
+# penduram na classe na hora do init. Sem SENTRY_DSN no .env, nao faz nada.
+# Ver services/observabilidade.py.
+observabilidade.iniciar(
+    settings.SENTRY_DSN,
+    ambiente=settings.SENTRY_AMBIENTE
+    or observabilidade.ambiente_padrao(settings.ENVIRONMENT, empresa_sigla()),
+    release=f"hipo-api@{VERSAO}",
+    traces_sample_rate=settings.SENTRY_TRACES_SAMPLE_RATE,
+    instancia=empresa_sigla(),
+)
 from middleware.telemetria import TelemetriaMiddleware, buffer, descarga_periodica
 from routers import (
     carreira,
@@ -120,7 +135,7 @@ async def ciclo_de_vida(app: FastAPI):
 app = FastAPI(
     title="HIPO API",
     description="Hipotálamo Inteligente de Processos e Operações",
-    version="2.5.0",
+    version=VERSAO,
     lifespan=ciclo_de_vida,
 )
 # Sem lifespan (suite de testes) ninguem cria o pool; o atributo existe
@@ -404,6 +419,9 @@ async def health():
         "sistema": "HIPO",
         "versao": app.version,
         "pool": app.state.pool is not None,
+        # 032: True quando este worker manda erro para o Sentry. E a
+        # conferencia de que o DSN entrou e o pacote esta instalado.
+        "sentry": observabilidade.ativo(),
         # 046: qual base respondeu. E a conferencia do deploy em cada
         # instancia -- o mesmo codigo responde em hipogestao.com.br e em
         # mos.hipogestao.com.br, e o smoke precisa provar que cada dominio

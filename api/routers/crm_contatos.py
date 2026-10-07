@@ -22,11 +22,12 @@ from __future__ import annotations
 from datetime import date, datetime
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field, field_validator
 
 from database import get_conn
 from routers.auth import usuario_atual
+from services import auditoria
 from services.texto import limpar_nome
 
 router = APIRouter()
@@ -300,6 +301,7 @@ async def _promover_principal(conn, conta_id: UUID, contato_id: UUID) -> None:
 
 @router.get("/duplicatas", response_model=list[Duplicata])
 async def duplicatas(
+    request: Request,
     email: str | None = Query(None, max_length=150),
     telefone: str | None = Query(None, max_length=20),
     conn=Depends(get_conn),
@@ -341,11 +343,18 @@ async def duplicatas(
         email.strip().lower() if email else None,
         telefone.strip() if telefone else None,
     )
+    # Contexto sem o e-mail/telefone digitado: ele E o dado pessoal. Basta
+    # saber que a checagem rodou e por qual campo.
+    await auditoria.registrar_leitura(
+        conn, request, user, auditoria.RECURSO_CONTATO, [r["id"] for r in rows],
+        {"por_email": bool(email), "por_telefone": bool(telefone)},
+    )
     return [dict(r) for r in rows]
 
 
 @router.get("/busca", response_model=list[ContatoBusca])
 async def busca(
+    request: Request,
     q: str = Query(..., min_length=1, max_length=150),
     conta_id: UUID | None = None,
     excluir_vinculados: bool = False,
@@ -378,11 +387,18 @@ async def busca(
         """,
         f"%{q.strip()}%", conta_id, limit, excluir_vinculados,
     )
+    # O termo buscado entra: "quem procurou por Fulana" e pergunta legitima
+    # da trilha, e a tabela tem o mesmo acesso restrito que ela.
+    await auditoria.registrar_leitura(
+        conn, request, user, auditoria.RECURSO_CONTATO, [r["id"] for r in rows],
+        {"q": q.strip()[:150], "conta_id": conta_id},
+    )
     return [dict(r) for r in rows]
 
 
 @router.get("/por-alvo", response_model=list[ContatoDoAlvo])
 async def por_alvo(
+    request: Request,
     oportunidade_id: UUID | None = None,
     conta_id: UUID | None = None,
     conn=Depends(get_conn),
@@ -440,6 +456,10 @@ async def por_alvo(
             """,
             oportunidade_id,
         )
+        await auditoria.registrar_leitura(
+            conn, request, user, auditoria.RECURSO_CONTATO, [r["id"] for r in rows],
+            {"oportunidade_id": oportunidade_id},
+        )
         return [dict(r) for r in rows]
 
     if not await conn.fetchval("SELECT 1 FROM contas WHERE id = $1", conta_id):
@@ -457,11 +477,16 @@ async def por_alvo(
         """,
         conta_id,
     )
+    await auditoria.registrar_leitura(
+        conn, request, user, auditoria.RECURSO_CONTATO, [r["id"] for r in rows],
+        {"conta_id": conta_id},
+    )
     return [dict(r) for r in rows]
 
 
 @router.get("", response_model=ContatoLista)
 async def listar(
+    request: Request,
     q: str | None = Query(None, max_length=150),
     conta_id: UUID | None = None,
     ativo: bool | None = None,
@@ -515,6 +540,16 @@ async def listar(
         """,
         *params, limit, offset,
     )
+    await auditoria.registrar_leitura(
+        conn, request, user, auditoria.RECURSO_CONTATO, [r["id"] for r in rows],
+        {
+            "q": q.strip()[:150] if q else None,
+            "conta_id": conta_id,
+            "aniversariantes_mes": aniversariantes_mes,
+            "sem_conta": sem_conta or None,
+            "offset": offset or None,
+        },
+    )
     return {
         "total": total,
         "limit": limit,
@@ -524,8 +559,17 @@ async def listar(
 
 
 @router.get("/{contato_id}", response_model=ContatoDetalhe)
-async def obter(contato_id: UUID, conn=Depends(get_conn), user=Depends(usuario_atual)):
-    return await _detalhe(conn, contato_id)
+async def obter(
+    contato_id: UUID,
+    request: Request,
+    conn=Depends(get_conn),
+    user=Depends(usuario_atual),
+):
+    detalhe = await _detalhe(conn, contato_id)
+    await auditoria.registrar_leitura(
+        conn, request, user, auditoria.RECURSO_CONTATO, [contato_id],
+    )
+    return detalhe
 
 
 @router.post("", response_model=ContatoDetalhe, status_code=status.HTTP_201_CREATED)

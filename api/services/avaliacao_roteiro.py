@@ -114,13 +114,49 @@ def normalizar(texto: str | None) -> str:
     return " ".join(re.sub(r"[^0-9a-z]+", " ", sem_acento.lower()).split())
 
 
-def evidencia_confere(trecho: str | None, transcricao: str) -> bool:
+_PREFIXO_FALA = re.compile(r"^\[\d{1,2}:\d{2}\]\s*([^:\n]{1,80}):\s*", re.M)
+_HORA = re.compile(r"\[\d{1,2}:\d{2}\]")
+
+
+def so_falas(transcricao: str) -> tuple[str, list[str]]:
+    r"""
+    O texto sem o "[09:03] Nome: " do começo de cada linha, e os nomes.
+
+    Sem isto, um trecho que atravessa duas falas ("pode ser terça às 10?
+    pode sim") nunca conferia: entre as duas frases a transcrição tem o
+    horário e o nome de quem falou, que a IA (corretamente) não cita. Foi o
+    que descartou em massa os itens 7 e 10 no backfill de 02/10 — GPCT e
+    próximo passo são justamente perguntas do vendedor com resposta do
+    cliente.
+
+    >>> so_falas("[10:01] Bruno: pode ser terça?\n[10:02] Ana Lima: pode sim")
+    ('pode ser terça?\npode sim', ['Bruno', 'Ana Lima'])
     """
+    nomes = []
+    for m in _PREFIXO_FALA.finditer(transcricao or ""):
+        nome = m.group(1).strip()
+        if nome and nome not in nomes:
+            nomes.append(nome)
+    return _PREFIXO_FALA.sub("", transcricao or ""), nomes
+
+
+def _limpar_trecho(trecho: str, nomes: list[str]) -> str:
+    """Tira do trecho citado horários e "Nome:" de participante, se a IA pôs."""
+    t = _HORA.sub(" ", trecho)
+    for nome in sorted(nomes, key=len, reverse=True):
+        t = re.sub(re.escape(nome) + r"\s*:", " ", t, flags=re.I)
+    return t
+
+
+def evidencia_confere(trecho: str | None, transcricao: str) -> bool:
+    r"""
     O trecho citado existe na transcrição?
 
-    Aceita reticências no meio ("quanto custa ... parado"): cada pedaço
-    precisa existir, na ordem. Pedaço curto demais (menos de 6 caracteres
-    normalizados) não prova nada e não conta como pedaço.
+    Compara só as FALAS (sem "[hh:mm] Nome:" do começo das linhas), então
+    um trecho pode atravessar a troca de quem fala. Aceita reticências no
+    meio ("quanto custa ... parado"): cada pedaço precisa existir, na
+    ordem. Pedaço curto demais (menos de 6 caracteres normalizados) não
+    prova nada e não conta como pedaço.
 
     >>> t = "[10:01] Bruno: E o que te incomoda hoje no fornecedor atual?"
     >>> evidencia_confere("o que te incomoda hoje", t)
@@ -131,10 +167,17 @@ def evidencia_confere(trecho: str | None, transcricao: str) -> bool:
     False
     >>> evidencia_confere("", t)
     False
+    >>> t2 = "[10:05] Bruno: Fechamos terça às 10?\n[10:05] Ana Lima: Pode ser, terça às 10."
+    >>> evidencia_confere("Fechamos terça às 10? Pode ser, terça às 10", t2)
+    True
+    >>> evidencia_confere("Bruno: Fechamos terça às 10? Ana Lima: Pode ser", t2)
+    True
     """
-    alvo = normalizar(transcricao)
+    falas, nomes = so_falas(transcricao)
+    alvo = normalizar(falas)
     pedacos = [
-        normalizar(p) for p in re.split(r"\.{3,}|…|\[\.\.\.\]", trecho or "")
+        normalizar(_limpar_trecho(p, nomes))
+        for p in re.split(r"\.{3,}|…|\[\.\.\.\]", trecho or "")
     ]
     pedacos = [p for p in pedacos if len(p) >= TAM_MINIMO_TRECHO]
     if not pedacos:

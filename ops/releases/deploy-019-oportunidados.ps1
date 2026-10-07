@@ -340,19 +340,31 @@ else {
     if ($LASTEXITCODE -ne 0) { Abortar "o scp falhou." }
     Bom "scripts em /tmp/ no servidor"
 
+    # A LISTA DE FONTES VAI POR ARGUMENTO, SEM PROMPT.
+    #
+    # Ela nao e segredo, entao nao ha nada a esconder -- e prompt aqui ja
+    # custou caro duas vezes. A saida do ssh -t e a deste script se
+    # intercalam no terminal do Windows: a pergunta aparece fora de
+    # ordem, as vezes depois do texto que vem DEPOIS dela. Na primeira
+    # rodada isso rendeu um token colado no lugar da lista; na segunda,
+    # um Enter vazio que manteve o token la.
+    #
+    # Um valor publico nao precisa de cerimonia. O token continua no
+    # prompt escondido, que e onde prompt faz sentido.
+    Passo "lista de fontes (por argumento, sem pergunta)..."
+    & ssh -i $Chave $alvo "bash /tmp/por-chave-no-env.sh ENRIQUECIMENTO_FONTES --valor brasilapi,oportunidados"
+    if ($LASTEXITCODE -ne 0) { Abortar "gravar as fontes falhou (codigo $LASTEXITCODE)." }
+    Bom "fontes gravadas e servico reiniciado"
+
     Write-Host ""
-    Write-Host "  Voce vai digitar DOIS valores, um de cada vez. Nenhum dos" -ForegroundColor Gray
-    Write-Host "  dois aparece na tela e nenhum passa por linha de comando --" -ForegroundColor Gray
-    Write-Host "  argumento vaza no 'ps' de qualquer usuario da maquina." -ForegroundColor Gray
+    Write-Host "  Agora o token da Oportunidados." -ForegroundColor White
     Write-Host ""
-    Write-Host "  1o) o token da Oportunidados" -ForegroundColor White
-    Write-Host "  2o) a lista de fontes, exatamente assim:" -ForegroundColor White
+    Write-Host "  COLE quando aparecer '  valor: '. Ele nao aparece na tela" -ForegroundColor Gray
+    Write-Host "  enquanto voce digita, e nao passa por linha de comando --" -ForegroundColor Gray
+    Write-Host "  argumento vazaria no 'ps' de qualquer usuario da maquina." -ForegroundColor Gray
     Write-Host ""
-    Write-Host "         brasilapi,oportunidados" -ForegroundColor Cyan
-    Write-Host ""
-    Write-Host "     (a ordem e a precedencia: a primeira que trouxer o campo" -ForegroundColor Gray
-    Write-Host "      vence. A econodata sai da lista -- se o nome dela ficar," -ForegroundColor Gray
-    Write-Host "      ela continua sendo consultada e continua sendo cobrada.)" -ForegroundColor Gray
+    Write-Host "  Se a tela embaralhar, procure a linha '  valor: ' e cole" -ForegroundColor Gray
+    Write-Host "  ali. Enter vazio nao troca nada e avisa em letras garrafais." -ForegroundColor Gray
     Write-Host ""
 
     # O `-t` nao e detalhe: o script do lado de la le o valor de /dev/tty.
@@ -363,11 +375,6 @@ else {
     & ssh -t -i $Chave $alvo "bash /tmp/por-chave-no-env.sh OPORTUNIDADOS_API_TOKEN"
     if ($LASTEXITCODE -ne 0) { Abortar "gravar o token falhou (codigo $LASTEXITCODE)." }
     Bom "token gravado e servico reiniciado"
-
-    Passo "lista de fontes..."
-    & ssh -t -i $Chave $alvo "bash /tmp/por-chave-no-env.sh ENRIQUECIMENTO_FONTES"
-    if ($LASTEXITCODE -ne 0) { Abortar "gravar as fontes falhou (codigo $LASTEXITCODE)." }
-    Bom "fontes gravadas e servico reiniciado"
 }
 
 # =====================================================================
