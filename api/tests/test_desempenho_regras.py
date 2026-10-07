@@ -95,3 +95,95 @@ def test_historico_ignora_indicador_de_posicao():
 
 def test_meses_anteriores_atravessa_o_ano():
     assert d.meses_anteriores(2026, 2, 3) == [(2025, 11), (2025, 12), (2026, 1)]
+
+
+# ── Scorecard das reuniões (EV) ──────────────────────────────────────
+
+from datetime import datetime, timezone  # noqa: E402
+
+from services import roteiro_scorecard as sc  # noqa: E402
+
+
+def _reuniao(rid, nota=None, status="pronta", versao=None, validada=False,
+             foco=None, dia=10):
+    return {
+        "reuniao_id": rid, "inicio": datetime(2026, 8, dia, 13, tzinfo=timezone.utc),
+        "empresa": f"Empresa {rid}", "oportunidade_numero": f"OPP-{rid}",
+        "av_status": status, "av_nota": nota, "av_versao": versao or sc.VERSAO,
+        "av_validada": validada, "foco_proxima": foco,
+    }
+
+
+def test_so_ev_tem_scorecard():
+    assert d.tem_scorecard("EV")
+    assert not d.tem_scorecard("SDR") and not d.tem_scorecard("EC")
+    assert not d.tem_scorecard(None)
+
+
+def test_nota_da_reuniao_segue_a_regra_do_monitor():
+    assert d.nota_da_reuniao(_reuniao(1, 14)) == (14.0, "ia")
+    assert d.nota_da_reuniao(_reuniao(1, 14, validada=True)) == (14.0, "validada")
+    assert d.nota_da_reuniao(_reuniao(1, status="aguardando")) == (None, "avaliando")
+    assert d.nota_da_reuniao(_reuniao(1, status="erro")) == (None, "erro")
+    # Roteiro de outra versão não se compara.
+    assert d.nota_da_reuniao(_reuniao(1, 14, versao="2000-01-01")) == (None, None)
+    assert d.nota_da_reuniao({"av_status": None}) == (None, None)
+
+
+def test_media_deixa_reuniao_sem_nota_fora():
+    rs = [_reuniao(1, 12), _reuniao(2, 17), _reuniao(3, status="aguardando"), {"av_status": None}]
+    assert d.media_scorecard(rs) == (14.5, 2)
+    assert d.media_scorecard([]) == (None, 0)
+
+
+def test_media_por_item_conta_item_sem_nota_como_zero():
+    itens = {1: {1: 2, 5: 0}, 2: {1: 1, 5: None}}
+    medias = d.medias_por_item(itens, [1, 2])
+    assert [m["item"] for m in medias] == list(range(1, 11))
+    assert medias[0]["media"] == 1.5 and medias[0]["fracao"] == 0.75
+    assert medias[4]["media"] == 0.0 and medias[4]["media_txt"] == "0,0"
+    # Sem reunião avaliada não há média nenhuma (nem zero).
+    assert all(m["media"] is None for m in d.medias_por_item({}, []))
+
+
+def test_item_mais_fraco_so_abaixo_do_limiar_e_empate_pelo_roteiro():
+    itens = [{"item": i, "media": 2.0} for i in range(1, 11)]
+    assert d.item_mais_fraco(itens) is None
+    itens[6]["media"] = 0.5
+    itens[3]["media"] = 0.5
+    assert d.item_mais_fraco(itens)["item"] == 4
+    assert d.item_mais_fraco([{"item": 1, "media": None}]) is None
+
+
+def test_bloco_do_scorecard():
+    rs = [
+        _reuniao(3, status="aguardando", dia=20),
+        _reuniao(2, 16, foco="Fazer duas perguntas de implicação.", dia=15),
+        _reuniao(1, 10, foco="Foco antigo", dia=5),
+    ]
+    itens = {2: {i: 2 for i in range(1, 9)}, 1: {i: 1 for i in range(1, 11)}}
+    b = d.scorecard(rs, itens, 15.0, meta_padrao=True)
+    assert b["media"] == 13.0 and b["media_txt"] == "13,0"
+    assert (b["avaliadas"], b["realizadas"], b["sem_nota"]) == (2, 3, 1)
+    assert b["meta"] == 15.0 and b["meta_padrao"] is True
+    assert round(b["atingimento"], 3) == round(13 / 15, 3) and b["carinha"] == "neutro"
+    assert b["faixa"] == "media" and b["nota_maxima"] == 20
+    # Itens 9 e 10: 0 numa reunião e 1 na outra -> 0,5; empate fica o 9.
+    assert b["item_fraco"]["item"] == 9 and b["item_fraco"]["media"] == 0.5
+    # O foco é o da reunião avaliada mais recente.
+    assert b["foco"]["texto"] == "Fazer duas perguntas de implicação."
+    assert b["foco"]["reuniao_id"] == "2"
+    assert [r["nota_status"] for r in b["reunioes"]] == ["avaliando", "ia", "ia"]
+    assert b["reunioes"][1]["faixa"] == "boa"
+
+
+def test_bloco_sem_reuniao_avaliada_nao_inventa_nota():
+    b = d.scorecard([_reuniao(1, status="erro")], {}, 15.0, meta_padrao=True)
+    assert b["media"] is None and b["atingimento"] is None and b["carinha"] is None
+    assert b["item_fraco"] is None and b["foco"] is None and b["sem_nota"] == 1
+
+
+def test_ponto_do_historico_do_scorecard():
+    p = d.ponto_scorecard(2026, 8, [_reuniao(1, 18), _reuniao(2, 15)])
+    assert p == {"ano": 2026, "mes": 8, "rotulo": "agosto", "media": 16.5,
+                 "media_txt": "16,5", "avaliadas": 2, "faixa": "boa"}

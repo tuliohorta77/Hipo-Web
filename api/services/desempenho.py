@@ -25,6 +25,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from services import monitor as regras_monitor
+from services import roteiro_scorecard as sc
 from services import rper
 
 # Cargo -> squad da RPeR. Só quem tem squad tem metas e indicadores.
@@ -205,3 +206,170 @@ def meses_anteriores(ano: int, mes: int, quantos: int) -> list[tuple[int, int]]:
         a, m = rper.mes_anterior(a, m)
         saida.append((a, m))
     return list(reversed(saida))
+
+
+# ── Scorecard das reuniões (só EV) ───────────────────────────────────
+#
+# A nota do roteiro de vendas (services/roteiro_scorecard.py, 0 a 20) das
+# reuniões que a pessoa CONDUZIU no mês. É a mesma conta do quadro
+# SCORECARD do Monitor, recortada pela pessoa:
+#   * reunião de cliente (parceiro é ilha, não tem scorecard), desfecho
+#     efetivo Realizada, pela data da reunião, com a pessoa de anfitriã
+#     (tarefas.responsavel_id) — o mesmo critério do APRE e da RPeR;
+#   * só conta avaliação PRONTA da versão CORRENTE do roteiro;
+#   * reunião realizada ainda sem nota fica FORA da média (zero seria uma
+#     nota que ninguém deu);
+#   * meta: a do quadro SCORECARD do Monitor no mês, ou 15 (o padrão do
+#     roteiro). Taxa: média 15 no dia 5 vale o mesmo que no dia 25.
+
+SQUADS_COM_SCORECARD = {"EV"}
+
+# Item com média abaixo disto vira o foco de treino do mês.
+LIMIAR_ITEM_FRACO = 1.5
+
+
+def tem_scorecard(squad: str | None) -> bool:
+    return squad in SQUADS_COM_SCORECARD
+
+
+def nota_da_reuniao(r: dict) -> tuple[float | None, str | None]:
+    """
+    A nota e a situação do scorecard de uma reunião. Mesma regra de
+    `routers/monitor._nota`: 'ia' | 'validada' | 'avaliando' | 'erro' | None.
+    """
+    status = r.get("av_status")
+    if status is None:
+        return None, None
+    if status == "aguardando":
+        return None, "avaliando"
+    if status == "erro":
+        return None, "erro"
+    if r.get("av_versao") != sc.VERSAO or r.get("av_nota") is None:
+        return None, None
+    return float(r["av_nota"]), ("validada" if r.get("av_validada") else "ia")
+
+
+def _num(valor: float | None, casas: int = 1) -> str:
+    if valor is None:
+        return "—"
+    return f"{valor:.{casas}f}".replace(".", ",")
+
+
+def media_scorecard(reunioes: list[dict]) -> tuple[float | None, int]:
+    """A média (uma casa) das reuniões com nota, e quantas eram."""
+    notas = [n for n, _ in (nota_da_reuniao(r) for r in reunioes) if n is not None]
+    if not notas:
+        return None, 0
+    return round(sum(notas) / len(notas), 1), len(notas)
+
+
+def medias_por_item(itens_por_reuniao: dict, reunioes_com_nota: list) -> list[dict]:
+    """
+    A média de cada um dos 10 itens (0 a 2) nas reuniões que entram na
+    média. Item sem nota numa reunião avaliada conta 0, como na `nota_total`
+    (é o descartado por falta de trecho, até a gestão dar a nota).
+    """
+    saida = []
+    n = len(reunioes_com_nota)
+    for item in sc.ITENS:
+        if n:
+            soma = sum(
+                float((itens_por_reuniao.get(rid) or {}).get(item.numero) or 0)
+                for rid in reunioes_com_nota
+            )
+            media = round(soma / n, 2)
+        else:
+            media = None
+        saida.append({
+            "item": item.numero,
+            "nome": item.nome,
+            "etapa": item.etapa,
+            "media": media,
+            "media_txt": _num(media),
+            "fracao": (media / sc.NOTA_MAXIMA_ITEM) if media is not None else None,
+        })
+    return saida
+
+
+def item_mais_fraco(itens: list[dict]) -> dict | None:
+    """O item de menor média, se estiver abaixo do limiar; empate fica o
+    primeiro do roteiro (é o que vem antes na reunião)."""
+    candidatos = [i for i in itens if i["media"] is not None]
+    if not candidatos:
+        return None
+    pior = min(candidatos, key=lambda i: (i["media"], i["item"]))
+    return pior if pior["media"] < LIMIAR_ITEM_FRACO else None
+
+
+def scorecard(
+    reunioes: list[dict],
+    itens_por_reuniao: dict,
+    meta: float | None,
+    *,
+    meta_padrao: bool,
+) -> dict:
+    """
+    O bloco Scorecard do Desempenho.
+
+    `reunioes`: as realizadas de cliente da pessoa no mês, já com o
+    desfecho efetivo filtrado, mais recente primeiro, com `av_*`,
+    `foco_proxima`, `empresa`, `inicio`, `reuniao_id`, `oportunidade_numero`.
+    `itens_por_reuniao`: {reuniao_id: {item: nota}} das que têm nota.
+    """
+    media, avaliadas = media_scorecard(reunioes)
+    ating = regras_monitor.atingimento(media, meta, regras_monitor.TAXA)
+
+    lista = []
+    com_nota = []
+    foco = None
+    for r in reunioes:
+        nota, status = nota_da_reuniao(r)
+        if nota is not None:
+            com_nota.append(r["reuniao_id"])
+            if foco is None and r.get("foco_proxima"):
+                foco = {
+                    "texto": r["foco_proxima"],
+                    "reuniao_id": str(r["reuniao_id"]),
+                    "empresa": r.get("empresa"),
+                    "data": r["inicio"].isoformat() if r.get("inicio") else None,
+                }
+        lista.append({
+            "reuniao_id": str(r["reuniao_id"]),
+            "data": r["inicio"].isoformat() if r.get("inicio") else None,
+            "empresa": r.get("empresa"),
+            "oportunidade_numero": r.get("oportunidade_numero"),
+            "nota": nota,
+            "nota_status": status,
+            "faixa": sc.faixa(nota),
+        })
+
+    itens = medias_por_item(itens_por_reuniao, com_nota)
+    return {
+        "media": media,
+        "media_txt": _num(media),
+        "nota_maxima": sc.NOTA_MAXIMA,
+        "avaliadas": avaliadas,
+        "realizadas": len(reunioes),
+        "sem_nota": len(reunioes) - avaliadas,
+        "meta": meta,
+        "meta_txt": _num(meta) if meta is not None else "",
+        "meta_padrao": meta_padrao,
+        "atingimento": ating,
+        "carinha": regras_monitor.carinha(ating),
+        "faixa": sc.faixa(media),
+        "itens": itens,
+        "item_fraco": item_mais_fraco(itens),
+        "foco": foco,
+        "reunioes": lista,
+    }
+
+
+def ponto_scorecard(ano: int, mes: int, reunioes: list[dict]) -> dict:
+    """Um mês do histórico do scorecard: só a média e quantas reuniões."""
+    media, avaliadas = media_scorecard(reunioes)
+    return {
+        "ano": ano, "mes": mes,
+        "rotulo": rper.rotulo_mes(ano, mes, com_ano=False),
+        "media": media, "media_txt": _num(media), "avaliadas": avaliadas,
+        "faixa": sc.faixa(media),
+    }

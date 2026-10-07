@@ -7,6 +7,8 @@
 //   4. navegar de mês mexe na URL; não há próximo mês a partir do corrente
 //   5. gestão escolhe a pessoa (modo leitura, sem atalhos de ação)
 //   6. cargo sem squad explica, em vez de mostrar zeros
+//   7. EV vê o Scorecard das reuniões: média, foco, itens e a lista que abre
+//      a reunião; sem scorecard (SDR, EC) o card não aparece
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, cleanup, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
@@ -18,7 +20,18 @@ vi.mock('../api', () => ({
   getModulos: () => ['perfil', 'crm'],
 }));
 
+// O formulário da reunião tem a própria suíte (ModalReuniao.test.jsx).
+vi.mock('../components/crm/ModalReuniao', () => ({
+  default: ({ reuniaoId, onFechar }) => (
+    <div data-testid="modal-reuniao">
+      reunião {reuniaoId}
+      <button type="button" onClick={onFechar}>fechar reunião</button>
+    </div>
+  ),
+}));
+
 import Desempenho, { mesVizinho, telaDoIndicador } from '../pages/carreira/Desempenho';
+import { faixaDoItem } from '../components/carreira/ScorecardDesempenho';
 
 function linha(extra = {}) {
   return {
@@ -180,5 +193,103 @@ describe('Desempenho', () => {
     renderizar('/carreira/desempenho?usuario_id=u9');
     expect(await screen.findByText('Só a gestão abre a UC de outra pessoa.')).toBeInTheDocument();
     expect(screen.getByRole('navigation', { name: 'Carreira' })).toBeInTheDocument();
+  });
+});
+
+function scorecard(extra = {}) {
+  const nomes = ['Preparação', 'Contrato de abertura', 'Perguntas de Situação', 'Perguntas de Problema',
+    'Perguntas de Implicação', 'Resumo de confirmação', 'GPCT: prazo, decisor e consequência',
+    'Apresentação ligada às dores', 'Objeções com LAER', 'Próximo passo com data'];
+  const itens = nomes.map((nome, i) => {
+    const media = i === 4 ? 0.5 : 1.5;
+    return { item: i + 1, nome, etapa: 'x', media, media_txt: media.toFixed(1).replace('.', ','), fracao: media / 2 };
+  });
+  return {
+    media: 13.5, media_txt: '13,5', nota_maxima: 20, avaliadas: 2, realizadas: 3, sem_nota: 1,
+    meta: 15, meta_txt: '15,0', meta_padrao: true, atingimento: 0.9, carinha: 'neutro', faixa: 'media',
+    itens, item_fraco: itens[4],
+    foco: { texto: 'Fazer duas perguntas de implicação antes de apresentar.', reuniao_id: 'r2', empresa: 'Metalúrgica Alfa', data: '2026-10-06T13:00:00Z' },
+    reunioes: [
+      { reuniao_id: 'r3', data: '2026-10-07T13:00:00Z', empresa: 'Padaria Beta', oportunidade_numero: 'OPP-3', nota: null, nota_status: 'avaliando', faixa: null },
+      { reuniao_id: 'r2', data: '2026-10-06T13:00:00Z', empresa: 'Metalúrgica Alfa', oportunidade_numero: 'OPP-2', nota: 16, nota_status: 'validada', faixa: 'boa' },
+      { reuniao_id: 'r1', data: '2026-10-02T13:00:00Z', empresa: 'Gráfica Gama', oportunidade_numero: 'OPP-1', nota: 11, nota_status: 'ia', faixa: 'media' },
+    ],
+    historico: [
+      { ano: 2026, mes: 9, rotulo: 'setembro', media: 12, media_txt: '12,0', avaliadas: 4, faixa: 'media' },
+      { ano: 2026, mes: 10, rotulo: 'outubro', media: 13.5, media_txt: '13,5', avaliadas: 2, faixa: 'media' },
+    ],
+    ...extra,
+  };
+}
+
+describe('Scorecard das reuniões (EV)', () => {
+  it('faixa do item: 1,5+ boa, 1+ média, abaixo baixa', () => {
+    expect(faixaDoItem(2)).toBe('boa');
+    expect(faixaDoItem(1)).toBe('media');
+    expect(faixaDoItem(0.5)).toBe('baixa');
+    expect(faixaDoItem(null)).toBeNull();
+  });
+
+  it('mostra a média contra a meta, o foco e os itens', async () => {
+    mockGet.mockResolvedValue({ data: resposta({ scorecard: scorecard() }) });
+    renderizar();
+    const card = await screen.findByTestId('scorecard');
+    expect(within(card).getByTestId('scorecard-media').textContent).toBe('13,5');
+    expect(within(card).getByText(/padrão do roteiro/)).toBeInTheDocument();
+    expect(within(card).getByText(/2 de 3 reuniões realizadas avaliadas/)).toBeInTheDocument();
+    const foco = within(card).getByTestId('scorecard-foco');
+    expect(within(foco).getByText('Seu foco')).toBeInTheDocument();
+    expect(within(foco).getByText('Perguntas de Implicação')).toBeInTheDocument();
+    expect(within(foco).getByText(/Fazer duas perguntas de implicação/)).toBeInTheDocument();
+    expect(within(card).getByTestId('item-5')).toHaveTextContent('0,5');
+    // Nota de cada reunião e o selo de validada.
+    expect(within(card).getByText('16/20')).toBeInTheDocument();
+    expect(within(card).getByLabelText('Validada pela gestão')).toBeInTheDocument();
+    expect(within(card).getByText('avaliando…')).toBeInTheDocument();
+    // Histórico.
+    expect(within(card).getByText('12,0')).toBeInTheDocument();
+  });
+
+  it('clicar na reunião abre o formulário com o scorecard completo', async () => {
+    mockGet.mockResolvedValue({ data: resposta({ scorecard: scorecard() }) });
+    renderizar();
+    const card = await screen.findByTestId('scorecard');
+    fireEvent.click(within(card).getByRole('button', { name: 'Abrir reunião com Gráfica Gama' }));
+    expect(screen.getByTestId('modal-reuniao')).toHaveTextContent('reunião r1');
+    expect(mockGet).toHaveBeenCalledWith('/crm/dominio/usuarios');
+    fireEvent.click(screen.getByRole('button', { name: 'fechar reunião' }));
+    expect(screen.queryByTestId('modal-reuniao')).toBeNull();
+  });
+
+  it('sem reunião avaliada não inventa nota', async () => {
+    mockGet.mockResolvedValue({
+      data: resposta({
+        scorecard: scorecard({
+          media: null, media_txt: '—', avaliadas: 0, realizadas: 2, sem_nota: 2,
+          atingimento: null, carinha: null, faixa: null, item_fraco: null, foco: null,
+        }),
+      }),
+    });
+    renderizar();
+    const card = await screen.findByTestId('scorecard');
+    expect(within(card).getByText(/Nenhuma reunião avaliada ainda/)).toBeInTheDocument();
+    expect(within(card).queryByTestId('scorecard-foco')).toBeNull();
+    expect(within(card).queryByTestId('item-1')).toBeNull();
+  });
+
+  it('quem não é EV não tem o card', async () => {
+    mockGet.mockResolvedValue({ data: resposta({ scorecard: null }) });
+    renderizar();
+    await screen.findByTestId('mes-desempenho');
+    expect(screen.queryByTestId('scorecard')).toBeNull();
+  });
+
+  it('gestão em modo leitura vê o foco da pessoa', async () => {
+    mockGet.mockResolvedValue({
+      data: resposta({ modo_leitura: true, pode_escolher_pessoa: true, scorecard: scorecard() }),
+    });
+    renderizar('/carreira/desempenho?usuario_id=u1');
+    const card = await screen.findByTestId('scorecard');
+    expect(within(card).getByText('Foco')).toBeInTheDocument();
   });
 });

@@ -15,6 +15,9 @@
 //   3. próxima tarefa: a tela abre no "ponto de atenção", o indicador que
 //      mais pede ação agora, com quanto falta e onde agir.
 //
+// EV: logo abaixo dos cartões principais, o Scorecard das reuniões (nota
+// do roteiro de vendas, 0 a 20) — components/carreira/ScorecardDesempenho.
+//
 // As REGRAS (meta de hoje, atingimento, carinha) são do servidor; aqui só
 // se desenha. A gestão escolhe a pessoa e vê em modo leitura.
 
@@ -31,6 +34,7 @@ import AlertMessage from '../../components/ui/AlertMessage';
 import Empty from '../../components/ui/Empty';
 import { mensagemDeErro } from '../../components/crm/tarefaComum';
 import AbasCarreira from '../../components/carreira/AbasCarreira';
+import ScorecardDesempenho from '../../components/carreira/ScorecardDesempenho';
 import {
   TOM_CLASSE, carinhaDe, larguraDaBarra, pctCurto,
 } from '../../components/monitor/monitorComum';
@@ -325,6 +329,14 @@ export default function Desempenho() {
             <div className="grid gap-4 grid-cols-1 sm:grid-cols-2" data-tour="des-principais">
               {principais.map((l) => <CartaoPrincipal key={l.chave} linha={l} aberto={dados.aberto} />)}
             </div>
+          )}
+
+          {dados.scorecard && (
+            <ScorecardDesempenho
+              scorecard={dados.scorecard}
+              modoLeitura={dados.modo_leitura}
+              onMudou={carregar}
+            />
           )}
 
           <Card padding="none" data-tour="des-indicadores">

@@ -5,6 +5,8 @@ A terceira aba da Carreira (Universidade · PDI · Desempenho): cada pessoa
 vê o próprio mês com os indicadores do squad dela (os mesmos da RPeR),
 contra as metas individuais gravadas pela gestão no Monitor ("Metas por
 squad e pessoa"), o funil com as taxas de conversão e os últimos meses.
+Para o EV, também o Scorecard das reuniões (nota do roteiro de vendas, 0 a
+20): média do mês, os 10 itens, o foco e a lista das reuniões.
 
 Quem vê o quê: cada um vê só o próprio desempenho (não há ranking). A
 gestão (Franqueado, ADM) escolhe a pessoa por `usuario_id` e vê em modo
@@ -23,8 +25,10 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from database import get_conn
 from routers.auth import usuario_atual
 from routers.uc import _pessoa_alvo, eh_gestao
+from services import agenda as regras_agenda
 from services import desempenho as regras
 from services import dias_uteis
+from services import monitor as regras_monitor
 from services import rper
 from services import rper_dados
 from services.tarefa import FUSO_OPERACAO, janela_utc
@@ -54,6 +58,96 @@ async def _metas_da_pessoa(conn, squad: str, usuario_id, ano: int, mes: int) -> 
         squad, usuario_id, ano, mes,
     )
     return {r["indicador"]: float(r["valor"]) for r in rows}
+
+
+async def _reunioes_scorecard(conn, pessoa_id, inicio, fim) -> list[dict]:
+    """
+    As reuniões de CLIENTE que a pessoa conduziu na janela, com desfecho
+    efetivo Realizada (services/agenda, o mesmo do Monitor e da RPeR), mais
+    recente primeiro, com a avaliação do scorecard.
+    """
+    rows = await conn.fetch(
+        """
+        SELECT r.id AS reuniao_id, r.desfecho,
+               t.prazo AS inicio, t.concluida_em, t.cancelada_em,
+               o.numero AS oportunidade_numero,
+               COALESCE(c.nome_fantasia, c.razao_social) AS empresa,
+               av.status AS av_status, av.nota_total AS av_nota,
+               av.versao_roteiro AS av_versao,
+               (av.validada_em IS NOT NULL) AS av_validada,
+               av.foco_proxima
+          FROM reunioes r
+          JOIN tarefas t            ON t.id = r.tarefa_id
+          LEFT JOIN oportunidades o ON o.id = t.oportunidade_id
+          LEFT JOIN contas c        ON c.id = o.conta_id
+          LEFT JOIN reuniao_avaliacoes av ON av.reuniao_id = r.id
+         WHERE t.responsavel_id = $1
+           AND t.conta_id IS NULL
+           AND t.prazo >= $2 AND t.prazo < $3
+         ORDER BY t.prazo DESC
+        """,
+        pessoa_id, inicio, fim,
+    )
+    saida = []
+    for r in rows:
+        d = dict(r)
+        efetivo = regras_agenda.desfecho_efetivo(
+            desfecho=d["desfecho"], concluida_em=d["concluida_em"],
+            cancelada_em=d["cancelada_em"], inicio=d["inicio"],
+        )
+        if efetivo == "realizada":
+            saida.append(d)
+    return saida
+
+
+async def _itens_scorecard(conn, reuniao_ids: list) -> dict:
+    """{reuniao_id: {item: nota}} com a nota que vale (gestão, senão IA)."""
+    if not reuniao_ids:
+        return {}
+    rows = await conn.fetch(
+        """
+        SELECT reuniao_id, item, COALESCE(nota_gestor, nota_ia) AS nota
+          FROM reuniao_avaliacao_itens
+         WHERE reuniao_id = ANY($1::uuid[])
+        """,
+        reuniao_ids,
+    )
+    saida: dict = {}
+    for r in rows:
+        saida.setdefault(r["reuniao_id"], {})[r["item"]] = r["nota"]
+    return saida
+
+
+async def _meta_scorecard(conn, ano: int, mes: int) -> tuple[float, bool]:
+    """A meta do quadro SCORECARD do Monitor no mês, ou o padrão (15)."""
+    valor = await conn.fetchval(
+        "SELECT valor FROM monitor_metas WHERE indicador = 'scorecard' AND ano = $1 AND mes = $2",
+        ano, mes,
+    )
+    if valor is None:
+        return regras_monitor.META_PADRAO["scorecard"], True
+    return float(valor), False
+
+
+async def scorecard_da_pessoa(conn, pessoa_id, ano: int, mes: int,
+                              inicio, fim) -> dict:
+    """O bloco Scorecard do mês (janela [inicio, fim)) mais o histórico."""
+    reunioes = await _reunioes_scorecard(conn, pessoa_id, inicio, fim)
+    com_nota = [r["reuniao_id"] for r in reunioes
+                if regras.nota_da_reuniao(r)[0] is not None]
+    itens = await _itens_scorecard(conn, com_nota)
+    meta, padrao = await _meta_scorecard(conn, ano, mes)
+    bloco = regras.scorecard(reunioes, itens, meta, meta_padrao=padrao)
+
+    historico = []
+    for (a, m) in regras.meses_anteriores(ano, mes, regras.MESES_HISTORICO - 1):
+        p, u = rper.janela_do_mes(a, m)
+        i, f = janela_utc(p, u)
+        historico.append(regras.ponto_scorecard(
+            a, m, await _reunioes_scorecard(conn, pessoa_id, i, f)))
+    historico.append(regras.ponto_scorecard(ano, mes, reunioes))
+    bloco["historico"] = historico
+    return bloco
 
 
 async def _pessoas_para_gestao(conn) -> list[dict]:
@@ -88,7 +182,8 @@ async def mes_da_pessoa(conn, pessoa: dict, squad: str, ano: int, mes: int,
     linhas = regras.linhas(squad, bruto, metas, aberto=aberto,
                            dia_util=corridos, dias_uteis=uteis)
     return {"aberto": aberto, "dia_util": corridos, "dias_uteis": uteis,
-            "bruto": bruto, "metas": metas, "linhas": linhas}
+            "bruto": bruto, "metas": metas, "linhas": linhas,
+            "inicio": inicio, "fim": fim}
 
 
 @router.get("/desempenho")
@@ -131,12 +226,13 @@ async def desempenho(
     if squad is None:
         return {**base, "indicadores": [], "funil": [], "historico": [],
                 "ponto_de_atencao": None, "tem_meta": False,
-                "dia_util": None, "dias_uteis": None}
+                "dia_util": None, "dias_uteis": None, "scorecard": None}
 
     agora = datetime.now(timezone.utc)
     m = await mes_da_pessoa(conn, pessoa, squad, ano, mes, referencia, agora)
     bruto, metas, linhas = m["bruto"], m["metas"], m["linhas"]
     corridos, uteis = m["dia_util"], m["dias_uteis"]
+    m_inicio, m_fim = m["inicio"], m["fim"]
 
     historico = []
     for (a, m) in regras.meses_anteriores(ano, mes, regras.MESES_HISTORICO - 1):
@@ -147,6 +243,12 @@ async def desempenho(
         ))
     historico.append(regras.ponto_historico(squad, ano, mes, bruto, metas))
 
+    # Scorecard das reuniões: só para quem é avaliado pelo roteiro (EV).
+    scorecard = None
+    if regras.tem_scorecard(squad):
+        scorecard = await scorecard_da_pessoa(
+            conn, pessoa["id"], ano, mes, m_inicio, m_fim)
+
     return {
         **base,
         "dia_util": corridos if aberto else None,
@@ -156,4 +258,5 @@ async def desempenho(
         "ponto_de_atencao": regras.ponto_de_atencao(linhas),
         "funil": regras.funil(squad, bruto),
         "historico": historico,
+        "scorecard": scorecard,
     }
