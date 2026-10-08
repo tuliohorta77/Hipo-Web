@@ -87,6 +87,76 @@ export function alvoPadraoDoCargo(cargo) {
   return CARGOS_DE_PARCEIRO.includes(cargo) ? 'parceiro' : 'oportunidade';
 }
 
+// ── Os filtros lembrados entre visitas ───────────────────────────────
+//
+// A Agenda reabre com o último recorte que a pessoa deixou: assunto,
+// "Agenda de" e "Agendado por". A semana NÃO entra — a tela sempre abre
+// em hoje, porque reabrir numa semana passada é o jeito mais rápido de
+// alguém concluir que a agenda está vazia.
+//
+// A chave é por usuário: dois colaboradores no mesmo navegador (a máquina
+// da recepção, o notebook emprestado) não herdam o filtro um do outro.
+//
+// O risco de "filtro invisível que ninguém lembra de ter ligado" fica
+// coberto pela própria tela: o aviso "+N fora do filtro" aparece sempre
+// que o recorte esconde algo, e um clique nele desliga o filtro.
+
+const PREFIXO_FILTROS = 'hipo_agenda_filtros:';
+const VALORES_ALVO = ALVOS.map((a) => a.valor);
+
+export function chaveFiltrosAgenda(usuarioId) {
+  return `${PREFIXO_FILTROS}${usuarioId}`;
+}
+
+/**
+ * Lê os filtros salvos. Devolve `null` quando não há nada salvo (ou o
+ * salvo é ilegível) — e aí quem chama aplica o padrão do cargo.
+ *
+ * Cada campo é validado sozinho: um valor estragado derruba só ele, não o
+ * resto. `alvo: null` é um valor LEGÍTIMO (os dois botões desligados =
+ * semana inteira) e precisa sobreviver à volta; por isso a ausência do
+ * campo é `undefined`, e não `null`.
+ */
+export function lerFiltrosAgenda(usuarioId) {
+  if (!usuarioId) return null;
+  let bruto;
+  try {
+    bruto = window.localStorage.getItem(chaveFiltrosAgenda(usuarioId));
+  } catch {
+    return null;
+  }
+  if (!bruto) return null;
+  let obj;
+  try {
+    obj = JSON.parse(bruto);
+  } catch {
+    return null;
+  }
+  if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return null;
+
+  const filtros = {};
+  if ('alvo' in obj && (obj.alvo === null || VALORES_ALVO.includes(obj.alvo))) {
+    filtros.alvo = obj.alvo;
+  }
+  if (typeof obj.anfitriao === 'string') filtros.anfitriao = obj.anfitriao;
+  if (typeof obj.agendadoPor === 'string') filtros.agendadoPor = obj.agendadoPor;
+  return filtros;
+}
+
+/** Grava os filtros. Navegador sem localStorage (modo privado, cota
+ *  estourada) não pode quebrar a tela — a falha é silenciosa. */
+export function salvarFiltrosAgenda(usuarioId, { alvo, anfitriao, agendadoPor }) {
+  if (!usuarioId) return;
+  try {
+    window.localStorage.setItem(
+      chaveFiltrosAgenda(usuarioId),
+      JSON.stringify({ alvo: alvo ?? null, anfitriao, agendadoPor }),
+    );
+  } catch {
+    /* sem armazenamento, a tela só não lembra */
+  }
+}
+
 // ── O desfecho ───────────────────────────────────────────────────────
 //
 // Três resultados, e a diferença entre os dois últimos é uma régua de

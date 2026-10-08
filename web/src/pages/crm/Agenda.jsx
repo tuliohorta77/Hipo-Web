@@ -44,7 +44,8 @@ import ModalReuniao from '../../components/crm/ModalReuniao';
 import ProdutividadeAgenda from '../../components/crm/ProdutividadeAgenda';
 import {
   ALVOS, ICONE_MODALIDADE, POR_DESFECHO, alvoPadraoDoCargo, campoLocalDoSlot,
-  diaCurto, faixaDaSemana, hojeIso, horaCurta, mensagemDeErro, somarSemanas,
+  diaCurto, faixaDaSemana, hojeIso, horaCurta, lerFiltrosAgenda, mensagemDeErro,
+  salvarFiltrosAgenda, somarSemanas,
 } from '../../components/crm/agendaComum';
 
 const CLASSE_CAMPO =
@@ -229,31 +230,45 @@ export default function Agenda() {
   */
   const usuarioLogado = useMemo(() => getUser(), []);
   const padraoAnfitriao = usuarioLogado?.id ? String(usuarioLogado.id) : '';
+  /*
+    O último recorte que esta pessoa deixou na tela (ver
+    `lerFiltrosAgenda`). Sem nada salvo, valem os padrões abaixo: a agenda
+    de quem entrou e o assunto do cargo.
+  */
+  const salvos = useMemo(() => lerFiltrosAgenda(usuarioLogado?.id), [usuarioLogado]);
 
   const [semana, setSemana] = useState(null);
   const [inicio, setInicio] = useState(hojeIso);
-  const [anfitriao, setAnfitriao] = useState(padraoAnfitriao);
+  const [anfitriao, setAnfitriao] = useState(
+    () => salvos?.anfitriao ?? padraoAnfitriao
+  );
   // Quem MARCOU. Independente do anfitrião de propósito: "as reuniões que
   // eu marquei para o Bruno" é a pergunta do SDR conferindo o próprio
   // trabalho, e ela precisa dos dois filtros ao mesmo tempo.
-  const [agendadoPor, setAgendadoPor] = useState('');
+  const [agendadoPor, setAgendadoPor] = useState(() => salvos?.agendadoPor ?? '');
   /*
     O assunto: Parceiros ou Oportunidades.
 
-    Abre no que o CARGO diz — EC em parceiros, o resto em oportunidades —,
-    e NÃO é lembrado entre visitas. Guardar a última escolha no
-    localStorage faria a tela abrir num recorte escolhido semanas atrás,
-    que é exatamente o modo de falha do `hipo_user`: filtro invisível que
-    ninguém lembra de ter ligado, e a pessoa concluindo que a semana está
-    vazia.
+    Na primeira visita abre no que o CARGO diz — EC em parceiros, o resto
+    em oportunidades. Depois disso, reabre na última escolha (decisão de
+    out/2026: refazer o mesmo recorte a cada entrada custava cliques todo
+    dia). O medo antigo — filtro invisível, semana lida como vazia — é
+    coberto pelo aviso "+N fora do filtro", que aparece sempre que o
+    recorte esconde algo e desliga o filtro com um clique.
 
     `null` = os dois botões desligados = a semana inteira. É por isso que
     são dois toggles e não um seletor de três opções: "sem filtro" não é
     uma terceira carteira, é a ausência de recorte.
   */
   const [alvo, setAlvo] = useState(
-    () => alvoPadraoDoCargo(usuarioLogado?.cargo)
+    () => (salvos && 'alvo' in salvos
+      ? salvos.alvo
+      : alvoPadraoDoCargo(usuarioLogado?.cargo))
   );
+
+  useEffect(() => {
+    salvarFiltrosAgenda(usuarioLogado?.id, { alvo, anfitriao, agendadoPor });
+  }, [usuarioLogado, alvo, anfitriao, agendadoPor]);
   const [usuarios, setUsuarios] = useState([]);
   const [carregando, setCarregando] = useState(true);
   const [erro, setErro] = useState(null);
@@ -316,6 +331,20 @@ export default function Agenda() {
     }
     return lista;
   }, [usuarios, padraoAnfitriao, usuarioLogado]);
+
+  /*
+    Filtro salvo apontando para alguém que saiu da equipe: o seletor
+    mostraria uma opção que não existe com a grade recortada por ela.
+    Volta ao padrão. Só depois que a lista de verdade chegou — com a
+    chamada de domínio falhando, a lista tem só "você", e resetar ali
+    jogaria fora um filtro válido.
+  */
+  useEffect(() => {
+    if (usuarios.length === 0) return;
+    const existe = (id) => opcoesAnfitriao.some((u) => u.id === id);
+    if (anfitriao && !existe(anfitriao)) setAnfitriao(padraoAnfitriao);
+    if (agendadoPor && !existe(agendadoPor)) setAgendadoPor('');
+  }, [usuarios, opcoesAnfitriao, anfitriao, agendadoPor, padraoAnfitriao]);
 
   /*
     Índice (dia, slot) -> reuniões, montado uma vez por carga.

@@ -27,7 +27,9 @@ vi.mock('../api', () => ({
 }));
 
 import Agenda from '../pages/crm/Agenda';
-import { alvoPadraoDoCargo } from '../components/crm/agendaComum';
+import {
+  alvoPadraoDoCargo, chaveFiltrosAgenda, lerFiltrosAgenda, salvarFiltrosAgenda,
+} from '../components/crm/agendaComum';
 
 // Semana de 07 a 11 de setembro de 2026 (segunda a sexta).
 const SLOTS = [
@@ -121,6 +123,9 @@ beforeEach(() => {
   mockPatch.mockReset();
   mockGetUser.mockReturnValue({ id: 'u1', nome: 'Jakeline Santana' });
   responder(semana());
+  // A tela lembra os filtros no localStorage: sem limpar, um teste
+  // abriria no recorte que o anterior deixou.
+  window.localStorage.clear();
 });
 
 afterEach(cleanup);
@@ -685,3 +690,133 @@ describe('Agenda — a reunião que a pessoa acompanha', () => {
   });
 });
 
+
+
+// ── Os filtros lembrados ─────────────────────────────────────────────
+//
+// A tela reabre no último recorte da pessoa. Quatro promessas:
+//
+//   1. o que foi escolhido volta na próxima abertura (assunto e seletores)
+//   2. "sem filtro" também é lembrado — não volta para o padrão do cargo
+//   3. a chave é por usuário: ninguém herda o filtro de outro
+//   4. lixo no armazenamento ou pessoa que saiu da equipe caem no padrão
+
+describe('Agenda — lembra o último filtro', () => {
+  function ultimaChamada() {
+    return mockGet.mock.calls
+      .filter((c) => c[0] === '/crm/agenda/semana').at(-1);
+  }
+
+  it('reabre com o assunto e os seletores da última visita', async () => {
+    mockGetUser.mockReturnValue({ id: 'u1', nome: 'Aline', cargo: 'EC' });
+    await renderizar();
+    fireEvent.click(screen.getByRole('button', { name: 'Oportunidades' }));
+    fireEvent.change(screen.getByLabelText('Agenda de'), { target: { value: 'u2' } });
+    fireEvent.change(screen.getByLabelText('Agendado por'), { target: { value: 'u1' } });
+    await waitFor(() => expect(ultimaChamada()[1].params.agendado_por).toBe('u1'));
+    cleanup();
+
+    mockGet.mockClear();
+    await renderizar();
+    expect(screen.getByRole('button', { name: 'Oportunidades' }))
+      .toHaveAttribute('aria-pressed', 'true');
+    await waitFor(() => {
+      const p = ultimaChamada()[1].params;
+      expect(p.alvo).toBe('oportunidade');
+      expect(p.anfitriao_id).toBe('u2');
+      expect(p.agendado_por).toBe('u1');
+    });
+    // A primeira carga já sai com o filtro lembrado, sem passar pelo padrão.
+    const primeira = mockGet.mock.calls.find((c) => c[0] === '/crm/agenda/semana');
+    expect(primeira[1].params.alvo).toBe('oportunidade');
+  });
+
+  it('"sem filtro" é lembrado e não volta para o padrão do cargo', async () => {
+    mockGetUser.mockReturnValue({ id: 'u1', nome: 'Aline', cargo: 'EC' });
+    await renderizar();
+    fireEvent.click(screen.getByRole('button', { name: 'Parceiros' }));
+    await waitFor(() => expect(ultimaChamada()[1].params.alvo).toBeUndefined());
+    cleanup();
+
+    mockGet.mockClear();
+    await renderizar();
+    expect(screen.getByRole('button', { name: 'Parceiros' }))
+      .toHaveAttribute('aria-pressed', 'false');
+    await waitFor(() => expect(ultimaChamada()[1].params.alvo).toBeUndefined());
+  });
+
+  it('a toda a equipe também é lembrada', async () => {
+    await renderizar();
+    fireEvent.change(screen.getByLabelText('Agenda de'), { target: { value: '' } });
+    cleanup();
+    mockGet.mockClear();
+    await renderizar();
+    await waitFor(() =>
+      expect(ultimaChamada()[1].params.anfitriao_id).toBeUndefined());
+  });
+
+  it('o filtro de um usuário não vaza para outro', async () => {
+    mockGetUser.mockReturnValue({ id: 'u1', nome: 'Aline', cargo: 'EC' });
+    await renderizar();
+    fireEvent.click(screen.getByRole('button', { name: 'Oportunidades' }));
+    cleanup();
+
+    mockGetUser.mockReturnValue({ id: 'u3', nome: 'Daniele', cargo: 'EC' });
+    mockGet.mockClear();
+    await renderizar();
+    expect(screen.getByRole('button', { name: 'Parceiros' }))
+      .toHaveAttribute('aria-pressed', 'true');
+    await waitFor(() => expect(ultimaChamada()[1].params.anfitriao_id).toBe('u3'));
+  });
+
+  it('pessoa salva que saiu da equipe volta para a agenda de quem entrou', async () => {
+    salvarFiltrosAgenda('u1', { alvo: 'oportunidade', anfitriao: 'u99', agendadoPor: 'u99' });
+    await renderizar();
+    await waitFor(() => {
+      const p = ultimaChamada()[1].params;
+      expect(p.anfitriao_id).toBe('u1');
+      expect(p.agendado_por).toBeUndefined();
+    });
+  });
+
+  it('a semana não é lembrada — sempre abre em hoje', async () => {
+    await renderizar();
+    const antes = mockGet.mock.calls.find((c) => c[0] === '/crm/agenda/semana')[1].params.inicio;
+    fireEvent.click(screen.getByLabelText('Próxima semana'));
+    cleanup();
+    mockGet.mockClear();
+    await renderizar();
+    const depois = mockGet.mock.calls.find((c) => c[0] === '/crm/agenda/semana')[1].params.inicio;
+    expect(depois).toBe(antes);
+  });
+});
+
+describe('lerFiltrosAgenda', () => {
+  beforeEach(() => window.localStorage.clear());
+
+  it('sem nada salvo devolve null', () => {
+    expect(lerFiltrosAgenda('u1')).toBeNull();
+  });
+
+  it('sem usuário devolve null', () => {
+    expect(lerFiltrosAgenda(undefined)).toBeNull();
+  });
+
+  it('JSON quebrado devolve null', () => {
+    window.localStorage.setItem(chaveFiltrosAgenda('u1'), '{nao é json');
+    expect(lerFiltrosAgenda('u1')).toBeNull();
+  });
+
+  it('alvo desconhecido é descartado, o resto sobrevive', () => {
+    window.localStorage.setItem(
+      chaveFiltrosAgenda('u1'),
+      JSON.stringify({ alvo: 'contador', anfitriao: 'u2', agendadoPor: '' }),
+    );
+    expect(lerFiltrosAgenda('u1')).toEqual({ anfitriao: 'u2', agendadoPor: '' });
+  });
+
+  it('alvo null é preservado', () => {
+    salvarFiltrosAgenda('u1', { alvo: null, anfitriao: '', agendadoPor: '' });
+    expect(lerFiltrosAgenda('u1')).toEqual({ alvo: null, anfitriao: '', agendadoPor: '' });
+  });
+});
