@@ -103,7 +103,8 @@ def _json(valor):
     return valor
 
 
-def _sessao_out(r: dict, completa: bool = False, custo: bool = False) -> dict:
+def _sessao_out(r: dict, completa: bool = False, custo: bool = False,
+                diagnostico: bool = False) -> dict:
     c = CENARIOS.get(r["cenario_id"])
     out = {
         "id": str(r["id"]),
@@ -120,6 +121,7 @@ def _sessao_out(r: dict, completa: bool = False, custo: bool = False) -> dict:
         "fala_executivo_pct": r["fala_executivo_pct"],
         "reconexoes": r["reconexoes"],
         "latencia_media_ms": r["latencia_media_ms"],
+        "sem_resposta": r.get("sem_resposta") or 0,
         "custo_estimado_usd": (float(r["custo_estimado_usd"])
                                if custo and r["custo_estimado_usd"] is not None else None),
         "nota_total": float(r["nota_total"]) if r.get("nota_total") is not None else None,
@@ -130,6 +132,8 @@ def _sessao_out(r: dict, completa: bool = False, custo: bool = False) -> dict:
     if completa:
         out["transcricao"] = _json(r["transcricao"]) or []
         out["tokens"] = _json(r["tokens"]) or {}
+        # Diário da conexão: diagnóstico técnico, só para a gestão.
+        out["eventos"] = (_json(r.get("eventos")) or []) if diagnostico else None
     return out
 
 
@@ -588,7 +592,7 @@ async def encerrar(
     """
     s = await _sessao_do_dono(conn, sessao_id, user)
     if s["status"] == "encerrada":
-        return {**_sessao_out(s, completa=True, custo=ve_custo(user)),
+        return {**_sessao_out(s, completa=True, custo=ve_custo(user), diagnostico=eh_gestao(user)),
                 "avaliacao": await _avaliacao_out(conn, s, user)}
     try:
         bruto = json.loads(dados)
@@ -608,6 +612,7 @@ async def encerrar(
         )
         reconexoes = regras.validar_inteiro(bruto.get("reconexoes"), "reconexoes", 0, 1000)
         latencia = regras.validar_inteiro(bruto.get("latencia_media_ms"), "latencia_media_ms", 0, 600_000)
+        eventos = regras.validar_eventos(bruto.get("eventos"))
         chave, tamanho, conteudo, tipo = None, None, None, None
         if audio is not None:
             conteudo = await audio.read()
@@ -632,7 +637,8 @@ async def encerrar(
            SET status = 'encerrada', encerrada_em = $2, duracao_s = $3, motivo_fim = $4,
                transcricao = $5::jsonb, fala_executivo_pct = $6, tokens = $7::jsonb,
                custo_estimado_usd = $8, reconexoes = $9, latencia_media_ms = $10,
-               audio_s3_chave = COALESCE($11, audio_s3_chave), audio_bytes = COALESCE($12, audio_bytes)
+               audio_s3_chave = COALESCE($11, audio_s3_chave), audio_bytes = COALESCE($12, audio_bytes),
+               eventos = $13::jsonb, sem_resposta = $14
          WHERE id = $1
         RETURNING *
         """,
@@ -640,20 +646,21 @@ async def encerrar(
         json.dumps(transcricao, ensure_ascii=False), regras.fala_executivo_pct(transcricao),
         json.dumps(tokens), regras.custo_estimado(s["modelo_voz"], tokens),
         reconexoes, latencia, chave, tamanho,
+        json.dumps(eventos, ensure_ascii=False), regras.contar_sem_resposta(eventos),
     )
     s = dict(r)
     # A nota sai em segundo plano, depois da resposta: a tela de resultado
     # mostra "avaliando" e consulta de novo.
     await _marcar_aguardando(conn, s)
     tarefas.add_task(_avaliar_em_segundo_plano, sessao_id)
-    return {**_sessao_out(s, completa=True, custo=ve_custo(user)),
+    return {**_sessao_out(s, completa=True, custo=ve_custo(user), diagnostico=eh_gestao(user)),
             "avaliacao": await _avaliacao_out(conn, s, user)}
 
 
 @router.get("/roleplay/sessoes/{sessao_id}")
 async def detalhe(sessao_id: UUID, conn=Depends(get_conn), user=Depends(usuario_atual)):
     s = await _sessao_visivel(conn, sessao_id, user)
-    return {**_sessao_out(s, completa=True, custo=ve_custo(user)),
+    return {**_sessao_out(s, completa=True, custo=ve_custo(user), diagnostico=eh_gestao(user)),
             "modo_leitura": s["usuario_id"] != user["id"],
             "avaliacao": await _avaliacao_out(conn, s, user)}
 
@@ -677,7 +684,7 @@ async def reavaliar(sessao_id: UUID, tarefas: BackgroundTasks,
         raise HTTPException(409, "A avaliação já está em andamento.")
     await _marcar_aguardando(conn, s)
     tarefas.add_task(_avaliar_em_segundo_plano, sessao_id)
-    return {**_sessao_out(s, completa=True, custo=ve_custo(user)),
+    return {**_sessao_out(s, completa=True, custo=ve_custo(user), diagnostico=eh_gestao(user)),
             "modo_leitura": s["usuario_id"] != user["id"],
             "avaliacao": await _avaliacao_out(conn, s, user)}
 
@@ -709,7 +716,7 @@ async def ajustar_item(sessao_id: UUID, item: int, body: NotaItem,
         sessao_id, item, body.nota, user["id"],
     )
     await _recalcular(conn, sessao_id)
-    return {**_sessao_out(s, completa=True, custo=ve_custo(user)),
+    return {**_sessao_out(s, completa=True, custo=ve_custo(user), diagnostico=eh_gestao(user)),
             "modo_leitura": s["usuario_id"] != user["id"],
             "avaliacao": await _avaliacao_out(conn, s, user)}
 
@@ -725,7 +732,7 @@ async def validar(sessao_id: UUID, conn=Depends(get_conn), user=Depends(usuario_
         "UPDATE roleplay_avaliacoes SET validada_em = NOW(), validada_por = $2 WHERE sessao_id = $1",
         sessao_id, user["id"],
     )
-    return {**_sessao_out(s, completa=True, custo=ve_custo(user)),
+    return {**_sessao_out(s, completa=True, custo=ve_custo(user), diagnostico=eh_gestao(user)),
             "modo_leitura": s["usuario_id"] != user["id"],
             "avaliacao": await _avaliacao_out(conn, s, user)}
 
@@ -738,7 +745,7 @@ async def tirar_validacao(sessao_id: UUID, conn=Depends(get_conn), user=Depends(
         "UPDATE roleplay_avaliacoes SET validada_em = NULL, validada_por = NULL WHERE sessao_id = $1",
         sessao_id,
     )
-    return {**_sessao_out(s, completa=True, custo=ve_custo(user)),
+    return {**_sessao_out(s, completa=True, custo=ve_custo(user), diagnostico=eh_gestao(user)),
             "modo_leitura": s["usuario_id"] != user["id"],
             "avaliacao": await _avaliacao_out(conn, s, user)}
 

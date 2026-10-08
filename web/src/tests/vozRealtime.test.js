@@ -7,7 +7,10 @@
 //   4. goAway → pede TOKEN NOVO e reconecta com o último handle (o bug do PoC);
 //   5. queda com motivo de cobrança encerra como "saldo";
 //   6. três quedas seguidas logo após abrir encerram como "queda";
-//   7. funções puras de áudio, turno e uso.
+//   7. cliente sem resposta depois da fala → reconecta com o handle (no
+//      máximo 3 vezes); resposta ou o executivo voltando a falar cancelam;
+//   8. tudo vira evento do diário (onEvento);
+//   9. funções puras de áudio, turno e uso.
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
   anotarTurno, base64ParaFloat, criarSessaoVoz, floatParaPcm16Base64, nivel, somarUso,
@@ -34,11 +37,12 @@ function nova(extra = {}) {
   const eventos = {
     onAberto: vi.fn(), onAudio: vi.fn(), onInterrompido: vi.fn(), onTranscricao: vi.fn(),
     onUso: vi.fn(), onReconectando: vi.fn(), onReconectado: vi.fn(), onFim: vi.fn(), onLog: vi.fn(),
+    onSemResposta: vi.fn(), onEvento: vi.fn(),
   };
   const obterTokenNovo = vi.fn().mockResolvedValue('auth_tokens/novo');
   const voz = criarSessaoVoz({
     wsUrl: 'wss://gemini/BidiGenerateContentConstrained', token: 'auth_tokens/t1', modelo: 'gemini-3.8-live',
-    obterTokenNovo, eventos, WebSocketImpl: WSFalso, ...extra,
+    obterTokenNovo, eventos, WebSocketImpl: WSFalso, vigia: false, ...extra,
   });
   return { voz, eventos, obterTokenNovo };
 }
@@ -129,6 +133,84 @@ describe('criarSessaoVoz', () => {
       await espera();
     }
     expect(b.eventos.onFim).toHaveBeenCalledWith('queda');
+  });
+
+  describe('cliente sem resposta', () => {
+    async function conversando() {
+      let t = 0;
+      const r = nova({ agora: () => t });
+      r.voz.conectar();
+      sockets[0].abrir();
+      await sockets[0].receber({ setupComplete: {} });
+      await sockets[0].receber({ sessionResumptionUpdate: { resumable: true, newHandle: 'h-7' } });
+      return { ...r, avancar: (ms) => { t += ms; } };
+    }
+
+    it('9 s sem resposta depois da fala: reconecta com o handle e registra', async () => {
+      const { voz, eventos, obterTokenNovo, avancar } = await conversando();
+      voz.fimDaFala();
+      avancar(8000);
+      voz.verificar();
+      expect(eventos.onSemResposta).not.toHaveBeenCalled();
+      avancar(1500);
+      voz.verificar();
+      expect(eventos.onSemResposta).toHaveBeenCalledWith(1, true);
+      expect(eventos.onReconectando).toHaveBeenCalledWith('sem_resposta');
+      expect(eventos.onEvento).toHaveBeenCalledWith('sem_resposta', '10s');
+      await espera();
+      expect(obterTokenNovo).toHaveBeenCalledTimes(1);
+      sockets[1].abrir();
+      expect(sockets[1].enviados[0].setup.sessionResumption).toEqual({ handle: 'h-7' });
+      await sockets[1].receber({ setupComplete: {} });
+      expect(eventos.onReconectado).toHaveBeenCalledWith(1);
+      expect(eventos.onEvento).toHaveBeenCalledWith('reconectado', '1');
+      expect(voz.semResposta).toBe(1);
+    });
+
+    it('resposta da cliente ou o executivo voltando a falar cancelam', async () => {
+      const { voz, eventos, avancar } = await conversando();
+      voz.fimDaFala();
+      await sockets[0].receber({ serverContent: { modelTurn: { parts: [{ inlineData: { data: 'QUJD' } }] } } });
+      avancar(20000);
+      voz.verificar();
+      voz.fimDaFala();
+      voz.inicioDaFala();
+      avancar(20000);
+      voz.verificar();
+      expect(eventos.onSemResposta).not.toHaveBeenCalled();
+      expect(sockets).toHaveLength(1);
+    });
+
+    it('depois de 3 vezes só registra, sem reconectar', async () => {
+      const { voz, eventos, obterTokenNovo, avancar } = await conversando();
+      for (let i = 0; i < 4; i += 1) {
+        voz.fimDaFala();
+        avancar(10000);
+        voz.verificar();
+        await espera();
+        const atual = sockets[sockets.length - 1];
+        if (atual.readyState === 0) {
+          atual.abrir();
+          await atual.receber({ setupComplete: {} });
+        }
+      }
+      expect(obterTokenNovo).toHaveBeenCalledTimes(3);
+      expect(eventos.onSemResposta).toHaveBeenLastCalledWith(4, false);
+      expect(eventos.onEvento).toHaveBeenCalledWith('sem_resposta', '10s · sem reconectar');
+      expect(eventos.onFim).not.toHaveBeenCalled();
+    });
+  });
+
+  it('diário: abertura, queda e fim viram eventos', async () => {
+    const { voz, eventos } = nova();
+    voz.conectar();
+    sockets[0].abrir();
+    await sockets[0].receber({ setupComplete: {} });
+    await sockets[0].receber({ goAway: { timeLeft: '30s' } });
+    voz.encerrar();
+    const tipos = eventos.onEvento.mock.calls.map(([t]) => t);
+    expect(tipos).toEqual(['aberto', 'goaway', 'reconectando', 'fim']);
+    expect(eventos.onEvento).toHaveBeenCalledWith('goaway', '30s');
   });
 
   it('encerrar avisa o fim uma vez só', () => {

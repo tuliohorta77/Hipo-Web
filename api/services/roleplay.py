@@ -70,6 +70,27 @@ MAX_AUDIO_MB = 45
 MAX_AUDIO_BYTES = MAX_AUDIO_MB * 1024 * 1024
 TIPOS_AUDIO = {"audio/webm": ".webm", "audio/ogg": ".ogg", "audio/mp4": ".m4a"}
 MOTIVOS_FIM = ("encerrou", "tempo", "queda", "saldo")
+# Diário da conexão de voz (o navegador junta; aqui só limita).
+MAX_EVENTOS = 300
+MAX_DETALHE_EVENTO = 200
+TIPOS_EVENTO = (
+    "aberto", "goaway", "fechada", "erro", "reconectando", "reconectado",
+    "reconexao_falhou", "sem_resposta", "fim",
+)
+
+# Detecção de fala do Gemini (VAD do servidor). Início de fala com
+# sensibilidade BAIXA: ruído de fundo e eco não abrem turno à toa (turno
+# aberto por ruído deixa a cliente "esperando" e parece travada). Fim de
+# fala alta + 700 ms de silêncio: responde logo, sem cortar quem pausa.
+VAD = {
+    "automaticActivityDetection": {
+        "disabled": False,
+        "startOfSpeechSensitivity": "START_SENSITIVITY_LOW",
+        "endOfSpeechSensitivity": "END_SENSITIVITY_HIGH",
+        "prefixPaddingMs": 200,
+        "silenceDurationMs": 700,
+    },
+}
 
 # Preço de referência (US$ por 1M de tokens). O Google não publicou tabela
 # própria do 3.8-live até 07/10/2026; vale a do 3.1-flash-live como
@@ -211,6 +232,33 @@ def fala_executivo_pct(transcricao: list[dict]) -> int | None:
     return round(100 * pal["executivo"] / total)
 
 
+def validar_eventos(brutos) -> list[dict]:
+    """
+    Diário da conexão [{t_ms, tipo, detalhe}] vindo do navegador. É só
+    diagnóstico: nunca recusa o encerramento. Tipo desconhecido e item
+    malformado somem; passa do teto → fica com os primeiros e o último.
+    """
+    if not isinstance(brutos, list):
+        return []
+    saida = []
+    for e in brutos:
+        if not isinstance(e, dict) or e.get("tipo") not in TIPOS_EVENTO:
+            continue
+        try:
+            t_ms = max(0, min(int(e.get("t_ms") or 0), 10**8))
+        except (TypeError, ValueError):
+            t_ms = 0
+        detalhe = re.sub(r"\s+", " ", str(e.get("detalhe") or "")).strip()[:MAX_DETALHE_EVENTO]
+        saida.append({"t_ms": t_ms, "tipo": e["tipo"], "detalhe": detalhe})
+    if len(saida) > MAX_EVENTOS:
+        saida = saida[: MAX_EVENTOS - 1] + saida[-1:]
+    return saida
+
+
+def contar_sem_resposta(eventos: list[dict]) -> int:
+    return min(sum(1 for e in eventos if e["tipo"] == "sem_resposta"), 1000)
+
+
 def validar_motivo(motivo: str | None) -> str:
     m = (motivo or "encerrou").strip().lower()
     if m not in MOTIVOS_FIM:
@@ -302,6 +350,7 @@ def setup_live(modelo: str, instrucao: str, voz: str) -> dict:
             },
         },
         "systemInstruction": {"parts": [{"text": instrucao}], "role": "user"},
+        "realtimeInputConfig": VAD,
         "sessionResumption": {},
         "inputAudioTranscription": {},
         "outputAudioTranscription": {},

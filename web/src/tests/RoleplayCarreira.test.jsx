@@ -11,7 +11,7 @@
 //   7. nota (RP-2): avaliando consulta de novo; pronta mostra nota, foco e
 //      itens; gestão ajusta item e valida; erro oferece avaliar de novo
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, cleanup, waitFor, within } from '@testing-library/react';
+import { render, screen, fireEvent, cleanup, waitFor, within, act } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 
 const mockGet = vi.fn();
@@ -131,7 +131,10 @@ describe('Treino', () => {
       parar: vi.fn().mockResolvedValue(new Blob(['webm'], { type: 'audio/webm' })),
     };
     const motorAudio = { navegadorSuporta: () => true, iniciarAudio: vi.fn().mockResolvedValue(audio) };
-    const voz = { conectar: vi.fn(), enviarAudio: vi.fn(), encerrar: vi.fn(), reconexoes: 0 };
+    const voz = {
+      conectar: vi.fn(), enviarAudio: vi.fn(), encerrar: vi.fn(), reconexoes: 0,
+      fimDaFala: vi.fn(), inicioDaFala: vi.fn(),
+    };
     let cfg;
     const criarVoz = vi.fn((c) => { cfg = c; return voz; });
     return { audio, motorAudio, voz, criarVoz, cfg: () => cfg };
@@ -174,6 +177,20 @@ describe('Treino', () => {
     // Sem transcrição na tela durante a conversa.
     expect(screen.queryByText('Oi Patrícia')).not.toBeInTheDocument();
 
+    // A fala do executivo alimenta o vigia; cliente sem resposta reconecta e pede para repetir.
+    const cbAudio = d.motorAudio.iniciarAudio.mock.calls[0][0];
+    cbAudio.onInicioDaFala();
+    cbAudio.onFimDaFala();
+    expect(d.voz.inicioDaFala).toHaveBeenCalled();
+    expect(d.voz.fimDaFala).toHaveBeenCalled();
+    act(() => {
+      ev.onEvento('sem_resposta', '10s');
+      ev.onReconectando('sem_resposta');
+    });
+    expect(await screen.findByText('A cliente não respondeu · reconectando…')).toBeInTheDocument();
+    act(() => { ev.onReconectado(1); });
+    expect(await screen.findByText('Reconectado. Repita a sua última frase.')).toBeInTheDocument();
+
     mockGet.mockResolvedValue({ data: { id: 's9', cenario_titulo: 'Abertura e descoberta', transcricao: [], tem_audio: false, status: 'encerrada', motivo_fim: 'encerrou', conta_media: true } });
     fireEvent.click(screen.getByRole('button', { name: /Encerrar/ }));
     await waitFor(() => expect(mockPost).toHaveBeenCalledWith('/carreira/roleplay/sessoes/s9/encerrar', expect.any(FormData)));
@@ -183,6 +200,7 @@ describe('Treino', () => {
     expect(dados.motivo_fim).toBe('encerrou');
     expect(dados.transcricao.map((t) => t.quem)).toEqual(['executivo', 'cliente']);
     expect(dados.tokens).toEqual({ audio_in: 40, total: 50 });
+    expect(dados.eventos.map((e) => e.tipo)).toEqual(['sem_resposta']);
     expect(form.get('audio')).toBeInstanceOf(Blob);
     expect(await screen.findByText('Sem transcrição.')).toBeInTheDocument();
   });
@@ -216,6 +234,25 @@ describe('Resultado', () => {
     expect(screen.getByText('48%')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /Ouvir gravação/ }));
     expect(await screen.findByTestId('player-roleplay')).toHaveAttribute('src', 'https://s3/roleplay.webm');
+    // Colaborador não recebe o diário (eventos null): o card nem aparece.
+    expect(screen.queryByText('Ver diário')).not.toBeInTheDocument();
+  });
+
+  it('gestão vê o diário da conexão', async () => {
+    mockGet.mockResolvedValue({ data: sessao({
+      modo_leitura: true, reconexoes: 1, sem_resposta: 1, latencia_media_ms: 1400, modelo_voz: 'gemini-3.8-live',
+      eventos: [
+        { t_ms: 1000, tipo: 'aberto', detalhe: '' },
+        { t_ms: 67000, tipo: 'sem_resposta', detalhe: '10s' },
+        { t_ms: 68000, tipo: 'reconectado', detalhe: '1' },
+      ],
+    }) });
+    renderizar('/carreira/roleplay/sessoes/s1');
+    fireEvent.click(await screen.findByText('Ver diário'));
+    const diario = screen.getByTestId('diario-conexao');
+    expect(diario).toHaveTextContent('01:07 · Cliente sem resposta (10s)');
+    expect(diario).toHaveTextContent('01:08 · Reconectou (1)');
+    expect(screen.getByText('1,4 s')).toBeInTheDocument();
   });
 });
 

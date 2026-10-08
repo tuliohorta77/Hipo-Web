@@ -32,7 +32,8 @@ export function navegadorSuporta() {
 }
 
 /**
- * @param {object} cb onMicrofone(b64), onNivelMic(0..1), onNivelIa(0..1), onFimDaFala()
+ * @param {object} cb onMicrofone(b64), onNivelMic(0..1), onNivelIa(0..1),
+ *   onInicioDaFala(), onFimDaFala()
  */
 export async function iniciarAudio(cb) {
   const mic = await navigator.mediaDevices.getUserMedia({
@@ -48,8 +49,12 @@ export async function iniciarAudio(cb) {
     const f = e.data;
     const n = nivel(f);
     cb.onNivelMic?.(Math.min(1, n * 4));
-    // Fim da fala do executivo (500 ms de silêncio): marca para medir a latência.
-    if (n > 0.02) { falando = true; silencio = 0; } else if (falando && ++silencio >= 5) { falando = false; cb.onFimDaFala?.(); }
+    // Início e fim da fala do executivo (fim = 500 ms de silêncio): medem a
+    // latência e alimentam o vigia de "cliente sem resposta".
+    if (n > 0.02) {
+      if (!falando) cb.onInicioDaFala?.();
+      falando = true; silencio = 0;
+    } else if (falando && ++silencio >= 5) { falando = false; cb.onFimDaFala?.(); }
     cb.onMicrofone?.(floatParaPcm16Base64(f));
   };
 

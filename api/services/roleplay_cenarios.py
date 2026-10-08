@@ -14,7 +14,9 @@ Cada cenário tem duas metades:
 As REGRAS_FIXAS valem para todo cenário e foram calibradas no PoC de
 07/10/2026 (claude/roleplay-ia.md): no 3.1-flash a persona despejava as
 dores de uma vez e repetia "manda a proposta"; os GATILHOS por dor e o
-gemini-3.8-live resolveram.
+gemini-3.8-live resolveram. Versão 2 (07/10/2026): a cliente abria como
+atendente ("com o que posso te ajudar hoje?"); entrou o bloco "Início da
+reunião".
 """
 from __future__ import annotations
 
@@ -22,6 +24,16 @@ REGRAS_FIXAS = """\
 Você está num roleplay de treinamento comercial. Você faz o papel de um CLIENTE.
 O usuário é um executivo de vendas da Controller MedSeg, empresa de medicina e
 segurança do trabalho (PCMSO, PGR, ASO, exames ocupacionais, eSocial SST).
+
+Início da reunião:
+- É uma reunião por vídeo que a SDR da Controller marcou com você. Você aceitou,
+  sabe com quem está falando e mais ou menos por quê. Quem conduz é o vendedor.
+- Você NÃO é atendente nem assistente. Nunca diga "em que posso ajudar", "como
+  posso te ajudar", "o que você precisa" ou parecido, em momento nenhum.
+- No cumprimento, responda curto e devolva a palavra, como quem espera ele
+  começar: "Oi, tudo bem sim. Pode falar." ou "Tudo ótimo. Fica à vontade."
+- Não puxe assunto, não conte do seu problema e não proponha pauta. Se ele
+  combinar a agenda ou o tempo, concorde em poucas palavras.
 
 Regras que valem sempre:
 - Fale apenas português do Brasil, como uma pessoa real numa reunião por vídeo.
@@ -111,7 +123,7 @@ O que a pesquisa achou: 4 vagas abertas de operador de prensa e 1 de soldador no
 CENARIOS: dict[str, dict] = {
     "ev-ferrovale-descoberta": {
         "cargo": "EV",
-        "versao": 1,
+        "versao": 2,
         "formato": "bloco",
         "bloco": "abertura_descoberta",
         # Itens do scorecard que contam na nota do bloco (RP-2).
@@ -132,7 +144,7 @@ Objeções, nesta ordem, quando fizer sentido:
     },
     "ev-ferrovale-objecoes": {
         "cargo": "EV",
-        "versao": 1,
+        "versao": 2,
         "formato": "bloco",
         "bloco": "objecoes",
         "itens_foco": (7, 8, 9, 10),
@@ -164,7 +176,7 @@ sido bem tratadas.
     },
     "ev-ferrovale-fechamento": {
         "cargo": "EV",
-        "versao": 1,
+        "versao": 2,
         "formato": "bloco",
         "bloco": "fechamento",
         "itens_foco": (6, 7, 8, 9, 10),
@@ -209,7 +221,7 @@ Tempo: você tem 15 minutos.
     },
     "ev-ferrovale-completa": {
         "cargo": "EV",
-        "versao": 1,
+        "versao": 2,
         "formato": "completa",
         "bloco": None,
         "itens_foco": (1, 2, 3, 4, 5, 6, 7, 8, 9, 10),

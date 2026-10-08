@@ -145,6 +145,27 @@ class TestEncerramento:
             r.validar_inteiro("abc", "x")
 
 
+class TestDiarioDaConexao:
+    def test_limpa_e_limita(self):
+        e = r.validar_eventos([
+            {"t_ms": 1000, "tipo": "aberto"},
+            {"t_ms": "67000", "tipo": "sem_resposta", "detalhe": "  10s \n"},
+            {"t_ms": -5, "tipo": "fechada", "detalhe": "x" * 500},
+            {"t_ms": 1, "tipo": "hackeado"},
+            "lixo",
+        ])
+        assert [x["tipo"] for x in e] == ["aberto", "sem_resposta", "fechada"]
+        assert e[1] == {"t_ms": 67000, "tipo": "sem_resposta", "detalhe": "10s"}
+        assert e[2]["t_ms"] == 0 and len(e[2]["detalhe"]) == r.MAX_DETALHE_EVENTO
+        assert r.contar_sem_resposta(e) == 1
+
+    def test_nunca_recusa_e_guarda_o_ultimo(self):
+        assert r.validar_eventos(None) == [] and r.validar_eventos("x") == []
+        muitos = [{"t_ms": i, "tipo": "reconectando"} for i in range(500)] + [{"t_ms": 999, "tipo": "fim"}]
+        e = r.validar_eventos(muitos)
+        assert len(e) == r.MAX_EVENTOS and e[-1]["tipo"] == "fim"
+
+
 class TestProximo:
     def test_primeiro_bloco_nao_feito_depois_a_completa(self):
         cen = cenarios_do_cargo("EV")
@@ -170,6 +191,17 @@ class TestSetupDoToken:
         assert s["sessionResumption"] == {}
         assert s["contextWindowCompression"]["slidingWindow"]["targetTokens"] < \
             s["contextWindowCompression"]["triggerTokens"]
+        vad = s["realtimeInputConfig"]["automaticActivityDetection"]
+        assert vad["disabled"] is False
+        assert vad["startOfSpeechSensitivity"] == "START_SENSITIVITY_LOW"
+        assert vad["endOfSpeechSensitivity"] == "END_SENSITIVITY_HIGH"
+        assert 500 <= vad["silenceDurationMs"] <= 1000
+
+    def test_cliente_nao_abre_como_atendente(self):
+        texto = montar_instrucao(CENARIOS["ev-ferrovale-descoberta"])
+        assert "Início da reunião" in texto
+        assert "em que posso ajudar" in texto  # aparece só como proibição
+        assert "Nunca diga" in texto
 
     def test_token_de_uso_unico_com_2_min_para_abrir(self):
         corpo = r.corpo_token({"model": "models/x"}, AGORA)

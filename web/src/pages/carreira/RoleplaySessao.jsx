@@ -59,6 +59,7 @@ export default function RoleplayTreino({ motorAudio = audioPadrao, criarVoz = cr
   const [nivelMic, setNivelMic] = useState(0);
   const [nivelIa, setNivelIa] = useState(0);
   const [reconexoes, setReconexoes] = useState(0);
+  const [aviso, setAviso] = useState('');
   const ref = useRef({});
 
   useEffect(() => {
@@ -75,7 +76,10 @@ export default function RoleplayTreino({ motorAudio = audioPadrao, criarVoz = cr
     return () => window.removeEventListener('beforeunload', aviso);
   }, [fase]);
 
-  useEffect(() => () => { clearInterval(ref.current.relogio); }, []);
+  useEffect(() => () => {
+    clearInterval(ref.current.relogio);
+    clearTimeout(ref.current.avisoTimer);
+  }, []);
 
   const encerrar = useCallback(async (motivo = 'encerrou') => {
     const s = ref.current;
@@ -95,6 +99,7 @@ export default function RoleplayTreino({ motorAudio = audioPadrao, criarVoz = cr
       motivo_fim: motivo,
       reconexoes: s.voz?.reconexoes ?? 0,
       latencia_media_ms: lat.length ? Math.round(lat.reduce((a, b) => a + b, 0) / lat.length) : null,
+      eventos: s.eventos || [],
     };
     const form = new FormData();
     form.append('dados', JSON.stringify(dados));
@@ -124,14 +129,20 @@ export default function RoleplayTreino({ motorAudio = audioPadrao, criarVoz = cr
       const { data } = await api.post('/carreira/roleplay/sessoes', { cenario_id: cenarioId });
       const s = ref.current;
       Object.assign(s, {
-        sessaoId: data.sessao_id, turnos: [], uso: {}, latencias: [], encerrando: false,
-        fimFala: null, inicio: Date.now(),
+        sessaoId: data.sessao_id, turnos: [], uso: {}, latencias: [], eventos: [], encerrando: false,
+        fimFala: null, inicio: Date.now(), motivoReconexao: null,
       });
+      const mostrarAviso = (texto) => {
+        clearTimeout(s.avisoTimer);
+        setAviso(texto);
+        s.avisoTimer = setTimeout(() => setAviso(''), 10000);
+      };
       s.audio = await motorAudio.iniciarAudio({
         onMicrofone: (b64) => s.voz?.enviarAudio(b64),
         onNivelMic: setNivelMic,
         onNivelIa: setNivelIa,
-        onFimDaFala: () => { s.fimFala = performance.now(); },
+        onInicioDaFala: () => s.voz?.inicioDaFala(),
+        onFimDaFala: () => { s.fimFala = performance.now(); s.voz?.fimDaFala(); },
       });
       s.voz = criarVoz({
         wsUrl: data.ws_url,
@@ -147,8 +158,22 @@ export default function RoleplayTreino({ motorAudio = audioPadrao, criarVoz = cr
           onInterrompido: () => s.audio.interromper(),
           onTranscricao: (quem, texto) => anotarTurno(s.turnos, quem, texto, Date.now() - s.inicio),
           onUso: (u) => somarUso(s.uso, u),
-          onReconectando: () => setStatus('Reconectando…'),
-          onReconectado: (n) => { setReconexoes(n); setStatus('Em conversa'); },
+          onEvento: (tipo, detalhe) => {
+            if (s.eventos.length < 300) s.eventos.push({ t_ms: Date.now() - s.inicio, tipo, detalhe });
+          },
+          onReconectando: (motivo) => {
+            s.motivoReconexao = motivo;
+            setStatus(motivo === 'sem_resposta' ? 'A cliente não respondeu · reconectando…' : 'Reconectando…');
+          },
+          onReconectado: (n) => {
+            setReconexoes(n);
+            setStatus('Em conversa');
+            if (s.motivoReconexao === 'sem_resposta') mostrarAviso('Reconectado. Repita a sua última frase.');
+            s.motivoReconexao = null;
+          },
+          onSemResposta: (n, reconectando) => {
+            if (!reconectando) mostrarAviso('A cliente não respondeu. Repita a sua última frase.');
+          },
           onFim: (motivo) => { if (motivo !== 'encerrou') encerrar(motivo); },
         },
       });
@@ -257,6 +282,9 @@ export default function RoleplayTreino({ motorAudio = audioPadrao, criarVoz = cr
           <Barra rotulo="Seu microfone" valor={nivelMic} />
           <Barra rotulo="Cliente (IA)" valor={nivelIa} />
         </div>
+        {aviso && (
+          <div className="mt-3"><AlertMessage tipo="aviso">{aviso}</AlertMessage></div>
+        )}
         {reconexoes > 0 && (
           <p className="text-xs text-hipo-slate mt-3 inline-flex items-center gap-1">
             <Repeat size={12} aria-hidden="true" /> {reconexoes} troca(s) de conexão
@@ -431,6 +459,53 @@ export function ResultadoRoleplay({ intervaloMs = 4000 }) {
           <p className="px-5 pb-5 text-sm text-hipo-slate">Sem transcrição.</p>
         )}
       </Card>
+      {Array.isArray(s.eventos) && <DiarioConexao s={s} />}
     </div>
+  );
+}
+
+const ROTULO_EVENTO = {
+  aberto: 'Conectou',
+  goaway: 'Google pediu troca de conexão',
+  fechada: 'Conexão fechada',
+  erro: 'Erro de conexão',
+  reconectando: 'Reconectando',
+  reconectado: 'Reconectou',
+  reconexao_falhou: 'Reconexão falhou',
+  sem_resposta: 'Cliente sem resposta',
+  fim: 'Fim',
+};
+
+/** Diário da conexão de voz: só chega para a gestão (o servidor decide). */
+function DiarioConexao({ s }) {
+  const [aberto, setAberto] = useState(false);
+  return (
+    <Card>
+      <button
+        type="button"
+        className="w-full flex flex-wrap items-center gap-x-4 gap-y-1 text-left text-sm"
+        onClick={() => setAberto((v) => !v)}
+      >
+        <span className="font-semibold text-hipo-ink">Conexão</span>
+        <span className="text-hipo-slate">Trocas: <b>{s.reconexoes ?? 0}</b></span>
+        <span className="text-hipo-slate">Sem resposta: <b>{s.sem_resposta ?? 0}</b></span>
+        <span className="text-hipo-slate">
+          Latência média: <b>{s.latencia_media_ms !== null && s.latencia_media_ms !== undefined ? `${(s.latencia_media_ms / 1000).toFixed(1).replace('.', ',')} s` : '—'}</b>
+        </span>
+        <span className="text-hipo-slate">Modelo: <b>{s.modelo_voz}</b></span>
+        <span className="ml-auto text-xs text-hipo-blue">{aberto ? 'Esconder diário' : 'Ver diário'}</span>
+      </button>
+      {aberto && (
+        s.eventos.length ? (
+          <ol className="mt-3 space-y-1 text-xs font-mono" data-testid="diario-conexao">
+            {s.eventos.map((e, i) => (
+              <li key={i} className={e.tipo === 'sem_resposta' || e.tipo === 'reconexao_falhou' ? 'text-hipo-danger' : 'text-hipo-ink'}>
+                {relogio(Math.floor((e.t_ms || 0) / 1000))} · {ROTULO_EVENTO[e.tipo] || e.tipo}{e.detalhe ? ` (${e.detalhe})` : ''}
+              </li>
+            ))}
+          </ol>
+        ) : <p className="mt-3 text-xs text-hipo-slate">Sem diário (treino anterior a esta versão).</p>
+      )}
+    </Card>
   );
 }

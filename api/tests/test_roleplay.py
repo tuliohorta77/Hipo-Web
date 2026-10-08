@@ -106,6 +106,12 @@ async def _encerrar(client, headers, sessao_id, dados=None, audio=True):
         ],
         "tokens": {"audio_in": 100_000, "texto_in": 20_000, "audio_out": 4_000, "texto_out": 0, "total": 124_000},
         "duracao_s": 30, "motivo_fim": "encerrou", "reconexoes": 1, "latencia_media_ms": 820,
+        "eventos": [
+            {"t_ms": 900, "tipo": "aberto", "detalhe": ""},
+            {"t_ms": 15000, "tipo": "sem_resposta", "detalhe": "10s"},
+            {"t_ms": 16000, "tipo": "reconectado", "detalhe": "1"},
+            {"t_ms": 29000, "tipo": "fim", "detalhe": "encerrou"},
+        ],
     }
     files = {"audio": ("roleplay.webm", b"OggS-falso-webm", "audio/webm")} if audio else None
     return await client.post(
@@ -275,6 +281,11 @@ async def test_gestao_treina_fora_da_media_e_le_a_sessao_do_ev(db_conn, client):
     assert leitura["historico"][0]["id"] == sid
     det = await client.get(f"/carreira/roleplay/sessoes/{sid}", headers=adm["headers"])
     assert det.status_code == 200 and det.json()["modo_leitura"] is True
+    # Diário da conexão: a gestão vê; o próprio EV não recebe.
+    assert [e["tipo"] for e in det.json()["eventos"]] == ["aberto", "sem_resposta", "reconectado", "fim"]
+    assert det.json()["sem_resposta"] == 1
+    proprio = (await client.get(f"/carreira/roleplay/sessoes/{sid}", headers=ev["headers"])).json()
+    assert proprio["eventos"] is None and proprio["sem_resposta"] == 1
 
     outro = await _ev_liberado(db_conn, client, "ev2@teste.com")
     assert (await client.get(f"/carreira/roleplay/sessoes/{sid}", headers=outro["headers"])).status_code == 403

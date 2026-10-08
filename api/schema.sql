@@ -2141,3 +2141,12 @@ CREATE TABLE IF NOT EXISTS roleplay_avaliacao_itens (
     CONSTRAINT ck_rp_item_nota_ia CHECK (nota_ia IS NULL OR nota_ia BETWEEN 0 AND 2),
     CONSTRAINT ck_rp_item_nota_gestor CHECK (nota_gestor IS NULL OR nota_gestor BETWEEN 0 AND 2)
 );
+
+-- =====================================================================
+-- 036 -- Carreira · Roleplay: diario da conexao de voz.
+-- Detalhes no cabecalho de migrations/036_roleplay_eventos.sql.
+-- =====================================================================
+ALTER TABLE roleplay_sessoes
+    ADD COLUMN IF NOT EXISTS eventos JSONB NOT NULL DEFAULT '[]'::jsonb;
+ALTER TABLE roleplay_sessoes
+    ADD COLUMN IF NOT EXISTS sem_resposta SMALLINT NOT NULL DEFAULT 0;

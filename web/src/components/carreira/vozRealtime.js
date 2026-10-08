@@ -12,6 +12,16 @@
 // conversa continua. Três quedas seguidas logo após abrir → desiste.
 // (No PoC, reusar o token antigo virou um laço de 1011.)
 //
+// Cliente "travada": às vezes o Live ouve a fala e não responde nunca
+// (teste de 07/10/2026: o executivo chamou "Patrícia?" três vezes). Quando
+// o executivo termina de falar (`fimDaFala`) e nenhuma resposta chega em
+// SEM_RESPOSTA_MS, conta como "sem resposta" e reconecta com o handle: a
+// conversa continua e a tela pede para repetir a última frase. No máximo
+// MAX_SEM_RESPOSTA vezes por sessão (depois só registra), para não laçar.
+//
+// Tudo o que acontece com a conexão vira `onEvento(tipo, detalhe)`: a tela
+// junta num diário que vai junto no encerramento (diagnóstico da gestão).
+//
 // Separado da tela para ser testado com um WebSocket falso e, se um dia
 // for preciso, trocar de provedor sem mexer na página.
 
@@ -19,6 +29,8 @@ export const MIME_ENTRADA = 'audio/pcm;rate=16000';
 const QUEDA_RAPIDA_MS = 5000;
 const MAX_QUEDAS_RAPIDAS = 3;
 const RE_SALDO = /quota|billing|credit|exhaust|prepay|resource_exhausted/i;
+export const SEM_RESPOSTA_MS = 9000;
+export const MAX_SEM_RESPOSTA = 3;
 
 async function textoDaMensagem(dado) {
   if (typeof dado === 'string') return dado;
@@ -43,16 +55,25 @@ async function textoDaMensagem(dado) {
  * @param {() => Promise<string>} cfg.obterTokenNovo  pede token ao HIPO
  * @param {object} cfg.eventos onAberto, onAudio(b64), onInterrompido,
  *   onTranscricao(quem, texto), onUso(usageMetadata), onReconectando,
- *   onReconectado, onFim(motivo), onLog(texto)
+ *   onReconectado, onSemResposta(n), onFim(motivo), onLog(texto),
+ *   onEvento(tipo, detalhe)
+ * @param {() => number} [cfg.agora]  relógio (testes)
+ * @param {boolean} [cfg.vigia=true]  liga o setInterval do "sem resposta"
  */
-export function criarSessaoVoz({ wsUrl, token, modelo, obterTokenNovo, eventos = {}, WebSocketImpl }) {
+export function criarSessaoVoz({
+  wsUrl, token, modelo, obterTokenNovo, eventos = {}, WebSocketImpl,
+  agora = () => Date.now(), vigia = true, semRespostaMs = SEM_RESPOSTA_MS,
+}) {
   const WS = WebSocketImpl || globalThis.WebSocket;
   const ev = (nome, ...args) => { try { eventos[nome]?.(...args); } catch { /* evento da tela não derruba a conexão */ } };
+  const diario = (tipo, detalhe = '') => { ev('onEvento', tipo, detalhe); ev('onLog', detalhe ? `${tipo}: ${detalhe}` : tipo); };
   const st = {
     ws: null, token, handle: null, pronto: false, encerrando: false,
     // reconectando: buscando o token novo (sem conexão nenhuma aberta).
     // retomando: conexão nova aberta, esperando o setupComplete.
     reconectando: false, retomando: false, reconexoes: 0, quedasRapidas: 0, abertoEm: 0,
+    // Vigia: desde quando o executivo terminou de falar sem resposta.
+    esperandoDesde: null, semResposta: 0, timer: null,
   };
 
   function abrir() {
@@ -71,7 +92,7 @@ export function criarSessaoVoz({ wsUrl, token, modelo, obterTokenNovo, eventos =
       if (ws !== st.ws) return;
       tratar(msg);
     };
-    ws.onerror = () => ev('onLog', 'erro de conexão');
+    ws.onerror = () => diario('erro', 'erro de conexão');
     ws.onclose = (e) => { if (ws === st.ws) aoFechar(e); };
   }
 
@@ -79,17 +100,23 @@ export function criarSessaoVoz({ wsUrl, token, modelo, obterTokenNovo, eventos =
     if (msg.setupComplete !== undefined) {
       st.pronto = true;
       st.quedasRapidas = 0;
+      st.esperandoDesde = null;
       if (st.retomando) {
         st.retomando = false;
         st.reconexoes += 1;
+        diario('reconectado', String(st.reconexoes));
         ev('onReconectado', st.reconexoes);
       } else {
+        diario('aberto');
         ev('onAberto');
       }
     }
     const sc = msg.serverContent;
     if (sc) {
-      for (const p of sc.modelTurn?.parts || []) {
+      const partes = sc.modelTurn?.parts || [];
+      // A cliente respondeu (voz ou texto dela): o vigia para de contar.
+      if (partes.length || sc.outputTranscription?.text) st.esperandoDesde = null;
+      for (const p of partes) {
         if (p.inlineData?.data) ev('onAudio', p.inlineData.data);
       }
       if (sc.interrupted) ev('onInterrompido');
@@ -100,28 +127,30 @@ export function criarSessaoVoz({ wsUrl, token, modelo, obterTokenNovo, eventos =
     const r = msg.sessionResumptionUpdate;
     if (r?.resumable && r.newHandle) st.handle = r.newHandle;
     if (msg.goAway) {
-      ev('onLog', `goAway (${msg.goAway.timeLeft || '?'})`);
-      reconectar();
+      diario('goaway', msg.goAway.timeLeft || '');
+      reconectar('goaway');
     }
   }
 
   function aoFechar(e) {
     const motivo = `${e?.code || ''} ${e?.reason || ''}`.trim();
-    ev('onLog', `conexão fechada ${motivo}`);
+    diario('fechada', motivo);
     if (st.encerrando || st.reconectando) return;
     if (RE_SALDO.test(motivo)) { finalizar('saldo'); return; }
     // Caiu antes do setupComplete ou logo depois de abrir: conta como falha.
     const rapida = !st.pronto || Date.now() - st.abertoEm < QUEDA_RAPIDA_MS;
     st.quedasRapidas = rapida ? st.quedasRapidas + 1 : 0;
     if (st.quedasRapidas >= MAX_QUEDAS_RAPIDAS || !st.handle) { finalizar('queda'); return; }
-    reconectar();
+    reconectar('queda');
   }
 
-  async function reconectar() {
+  async function reconectar(motivo) {
     if (st.reconectando || st.encerrando) return;
     st.reconectando = true;
     st.retomando = true;
-    ev('onReconectando');
+    st.esperandoDesde = null;
+    diario('reconectando', motivo);
+    ev('onReconectando', motivo);
     const antiga = st.ws;
     st.ws = null;
     try { antiga?.close(); } catch { /* já fechada */ }
@@ -133,7 +162,7 @@ export function criarSessaoVoz({ wsUrl, token, modelo, obterTokenNovo, eventos =
         abrir();
         return;
       } catch (err) {
-        ev('onLog', `reconexão falhou (${tentativa}/3): ${err?.message || err}`);
+        diario('reconexao_falhou', `${tentativa}/3: ${err?.message || err}`);
         if (st.encerrando) return;
         await new Promise((ok) => setTimeout(ok, 800 * tentativa));
       }
@@ -146,12 +175,42 @@ export function criarSessaoVoz({ wsUrl, token, modelo, obterTokenNovo, eventos =
   function finalizar(motivo) {
     if (st.encerrando) return;
     st.encerrando = true;
+    clearInterval(st.timer);
     try { st.ws?.close(); } catch { /* já fechada */ }
+    diario('fim', motivo);
     ev('onFim', motivo);
   }
 
+  const conectado = () => !!st.ws && st.pronto && !st.reconectando && !st.retomando;
+
+  /** O vigia: chamado a cada segundo (ou à mão nos testes). */
+  function verificar() {
+    if (st.encerrando || st.esperandoDesde === null || !conectado()) return;
+    const esperou = agora() - st.esperandoDesde;
+    if (esperou < semRespostaMs) return;
+    st.esperandoDesde = null;
+    st.semResposta += 1;
+    const seg = Math.round(esperou / 1000);
+    if (st.semResposta > MAX_SEM_RESPOSTA || !st.handle) {
+      diario('sem_resposta', `${seg}s · sem reconectar`);
+      ev('onSemResposta', st.semResposta, false);
+      return;
+    }
+    diario('sem_resposta', `${seg}s`);
+    ev('onSemResposta', st.semResposta, true);
+    reconectar('sem_resposta');
+  }
+
   return {
-    conectar() { abrir(); },
+    conectar() {
+      abrir();
+      if (vigia && !st.timer) st.timer = setInterval(verificar, 1000);
+    },
+    /** O executivo parou de falar: começa a contar a espera pela resposta. */
+    fimDaFala() { if (conectado()) st.esperandoDesde = agora(); },
+    /** Voltou a falar: não é falta de resposta, é ele com a palavra. */
+    inicioDaFala() { st.esperandoDesde = null; },
+    verificar,
     /** Áudio do microfone, PCM 16 kHz em base64. Ignorado durante a troca de conexão. */
     enviarAudio(b64) {
       const ws = st.ws;
@@ -161,7 +220,8 @@ export function criarSessaoVoz({ wsUrl, token, modelo, obterTokenNovo, eventos =
     },
     encerrar() { finalizar('encerrou'); },
     get reconexoes() { return st.reconexoes; },
-    get conectado() { return !!st.ws && st.pronto && !st.reconectando && !st.retomando; },
+    get conectado() { return conectado(); },
+    get semResposta() { return st.semResposta; },
   };
 }
 
