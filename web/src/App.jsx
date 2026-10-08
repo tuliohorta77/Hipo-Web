@@ -25,6 +25,8 @@ import QuizTrilhaUC from './pages/uc/QuizTrilha';
 import EstudioUC from './pages/uc/Estudio';
 import DesempenhoCarreira from './pages/carreira/Desempenho';
 import PdiCarreira from './pages/carreira/Pdi';
+import RoleplayCarreira from './pages/carreira/Roleplay';
+import RoleplayTreino, { ResultadoRoleplay } from './pages/carreira/RoleplaySessao';
 import { primeiraRotaAcessivel } from './api';
 
 function RedirectPrimeiraRota() {
@@ -88,13 +90,20 @@ export default function App() {
             ?usuario_id= em /uc, trilhas e aulas é o modo leitura da gestão.
           */}
           {/*
-            Carreira: Universidade, PDI e Desempenho. /carreira é a
+            Carreira: Universidade, PDI, Desempenho e Roleplay. /carreira é a
             Universidade (a mesma tela de /uc, que continua valendo para os
             links antigos, o tour e a conta UC).
           */}
           <Route path="carreira" element={<MinhaUC />} />
           <Route path="carreira/pdi" element={<PdiCarreira />} />
           <Route path="carreira/desempenho" element={<DesempenhoCarreira />} />
+          {/*
+            Roleplay com IA: a aba, a sessão (tela só dela, sem as abas) e o
+            resultado. Quem libera (quiz do roteiro aprovado) é a API.
+          */}
+          <Route path="carreira/roleplay" element={<RoleplayCarreira />} />
+          <Route path="carreira/roleplay/treino/:cenarioId" element={<RoleplayTreino />} />
+          <Route path="carreira/roleplay/sessoes/:sessaoId" element={<ResultadoRoleplay />} />
           <Route path="uc" element={<MinhaUC />} />
           <Route path="uc/estudio" element={<EstudioUC />} />
           <Route path="uc/trilhas/:trilhaId" element={<TrilhaUC />} />

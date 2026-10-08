@@ -53,6 +53,7 @@ from routers import (
     crm_tarefas,
     monitor,
     pdi,
+    roleplay,
     rper,
     telemetria,
     uc,
@@ -404,6 +405,16 @@ app.include_router(
 # (gestao) e quem conclui (o dono) e decidido dentro de cada rota.
 app.include_router(
     pdi.router,
+    prefix="/carreira", tags=["Carreira"],
+    dependencies=[Depends(requer_modulo("crm"))],
+)
+
+
+# Roleplay com IA (terceira aba da Carreira, 034): mesmo prefixo e mesmo
+# modulo do PDI. Quem treina (quiz do roteiro aprovado) e quem ve a sessao
+# dos outros (gestao, em leitura) e decidido dentro de cada rota.
+app.include_router(
+    roleplay.router,
     prefix="/carreira", tags=["Carreira"],
     dependencies=[Depends(requer_modulo("crm"))],
 )

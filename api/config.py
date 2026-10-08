@@ -239,6 +239,22 @@ class Settings(BaseSettings):
     # que e o que o plano gratuito comporta sem estourar a cota.
     SENTRY_TRACES_SAMPLE_RATE: float = 0.0
 
+    # -- Roleplay com IA (Carreira, 034) ----------------------------------
+    # Chave do Gemini (AI Studio, plano pre-pago). Vazio = roleplay
+    # desligado: a tela explica e a API sobe igual -- mesma regra do S3,
+    # do SES e da chave da IA. A chave NUNCA vai ao navegador: o backend
+    # emite um token efemero por conexao (services/roleplay.py).
+    GEMINI_API_KEY: str = ""
+    # Modelo de voz do Live. O 3.8-live seguiu a persona no PoC de
+    # 07/10/2026; o 3.1-flash-live despejava as dores de uma vez.
+    ROLEPLAY_MODELO_VOZ: str = "gemini-3.8-live"
+    # Teto de gasto estimado do mes (US$, todas as sessoes). 0 = sem teto.
+    ROLEPLAY_ORCAMENTO_MES_USD: float = 30.0
+    # Sessoes por pessoa por dia (a gestao nao conta). 0 = sem limite.
+    ROLEPLAY_LIMITE_DIA: int = 2
+    # Duracao maxima de uma sessao; a completa e de 45 min.
+    ROLEPLAY_DURACAO_MAX_MIN: int = 55
+
     class Config:
         env_file = _ENV_FILE
 

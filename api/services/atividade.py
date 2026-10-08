@@ -169,6 +169,11 @@ CATALOGO: dict[tuple[str, str], Tipo] = {
     ("PATCH", "/carreira/pdi/acoes/{acao_id}"): _t("Universidade", "Ação de PDI atualizada", 113),
     ("POST", "/carreira/pdi/sugestoes/descartar"): _t("Universidade", "Sugestão de PDI descartada", 114),
     ("PUT", "/uc/estudio/aulas/{aula_id}/quiz"): _t("Universidade", "Perguntas de aula editadas", 111),
+    # Roleplay com IA (034). O token de reconexao fica nas IGNORADAS: e o
+    # mesmo treino trocando de conexao a cada ~10 min.
+    ("POST", "/carreira/roleplay/consentimento"): _t("Universidade", "Termo de gravação do roleplay aceito", 115),
+    ("POST", "/carreira/roleplay/sessoes"): _t("Universidade", "Roleplay iniciado", 116),
+    ("POST", "/carreira/roleplay/sessoes/{sessao_id}/encerrar"): _t("Universidade", "Roleplay encerrado", 117),
 
     # Monitor (metas e feriados)
     ("PUT", "/monitor/metas"): _t("Cadastros", "Metas do monitor definidas", 83),
@@ -205,6 +210,7 @@ IGNORADAS: frozenset[tuple[str, str]] = frozenset({
     # para evitar. Quem ligou a captura ja aparece pela rota de abrir.
     ("POST", "/crm/agenda/ao-vivo/{sessao_id}/falas"),
     ("POST", "/crm/agenda/ao-vivo/{sessao_id}/encerrar"),
+    ("POST", "/carreira/roleplay/sessoes/{sessao_id}/token"),
     ("PUT", "/auth/perfil"),
     ("PUT", "/auth/senha"),
     ("PUT", "/crm/dominio/preferencias/{chave}"),

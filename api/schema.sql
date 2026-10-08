@@ -2042,3 +2042,55 @@ ALTER TABLE propostas
 ALTER TABLE propostas DROP CONSTRAINT IF EXISTS ck_proposta_excedente;
 ALTER TABLE propostas ADD CONSTRAINT ck_proposta_excedente
     CHECK (valor_vida_excedente IS NULL OR valor_vida_excedente > 0);
+
+-- =====================================================================
+-- 034 -- Carreira · Roleplay com IA (sessao gravada). Detalhes no
+-- cabecalho de migrations/034_roleplay.sql.
+-- =====================================================================
+
+CREATE TABLE IF NOT EXISTS roleplay_sessoes (
+    id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    usuario_id          UUID NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
+    cenario_id          VARCHAR(60) NOT NULL,
+    cenario_versao      SMALLINT NOT NULL,
+    -- false para sessao da gestao: treina, mas fica fora das medias.
+    conta_media         BOOLEAN NOT NULL DEFAULT TRUE,
+    -- iniciada | encerrada | abandonada (RP-2 acrescenta a avaliacao).
+    status              VARCHAR(12) NOT NULL DEFAULT 'iniciada',
+    iniciada_em         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    encerrada_em        TIMESTAMPTZ,
+    duracao_s           INTEGER,
+    modelo_voz          VARCHAR(80) NOT NULL,
+    -- Quantos tokens efemeros o Google emitiu para esta sessao (1 no inicio
+    -- + 1 por reconexao). Trava a reconexao em loop.
+    tokens_emitidos     SMALLINT NOT NULL DEFAULT 1,
+    reconexoes          SMALLINT,
+    latencia_media_ms   INTEGER,
+    -- roleplay/<usuario_id>/<sessao_id>.webm no bucket dos anexos.
+    audio_s3_chave      TEXT,
+    audio_bytes         INTEGER,
+    -- [{quem: "executivo"|"cliente", texto, t_ms}]
+    transcricao         JSONB,
+    fala_executivo_pct  SMALLINT,
+    -- usageMetadata somado: {audio_in, texto_in, audio_out, texto_out, total}
+    tokens              JSONB,
+    custo_estimado_usd  NUMERIC(8,4),
+    -- encerrou | tempo | queda | saldo
+    motivo_fim          VARCHAR(12),
+    CONSTRAINT ck_roleplay_status CHECK (status IN ('iniciada', 'encerrada', 'abandonada')),
+    CONSTRAINT ck_roleplay_motivo CHECK (
+        motivo_fim IS NULL OR motivo_fim IN ('encerrou', 'tempo', 'queda', 'saldo')),
+    CONSTRAINT ck_roleplay_encerrada CHECK ((status = 'encerrada') = (encerrada_em IS NOT NULL)),
+    CONSTRAINT ck_roleplay_fala CHECK (fala_executivo_pct IS NULL OR fala_executivo_pct BETWEEN 0 AND 100),
+    CONSTRAINT ck_roleplay_custo CHECK (custo_estimado_usd IS NULL OR custo_estimado_usd >= 0)
+);
+
+CREATE INDEX IF NOT EXISTS idx_roleplay_pessoa ON roleplay_sessoes (usuario_id, iniciada_em DESC);
+-- Orcamento do mes: soma do custo de todas as sessoes do periodo.
+CREATE INDEX IF NOT EXISTS idx_roleplay_iniciada ON roleplay_sessoes (iniciada_em);
+
+CREATE TABLE IF NOT EXISTS roleplay_consentimentos (
+    usuario_id    UUID PRIMARY KEY REFERENCES usuarios(id) ON DELETE CASCADE,
+    versao_termo  VARCHAR(20) NOT NULL,
+    aceito_em     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);

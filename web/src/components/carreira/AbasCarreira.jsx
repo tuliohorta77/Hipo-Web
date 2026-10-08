@@ -1,22 +1,24 @@
 // web/src/components/carreira/AbasCarreira.jsx
 //
-// As três abas da Carreira: Universidade, PDI e Desempenho.
+// As abas da Carreira: Universidade, PDI, Desempenho e Roleplay.
 //
 // São LINKS, não estado: cada aba é uma rota (/carreira, /carreira/pdi,
-// /carreira/desempenho), então o F5 e o link mandado no WhatsApp abrem na
-// aba certa. O ?usuario_id= da gestão (modo leitura) atravessa as abas.
+// /carreira/desempenho, /carreira/roleplay), então o F5 e o link mandado
+// no WhatsApp abrem na aba certa. O ?usuario_id= da gestão (modo leitura)
+// atravessa as abas.
 //
 // A conta que só estuda (cargo UC, sem o módulo 'crm') não tem PDI nem
-// Desempenho: vê só a Universidade, e as abas nem aparecem.
+// Desempenho nem Roleplay: vê só a Universidade, e as abas nem aparecem.
 
 import { NavLink, useSearchParams } from 'react-router-dom';
-import { GraduationCap, Target, TrendingUp } from 'lucide-react';
+import { Drama, GraduationCap, Target, TrendingUp } from 'lucide-react';
 import { getModulos } from '../../api';
 
 export const ABAS_CARREIRA = [
   { to: '/carreira', label: 'Universidade', Icone: GraduationCap, fim: true },
   { to: '/carreira/pdi', label: 'PDI', Icone: Target },
   { to: '/carreira/desempenho', label: 'Desempenho', Icone: TrendingUp },
+  { to: '/carreira/roleplay', label: 'Roleplay', Icone: Drama },
 ];
 
 export default function AbasCarreira({ ativa }) {
