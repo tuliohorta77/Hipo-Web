@@ -4,8 +4,8 @@
 //
 //   /carreira/roleplay/treino/:cenarioId  a sessão: pré-sala (briefing,
 //       termo, microfone), conversa por voz com a IA e encerramento;
-//   /carreira/roleplay/sessoes/:sessaoId  o resultado: duração, fala,
-//       gravação e transcrição (a nota é a RP-2).
+//   /carreira/roleplay/sessoes/:sessaoId  o resultado: a nota contra o
+//       roteiro (RP-2), duração, fala, gravação e transcrição.
 //
 // Durante a conversa a transcrição NÃO aparece: ninguém lê o roteiro em
 // voz alta. O áudio vai direto do navegador para o Gemini (vozRealtime);
@@ -28,6 +28,7 @@ import Button from '../../components/ui/Button';
 import AlertMessage from '../../components/ui/AlertMessage';
 import { mensagemDeErro } from '../../components/crm/tarefaComum';
 import * as audioPadrao from '../../components/carreira/audioRoleplay';
+import AvaliacaoRoleplay from '../../components/carreira/AvaliacaoRoleplay';
 import { anotarTurno, criarSessaoVoz, somarUso } from '../../components/carreira/vozRealtime';
 import { DIFICULDADE, MOTIVO_FIM, dataHoraBr, duracaoBr } from './Roleplay';
 
@@ -269,28 +270,70 @@ export default function RoleplayTreino({ motorAudio = audioPadrao, criarVoz = cr
   );
 }
 
-export function ResultadoRoleplay() {
+export function ResultadoRoleplay({ intervaloMs = 4000 }) {
   const { sessaoId } = useParams();
   const [params] = useSearchParams();
   const navigate = useNavigate();
   const [s, setS] = useState(null);
   const [erro, setErro] = useState('');
   const [audioUrl, setAudioUrl] = useState('');
+  const [ocupado, setOcupado] = useState(false);
+  const player = useRef(null);
+  const pularPara = useRef(null);
   const usuarioId = params.get('usuario_id');
   const voltar = `/carreira/roleplay${usuarioId ? `?usuario_id=${encodeURIComponent(usuarioId)}` : ''}`;
+  const url = `/carreira/roleplay/sessoes/${sessaoId}`;
 
+  const carregar = useCallback(() => api.get(url)
+    .then(({ data }) => setS(data))
+    .catch((e) => setErro(mensagemDeErro(e, 'Não foi possível abrir o roleplay.'))), [url]);
+
+  useEffect(() => { carregar(); }, [carregar]);
+
+  // A nota sai em segundo plano: enquanto "aguardando", consulta de novo
+  // (até ~4 min; depois disso o servidor já devolve como erro).
+  const avaliando = s?.avaliacao?.status === 'aguardando';
   useEffect(() => {
-    api.get(`/carreira/roleplay/sessoes/${sessaoId}`)
-      .then(({ data }) => setS(data))
-      .catch((e) => setErro(mensagemDeErro(e, 'Não foi possível abrir o roleplay.')));
-  }, [sessaoId]);
+    if (!avaliando) return undefined;
+    let voltas = 0;
+    const t = setInterval(() => {
+      voltas += 1;
+      if (voltas > 60) { clearInterval(t); return; }
+      carregar();
+    }, intervaloMs);
+    return () => clearInterval(t);
+  }, [avaliando, carregar, intervaloMs]);
 
   async function ouvir() {
     try {
-      const { data } = await api.get(`/carreira/roleplay/sessoes/${sessaoId}/audio`);
+      const { data } = await api.get(`${url}/audio`);
       setAudioUrl(data.url);
     } catch (e) {
       setErro(mensagemDeErro(e, 'Não foi possível abrir a gravação.'));
+    }
+  }
+
+  async function pular(ms) {
+    const seg = Math.max(0, ms / 1000 - 1);
+    if (player.current) {
+      player.current.currentTime = seg;
+      player.current.play?.().catch(() => {});
+      return;
+    }
+    pularPara.current = seg;
+    await ouvir();
+  }
+
+  async function agir(fn, padrao) {
+    setOcupado(true);
+    setErro('');
+    try {
+      const { data } = await fn();
+      setS(data);
+    } catch (e) {
+      setErro(mensagemDeErro(e, padrao));
+    } finally {
+      setOcupado(false);
     }
   }
 
@@ -308,21 +351,65 @@ export function ResultadoRoleplay() {
       <Card>
         <div className="flex flex-wrap gap-x-6 gap-y-2 text-sm">
           <span className="inline-flex items-center gap-1.5"><Clock size={14} aria-hidden="true" /> {duracaoBr(s.duracao_s)}</span>
-          <span>Sua fala: <b>{s.fala_executivo_pct ?? '—'}{s.fala_executivo_pct !== null ? '%' : ''}</b></span>
+          <span>{s.modo_leitura ? 'Fala do executivo' : 'Sua fala'}: <b>{s.fala_executivo_pct ?? '—'}{s.fala_executivo_pct !== null ? '%' : ''}</b></span>
           <Badge tone={s.motivo_fim === 'encerrou' ? 'success' : 'warning'}>
             {s.status === 'abandonada' ? 'Não encerrado' : MOTIVO_FIM[s.motivo_fim] || 'Encerrado'}
           </Badge>
           {!s.conta_media && <Badge>Fora da média</Badge>}
+          {s.custo_estimado_usd !== null && s.custo_estimado_usd !== undefined && (
+            <span className="text-hipo-slate">IA: US$ {s.custo_estimado_usd.toFixed(3)}</span>
+          )}
         </div>
-        <p className="text-sm text-hipo-slate mt-3">
-          A nota contra o Roteiro de Vendas (itens de 0 a 2, com o trecho da sua fala) chega na próxima versão.
-          A gravação e a transcrição já ficam guardadas para isso.
-        </p>
         {s.tem_audio && (
           <div className="mt-4">
             {audioUrl
-              ? <audio controls src={audioUrl} className="w-full" data-testid="player-roleplay" />
+              ? (
+                <audio
+                  ref={player}
+                  controls
+                  src={audioUrl}
+                  className="w-full"
+                  data-testid="player-roleplay"
+                  onLoadedMetadata={() => {
+                    if (pularPara.current !== null && player.current) {
+                      player.current.currentTime = pularPara.current;
+                      pularPara.current = null;
+                    }
+                  }}
+                />
+              )
               : <Button variant="secondary" icon={Volume2} onClick={ouvir}>Ouvir gravação</Button>}
+          </div>
+        )}
+      </Card>
+      <Card>
+        <CardHeader title="Nota do roteiro" hint="Mesma régua das reuniões: itens de 0 a 2, cada nota com o trecho da fala." />
+        {s.avaliacao ? (
+          <AvaliacaoRoleplay
+            avaliacao={s.avaliacao}
+            transcricao={s.transcricao}
+            ocupado={ocupado}
+            onPular={pular}
+            onReavaliar={() => agir(() => api.post(`${url}/avaliar`), 'Não foi possível pedir a avaliação.')}
+            onAjustar={(item, nota) => agir(() => api.patch(`${url}/itens/${item}`, { nota }), 'Não foi possível ajustar a nota.')}
+            onValidar={(sim) => agir(
+              () => (sim ? api.post(`${url}/validar`) : api.delete(`${url}/validar`)),
+              'Não foi possível mudar a validação.',
+            )}
+          />
+        ) : (
+          <div className="flex flex-wrap items-center gap-3">
+            <p className="text-sm text-hipo-slate">Este treino ainda não tem nota.</p>
+            {s.status === 'encerrada' && (
+              <Button
+                size="sm"
+                variant="secondary"
+                loading={ocupado}
+                onClick={() => agir(() => api.post(`${url}/avaliar`), 'Não foi possível pedir a avaliação.')}
+              >
+                Avaliar agora
+              </Button>
+            )}
           </div>
         )}
       </Card>

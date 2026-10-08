@@ -174,6 +174,10 @@ CATALOGO: dict[tuple[str, str], Tipo] = {
     ("POST", "/carreira/roleplay/consentimento"): _t("Universidade", "Termo de gravação do roleplay aceito", 115),
     ("POST", "/carreira/roleplay/sessoes"): _t("Universidade", "Roleplay iniciado", 116),
     ("POST", "/carreira/roleplay/sessoes/{sessao_id}/encerrar"): _t("Universidade", "Roleplay encerrado", 117),
+    ("POST", "/carreira/roleplay/sessoes/{sessao_id}/avaliar"): _t("Universidade", "Roleplay avaliado de novo", 118),
+    ("PATCH", "/carreira/roleplay/sessoes/{sessao_id}/itens/{item}"): _t("Universidade", "Nota de roleplay ajustada", 119),
+    ("POST", "/carreira/roleplay/sessoes/{sessao_id}/validar"): _t("Universidade", "Nota de roleplay validada", 120),
+    ("DELETE", "/carreira/roleplay/sessoes/{sessao_id}/validar"): _t("Universidade", "Validação de roleplay retirada", 121),
 
     # Monitor (metas e feriados)
     ("PUT", "/monitor/metas"): _t("Cadastros", "Metas do monitor definidas", 83),

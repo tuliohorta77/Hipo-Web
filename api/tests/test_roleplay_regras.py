@@ -180,7 +180,7 @@ class TestSetupDoToken:
 
 
 class TestCenarios:
-    CAMPOS = {"cargo", "versao", "formato", "bloco", "titulo", "dificuldade",
+    CAMPOS = {"cargo", "versao", "formato", "bloco", "itens_foco", "titulo", "dificuldade",
               "duracao_alvo_min", "voz", "objetivo", "briefing", "persona"}
 
     @pytest.mark.parametrize("cid", list(CENARIOS))
@@ -192,6 +192,9 @@ class TestCenarios:
         assert c["persona"].strip() and c["briefing"].strip()
         assert len(cid) <= 60
         assert c["duracao_alvo_min"] < 55
+        assert c["itens_foco"] and set(c["itens_foco"]) <= set(range(1, 11))
+        if c["formato"] == "completa":
+            assert c["itens_foco"] == tuple(range(1, 11))
 
     def test_ev_tem_tres_blocos_e_uma_completa(self):
         cen = cenarios_do_cargo("EV")
@@ -252,3 +255,29 @@ def _dublar_httpx(monkeypatch, handler):
         return original(*a, **kw)
 
     monkeypatch.setattr(httpx, "AsyncClient", fabrica)
+
+
+class TestAvaliacaoRegras:
+    def test_itens_do_cenario(self):
+        from services import roleplay_avaliacao as rav
+        assert rav.itens_do_cenario(CENARIOS["ev-ferrovale-objecoes"]) == (7, 8, 9, 10)
+        assert rav.itens_do_cenario(None) == tuple(range(1, 11))
+
+    def test_nota_reescalada(self):
+        from decimal import Decimal
+        from services import roleplay_avaliacao as rav
+        assert rav.nota_reescalada({7: 2, 8: 2, 9: 1, 10: 1}, (7, 8, 9, 10)) == Decimal("15.0")
+        assert rav.nota_reescalada({}, ()) is None
+
+    def test_conteudo_minimo(self):
+        from services import roleplay_avaliacao as rav
+        with pytest.raises(rav.SemConteudo):
+            rav.conferir_conteudo([{"quem": "executivo", "texto": "Oi"}])
+        rav.conferir_conteudo([{"quem": "executivo", "texto": "palavra " * 20}] * 3)
+
+    def test_instrucao_tem_bloco_foco_e_persona(self):
+        from services import roleplay_avaliacao as rav
+        c = CENARIOS["ev-ferrovale-objecoes"]
+        txt = rav.instrucao(c, (7, 8, 9, 10))
+        assert c["titulo"] in txt and c["persona"] in txt
+        assert "9 (Objeções com LAER)" in txt and "ASUS" in txt

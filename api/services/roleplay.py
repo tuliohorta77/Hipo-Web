@@ -133,7 +133,7 @@ def checar_limites(*, sessoes_hoje: int, limite_dia: int, gasto_mes_usd: float,
         )
     if orcamento_mes_usd > 0 and gasto_mes_usd >= orcamento_mes_usd:
         raise RoleplayInvalido(
-            "O orçamento de IA do roleplay deste mês acabou. Avise a gestão.",
+            "O roleplay está pausado neste mês. Avise a gestão.",
             402, "orcamento",
         )
 

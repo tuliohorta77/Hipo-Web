@@ -6,8 +6,9 @@
 // As três diretrizes:
 //   1. uma tela por função: cada um vê os cenários do próprio cargo; a
 //      gestão abre a de qualquer pessoa em modo leitura (?usuario_id=);
-//   2. dashboard operacional: sessões e minutos do mês, treinos de hoje
-//      contra o limite; cada cenário tem o botão de treinar;
+//   2. dashboard operacional: média /20 do mês, treinos, hoje contra o
+//      limite; cada cenário tem a melhor nota e o botão de treinar; cada
+//      linha do histórico abre a nota com os trechos;
 //   3. próxima tarefa: a tela abre no "Seu próximo roleplay".
 //
 // Libera com o quiz final do roteiro aprovado. Quem decide é o servidor;
@@ -16,7 +17,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
-  CalendarDays, Clock, Drama, Lock, Mic, Play, Repeat, Timer, Wallet,
+  Award, CalendarDays, Clock, Drama, Lock, Mic, Play, Repeat, Wallet,
 } from 'lucide-react';
 import api from '../../api';
 import PageHeader from '../../components/ui/PageHeader';
@@ -28,6 +29,7 @@ import AlertMessage from '../../components/ui/AlertMessage';
 import Empty from '../../components/ui/Empty';
 import { mensagemDeErro } from '../../components/crm/tarefaComum';
 import AbasCarreira from '../../components/carreira/AbasCarreira';
+import { notaBr } from '../../components/carreira/AvaliacaoRoleplay';
 
 export const DIFICULDADE = { 1: 'Fácil', 2: 'Médio', 3: 'Difícil' };
 export const MOTIVO_FIM = {
@@ -38,6 +40,16 @@ export function dataHoraBr(iso) {
   if (!iso) return '';
   const d = new Date(iso);
   return d.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+}
+
+const TOM_NOTA = (n) => (n >= 15 ? 'success' : n >= 10 ? 'warning' : 'danger');
+
+function NotaHistorico({ s }) {
+  if (s.avaliacao_status === 'pronta' && s.nota_total !== null && s.nota_total !== undefined) {
+    return <Badge tone={TOM_NOTA(s.nota_total)}>{notaBr(s.nota_total)}/20</Badge>;
+  }
+  if (s.avaliacao_status === 'aguardando') return <Badge>avaliando…</Badge>;
+  return null;
 }
 
 export function duracaoBr(seg) {
@@ -61,6 +73,9 @@ function CartaoCenario({ c, podeTreinar, onTreinar }) {
             <span className="text-xs text-hipo-slate">
               {c.tentativas} treino(s) · último {dataHoraBr(c.ultima_em)}
             </span>
+          )}
+          {c.melhor_nota !== null && c.melhor_nota !== undefined && (
+            <Badge tone={TOM_NOTA(c.melhor_nota)}>melhor {notaBr(c.melhor_nota)}/20</Badge>
           )}
         </div>
         <p className="font-medium text-hipo-ink">{c.titulo}</p>
@@ -172,8 +187,14 @@ export default function Roleplay() {
             )}
           </Card>
           <div className="lg:col-span-2 grid grid-cols-2 gap-4">
-            <KpiCard label="Treinos no mês" value={r.sessoes_mes} icon={Repeat} />
-            <KpiCard label="Minutos no mês" value={r.minutos_mes} icon={Timer} />
+            <KpiCard
+              label="Média do mês"
+              value={r.media_mes !== null && r.media_mes !== undefined ? `${notaBr(r.media_mes)}/20` : '—'}
+              hint={r.avaliadas_mes ? `${r.avaliadas_mes} treino(s) avaliado(s) · meta 15` : 'meta 15'}
+              icon={Award}
+              tone={r.media_mes === null || r.media_mes === undefined ? 'slate' : r.media_mes >= 15 ? 'success' : 'warning'}
+            />
+            <KpiCard label="Treinos no mês" value={r.sessoes_mes} hint={`${r.minutos_mes} min`} icon={Repeat} />
             <KpiCard
               label="Hoje"
               value={r.limite_dia ? `${r.sessoes_hoje}/${r.limite_dia}` : r.sessoes_hoje}
@@ -212,7 +233,7 @@ export default function Roleplay() {
 
       <Card padding="none">
         <div className="px-5 pt-5">
-          <CardHeader title="Histórico" hint="A nota contra o Roteiro de Vendas entra na próxima versão." />
+          <CardHeader title="Histórico" hint="Clique para ver a nota, os trechos e ouvir a gravação." />
         </div>
         {dados.historico.length ? (
           <ul className="divide-y divide-hipo-border">
@@ -226,6 +247,7 @@ export default function Roleplay() {
                   <span className="text-sm text-hipo-slate w-28">{dataHoraBr(s.iniciada_em)}</span>
                   <span className="text-sm font-medium text-hipo-ink flex-1 min-w-[12rem]">{s.cenario_titulo}</span>
                   <span className="text-sm text-hipo-slate">{duracaoBr(s.duracao_s)}</span>
+                  <NotaHistorico s={s} />
                   {s.status === 'abandonada'
                     ? <Badge tone="warning">Não encerrado</Badge>
                     : <Badge tone={s.motivo_fim === 'encerrou' ? 'success' : 'warning'}>{MOTIVO_FIM[s.motivo_fim] || 'Encerrado'}</Badge>}

@@ -8,14 +8,21 @@
 //   5. treino: termo obrigatório; começar abre a sessão, conecta a voz e
 //      encerrar manda transcrição + gravação e vai para o resultado
 //   6. resultado: transcrição e botão de ouvir a gravação
+//   7. nota (RP-2): avaliando consulta de novo; pronta mostra nota, foco e
+//      itens; gestão ajusta item e valida; erro oferece avaliar de novo
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, cleanup, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 
 const mockGet = vi.fn();
 const mockPost = vi.fn();
+const mockPatch = vi.fn();
+const mockDelete = vi.fn();
 vi.mock('../api', () => ({
-  default: { get: (...a) => mockGet(...a), post: (...a) => mockPost(...a) },
+  default: {
+    get: (...a) => mockGet(...a), post: (...a) => mockPost(...a),
+    patch: (...a) => mockPatch(...a), delete: (...a) => mockDelete(...a),
+  },
   getUser: () => ({ id: 'u1', nome: 'Jakeline', cargo: 'EV' }),
   getModulos: () => ['perfil', 'crm'],
 }));
@@ -41,11 +48,15 @@ function tela(extra = {}) {
     termo: { versao: '2026-10-07', texto: 'Este treino grava a sua voz.' },
     proximo: c,
     cenarios: [c, cenario({ id: 'ev-ferrovale-completa', titulo: 'Reunião completa', formato: 'completa', bloco: null, bloco_rotulo: 'Reunião completa', dificuldade: 3, duracao_alvo_min: 45 })],
-    resumo: { sessoes_mes: 3, minutos_mes: 41, sessoes_hoje: 1, limite_dia: 2, ultima_em: '2026-10-07T20:00:00Z' },
+    resumo: {
+      sessoes_mes: 3, minutos_mes: 41, sessoes_hoje: 1, limite_dia: 2, ultima_em: '2026-10-07T20:00:00Z',
+      media_mes: 12.5, avaliadas_mes: 2, ultimas_notas: [12.5], nota_maxima: 20,
+    },
     historico: [{
       id: 's1', cenario_id: c.id, cenario_titulo: c.titulo, formato: 'bloco', bloco_rotulo: 'Abertura e descoberta',
       status: 'encerrada', conta_media: true, iniciada_em: '2026-10-07T20:00:00Z', encerrada_em: '2026-10-07T20:14:00Z',
       duracao_s: 840, motivo_fim: 'encerrou', fala_executivo_pct: 48, tem_audio: true,
+      nota_total: 12.5, avaliacao_status: 'pronta',
     }],
     orcamento: null, duracao_max_min: 55, ...extra,
   };
@@ -64,7 +75,7 @@ function renderizar(caminho = '/carreira/roleplay', props = {}) {
   );
 }
 
-beforeEach(() => { mockGet.mockReset(); mockPost.mockReset(); });
+beforeEach(() => { mockGet.mockReset(); mockPost.mockReset(); mockPatch.mockReset(); mockDelete.mockReset(); });
 afterEach(cleanup);
 
 describe('Roleplay', () => {
@@ -83,7 +94,8 @@ describe('Roleplay', () => {
     renderizar();
     const prox = await screen.findByTestId('proximo-roleplay');
     expect(within(prox).getByText('Abertura e descoberta · RH de indústria')).toBeInTheDocument();
-    expect(screen.getByText('41')).toBeInTheDocument();
+    expect(screen.getByText('41 min')).toBeInTheDocument();
+    expect(screen.getAllByText('12,5/20').length).toBeGreaterThan(0);
     expect(screen.getByText('1/2')).toBeInTheDocument();
     expect(screen.getByTestId('cenario-ev-ferrovale-completa')).toBeInTheDocument();
     expect(screen.getByText('14 min 00 s')).toBeInTheDocument();
@@ -204,5 +216,98 @@ describe('Resultado', () => {
     expect(screen.getByText('48%')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /Ouvir gravação/ }));
     expect(await screen.findByTestId('player-roleplay')).toHaveAttribute('src', 'https://s3/roleplay.webm');
+  });
+});
+
+function avaliacao(extra = {}) {
+  return {
+    status: 'pronta', nota_total: 7.1, nota_maxima: 20, faixa: 'baixa', erro: null,
+    resumo: 'Boa abertura, faltou implicação.', foco_proxima: 'Fazer pergunta de implicação.',
+    pontos_fortes: [{ texto: 'Usou a pesquisa', evidencia: 'vi que vocês ampliaram a fábrica' }],
+    pontos_melhorar: [{ texto: 'Aprofundar o custo', evidencia: 'O que te incomoda', como_fazer: 'Pergunte o custo da vaga parada.' }],
+    itens: [
+      { item: 1, nome: 'Preparação', etapa: 'Antes da reunião', criterio_2: 'usa a pesquisa', nota_ia: 2, nota_gestor: null, nota: 2, evidencia: 'vi que vocês ampliaram a fábrica', justificativa: 'Citou a ampliação.', sugestao: 'Manter.', descartado: null, ajustada_por: null },
+      { item: 5, nome: 'Perguntas de Implicação', etapa: '2. Diagnóstico', criterio_2: 'duas ou mais', nota_ia: null, nota_gestor: null, nota: null, evidencia: null, justificativa: null, sugestao: 'Pergunte quanto custa.', descartado: 'Trecho citado não foi encontrado na transcrição.', ajustada_por: null },
+    ],
+    validada: false, validada_em: null, pode_ajustar: false, pode_validar: false, pode_reavaliar: false,
+    ...extra,
+  };
+}
+
+function sessao(extra = {}) {
+  return {
+    id: 's1', cenario_titulo: 'Abertura e descoberta · RH de indústria', bloco_rotulo: 'Abertura e descoberta',
+    iniciada_em: '2026-10-07T20:00:00Z', duracao_s: 840, fala_executivo_pct: 48, motivo_fim: 'encerrou',
+    status: 'encerrada', conta_media: true, tem_audio: false, modo_leitura: false, custo_estimado_usd: null,
+    transcricao: [{ quem: 'executivo', texto: 'Oi Patrícia, vi que vocês ampliaram a fábrica', t_ms: 5000 }],
+    avaliacao: avaliacao(), ...extra,
+  };
+}
+
+describe('Nota do roleplay (RP-2)', () => {
+  it('avaliando: consulta de novo até a nota sair', async () => {
+    mockGet
+      .mockResolvedValueOnce({ data: sessao({ avaliacao: avaliacao({ status: 'aguardando', itens: [] }) }) })
+      .mockResolvedValue({ data: sessao() });
+    render(
+      <MemoryRouter initialEntries={['/carreira/roleplay/sessoes/s1']}>
+        <Routes><Route path="/carreira/roleplay/sessoes/:sessaoId" element={<ResultadoRoleplay intervaloMs={20} />} /></Routes>
+      </MemoryRouter>,
+    );
+    expect(await screen.findByTestId('avaliando')).toBeInTheDocument();
+    expect(await screen.findByTestId('avaliacao-roleplay')).toBeInTheDocument();
+    expect(screen.getByText('7,1')).toBeInTheDocument();
+    expect(screen.getByText(/Fazer pergunta de implicação/)).toBeInTheDocument();
+    expect(screen.getByText('Abaixo da meta')).toBeInTheDocument();
+    // Custo de IA não aparece para quem não é o Franqueado.
+    expect(screen.queryByText(/US\$/)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByText(/5\. Perguntas de Implicação/));
+    expect(screen.getByText(/não foi encontrado/)).toBeInTheDocument();
+  });
+
+  it('gestão ajusta item e valida', async () => {
+    mockGet.mockResolvedValue({ data: sessao({ modo_leitura: true, avaliacao: avaliacao({ pode_ajustar: true, pode_validar: true, pode_reavaliar: true }) }) });
+    const ajustada = avaliacao({
+      nota_total: 10, faixa: 'media', pode_validar: true,
+      itens: avaliacao().itens.map((i) => (i.item === 5 ? { ...i, nota_gestor: 2, nota: 2, ajustada_por: 'Tulio' } : i)),
+    });
+    mockPatch.mockResolvedValue({ data: sessao({ modo_leitura: true, avaliacao: { ...ajustada, pode_ajustar: true } }) });
+    mockPost.mockResolvedValue({ data: sessao({ modo_leitura: true, avaliacao: { ...ajustada, validada: true } }) });
+    renderizar('/carreira/roleplay/sessoes/s1');
+    const grupo = await screen.findByRole('group', { name: 'Nota do item 5' });
+    fireEvent.click(within(grupo).getByText('2'));
+    await waitFor(() => expect(mockPatch).toHaveBeenCalledWith('/carreira/roleplay/sessoes/s1/itens/5', { nota: 2 }));
+    expect(await screen.findByText('ajustada por Tulio')).toBeInTheDocument();
+    expect(screen.getByText('10,0')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /Validar/ }));
+    await waitFor(() => expect(mockPost).toHaveBeenCalledWith('/carreira/roleplay/sessoes/s1/validar'));
+    expect(await screen.findByText(/Validada pela gestão/)).toBeInTheDocument();
+  });
+
+  it('erro: mostra o motivo e avalia de novo', async () => {
+    mockGet.mockResolvedValue({ data: sessao({ avaliacao: avaliacao({ status: 'erro', erro: 'A IA respondeu HTTP 529.', itens: [], pode_reavaliar: true }) }) });
+    mockPost.mockResolvedValue({ data: sessao({ avaliacao: avaliacao({ status: 'aguardando', itens: [] }) }) });
+    renderizar('/carreira/roleplay/sessoes/s1');
+    expect(await screen.findByText('A IA respondeu HTTP 529.')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /Avaliar de novo/ }));
+    await waitFor(() => expect(mockPost).toHaveBeenCalledWith('/carreira/roleplay/sessoes/s1/avaliar'));
+    expect(await screen.findByTestId('avaliando')).toBeInTheDocument();
+  });
+
+  it('treino de antes do RP-2: avaliar agora', async () => {
+    mockGet.mockResolvedValue({ data: sessao({ avaliacao: null }) });
+    mockPost.mockResolvedValue({ data: sessao({ avaliacao: avaliacao({ status: 'aguardando', itens: [] }) }) });
+    renderizar('/carreira/roleplay/sessoes/s1');
+    expect(await screen.findByText('Este treino ainda não tem nota.')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /Avaliar agora/ }));
+    await waitFor(() => expect(mockPost).toHaveBeenCalledWith('/carreira/roleplay/sessoes/s1/avaliar'));
+    expect(await screen.findByTestId('avaliando')).toBeInTheDocument();
+  });
+
+  it('trecho acha o momento da conversa', async () => {
+    const { momentoDoTrecho } = await import('../components/carreira/AvaliacaoRoleplay');
+    const t = [{ quem: 'executivo', texto: 'Oi', t_ms: 0 }, { quem: 'executivo', texto: 'Vi que vocês AMPLIARAM a fábrica, né?', t_ms: 65000 }];
+    expect(momentoDoTrecho('vi que vocês ampliaram a fábrica', t)).toBe(65000);
+    expect(momentoDoTrecho('frase que ninguém disse', t)).toBeNull();
   });
 });
