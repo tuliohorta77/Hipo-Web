@@ -693,3 +693,18 @@ describe('AbaProposta — ver e aprovar (051)', () => {
     expect(screen.queryByTitle('Visualização da proposta')).not.toBeInTheDocument();
   });
 });
+
+// ── 053: contrato a partir da versão aprovada ────────────────────────
+
+describe('AbaProposta — contrato (053)', () => {
+  it('só a versão aprovada oferece "Contrato", e uma vez só (não por CNPJ)', async () => {
+    comPdf([PENDENTE, V1]);
+    const onEnviarContrato = vi.fn();
+    montar({ onEnviarContrato });
+    await screen.findByLabelText('Versões da proposta');
+    const botoes = screen.getAllByRole('button', { name: 'Enviar contrato para assinatura' });
+    expect(botoes).toHaveLength(1);
+    fireEvent.click(botoes[0]);
+    expect(onEnviarContrato).toHaveBeenCalledWith(expect.objectContaining({ id: 'p1' }));
+  });
+});

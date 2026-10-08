@@ -41,6 +41,7 @@ from routers import (
     crm_avaliacao,
     crm_contas,
     crm_contatos,
+    crm_contratos,
     crm_dominio,
     crm_emails,
     crm_enriquecimento,
@@ -58,6 +59,7 @@ from routers import (
     telemetria,
     uc,
     uc_estudio,
+    webhooks,
 )
 from routers.permissions import (
     requer_modulo,
@@ -281,6 +283,23 @@ app.include_router(
     prefix="/crm", tags=["CRM - E-mail"],
     dependencies=[Depends(requer_modulo("crm"))],
 )
+
+# Contrato com assinatura eletronica pela Autentique (053). Prefixo /crm
+# como as propostas: o contrato nasce de uma versao de proposta
+# (/crm/propostas/{id}/contratos) e depois e enderecado por ele mesmo
+# (/crm/contratos/{id}). Modulo 'crm': quem manda proposta manda contrato,
+# e modulo novo so valeria depois de todo mundo relogar. Quem pode cancelar
+# e decidido dentro da rota.
+app.include_router(
+    crm_contratos.router,
+    prefix="/crm", tags=["CRM - Contratos"],
+    dependencies=[Depends(requer_modulo("crm"))],
+)
+
+# Webhooks de servicos externos: o UNICO router sem login. Quem prova a
+# origem e a assinatura HMAC do corpo, conferida dentro da rota (ver
+# routers/webhooks.py). Publico em /api/webhooks/autentique.
+app.include_router(webhooks.router, prefix="/webhooks", tags=["Webhooks"])
 
 # Anexos de tarefa. Prefixo /crm e nao /crm/tarefas: as rotas de leitura e
 # remocao sao enderecadas pelo ID DO ANEXO, sem repetir a tarefa no caminho,

@@ -38,7 +38,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   FileText, Plus, X, Download, FileType2, Loader2, History, Building2,
-  ChevronDown, ChevronRight, Send, Eye,
+  ChevronDown, ChevronRight, Send, Eye, FileSignature,
 } from 'lucide-react';
 
 import api from '../../api';
@@ -265,7 +265,7 @@ function LinhaCnpj({
 // ── Uma versão na lista ──────────────────────────────────────────────
 
 function BotoesArquivo({
-  ocupado, pdfDisponivel, aprovada, onBaixar, onEnviar, onVer,
+  ocupado, pdfDisponivel, aprovada, onBaixar, onEnviar, onVer, onContrato,
 }) {
   return (
     <div className="flex flex-wrap justify-end gap-1 shrink-0">
@@ -290,6 +290,17 @@ function BotoesArquivo({
           E-mail
         </Button>
       )}
+      {/*
+        053: o contrato para assinatura eletrônica nasce de uma versão
+        aprovada. Só na proposta consolidada: o contrato é um só, com todos
+        os CNPJs.
+      */}
+      {onContrato && aprovada && (
+        <Button size="sm" variant="secondary" icon={FileSignature} disabled={ocupado}
+          onClick={onContrato} aria-label="Enviar contrato para assinatura">
+          Contrato
+        </Button>
+      )}
       <Button size="sm" variant="secondary" icon={Download} disabled={ocupado}
         onClick={() => onBaixar('pptx')}>
         PPTX
@@ -309,7 +320,7 @@ function BotoesArquivo({
   );
 }
 
-function Versao({ proposta, ocupado, pdfDisponivel, onBaixar, onEnviar, onVer }) {
+function Versao({ proposta, ocupado, pdfDisponivel, onBaixar, onEnviar, onVer, onContrato }) {
   const [aberta, setAberta] = useState(false);
   const itens = proposta.itens || [];
   const varios = itens.length > 1;
@@ -359,6 +370,7 @@ function Versao({ proposta, ocupado, pdfDisponivel, onBaixar, onEnviar, onVer })
           onBaixar={(formato) => onBaixar(proposta, formato)}
           onEnviar={onEnviar ? () => onEnviar(proposta) : undefined}
           onVer={onVer ? () => onVer(proposta) : undefined}
+          onContrato={onContrato ? () => onContrato(proposta) : undefined}
         />
       </div>
 
@@ -411,7 +423,9 @@ function Versao({ proposta, ocupado, pdfDisponivel, onBaixar, onEnviar, onVer })
 
 // ── Aba ──────────────────────────────────────────────────────────────
 
-export default function AbaProposta({ oportunidade, onGerada, onCnpjsMudaram, onEnviarPorEmail }) {
+export default function AbaProposta({
+  oportunidade, onGerada, onCnpjsMudaram, onEnviarPorEmail, onEnviarContrato,
+}) {
   const [padrao, setPadrao] = useState(null);
   const [versoes, setVersoes] = useState([]);
   const [carregando, setCarregando] = useState(true);
@@ -935,6 +949,7 @@ export default function AbaProposta({ oportunidade, onGerada, onCnpjsMudaram, on
                   pdfDisponivel={padrao?.pdf_disponivel}
                   onBaixar={baixar}
                   onEnviar={onEnviarPorEmail}
+                  onContrato={onEnviarContrato}
                   onVer={(prop, item) => setVisualizando({ proposta: prop, item: item || null })}
                 />
               ))}

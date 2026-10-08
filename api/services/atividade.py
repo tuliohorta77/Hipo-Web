@@ -115,6 +115,10 @@ CATALOGO: dict[tuple[str, str], Tipo] = {
     # 050: e-mail comercial pelo Gmail. O envio e a atividade; o rascunho
     # (leitura que viaja em POST) e a verificacao de resposta nao produzem nada.
     ("POST", "/crm/oportunidades/{oportunidade_id}/emails"): _t("Propostas", "E-mail enviado ao cliente", 44),
+    # 053: contrato pela Autentique. A previa e o "Atualizar" sao leitura.
+    ("POST", "/crm/propostas/{proposta_id}/contratos"): _t("Propostas", "Contrato enviado para assinatura", 46),
+    ("POST", "/crm/contratos/{contrato_id}/reenviar"): _t("Propostas", "Contrato reenviado ao signatário", 47),
+    ("POST", "/crm/contratos/{contrato_id}/cancelar"): _t("Propostas", "Contrato cancelado", 48),
 
     # Contas e contatos
     ("POST", "/crm/contas"): _t("Contas e contatos", "Conta criada", 50),
@@ -222,6 +226,11 @@ IGNORADAS: frozenset[tuple[str, str]] = frozenset({
     # POST) e verificar so olha o Gmail. Quem conta e o envio.
     ("POST", "/crm/oportunidades/{oportunidade_id}/emails/rascunho"),
     ("POST", "/crm/oportunidades/{oportunidade_id}/emails/verificar"),
+    # Contrato (053): a previa monta o PDF sem mandar nada, sincronizar so
+    # le a Autentique, e o webhook e a Autentique falando (sem usuario).
+    ("POST", "/crm/propostas/{proposta_id}/contrato/previa"),
+    ("POST", "/crm/contratos/{contrato_id}/sincronizar"),
+    ("POST", "/webhooks/autentique"),
     # Relatorios. A consulta, o drilldown e a lista de valores sao LEITURA
     # que viaja em POST (o corpo nao cabe numa query string). Salvar,
     # editar, compartilhar e duplicar um relatorio e preferencia pessoal,

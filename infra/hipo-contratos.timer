@@ -1,0 +1,13 @@
+[Unit]
+Description=HIPO -- sincroniza os contratos com a Autentique a cada 30 minutos
+Documentation=file:///home/hipo/app/api/scripts/sincronizar_contratos.py
+
+[Timer]
+# Rede de seguranca do webhook. Passada sem contrato aguardando custa uma
+# consulta ao banco; o botao "Atualizar" da aba Contrato cobre quem tem pressa.
+OnCalendar=*:13/30
+Persistent=true
+RandomizedDelaySec=60
+
+[Install]
+WantedBy=timers.target

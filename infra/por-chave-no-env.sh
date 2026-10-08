@@ -107,7 +107,8 @@ case "$VARIAVEL" in
         SEGREDO=1 ;;
     ENRIQUECIMENTO_*|*_URL|*_CAMINHO|*_CAMINHO_*|*_HEADER|*_PREFIXO_HEADER|\
     *_BLOCOS|*_MODEL|*_ARQUIVO|*_BUCKET|*_REMETENTE|*_DESTINATARIOS|\
-    AWS_REGION|ENVIRONMENT|*_FUSO|*_DIAS|*_ATIVA|*_ROUNDS)
+    AWS_REGION|ENVIRONMENT|*_FUSO|*_DIAS|*_ATIVA|*_ROUNDS|\
+    CONTRATO_CONTRATADA_*|*_SANDBOX)
         SEGREDO=0 ;;
     # Na duvida, trata como segredo: esconder valor publico e so
     # incomodo, ecoar valor secreto e vazamento.

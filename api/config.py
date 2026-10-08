@@ -255,6 +255,30 @@ class Settings(BaseSettings):
     # Duracao maxima de uma sessao; a completa e de 45 min.
     ROLEPLAY_DURACAO_MAX_MIN: int = 55
 
+    # -- Contrato com assinatura eletronica (053) ------------------------
+    # Autentique (API GraphQL). Sem token = envio desligado: a aba Contrato
+    # diz o que falta e a API sobe igual -- mesma regra do S3, do SES e da
+    # chave da IA. O token e o segredo do webhook ficam so no .env.
+    AUTENTIQUE_API_TOKEN: str = ""
+    AUTENTIQUE_URL: str = "https://api.autentique.com.br/v2/graphql"
+    # Segredo do endpoint cadastrado no painel da Autentique
+    # (https://hipogestao.com.br/api/webhooks/autentique). Vazio = webhook
+    # recusa tudo (401) e o estado anda so pelo timer de sincronizacao.
+    AUTENTIQUE_WEBHOOK_SEGREDO: str = ""
+    # Documento de teste da Autentique: nao gasta credito, some em alguns
+    # dias. Fora de producao e SEMPRE sandbox, valha o que valer aqui --
+    # um teste local nao pode mandar contrato de verdade para cliente.
+    AUTENTIQUE_SANDBOX: bool = False
+    # Quem assina pela CONTRATADA. Vazio = envio desligado: sem padrao de
+    # proposito, porque o mesmo codigo roda a instancia MOS, e um padrao da
+    # MedSeg mandaria o contrato da MOS para o CEO errado.
+    CONTRATO_CONTRATADA_NOME: str = ""
+    CONTRATO_CONTRATADA_EMAIL: str = ""
+    # .docx do contrato. Vazio = api/templates/contrato_modelo.docx (o da
+    # Controller MedSeg). Instancia com sigla (MOS) e obrigada a apontar o
+    # proprio modelo -- ver services/autentique.problemas().
+    CONTRATO_MODELO_ARQUIVO: str = ""
+
     class Config:
         env_file = _ENV_FILE
 
