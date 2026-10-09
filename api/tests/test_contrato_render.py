@@ -134,6 +134,7 @@ class TestModeloVersionado:
                  "logradouro": "Rua A", "numero": "1", "bairro": "B", "cidade": "Guarulhos",
                  "uf": "SP", "cep": "07111000"}
         simples, listas = regras.campos(proposta=proposta, conta=conta,
+                                        itens_grupo=proposta["itens"],
                                         data_contrato=date(2026, 10, 8),
                                         inicio_vigencia=date(2026, 10, 9), dia_vencimento=10)
         out = render.preencher(render.ler_modelo(), simples, listas)
@@ -142,6 +143,36 @@ class TestModeloVersionado:
         assert "08.363.161/0001-51" in tudo
         assert "vigorará a partir de 09 de outubro de 2026" in tudo
         assert "Guarulhos, 08 de outubro de 2026." in tudo
+        # Um CNPJ só: sem Anexo 1, sem "demais CNPJs", sem substituição.
+        assert "ANEXO 1" not in tudo and "demais CNPJs" not in tudo
+        assert "substitui" not in tudo
+
+    def test_matriz_filiais_servicos_e_substituicao(self):
+        itens = [
+            {"cnpj": "42385626000103", "razao_social": "M Foods Ltda.", "vidas": 8,
+             "mensalidade": Decimal("180"), "valor_tabela": Decimal("180")},
+            {"cnpj": "42385626000294", "razao_social": "MFO1 Trattoria", "vidas": 4,
+             "mensalidade": Decimal("130"), "valor_tabela": Decimal("130")},
+        ]
+        proposta = {"modalidade": "tabela", "tabela_preco": pr.normalizar_tabela(pr.TABELA_PADRAO),
+                    "valor_vida_excedente": Decimal("15"), "valor_por_vida": None, "itens": itens,
+                    "treinamentos": Decimal("0"), "laudos": Decimal("0"), "cidade": "Guarulhos"}
+        conta = {"razao_social": "M Foods Ltda.", "cnpj": "42385626000103",
+                 "logradouro": "Rua Itapeva", "numero": "538", "bairro": "Bela Vista",
+                 "cidade": "São Paulo", "uf": "SP", "cep": "01332000"}
+        simples, listas = regras.campos(
+            proposta=proposta, conta=conta, itens_grupo=itens,
+            data_contrato=date(2026, 10, 9), inicio_vigencia=date(2026, 10, 10),
+            dia_vencimento=10, servicos=["cipa"], servicos_livres=["Treinamento NR-35"],
+            substituidos=[{"data_contrato": date(2026, 1, 5)}],
+        )
+        out = render.preencher(render.ler_modelo(), simples, listas)
+        tudo = "\n".join(texto(out))
+        assert "42.385.626/0001-03, e demais CNPJs do mesmo grupo" in tudo
+        assert "2.7) CIPA" in tudo and "2.8) Treinamento NR-35;" in tudo
+        assert "substitui integralmente" in tudo and "05/01/2026" in tudo
+        assert "ANEXO 1 – CNPJs integrantes" in tudo
+        assert "MFO1 Trattoria – CNPJ 42.385.626/0002-94." in tudo
 
     def test_conferir_acusa_campo_obrigatorio_faltando(self):
         assert "campo obrigatório ausente: {{PRECO_LINHA}}" in render.conferir_modelo(

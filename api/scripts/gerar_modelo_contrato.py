@@ -24,10 +24,15 @@ python-pptx).
 CAMPOS
   Simples (trocados no lugar, mantendo a formatacao do trecho):
     {{CONTRATANTE_RAZAO_SOCIAL}}  {{CONTRATANTE_ENDERECO}}  {{CONTRATANTE_CNPJ}}
+    {{CONTRATANTE_DEMAIS}} (", e demais CNPJs ... ANEXO 1", ou vazio)
     {{DIA_VENCIMENTO}}  {{INICIO_VIGENCIA}}  {{CIDADE}}  {{DATA_EXTENSO}}
   De lista (o paragrafo inteiro e repetido, um por item; lista vazia apaga
   o paragrafo). O campo precisa estar SOZINHO no paragrafo:
-    {{CNPJ_ADICIONAL}}  {{PRECO_LINHA}}
+    {{SERVICO_EXTRA}}  itens 2.7, 2.8... da Clausula 2 (055)
+    {{PRECO_LINHA}}    Clausula 5
+    {{SUBSTITUICAO}}   "Este contrato substitui ..." (055)
+    {{ANEXO_TITULO}}   titulo do Anexo 1, em pagina nova (055)
+    {{ANEXO_LINHA}}    um CNPJ do grupo por paragrafo (055)
 
 Os dados da CONTRATADA (razao social, CNPJ, endereco) e o medico
 coordenador ficam escritos no texto: mudam uma vez por ano, se mudarem, e o
@@ -158,15 +163,13 @@ def gerar(saida: Path) -> Path:
 
     par("{{CONTRATANTE_RAZAO_SOCIAL}}", ", com sede à ", "{{CONTRATANTE_ENDERECO}}",
         ", inscrita no C.N.P.J. do M.F. sob o nº ", "{{CONTRATANTE_CNPJ}}",
+        "{{CONTRATANTE_DEMAIS}}",
         ", daqui por diante denominada apenas ", ("CONTRATANTE", "b"),
         " e Controller Medicina e Segurança do Trabalho Ltda., com sede à Rua "
         "Francisco Antonio de Miranda, nº 65, Guarulhos, SP, inscrita no C.N.P.J. "
         "do M.F. sob o nº 43.351.883/0001-97, daqui por diante denominada apenas ",
         ("CONTRATADA", "b"),
         ", têm firmado o presente acordo de atendimento mediante cláusulas abaixo:")
-    # Vários CNPJs: um parágrafo por linha (introdução + uma linha por
-    # empresa). Proposta de um CNPJ só apaga o parágrafo.
-    par("{{CNPJ_ADICIONAL}}")
 
     clausula(1)
     par("A ", ("CONTRATADA", "b"), " prestará à ", ("CONTRATANTE", "b"),
@@ -209,6 +212,8 @@ def gerar(saida: Path) -> Path:
     item("2.5) Implantação do PGR (Programa de Gerenciamento de Riscos), em "
          "conformidade com a NR-9 da Portaria 3214 do MTE;")
     item("2.6) Implantação de Fatores de Riscos Psicossociais (NR-01);")
+    # 055: serviços além do básico, marcados no envio (2.7, 2.8, ...).
+    item("{{SERVICO_EXTRA}}")
     par("A ", ("CONTRATADA", "b"), " nomeia os seguintes Médicos do Trabalho para a "
         "elaboração e coordenação do PCMSO (Programa de Controle Médico de Saúde "
         "Ocupacional) da ", ("CONTRATANTE", "b"), ":")
@@ -313,6 +318,8 @@ def gerar(saida: Path) -> Path:
          "boas práticas e governança com o objetivo de tratar as informações e "
          "dados pessoais prestados pela Contratante.")
 
+    # 055: contrato que substitui o anterior da mesma raiz de CNPJ.
+    par("{{SUBSTITUICAO}}", antes=8)
     par("As partes elegem o FORO DA COMARCA DE GUARULHOS para dirimir quaisquer "
         "dúvidas oriundas deste Contrato.", antes=8)
     par("E por estarem assim justos e contratados, firmam o presente em 02 (duas) "
@@ -340,6 +347,13 @@ def gerar(saida: Path) -> Path:
         rot.paragraph_format.keep_with_next = True
         emp = par(empresa, alinhar="left", depois=4)
         emp.paragraph_format.keep_with_next = i < len(blocos) - 1
+
+    # 055: Anexo 1 -- matriz e filiais do mesmo contrato. O titulo abre
+    # pagina nova; sem filiais, titulo e linhas somem.
+    tit = par(("{{ANEXO_TITULO}}", "b"), alinhar="left", depois=10)
+    tit.paragraph_format.page_break_before = True
+    lin = par("{{ANEXO_LINHA}}", alinhar="left", depois=4)
+    lin.paragraph_format.left_indent = Cm(0.6)
 
     saida.parent.mkdir(parents=True, exist_ok=True)
     doc.save(str(saida))
