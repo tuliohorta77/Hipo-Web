@@ -165,26 +165,116 @@ class TestPreco:
         assert linhas[1].startswith("Treinamentos: R$ 2.000,00 (valor único")
         assert linhas[2].startswith("Laudos: R$ 1.000,00") and linhas[2].endswith(".")
 
-    def test_cnpjs_adicionais(self):
-        item = {"cnpj": "11222333000181", "razao_social": "Filial Ltda.", "vidas": 3,
-                "mensalidade": Decimal("180"), "valor_tabela": Decimal("180")}
-        p = proposta_tabela(itens=proposta_tabela()["itens"] + [item])
-        linhas = r.linhas_cnpjs_adicionais(p, "08.363.161/0001-51")
-        assert linhas[0].startswith("Integram também")
-        assert linhas[1] == "Filial Ltda., inscrita no C.N.P.J. do M.F. sob o nº 11.222.333/0001-81."
+    def test_preco_so_dos_cnpjs_do_contrato(self):
+        """Contrato de um grupo não traz o desconto de CNPJ de outro grupo."""
+        outro = {"cnpj": "11222333000181", "razao_social": "Outra Ltda.", "vidas": 3,
+                 "mensalidade": Decimal("150.00"), "valor_tabela": Decimal("180.00")}
+        p = proposta_tabela(itens=proposta_tabela()["itens"] + [outro])
+        linhas = r.linhas_preco(p, proposta_tabela()["itens"])
+        assert not any("Outra Ltda." in l for l in linhas)
 
-    def test_um_cnpj_so_some_o_paragrafo(self):
-        assert r.linhas_cnpjs_adicionais(proposta_tabela(), "08363161000151") == []
+    def test_treinamentos_so_no_grupo_principal(self):
+        p = proposta_tabela(modalidade="por_vida", valor_por_vida=Decimal("20"),
+                            treinamentos=Decimal("2000"))
+        assert any(l.startswith("Treinamentos") for l in r.linhas_preco(p, com_extras=True))
+        assert not any(l.startswith("Treinamentos") for l in r.linhas_preco(p, com_extras=False))
 
     def test_campos(self):
         simples, listas = r.campos(proposta=proposta_tabela(), conta=CONTA,
+                                   itens_grupo=proposta_tabela()["itens"],
                                    data_contrato=date(2026, 10, 8),
                                    inicio_vigencia=date(2026, 10, 9), dia_vencimento=5)
         assert set(simples) == set(r.CAMPOS_SIMPLES)
         assert set(listas) == set(r.CAMPOS_LISTA)
         assert simples["CONTRATANTE_CNPJ"] == "08.363.161/0001-51"
+        assert simples["CONTRATANTE_DEMAIS"] == ""
         assert simples["DIA_VENCIMENTO"] == "05"
         assert simples["INICIO_VIGENCIA"] == "09 de outubro de 2026"
+        assert listas["ANEXO_TITULO"] == [] and listas["ANEXO_LINHA"] == []
+        assert listas["SUBSTITUICAO"] == [] and listas["SERVICO_EXTRA"] == []
+
+
+def _item(cnpj, razao, vidas=5, mensal="180.00"):
+    return {"cnpj": cnpj, "razao_social": razao, "vidas": vidas,
+            "mensalidade": Decimal(mensal), "valor_tabela": Decimal(mensal)}
+
+
+class TestGrupos:
+    """Matriz e filiais (mesma raiz) juntas; raízes diferentes, separadas."""
+
+    def test_raiz(self):
+        assert r.raiz("42.385.626/0002-94") == "42385626"
+        assert r.eh_matriz("42385626000103") and not r.eh_matriz("42385626000294")
+
+    def test_matriz_vira_contratante_mesmo_vindo_depois(self):
+        itens = [_item("42385626000294", "Filial 1"), _item("42385626000103", "Matriz"),
+                 _item("42385626000375", "Filial 2")]
+        [g] = r.agrupar_itens(itens)
+        assert g["raiz"] == "42385626"
+        assert g["contratante"]["razao_social"] == "Matriz"
+        assert [i["razao_social"] for i in g["itens"]] == ["Matriz", "Filial 1", "Filial 2"]
+
+    def test_raizes_diferentes_viram_contratos_diferentes(self):
+        """Mesmo sendo do mesmo grupo econômico (caso Unique): sempre separado."""
+        itens = [_item("20371142000133", "Unique"), _item("46601592000146", "Auto Super"),
+                 _item("20371142000214", "Unique Filial")]
+        grupos = r.agrupar_itens(itens)
+        assert [g["raiz"] for g in grupos] == ["20371142", "46601592"]
+        assert len(grupos[0]["itens"]) == 2 and len(grupos[1]["itens"]) == 1
+
+    def test_sem_matriz_o_primeiro_e_contratante(self):
+        [g] = r.agrupar_itens([_item("42385626000294", "F1"), _item("42385626000375", "F2")])
+        assert g["contratante"]["razao_social"] == "F1"
+
+    def test_grupo_da_raiz_inexistente(self):
+        with pytest.raises(r.ContratoInvalido):
+            r.grupo_da_raiz([_item("42385626000103", "M")], "99999999")
+
+    def test_anexo_1(self):
+        itens = [_item("42385626000103", "M Foods"), _item("42385626000294", "MFO1 Trattoria"),
+                 _item("42385626000375", "MFO2 Steak")]
+        titulo, linhas = r.linhas_anexo(itens, {"42385626000294": "Rua Itapeva, 569"})
+        assert titulo[0].startswith("ANEXO 1")
+        assert linhas == ["MFO1 Trattoria – CNPJ 42.385.626/0002-94 – Rua Itapeva, 569;",
+                          "MFO2 Steak – CNPJ 42.385.626/0003-75."]
+        assert r.texto_demais(itens).startswith(", e demais CNPJs")
+        assert r.linhas_anexo(itens[:1]) == ([], [])
+        assert r.texto_demais(itens[:1]) == ""
+
+    def test_substituicao(self):
+        assert r.linhas_substituicao([]) == []
+        [l] = r.linhas_substituicao([{"data_contrato": date(2026, 10, 8)}])
+        assert "substitui integralmente" in l and "o contrato firmado" in l and "08/10/2026" in l
+        [l] = r.linhas_substituicao([{"data_contrato": date(2025, 1, 2)},
+                                     {"data_contrato": date(2026, 10, 8)}])
+        assert "os contratos firmados" in l and "02/01/2025, 08/10/2026" in l
+
+
+class TestServicos:
+    def test_sugeridos_pelo_escopo(self):
+        escopo = ["PGR - (NR-01)", "Laudo de Insalubridade - NR15", "Laudo Ergonômico – NR17",
+                  "CIPA (Comissão Interna)", "PPP (Perfil Profissiográfico Previdenciário)"]
+        assert r.servicos_sugeridos(escopo) == ["ppp", "ergonomia", "insalubridade", "cipa"]
+        # O escopo padrão só tem o básico do modelo (LTCAT cita a NR-15, mas
+        # é o item 2.4, não o laudo de insalubridade).
+        assert r.servicos_sugeridos(pr.ESCOPO_PADRAO) == []
+        assert r.servicos_sugeridos(None) == []
+
+    def test_numeracao_continua_a_clausula_2(self):
+        linhas = r.linhas_servicos(["cipa", "ppp"], ["Treinamento de NR-35 ", " "])
+        assert linhas[0].startswith("2.7) Elaboração do PPP")
+        assert linhas[1].startswith("2.8) CIPA")
+        assert linhas[2] == "2.9) Treinamento de NR-35;"
+
+    def test_chave_desconhecida(self):
+        with pytest.raises(r.ContratoInvalido, match="desconhecido"):
+            r.linhas_servicos(["xpto"])
+
+    def test_limites_das_linhas_livres(self):
+        with pytest.raises(r.ContratoInvalido):
+            r.linhas_servicos([], ["x"] * (r.MAX_SERVICOS_LIVRES + 1))
+        with pytest.raises(r.ContratoInvalido):
+            r.linhas_servicos([], ["x" * (r.MAX_TEXTO_SERVICO + 1)])
 
 
 class TestNomes:
@@ -282,3 +372,40 @@ class TestWebhook:
 
     def test_evento_sem_documento(self):
         assert r.ler_evento({"event": {"type": "member.created", "data": {}}})["documento_id"] is None
+
+
+
+class TestAviso:
+    def test_destinatarios(self):
+        out = r.destinatarios_aviso(
+            "Fat@X.com, contratos@x.com;adm@x.com fat@x.com lixo ev@x.com", "EV@x.com")
+        assert out == ["fat@x.com", "contratos@x.com", "adm@x.com"]
+        assert r.destinatarios_aviso("") == []
+        assert r.destinatarios_aviso(None) == []
+
+    def test_link(self):
+        assert r.url_oportunidade("", "", "abc") == \
+            "https://hipogestao.com.br/crm/oportunidades?abrir=abc"
+        assert r.url_oportunidade("https://mos.hipogestao.com.br/", "MOS", "abc") == \
+            "https://mos.hipogestao.com.br/crm/oportunidades?abrir=abc"
+        assert r.url_oportunidade("", "MOS", "abc") is None
+
+    def test_corpo(self):
+        p = proposta_tabela(mensalidade=Decimal("220.00"))
+        contrato = {"data_contrato": date(2026, 10, 8), "inicio_vigencia": date(2026, 10, 9),
+                    "dia_vencimento": 5, "hash_original": "f" * 64,
+                    "assinado_em": datetime(2026, 10, 8, 15, 30, tzinfo=timezone.utc)}
+        sigs = [dict(s, ordem=i + 1, assinado_em=None) for i, s in enumerate(QUATRO)]
+        corpo = r.corpo_aviso(razao_social="Porto Pisos Elevados Ltda.", cnpj="08363161000151",
+                              numero_oportunidade="OPP-1", executivo_nome="Bruno",
+                              proposta=p, contrato=contrato, signatarios=sigs, link=None)
+        assert "Porto Pisos Elevados Ltda. — CNPJ 08.363.161/0001-51" in corpo
+        assert "8 vidas — R$ 220,00/mês" in corpo
+        assert "Mensalidade total deste contrato: R$ 220,00" in corpo
+        assert "Vencimento: todo dia 05" in corpo
+        # Horário de Brasília.
+        assert "Assinado por todos em: 08/10/2026 12:30" in corpo
+        assert "Abrir no HIPO" not in corpo
+
+    def test_assunto(self):
+        assert r.assunto_aviso("Porto Pisos ", "OPP-1") == "Contrato assinado — Porto Pisos (OPP-1)"

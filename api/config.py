@@ -278,6 +278,15 @@ class Settings(BaseSettings):
     # Controller MedSeg). Instancia com sigla (MOS) e obrigada a apontar o
     # proprio modelo -- ver services/autentique.problemas().
     CONTRATO_MODELO_ARQUIVO: str = ""
+    # Aviso de contrato assinado (054): faturamento, contratos e ADM.
+    # Lista separada por virgula. Vazio = aviso desligado (o contrato segue
+    # funcionando igual; a aba diz que o aviso nao esta configurado). Sai do
+    # Gmail do executivo da proposta, com o PDF assinado anexo.
+    CONTRATO_AVISO_DESTINATARIOS: str = ""
+    # Endereco publico do HIPO, para o link da oportunidade no aviso. Vazio
+    # = https://hipogestao.com.br na base principal; numa instancia com
+    # sigla (MOS) vazio = sem link, para nao apontar para a base errada.
+    HIPO_URL_PUBLICA: str = ""
 
     class Config:
         env_file = _ENV_FILE

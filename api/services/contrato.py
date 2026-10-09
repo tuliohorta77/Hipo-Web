@@ -70,8 +70,11 @@ STATUS_ENVIADO = "enviado"
 STATUS_ASSINADO = "assinado"
 STATUS_RECUSADO = "recusado"
 STATUS_CANCELADO = "cancelado"
-STATUS = (STATUS_ENVIADO, STATUS_ASSINADO, STATUS_RECUSADO, STATUS_CANCELADO)
-STATUS_FINAIS = (STATUS_ASSINADO, STATUS_RECUSADO, STATUS_CANCELADO)
+# 055: assinado e depois trocado por um contrato novo da mesma raiz de CNPJ.
+STATUS_SUBSTITUIDO = "substituido"
+STATUS = (STATUS_ENVIADO, STATUS_ASSINADO, STATUS_RECUSADO, STATUS_CANCELADO,
+          STATUS_SUBSTITUIDO)
+STATUS_FINAIS = (STATUS_ASSINADO, STATUS_RECUSADO, STATUS_CANCELADO, STATUS_SUBSTITUIDO)
 
 SIG_PENDENTE = "pendente"
 SIG_VISUALIZADO = "visualizado"
@@ -157,12 +160,188 @@ CAMPOS_SIMPLES = (
     "CONTRATANTE_RAZAO_SOCIAL",
     "CONTRATANTE_ENDERECO",
     "CONTRATANTE_CNPJ",
+    # 055: ", e demais CNPJs ... listados no ANEXO 1 deste contrato" quando
+    # o grupo tem mais de um CNPJ; vazio quando é um só.
+    "CONTRATANTE_DEMAIS",
     "DIA_VENCIMENTO",
     "INICIO_VIGENCIA",
     "CIDADE",
     "DATA_EXTENSO",
 )
-CAMPOS_LISTA = ("CNPJ_ADICIONAL", "PRECO_LINHA")
+# Campos de lista: o parágrafo se repete uma vez por item; lista vazia apaga.
+CAMPOS_LISTA = (
+    "SERVICO_EXTRA",     # 055: itens 2.7, 2.8... da Cláusula 2
+    "PRECO_LINHA",
+    "SUBSTITUICAO",      # 055: "Este contrato substitui ..." (0 ou 1 linha)
+    "ANEXO_TITULO",      # 055: título do Anexo 1 (0 ou 1 linha)
+    "ANEXO_LINHA",       # 055: um parágrafo por CNPJ do Anexo 1
+)
+
+
+# ── Grupos de CNPJ (055) ─────────────────────────────────────────────
+#
+# Regra do Tulio (09/10/2026): matriz e filiais (mesma raiz, os 8 primeiros
+# dígitos do CNPJ) saem no MESMO contrato — a matriz qualifica a
+# contratante e as demais vão no Anexo 1. CNPJs de raízes diferentes são
+# empresas diferentes e têm, SEMPRE, um contrato cada, mesmo que sejam do
+# mesmo grupo econômico.
+#
+# Entrou CNPJ novo depois do contrato assinado? Não há aditivo: gera-se um
+# contrato novo com TODOS os CNPJs da raiz, e o anterior fica substituído
+# quando o novo é assinado.
+
+def raiz(cnpj: str | None) -> str:
+    return cnpj_svc.normalizar(cnpj)[:8]
+
+
+def eh_matriz(cnpj: str | None) -> bool:
+    return cnpj_svc.normalizar(cnpj)[8:12] == "0001"
+
+
+def agrupar_itens(itens: list[dict]) -> list[dict]:
+    """
+    [{'raiz', 'itens', 'contratante'}], na ordem em que cada raiz aparece
+    pela primeira vez (o CNPJ principal da oportunidade vem primeiro, então
+    o grupo dele é o primeiro). A contratante é a matriz (/0001) se ela está
+    no grupo; senão o primeiro CNPJ do grupo.
+    """
+    grupos: dict[str, list[dict]] = {}
+    for item in itens or []:
+        grupos.setdefault(raiz(item["cnpj"]), []).append(item)
+    saida = []
+    for r, lista in grupos.items():
+        contratante = next((i for i in lista if eh_matriz(i["cnpj"])), lista[0])
+        ordenados = [contratante] + [i for i in lista if i is not contratante]
+        saida.append({"raiz": r, "itens": ordenados, "contratante": contratante})
+    return saida
+
+
+def grupo_da_raiz(itens: list[dict], r: str) -> dict:
+    for g in agrupar_itens(itens):
+        if g["raiz"] == r:
+            return g
+    raise ContratoInvalido("Esta proposta não tem CNPJ com essa raiz.")
+
+
+def texto_demais(itens_grupo: list[dict]) -> str:
+    if len(itens_grupo) <= 1:
+        return ""
+    return (", e demais CNPJs do mesmo grupo (matriz e filiais) listados no "
+            "ANEXO 1 deste contrato")
+
+
+def linhas_anexo(itens_grupo: list[dict], enderecos: dict[str, str] | None = None
+                 ) -> tuple[list[str], list[str]]:
+    """
+    (título, linhas) do Anexo 1 — os CNPJs do grupo além da contratante.
+    Um CNPJ só: ([], []) e o anexo some do contrato.
+    """
+    outros = itens_grupo[1:]
+    if not outros:
+        return [], []
+    enderecos = enderecos or {}
+    linhas = []
+    for i, item in enumerate(outros):
+        fim = "." if i == len(outros) - 1 else ";"
+        cnpj = cnpj_svc.normalizar(item["cnpj"])
+        end = enderecos.get(cnpj)
+        linhas.append(
+            f"{item['razao_social']} – CNPJ {cnpj_svc.formatar(cnpj)}"
+            + (f" – {end}" if end else "") + fim
+        )
+    titulo = ["ANEXO 1 – CNPJs integrantes deste contrato, denominados também "
+              "como CONTRATANTES"]
+    return titulo, linhas
+
+
+def linhas_substituicao(anteriores: list[dict]) -> list[str]:
+    """
+    anteriores: [{'data_contrato': date, 'nome_documento'?}] — os contratos
+    assinados da mesma raiz que este substitui. Vazio: parágrafo some.
+    """
+    if not anteriores:
+        return []
+    datas = sorted({a["data_contrato"] for a in anteriores})
+    texto = ", ".join(d.strftime("%d/%m/%Y") for d in datas)
+    plural = len(datas) > 1
+    return [
+        "O presente Contrato substitui integralmente, a partir do início de sua "
+        f"vigência, {'os contratos firmados' if plural else 'o contrato firmado'} "
+        f"entre as partes em {texto}, passando a reger a prestação de serviços "
+        "para todos os CNPJs nele relacionados."
+    ]
+
+
+# ── Serviços extras da Cláusula 2 (055) ──────────────────────────────
+#
+# Um modelo só; o que varia por cliente são os itens além do básico
+# (2.2 a 2.6 do modelo). Catálogo tirado dos contratos da RGT, da Unique e
+# da M Food. A tela pré-marca pelo escopo da proposta (palavras-chave) e o
+# EV ajusta. Linhas livres cobrem o que o catálogo não tem.
+
+@dataclass(frozen=True)
+class ServicoExtra:
+    chave: str
+    texto: str
+    gatilhos: tuple[str, ...]
+
+
+SERVICOS_EXTRAS: tuple[ServicoExtra, ...] = (
+    ServicoExtra("ppp", "Elaboração do PPP (Perfil Profissiográfico Previdenciário) "
+                 "para os períodos compreendidos na vigência deste contrato",
+                 ("ppp", "perfil profissiogr")),
+    ServicoExtra("ergonomia", "Laudo Ergonômico (NR-17), com avaliação dos postos de "
+                 "trabalho quanto a posturas, mobiliário, temperatura e iluminação",
+                 ("nr-17", "nr17", "ergon")),
+    ServicoExtra("insalubridade", "Laudo de Insalubridade (NR-15)",
+                 ("insalub",)),
+    ServicoExtra("periculosidade", "Laudo de Periculosidade (NR-16)",
+                 ("nr-16", "nr16", "pericul")),
+    ServicoExtra("cipa", "CIPA – Comissão Interna de Prevenção de Acidentes (NR-05): "
+                 "implantação e treinamento",
+                 ("cipa", "nr-05", "nr-5 ")),
+    ServicoExtra("brigada", "Brigada de Incêndio (NR-23): elaboração, dimensionamento, "
+                 "implantação e treinamento, e curso de Primeiros Socorros",
+                 ("brigada", "nr-23", "primeiros socorros")),
+    ServicoExtra("epi", "Curso de EPI (NR-06)",
+                 ("epi", "nr-06", "nr-6 ")),
+    ServicoExtra("empilhadeira", "Curso de Operador de Empilhadeira (NR-11)",
+                 ("empilhadeira", "nr-11")),
+    ServicoExtra("perito", "Acompanhamento de perito técnico em processos trabalhistas "
+                 "de insalubridade e periculosidade",
+                 ("perito", "perícia", "pericia")),
+)
+SERVICO_POR_CHAVE = {s.chave: s for s in SERVICOS_EXTRAS}
+MAX_SERVICOS_LIVRES = 5
+MAX_TEXTO_SERVICO = 300
+
+
+def servicos_sugeridos(escopo: list[str] | None) -> list[str]:
+    """Chaves do catálogo cujo gatilho aparece em alguma linha do escopo."""
+    texto = " ".join(escopo or []).lower() + " "
+    return [s.chave for s in SERVICOS_EXTRAS if any(g in texto for g in s.gatilhos)]
+
+
+def linhas_servicos(chaves: list[str] | None, livres: list[str] | None = None,
+                    primeiro_numero: int = 7) -> list[str]:
+    """
+    "2.7) Laudo de Insalubridade (NR-15);" ... na ordem do catálogo, depois
+    as linhas livres. Chave desconhecida é erro (a tela só manda as do
+    catálogo).
+    """
+    chaves = list(dict.fromkeys(chaves or []))
+    desconhecidas = [c for c in chaves if c not in SERVICO_POR_CHAVE]
+    if desconhecidas:
+        raise ContratoInvalido("Serviço desconhecido: " + ", ".join(desconhecidas) + ".")
+    limpas = [" ".join((l or "").split()).rstrip(";.") for l in (livres or [])]
+    limpas = [l for l in limpas if l]
+    if len(limpas) > MAX_SERVICOS_LIVRES:
+        raise ContratoInvalido(f"No máximo {MAX_SERVICOS_LIVRES} serviços escritos à mão.")
+    if any(len(l) > MAX_TEXTO_SERVICO for l in limpas):
+        raise ContratoInvalido(f"Cada serviço escrito à mão tem no máximo "
+                               f"{MAX_TEXTO_SERVICO} caracteres.")
+    textos = [s.texto for s in SERVICOS_EXTRAS if s.chave in chaves] + limpas
+    return [f"2.{primeiro_numero + i}) {t};" for i, t in enumerate(textos)]
 
 
 def _cep(cep: str | None) -> str:
@@ -226,7 +405,8 @@ def validar_datas(data_contrato: date, inicio: date, dia_vencimento: int) -> Non
         )
 
 
-def linhas_preco(proposta: dict) -> list[str]:
+def linhas_preco(proposta: dict, itens: list[dict] | None = None,
+                 com_extras: bool = True) -> list[str]:
     """
     As linhas da Cláusula 5, a partir da proposta aprovada.
 
@@ -238,8 +418,14 @@ def linhas_preco(proposta: dict) -> list[str]:
     Por vida: uma linha só, valor por funcionário/mês.
 
     Treinamentos e laudos (valores da proposta fora da mensalidade) entram
-    como linhas próprias quando existem.
+    como linhas próprias quando existem — só no contrato do grupo do CNPJ
+    principal (`com_extras`), para não serem cobrados duas vezes quando a
+    proposta vira mais de um contrato (055).
+
+    `itens`: os CNPJs deste contrato; em branco, todos os da proposta.
     """
+    if itens is None:
+        itens = proposta.get("itens") or []
     linhas: list[str] = []
     if proposta["modalidade"] == "tabela":
         faixas = proposta.get("tabela_preco") or proposta_regras.TABELA_PADRAO
@@ -257,7 +443,7 @@ def linhas_preco(proposta: dict) -> list[str]:
             if linha.endswith("por funcionário/mês"):
                 linha += " excedente"
             linhas.append(linha + ";")
-        for item in proposta.get("itens") or []:
+        for item in itens:
             mensal = Decimal(str(item["mensalidade"]))
             tabela = item.get("valor_tabela")
             if tabela is not None and mensal < Decimal(str(tabela)):
@@ -275,7 +461,7 @@ def linhas_preco(proposta: dict) -> list[str]:
 
     for campo, rotulo in (("treinamentos", "Treinamentos"), ("laudos", "Laudos")):
         v = proposta.get(campo)
-        if v and Decimal(str(v)) > 0:
+        if com_extras and v and Decimal(str(v)) > 0:
             linhas.append(f"{rotulo}: {proposta_regras.moeda(v)} (valor único, "
                           "conforme proposta comercial);")
 
@@ -284,49 +470,43 @@ def linhas_preco(proposta: dict) -> list[str]:
     return linhas
 
 
-def linhas_cnpjs_adicionais(proposta: dict, cnpj_principal: str) -> list[str]:
-    """
-    Proposta de vários CNPJs: a contratante é o principal, e os demais entram
-    num parágrafo próprio logo após a qualificação. Um CNPJ só: lista vazia,
-    e o parágrafo some do contrato.
-    """
-    principal = cnpj_svc.normalizar(cnpj_principal)
-    outros = [i for i in (proposta.get("itens") or [])
-              if cnpj_svc.normalizar(i["cnpj"]) != principal]
-    if not outros:
-        return []
-    linhas = ["Integram também o presente contrato, como CONTRATANTES, com os "
-              "mesmos direitos e obrigações, as seguintes empresas:"]
-    for i, item in enumerate(outros):
-        fim = "." if i == len(outros) - 1 else ";"
-        linhas.append(
-            f"{item['razao_social']}, inscrita no C.N.P.J. do M.F. sob o nº "
-            f"{cnpj_svc.formatar(item['cnpj'])}{fim}"
-        )
-    return linhas
-
-
 def campos(
     *,
     proposta: dict,
     conta: dict,
+    itens_grupo: list[dict],
     data_contrato: date,
     inicio_vigencia: date,
     dia_vencimento: int,
+    com_extras: bool = True,
+    servicos: list[str] | None = None,
+    servicos_livres: list[str] | None = None,
+    enderecos: dict[str, str] | None = None,
+    substituidos: list[dict] | None = None,
 ) -> tuple[dict[str, str], dict[str, list[str]]]:
-    """(campos simples, campos de lista) para o modelo."""
+    """
+    (campos simples, campos de lista) para o modelo.
+
+    conta: a contratante (matriz do grupo), com endereço.
+    itens_grupo: os CNPJs deste contrato, contratante primeiro.
+    """
+    titulo, anexo = linhas_anexo(itens_grupo, enderecos)
     simples = {
         "CONTRATANTE_RAZAO_SOCIAL": conta["razao_social"],
         "CONTRATANTE_ENDERECO": endereco_formatado(conta),
         "CONTRATANTE_CNPJ": cnpj_svc.formatar(conta["cnpj"]),
+        "CONTRATANTE_DEMAIS": texto_demais(itens_grupo),
         "DIA_VENCIMENTO": f"{dia_vencimento:02d}",
         "INICIO_VIGENCIA": data_extenso(inicio_vigencia),
         "CIDADE": (proposta.get("cidade") or proposta_regras.CIDADE_PADRAO).strip(),
         "DATA_EXTENSO": data_extenso(data_contrato),
     }
     listas = {
-        "CNPJ_ADICIONAL": linhas_cnpjs_adicionais(proposta, conta["cnpj"]),
-        "PRECO_LINHA": linhas_preco(proposta),
+        "SERVICO_EXTRA": linhas_servicos(servicos, servicos_livres),
+        "PRECO_LINHA": linhas_preco(proposta, itens_grupo, com_extras),
+        "SUBSTITUICAO": linhas_substituicao(substituidos or []),
+        "ANEXO_TITULO": titulo,
+        "ANEXO_LINHA": anexo,
     }
     return simples, listas
 
@@ -464,8 +644,8 @@ def status_do_contrato(situacoes: list[str], status_atual: str) -> str:
     Cancelado é decisão do HIPO e não volta. Qualquer recusa recusa o
     contrato (stop_on_rejected). Todos assinados: assinado.
     """
-    if status_atual == STATUS_CANCELADO:
-        return STATUS_CANCELADO
+    if status_atual in (STATUS_CANCELADO, STATUS_SUBSTITUIDO):
+        return status_atual
     if any(s == SIG_RECUSADO for s in situacoes):
         return STATUS_RECUSADO
     if situacoes and all(s == SIG_ASSINADO for s in situacoes):
@@ -543,3 +723,136 @@ def titulo_tarefa_assinado(razao_social: str) -> str:
 
 def titulo_tarefa_recusado(nome: str) -> str:
     return f"Contrato recusado por {nome} — entender o motivo"[:200]
+
+
+# ── Aviso de contrato assinado (054) ─────────────────────────────────
+#
+# Quando o último assina, faturamento, contratos e ADM recebem um e-mail
+# com o PDF assinado e o resumo do negócio — o que o faturamento precisa
+# para cadastrar a cobrança sem abrir o HIPO. Sai do Gmail do executivo da
+# proposta (decisão do Tulio, 08/10/2026): quem responde dúvida do
+# faturamento é quem vendeu.
+
+# O timer tenta de novo até aqui; depois, só o botão da tela. Falha que se
+# repete cinco vezes é configuração (delegação, caixa desativada), e não
+# instabilidade — insistir a cada 30 minutos só enche o log.
+MAX_TENTATIVAS_AVISO = 5
+
+URL_PUBLICA_PADRAO = "https://hipogestao.com.br"
+
+
+def destinatarios_aviso(bruto: str | None, remetente: str | None = None) -> list[str]:
+    """
+    CONTRATO_AVISO_DESTINATARIOS -> lista limpa, sem repetição e sem o
+    próprio remetente (o Gmail entregaria a cópia na caixa de quem mandou,
+    como se fosse uma mensagem recebida). Endereço inválido é descartado —
+    um erro de digitação no .env não pode derrubar o aviso dos outros.
+    """
+    vistos: set[str] = set()
+    saida: list[str] = []
+    rem = (remetente or "").strip().lower()
+    for parte in re.split(r"[\s,;]+", bruto or ""):
+        e = parte.strip().lower()
+        if not e or e in vistos or e == rem or not email_valido(e):
+            continue
+        vistos.add(e)
+        saida.append(e)
+    return saida
+
+
+def url_oportunidade(base: str | None, sigla: str | None, oportunidade_id) -> str | None:
+    """Link que abre a oportunidade direto (?abrir=<id>, o mesmo dos Relatórios)."""
+    base = (base or "").strip().rstrip("/")
+    if not base:
+        if sigla:
+            return None
+        base = URL_PUBLICA_PADRAO
+    return f"{base}/crm/oportunidades?abrir={oportunidade_id}"
+
+
+def _br_data(d) -> str:
+    if d is None:
+        return "—"
+    if isinstance(d, datetime):
+        from zoneinfo import ZoneInfo
+        d = d.astimezone(ZoneInfo("America/Sao_Paulo"))
+        return d.strftime("%d/%m/%Y %H:%M")
+    return d.strftime("%d/%m/%Y")
+
+
+def assunto_aviso(razao_social: str, numero_oportunidade: str | None) -> str:
+    base = f"Contrato assinado — {razao_social.strip()}"
+    if numero_oportunidade:
+        base += f" ({numero_oportunidade})"
+    return base[:200]
+
+
+def corpo_aviso(
+    *,
+    razao_social: str,
+    cnpj: str,
+    numero_oportunidade: str | None,
+    executivo_nome: str | None,
+    proposta: dict,
+    contrato: dict,
+    signatarios: list[dict],
+    link: str | None,
+    itens: list[dict] | None = None,
+    com_extras: bool = True,
+) -> str:
+    """
+    O texto do aviso. Texto puro: o montador do e-mail (050) gera o HTML a
+    partir dele, e o faturamento cola trechos em outro sistema — formatação
+    rica só atrapalharia.
+    """
+    itens = itens if itens is not None else (proposta.get("itens") or [])
+    linhas = [
+        "O contrato abaixo foi assinado por todas as partes. O PDF assinado "
+        "(com a página de auditoria da Autentique) segue anexo.",
+        "",
+        "CLIENTE",
+        f"  {razao_social} — CNPJ {cnpj_svc.formatar(cnpj)}",
+    ]
+    if numero_oportunidade:
+        linhas.append(f"  Oportunidade: {numero_oportunidade}")
+    if executivo_nome:
+        linhas.append(f"  Executivo: {executivo_nome}")
+
+    linhas += ["", "CNPJs, VIDAS E MENSALIDADE"]
+    if itens:
+        for i in itens:
+            linhas.append(
+                f"  {i['razao_social']} — CNPJ {cnpj_svc.formatar(i['cnpj'])} — "
+                f"{i['vidas']} vida{'s' if i['vidas'] != 1 else ''} — "
+                f"{proposta_regras.moeda(i['mensalidade'])}/mês"
+            )
+    if itens:
+        total = sum((Decimal(str(i["mensalidade"])) for i in itens), Decimal("0"))
+        linhas.append(f"  Mensalidade total deste contrato: {proposta_regras.moeda(total)}")
+    for campo, rotulo in (("treinamentos", "Treinamentos"), ("laudos", "Laudos")):
+        v = proposta.get(campo)
+        if com_extras and v and Decimal(str(v)) > 0:
+            linhas.append(f"  {rotulo} (valor único): {proposta_regras.moeda(v)}")
+
+    linhas += ["", "CLÁUSULA 5 (como está no contrato)"]
+    linhas += [f"  {l}" for l in linhas_preco(proposta, itens, com_extras)]
+
+    linhas += [
+        "",
+        "DATAS",
+        f"  Contrato: {_br_data(contrato['data_contrato'])}",
+        f"  Início da vigência: {_br_data(contrato['inicio_vigencia'])}",
+        f"  Vencimento: todo dia {int(contrato['dia_vencimento']):02d}",
+        f"  Assinado por todos em: {_br_data(contrato.get('assinado_em'))}",
+        "",
+        "ASSINATURAS",
+    ]
+    for s in sorted(signatarios, key=lambda x: x["ordem"]):
+        linhas.append(
+            f"  {PAPEL_POR_CHAVE[s['papel']].rotulo}: {s['nome']} <{s['email']}> — "
+            f"{_br_data(s.get('assinado_em'))}"
+        )
+    linhas += ["", f"Hash SHA-256 do original: {contrato['hash_original']}"]
+    if link:
+        linhas += ["", f"Abrir no HIPO: {link}"]
+    return "\n".join(linhas)

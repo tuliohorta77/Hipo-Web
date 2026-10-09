@@ -84,6 +84,20 @@ const PADRAO = {
   sugestao_contratante_id: 'k1', sugestao_testemunha_contratada_id: 'u1',
   contrato_em_aberto_id: null,
   linhas_preco: ['CNPJs até 05 funcionários registrados – R$ 180,00 mensais;'],
+  grupos: [{
+    raiz: '11222333', principal: true, contratante_razao_social: 'NN LTDA',
+    contratante_cnpj: '11.222.333/0001-81', conta_id: 'c1',
+    endereco: 'Rua A, 1, Centro – Guarulhos - SP, CEP: 07000-000', pendencias_endereco: [],
+    cnpjs: [{ cnpj: '11222333000181', cnpj_formatado: '11.222.333/0001-81', razao_social: 'NN LTDA',
+      vidas: 4, mensalidade: '180.00' }],
+    linhas_preco: ['CNPJs até 05 funcionários registrados – R$ 180,00 mensais;'],
+    contrato_em_aberto_id: null, substitui: [],
+  }],
+  servicos_catalogo: [
+    { chave: 'ppp', texto: 'Elaboração do PPP' },
+    { chave: 'cipa', texto: 'CIPA (NR-05)' },
+  ],
+  servicos_sugeridos: ['cipa'],
 };
 
 function montarGets({ contratos = [], situacao = SITUACAO, propostas = PROPOSTAS, padrao = PADRAO } = {}) {
@@ -127,8 +141,9 @@ describe('painel', () => {
     expect(await screen.findByTestId('kpi-assinaturas')).toHaveTextContent('1 de 4');
     expect(screen.getByTestId('kpi-vez')).toHaveTextContent('Ana RH');
     expect(screen.getByTestId('kpi-vez')).toHaveTextContent('parado há 3 dias');
-    // Com um em andamento, não dá para começar outro.
-    expect(screen.getByRole('button', { name: /Novo contrato/ })).toBeDisabled();
+    // 055: com um em andamento ainda dá para abrir o formulário — a outra
+    // empresa da proposta pode ir; a mesma é barrada no formulário.
+    expect(screen.getByRole('button', { name: /Novo contrato/ })).not.toBeDisabled();
   });
 
   it('desligado no servidor: avisa e não deixa começar', async () => {
@@ -179,6 +194,9 @@ describe('envio', () => {
         email: 'bruno@controllermedseg.com.br', usuario_id: 'u1' },
     ]);
     expect(corpo.dia_vencimento).toBe(10);
+    expect(corpo.raiz_cnpj).toBe('11222333');
+    expect(corpo.servicos).toEqual(['cipa']);
+    expect(corpo.servicos_livres).toEqual([]);
     expect(await screen.findByText(/Contrato enviado/)).toBeInTheDocument();
   });
 
@@ -193,7 +211,8 @@ describe('envio', () => {
   });
 
   it('endereço incompleto trava o envio e a prévia', async () => {
-    montarGets({ padrao: { ...PADRAO, pendencias_endereco: ['número', 'CEP'] } });
+    montarGets({ padrao: { ...PADRAO, grupos: [{ ...PADRAO.grupos[0],
+      pendencias_endereco: ['número', 'CEP'] }] } });
     render(<AbaContrato oportunidade={OPP} agora={AGORA} preset={{ proposta_id: 'p2' }} />);
     const form = await screen.findByRole('region', { name: 'Novo contrato' });
     expect(await within(form).findByText(/falta: número, CEP/)).toBeInTheDocument();
@@ -235,5 +254,119 @@ describe('ações', () => {
     expect(await screen.findByRole('button', { name: /Contrato assinado/ })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /^Cancelar$/ })).not.toBeInTheDocument();
     expect(screen.getByTestId('kpi-assinaturas')).toHaveTextContent('4 de 4');
+  });
+});
+
+
+describe('aviso ao faturamento (054)', () => {
+  const assinado = (troca = {}) => contrato({
+    status: 'assinado', pode_cancelar: false, pode_reenviar_aviso: true, assinados: 4,
+    proximo_nome: null,
+    signatarios: contrato().signatarios.map((s) => ({ ...s, situacao: 'assinado', da_vez: false })),
+    ...troca,
+  });
+  const DEST = { ...SITUACAO, aviso_destinatarios: ['faturamento@x.com', 'adm@x.com'] };
+
+  it('mostra para quem foi', async () => {
+    montarGets({ situacao: DEST, contratos: [assinado({
+      aviso_enviado_em: '2026-10-08T21:00:00Z', aviso_remetente: 'bruno@x.com',
+      aviso_para: ['faturamento@x.com', 'adm@x.com'],
+    })] });
+    render(<AbaContrato oportunidade={OPP} agora={AGORA} />);
+    const status = await screen.findByTestId('aviso-status');
+    expect(status).toHaveTextContent('bruno@x.com');
+    expect(status).toHaveTextContent('faturamento@x.com, adm@x.com');
+    expect(screen.getByRole('button', { name: 'Reenviar aviso' })).toBeInTheDocument();
+  });
+
+  it('falha aparece e o botão tenta de novo', async () => {
+    montarGets({ situacao: DEST, contratos: [assinado({ aviso_erro: 'Gmail fora do ar' })] });
+    mockPost.mockResolvedValue({ data: assinado({ aviso_enviado_em: '2026-10-08T21:00:00Z',
+      aviso_remetente: 'bruno@x.com', aviso_para: ['faturamento@x.com'] }) });
+    render(<AbaContrato oportunidade={OPP} agora={AGORA} />);
+    expect(await screen.findByTestId('aviso-status')).toHaveTextContent('Gmail fora do ar');
+    fireEvent.click(screen.getByRole('button', { name: 'Enviar aviso' }));
+    await waitFor(() => expect(mockPost).toHaveBeenCalledWith('/crm/contratos/k1/aviso', {}));
+    await waitFor(() => expect(screen.getByTestId('aviso-status')).toHaveTextContent('Aviso enviado'));
+  });
+
+  it('sem destinatários: diz que está desligado e não oferece o botão', async () => {
+    montarGets({ contratos: [assinado()] });
+    render(<AbaContrato oportunidade={OPP} agora={AGORA} />);
+    expect(await screen.findByTestId('aviso-status')).toHaveTextContent('desligado');
+    expect(screen.queryByRole('button', { name: /aviso/ })).not.toBeInTheDocument();
+  });
+});
+
+
+describe('empresas, filiais e substituição (055)', () => {
+  const G2 = {
+    raiz: '99888777', principal: false, contratante_razao_social: 'OUTRA LTDA',
+    contratante_cnpj: '99.888.777/0001-19', conta_id: 'c9', endereco: 'Rua B, 2',
+    pendencias_endereco: [], cnpjs: [{ cnpj: '99888777000119', cnpj_formatado: '99.888.777/0001-19',
+      razao_social: 'OUTRA LTDA', vidas: 3, mensalidade: '180.00' }],
+    linhas_preco: ['Linha da outra empresa;'], contrato_em_aberto_id: null, substitui: [],
+  };
+
+  it('duas raízes: escolhe a empresa e manda a raiz certa', async () => {
+    montarGets({ padrao: { ...PADRAO, grupos: [{ ...PADRAO.grupos[0], contrato_em_aberto_id: 'k1' }, G2] } });
+    mockPost.mockResolvedValue({ data: contrato() });
+    render(<AbaContrato oportunidade={OPP} agora={AGORA} preset={{ proposta_id: 'p2' }} />);
+    const form = await screen.findByRole('region', { name: 'Novo contrato' });
+    // Já abre na empresa que não tem contrato em andamento.
+    expect(await within(form).findByText('Linha da outra empresa;')).toBeInTheDocument();
+    expect(within(form).getByRole('radio', { name: /OUTRA LTDA/ })).toBeChecked();
+    fireEvent.click(within(form).getByRole('radio', { name: /NN LTDA/ }));
+    expect(within(form).getByRole('status')).toHaveTextContent(/já há um contrato de NN LTDA/i);
+    fireEvent.click(within(form).getByRole('radio', { name: /OUTRA LTDA/ }));
+    fireEvent.change(form.querySelector('#test-contratante-origem'), { target: { value: 'k2' } });
+    fireEvent.click(within(form).getByRole('button', { name: /Enviar para assinatura/ }));
+    await waitFor(() => expect(mockPost).toHaveBeenCalled());
+    expect(mockPost.mock.calls[0][1].raiz_cnpj).toBe('99888777');
+  });
+
+  it('matriz e filiais: lista o Anexo 1 e avisa a substituição', async () => {
+    const grupo = { ...PADRAO.grupos[0],
+      cnpjs: [...PADRAO.grupos[0].cnpjs, { cnpj: '11222333000262', cnpj_formatado: '11.222.333/0002-62',
+        razao_social: 'NN FILIAL', vidas: 2, mensalidade: '180.00' }],
+      substitui: [{ id: 'k0', versao: 1, data_contrato: '2026-05-10' }] };
+    montarGets({ padrao: { ...PADRAO, grupos: [grupo] } });
+    render(<AbaContrato oportunidade={OPP} agora={AGORA} preset={{ proposta_id: 'p2' }} />);
+    const form = await screen.findByRole('region', { name: 'Novo contrato' });
+    expect(await within(form).findByLabelText('CNPJs do contrato')).toHaveTextContent('NN FILIAL');
+    expect(within(form).getByText(/substitui o contrato v1 de 10\/05\/2026/)).toBeInTheDocument();
+  });
+
+  it('serviços: vem marcado o sugerido e as linhas livres vão separadas', async () => {
+    montarGets();
+    mockPost.mockResolvedValue({ data: contrato() });
+    render(<AbaContrato oportunidade={OPP} agora={AGORA} preset={{ proposta_id: 'p2' }} />);
+    const form = await screen.findByRole('region', { name: 'Novo contrato' });
+    await waitFor(() => expect(within(form).getByLabelText('CIPA (NR-05)')).toBeChecked());
+    fireEvent.click(within(form).getByLabelText('Elaboração do PPP'));
+    fireEvent.click(within(form).getByLabelText('CIPA (NR-05)'));
+    fireEvent.change(within(form).getByLabelText('Outros serviços (um por linha)'),
+      { target: { value: 'Treinamento NR-35\n\n  Treinamento NR-10 ' } });
+    fireEvent.change(form.querySelector('#test-contratante-origem'), { target: { value: 'k2' } });
+    fireEvent.click(within(form).getByRole('button', { name: /Enviar para assinatura/ }));
+    await waitFor(() => expect(mockPost).toHaveBeenCalled());
+    const corpo = mockPost.mock.calls[0][1];
+    expect(corpo.servicos).toEqual(['ppp']);
+    expect(corpo.servicos_livres).toEqual(['Treinamento NR-35', 'Treinamento NR-10']);
+  });
+
+  it('dois contratos vigentes aparecem; o substituído vai para o histórico', async () => {
+    montarGets({ contratos: [
+      contrato({ id: 'a', contratante_razao_social: 'NN LTDA' }),
+      contrato({ id: 'b', versao: 2, status: 'assinado', contratante_razao_social: 'OUTRA LTDA',
+        assinados: 4, proximo_nome: null,
+        signatarios: contrato().signatarios.map((x) => ({ ...x, situacao: 'assinado', da_vez: false })) }),
+      contrato({ id: 'c', versao: 0, status: 'substituido', substituido_por_versao: 2 }),
+    ] });
+    render(<AbaContrato oportunidade={OPP} agora={AGORA} />);
+    expect(await screen.findByTestId('kpi-empresas')).toHaveTextContent('2');
+    const empresas = screen.getAllByTestId('contrato-empresa').map((e) => e.textContent);
+    expect(empresas).toEqual(['NN LTDA', 'OUTRA LTDA']);
+    expect(screen.getByRole('button', { name: /Versões anteriores \(1\)/ })).toBeInTheDocument();
   });
 });

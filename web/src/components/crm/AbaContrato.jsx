@@ -25,7 +25,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   FileSignature, RefreshCw, Send, Download, XCircle, Eye, CheckCircle2,
-  Clock, ChevronDown, ChevronRight, UserCheck, AlertTriangle,
+  Clock, ChevronDown, ChevronRight, UserCheck, AlertTriangle, Mail,
 } from 'lucide-react';
 
 import api from '../../api';
@@ -44,7 +44,12 @@ export const STATUS_CONTRATO = {
   assinado: { rotulo: 'Assinado por todos', tom: 'success' },
   recusado: { rotulo: 'Recusado', tom: 'danger' },
   cancelado: { rotulo: 'Cancelado', tom: 'neutral' },
+  substituido: { rotulo: 'Substituído', tom: 'neutral' },
 };
+
+// 055: assinado e aguardando são os contratos "de agora" — um por empresa
+// (raiz de CNPJ). Cancelado, recusado e substituído são histórico.
+export const STATUS_ATUAIS = ['enviado', 'assinado'];
 
 export const SITUACAO_SIGNATARIO = {
   pendente: { rotulo: 'Aguardando', tom: 'neutral' },
@@ -191,6 +196,10 @@ export function FormContrato({ propostaId, situacao, onCancelar, onEnviado }) {
   const [testContratada, setTestContratada] = useState(VAZIA);
   const [datas, setDatas] = useState({ data_contrato: '', inicio_vigencia: '', dia_vencimento: 10 });
   const [ocupado, setOcupado] = useState(null);
+  // 055: qual empresa (raiz de CNPJ) vira este contrato, e os serviços extras.
+  const [raiz, setRaiz] = useState(null);
+  const [servicos, setServicos] = useState([]);
+  const [livres, setLivres] = useState('');
 
   useEffect(() => {
     let vivo = true;
@@ -205,11 +214,17 @@ export function FormContrato({ propostaId, situacao, onCancelar, onEnviado }) {
           inicio_vigencia: data.inicio_vigencia,
           dia_vencimento: data.dia_vencimento,
         });
+        const grupos = data.grupos || [];
+        const livre = grupos.find((g) => !g.contrato_em_aberto_id) || grupos[0];
+        setRaiz(livre ? livre.raiz : null);
+        setServicos(data.servicos_sugeridos || []);
       })
       .catch((err) => vivo && setErro(mensagemDeErro(err, 'Não foi possível carregar o contrato.')));
     return () => { vivo = false; };
   }, [propostaId]);
 
+  const grupos = padrao?.grupos || [];
+  const grupo = grupos.find((g) => g.raiz === raiz) || null;
   const pessoas = [contratante, testContratante, testContratada];
   const emails = pessoas.map((p) => p.email.trim().toLowerCase()).filter(Boolean);
   const repetido = new Set(emails).size !== emails.length
@@ -218,9 +233,11 @@ export function FormContrato({ propostaId, situacao, onCancelar, onEnviado }) {
   const bloqueio = !padrao ? 'carregando'
     : !padrao.aprovada ? 'Aprove esta versão da proposta antes de mandar o contrato.'
       : !padrao.oportunidade_aberta ? 'A oportunidade já foi finalizada.'
-        : padrao.contrato_em_aberto_id ? 'Já há um contrato aguardando assinatura. Cancele-o antes de mandar outro.'
-          : padrao.pendencias_endereco.length
-            ? `Complete o endereço da conta (falta: ${padrao.pendencias_endereco.join(', ')}).`
+        : !grupo ? 'Esta proposta não tem CNPJ.'
+          : grupo.contrato_em_aberto_id
+            ? `Já há um contrato de ${grupo.contratante_razao_social} aguardando assinatura. Cancele-o antes de mandar outro.`
+            : grupo.pendencias_endereco.length
+              ? `Complete o endereço de ${grupo.contratante_razao_social} (falta: ${grupo.pendencias_endereco.join(', ')}).`
             : !situacao?.configurado ? 'O envio está desligado neste servidor.'
               : !completo ? 'Preencha nome e e-mail válidos dos três signatários.'
                 : repetido ? 'Cada assinatura precisa ser de uma pessoa diferente (e-mail repetido).'
@@ -228,10 +245,19 @@ export function FormContrato({ propostaId, situacao, onCancelar, onEnviado }) {
 
   function corpoDatas() {
     return {
+      raiz_cnpj: raiz,
       data_contrato: datas.data_contrato || null,
       inicio_vigencia: datas.inicio_vigencia || null,
       dia_vencimento: Number(datas.dia_vencimento) || 10,
+      servicos,
+      servicos_livres: livres.split('\n').map((l) => l.trim()).filter(Boolean),
     };
+  }
+
+  function alternarServico(chave) {
+    setServicos((atual) => (atual.includes(chave)
+      ? atual.filter((c) => c !== chave)
+      : [...atual, chave]));
   }
 
   async function previa() {
@@ -291,14 +317,71 @@ export function FormContrato({ propostaId, situacao, onCancelar, onEnviado }) {
           <h3 className="text-sm font-semibold text-hipo-ink">
             Contrato a partir da proposta v{padrao.proposta_versao}
           </h3>
-          <p className="text-xs text-hipo-slate">
-            {padrao.cliente_razao_social} · CNPJ {padrao.cliente_cnpj}
-          </p>
-          <p className="text-xs text-hipo-slate truncate" title={padrao.endereco}>
-            {padrao.endereco || 'Sem endereço no cadastro'}
-          </p>
+          {grupo && (
+            <>
+              <p className="text-xs text-hipo-slate">
+                {grupo.contratante_razao_social} · CNPJ {grupo.contratante_cnpj}
+              </p>
+              <p className="text-xs text-hipo-slate truncate" title={grupo.endereco}>
+                {grupo.endereco || 'Sem endereço no cadastro'}
+              </p>
+            </>
+          )}
         </div>
       </div>
+
+      {grupos.length > 1 && (
+        <fieldset aria-label="Empresa do contrato" className="space-y-1.5">
+          <legend className="text-xs font-semibold text-hipo-ink mb-1">
+            Esta proposta tem {grupos.length} empresas (raízes de CNPJ diferentes): sai um
+            contrato para cada. Qual agora?
+          </legend>
+          {grupos.map((g) => (
+            <label key={g.raiz} className={`flex items-start gap-2 rounded-lg border p-2 cursor-pointer ${
+              g.raiz === raiz ? 'border-hipo-blue bg-hipo-blueSoft/40' : 'border-hipo-border'}`}
+            >
+              <input
+                type="radio"
+                name="contrato-grupo"
+                value={g.raiz}
+                checked={g.raiz === raiz}
+                onChange={() => setRaiz(g.raiz)}
+                className="mt-0.5"
+              />
+              <span className="min-w-0 text-xs">
+                <span className="block text-hipo-ink font-medium">{g.contratante_razao_social}</span>
+                <span className="block text-hipo-slate">
+                  {g.cnpjs.length} CNPJ{g.cnpjs.length > 1 ? 's' : ''}
+                  {g.contrato_em_aberto_id ? ' · já tem contrato aguardando assinatura' : ''}
+                </span>
+              </span>
+            </label>
+          ))}
+        </fieldset>
+      )}
+
+      {grupo && grupo.cnpjs.length > 1 && (
+        <div className="rounded-lg bg-hipo-bg border border-hipo-border p-3">
+          <p className="text-xs font-semibold text-hipo-ink mb-1">
+            Matriz e filiais no mesmo contrato — as demais vão no Anexo 1
+          </p>
+          <ul className="space-y-0.5" aria-label="CNPJs do contrato">
+            {grupo.cnpjs.map((c, i) => (
+              <li key={c.cnpj} className="text-xs text-hipo-slate">
+                {c.razao_social} · {c.cnpj_formatado}{i === 0 ? ' (contratante)' : ''}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {grupo && grupo.substitui.length > 0 && (
+        <AlertMessage tipo="aviso">
+          Este contrato substitui {grupo.substitui.length > 1 ? 'os contratos' : 'o contrato'}{' '}
+          {grupo.substitui.map((x) => `v${x.versao} de ${dataCurta(x.data_contrato)}`).join(', ')}{' '}
+          de {grupo.contratante_razao_social}. O anterior continua valendo até este ser assinado.
+        </AlertMessage>
+      )}
 
       {erro && <AlertMessage tipo="erro">{erro}</AlertMessage>}
       {situacao?.sandbox && (
@@ -367,10 +450,41 @@ export function FormContrato({ propostaId, situacao, onCancelar, onEnviado }) {
         />
       </div>
 
+      <fieldset className="rounded-lg border border-hipo-border p-3 space-y-2">
+        <legend className="px-1 text-xs font-semibold text-hipo-ink">
+          Serviços além do básico (Cláusula 2, a partir do 2.7)
+        </legend>
+        <p className="text-[11px] text-hipo-slate">
+          PCMSO, ASO, laudos ambientais, LTCAT, PGR e riscos psicossociais já estão no modelo.
+          Os marcados abaixo vieram do escopo da proposta — confira.
+        </p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-1">
+          {(padrao.servicos_catalogo || []).map((x) => (
+            <label key={x.chave} className="flex items-start gap-2 text-xs text-hipo-ink">
+              <input
+                type="checkbox"
+                checked={servicos.includes(x.chave)}
+                onChange={() => alternarServico(x.chave)}
+                className="mt-0.5"
+                aria-label={x.texto}
+              />
+              <span>{x.texto}</span>
+            </label>
+          ))}
+        </div>
+        <Textarea
+          id="contrato-servicos-livres"
+          label="Outros serviços (um por linha)"
+          rows={2}
+          value={livres}
+          onChange={(e) => setLivres(e.target.value)}
+        />
+      </fieldset>
+
       <div className="rounded-lg bg-hipo-bg border border-hipo-border p-3">
         <p className="text-xs font-semibold text-hipo-ink mb-1">Cláusula 5 — como vai sair</p>
         <ul className="space-y-0.5" aria-label="Valores do contrato">
-          {padrao.linhas_preco.map((l) => (
+          {(grupo ? grupo.linhas_preco : padrao.linhas_preco).map((l) => (
             <li key={l} className="text-xs text-hipo-slate">{l}</li>
           ))}
         </ul>
@@ -389,8 +503,8 @@ export function FormContrato({ propostaId, situacao, onCancelar, onEnviado }) {
           icon={Eye}
           onClick={previa}
           loading={ocupado === 'previa'}
-          disabled={Boolean(ocupado) || !situacao?.previa_disponivel
-            || padrao.pendencias_endereco.length > 0}
+          disabled={Boolean(ocupado) || !situacao?.previa_disponivel || !grupo
+            || grupo.pendencias_endereco.length > 0}
         >
           Prévia do PDF
         </Button>
@@ -433,7 +547,41 @@ function Signatario({ s }) {
   );
 }
 
-function CartaoContrato({ contrato, onMudou, agora }) {
+// 054: o aviso ao faturamento, contratos e ADM, que sai sozinho do Gmail do
+// executivo quando o último assina.
+function AvisoFaturamento({ contrato, destinatarios }) {
+  if (contrato.aviso_enviado_em) {
+    return (
+      <p className="text-xs text-hipo-success flex items-start gap-1.5" data-testid="aviso-status">
+        <Mail size={13} className="mt-0.5 shrink-0" aria-hidden="true" />
+        <span>
+          Aviso enviado em {dataHora(contrato.aviso_enviado_em)} por {contrato.aviso_remetente}{' '}
+          para {(contrato.aviso_para || []).join(', ')}.
+        </span>
+      </p>
+    );
+  }
+  if (contrato.aviso_erro) {
+    return (
+      <p className="text-xs text-hipo-danger flex items-start gap-1.5" data-testid="aviso-status">
+        <AlertTriangle size={13} className="mt-0.5 shrink-0" aria-hidden="true" />
+        <span>O aviso ao faturamento não saiu: {contrato.aviso_erro}</span>
+      </p>
+    );
+  }
+  return (
+    <p className="text-xs text-hipo-slate flex items-start gap-1.5" data-testid="aviso-status">
+      <Mail size={13} className="mt-0.5 shrink-0" aria-hidden="true" />
+      <span>
+        {destinatarios?.length
+          ? `Aviso ao faturamento a caminho (${destinatarios.join(', ')}).`
+          : 'Aviso ao faturamento desligado neste servidor (nenhum destinatário configurado).'}
+      </span>
+    </p>
+  );
+}
+
+function CartaoContrato({ contrato, onMudou, agora, destinatarios }) {
   const [ocupado, setOcupado] = useState(null);
   const [erro, setErro] = useState(null);
   const [cancelando, setCancelando] = useState(false);
@@ -482,6 +630,29 @@ function CartaoContrato({ contrato, onMudou, agora }) {
         </span>
       </header>
 
+      {(contrato.contratante_razao_social || contrato.cnpjs?.length > 0) && (
+        <p className="text-xs text-hipo-ink" data-testid="contrato-empresa">
+          <span className="font-medium">{contrato.contratante_razao_social}</span>
+          {contrato.cnpjs?.length > 1 && (
+            <span className="text-hipo-slate">
+              {' '}+ {contrato.cnpjs.length - 1} filia{contrato.cnpjs.length - 1 > 1 ? 'is' : 'l'} no Anexo 1
+            </span>
+          )}
+        </p>
+      )}
+      {contrato.substitui?.length > 0 && (
+        <p className="text-[11px] text-hipo-slate">
+          {contrato.status === 'assinado' ? 'Substituiu' : 'Substitui, quando for assinado,'}{' '}
+          {contrato.substitui.map((x) => `v${x.versao} de ${dataCurta(x.data_contrato)}`).join(', ')}.
+        </p>
+      )}
+      {contrato.status === 'substituido' && (
+        <p className="text-[11px] text-hipo-slate">
+          Substituído{contrato.substituido_por_versao ? ` pelo contrato v${contrato.substituido_por_versao}` : ''}
+          {contrato.substituido_em ? ` em ${dataHora(contrato.substituido_em)}` : ''}.
+        </p>
+      )}
+
       {erro && <AlertMessage tipo="erro">{erro}</AlertMessage>}
       {contrato.sincronizacao_erro && contrato.status === 'enviado' && (
         <AlertMessage tipo="aviso">Última leitura da Autentique falhou: {contrato.sincronizacao_erro}</AlertMessage>
@@ -490,6 +661,10 @@ function CartaoContrato({ contrato, onMudou, agora }) {
       <ol className="space-y-1.5" aria-label="Signatários">
         {contrato.signatarios.map((s) => <Signatario key={s.id} s={s} />)}
       </ol>
+
+      {contrato.status === 'assinado' && (
+        <AvisoFaturamento contrato={contrato} destinatarios={destinatarios} />
+      )}
 
       <p className="text-[11px] text-hipo-muted">
         Vigência a partir de {dataCurta(contrato.inicio_vigencia)} · vencimento dia{' '}
@@ -531,6 +706,16 @@ function CartaoContrato({ contrato, onMudou, agora }) {
             onClick={() => baixar('assinado')}
           >
             Contrato assinado
+          </Button>
+        )}
+        {contrato.pode_reenviar_aviso && destinatarios?.length > 0 && (
+          <Button size="sm" variant="secondary" icon={Mail}
+            loading={ocupado === 'aviso'} disabled={Boolean(ocupado)}
+            onClick={() => acao('aviso',
+              () => api.post(`/crm/contratos/${contrato.id}/aviso`, {}),
+              'Não foi possível enviar o aviso.')}
+          >
+            {contrato.aviso_enviado_em ? 'Reenviar aviso' : 'Enviar aviso'}
           </Button>
         )}
         {contrato.pode_cancelar && !cancelando && (
@@ -626,8 +811,12 @@ export default function AbaContrato({ oportunidade, preset, onPresetUsado, onMud
     }
   }, [preset, contratos, onPresetUsado]);
 
+  // 055: um contrato "de agora" por empresa (raiz de CNPJ). O painel foca
+  // no que pede ação (o aguardando assinatura); os demais aparecem embaixo.
   const atual = contratoAtual(contratos);
-  const anteriores = (contratos || []).filter((c) => c !== atual);
+  const atuais = (contratos || []).filter((c) => STATUS_ATUAIS.includes(c.status));
+  const vigentes = atuais.length ? atuais : (atual ? [atual] : []);
+  const anteriores = (contratos || []).filter((c) => !vigentes.includes(c));
   const resumo = resumoContrato(atual, agora);
   const emAndamento = atual?.status === 'enviado';
   const ligado = Boolean(situacao?.configurado);
@@ -674,14 +863,21 @@ export default function AbaContrato({ oportunidade, preset, onPresetUsado, onMud
             </p>
           </div>
         )}
+        {atuais.length > 1 && (
+          <div>
+            <p className="text-[11px] uppercase tracking-wide text-hipo-slate">Empresas</p>
+            <p className="text-lg font-semibold text-hipo-ink" data-testid="kpi-empresas">
+              {atuais.length}
+            </p>
+          </div>
+        )}
         <div className="ml-auto">
           {!compondo && (
             <Button
               size="sm"
               icon={FileSignature}
-              disabled={!ligado || emAndamento || aprovadas.length === 0}
-              title={emAndamento ? 'Já há um contrato aguardando assinatura.'
-                : aprovadas.length === 0 ? 'Aprove uma versão da proposta primeiro.' : undefined}
+              disabled={!ligado || aprovadas.length === 0}
+              title={aprovadas.length === 0 ? 'Aprove uma versão da proposta primeiro.' : undefined}
               onClick={() => setCompondo(aprovadas[0].id)}
             >
               Novo contrato
@@ -720,8 +916,13 @@ export default function AbaContrato({ oportunidade, preset, onPresetUsado, onMud
         </>
       )}
 
-      {atual ? (
-        <CartaoContrato contrato={atual} onMudou={trocar} agora={agora} />
+      {vigentes.length > 0 ? (
+        <div className="space-y-3">
+          {vigentes.map((c) => (
+            <CartaoContrato key={c.id} contrato={c} onMudou={trocar} agora={agora}
+              destinatarios={situacao?.aviso_destinatarios} />
+          ))}
+        </div>
       ) : !compondo && (
         <Empty
           title="Nenhum contrato enviado"
@@ -746,7 +947,8 @@ export default function AbaContrato({ oportunidade, preset, onPresetUsado, onMud
           {verAnteriores && (
             <div className="mt-2 space-y-2">
               {anteriores.map((c) => (
-                <CartaoContrato key={c.id} contrato={c} onMudou={trocar} agora={agora} />
+                <CartaoContrato key={c.id} contrato={c} onMudou={trocar} agora={agora}
+                  destinatarios={situacao?.aviso_destinatarios} />
               ))}
             </div>
           )}

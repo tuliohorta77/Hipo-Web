@@ -2280,3 +2280,78 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_contrato_evento_externo
     ON contrato_eventos (evento_externo_id) WHERE evento_externo_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_contrato_eventos_contrato
     ON contrato_eventos (contrato_id, criado_em DESC);
+
+-- =====================================================================
+-- 038 -- Aviso de contrato assinado (faturamento, contratos e ADM).
+-- Detalhes no cabecalho de migrations/038_contrato_aviso.sql.
+-- =====================================================================
+ALTER TABLE contratos ADD COLUMN IF NOT EXISTS aviso_enviado_em TIMESTAMPTZ;
+ALTER TABLE contratos ADD COLUMN IF NOT EXISTS aviso_para TEXT[];
+ALTER TABLE contratos ADD COLUMN IF NOT EXISTS aviso_remetente VARCHAR(150);
+ALTER TABLE contratos ADD COLUMN IF NOT EXISTS aviso_erro TEXT;
+ALTER TABLE contratos ADD COLUMN IF NOT EXISTS aviso_tentativas SMALLINT NOT NULL DEFAULT 0;
+
+-- O timer olha os assinados ainda sem aviso.
+CREATE INDEX IF NOT EXISTS idx_contratos_aviso_pendente
+    ON contratos (assinado_em) WHERE status = 'assinado' AND aviso_enviado_em IS NULL;
+
+-- =====================================================================
+-- 039 -- Contrato por raiz de CNPJ, Anexo 1, substituicao e servicos (055).
+-- Detalhes no cabecalho de migrations/039_contrato_grupo_cnpj.sql.
+-- =====================================================================
+ALTER TABLE contratos ADD COLUMN IF NOT EXISTS raiz_cnpj CHAR(8);
+ALTER TABLE contratos ADD COLUMN IF NOT EXISTS servicos TEXT[] NOT NULL DEFAULT '{}';
+ALTER TABLE contratos ADD COLUMN IF NOT EXISTS servicos_livres TEXT[] NOT NULL DEFAULT '{}';
+ALTER TABLE contratos ADD COLUMN IF NOT EXISTS substitui_ids UUID[] NOT NULL DEFAULT '{}';
+ALTER TABLE contratos ADD COLUMN IF NOT EXISTS substituido_por UUID
+    REFERENCES contratos(id) ON DELETE SET NULL;
+ALTER TABLE contratos ADD COLUMN IF NOT EXISTS substituido_em TIMESTAMPTZ;
+
+UPDATE contratos k
+   SET raiz_cnpj = LEFT(c.cnpj, 8)
+  FROM oportunidades o
+  JOIN contas c ON c.id = o.conta_id
+ WHERE o.id = k.oportunidade_id
+   AND k.raiz_cnpj IS NULL;
+
+ALTER TABLE contratos ALTER COLUMN raiz_cnpj SET NOT NULL;
+
+ALTER TABLE contratos DROP CONSTRAINT IF EXISTS ck_contrato_status;
+ALTER TABLE contratos ADD CONSTRAINT ck_contrato_status CHECK (
+    status IN ('enviado', 'assinado', 'recusado', 'cancelado', 'substituido')
+);
+ALTER TABLE contratos DROP CONSTRAINT IF EXISTS ck_contrato_substituido;
+ALTER TABLE contratos ADD CONSTRAINT ck_contrato_substituido CHECK (
+    status <> 'substituido' OR substituido_em IS NOT NULL
+);
+
+DROP INDEX IF EXISTS uq_contrato_em_aberto;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_contrato_em_aberto_raiz
+    ON contratos (oportunidade_id, raiz_cnpj) WHERE status = 'enviado';
+-- "Qual o contrato vigente desta empresa?" -- consultado no envio, para
+-- saber o que o contrato novo substitui.
+CREATE INDEX IF NOT EXISTS idx_contratos_raiz_assinado
+    ON contratos (raiz_cnpj) WHERE status = 'assinado';
+
+
+CREATE TABLE IF NOT EXISTS contrato_cnpjs (
+    contrato_id   UUID NOT NULL REFERENCES contratos(id) ON DELETE CASCADE,
+    ordem         SMALLINT NOT NULL,
+    conta_id      UUID REFERENCES contas(id) ON DELETE SET NULL,
+    cnpj          CHAR(14) NOT NULL,
+    razao_social  VARCHAR(200) NOT NULL,
+    vidas         INTEGER NOT NULL,
+    mensalidade   NUMERIC(12,2) NOT NULL,
+    PRIMARY KEY (contrato_id, ordem),
+    CONSTRAINT uq_contrato_cnpj UNIQUE (contrato_id, cnpj)
+);
+
+CREATE INDEX IF NOT EXISTS idx_contrato_cnpjs_cnpj ON contrato_cnpjs (cnpj);
+
+INSERT INTO contrato_cnpjs (contrato_id, ordem, conta_id, cnpj, razao_social, vidas,
+                            mensalidade)
+SELECT k.id, i.ordem, i.conta_id, i.cnpj, i.razao_social, i.vidas, i.mensalidade
+  FROM contratos k
+  JOIN proposta_itens i ON i.proposta_id = k.proposta_id
+ WHERE NOT EXISTS (SELECT 1 FROM contrato_cnpjs x WHERE x.contrato_id = k.id)
+ON CONFLICT DO NOTHING;

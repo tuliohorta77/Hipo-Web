@@ -187,7 +187,7 @@ class TestSituacao:
         body = (await client.get("/crm/contratos/situacao",
                                  headers=usuario_adm["headers"])).json()
         assert body == {"configurado": True, "problemas": [], "sandbox": True,
-                        "previa_disponivel": True}
+                        "previa_disponivel": True, "aviso_destinatarios": []}
 
     async def test_instancia_com_sigla_exige_modelo_proprio(self, db_conn, client,
                                                              usuario_adm, fake, monkeypatch):
@@ -576,3 +576,340 @@ class TestAcoes:
         r = await client.get(f"/crm/contratos/{contrato['id']}/arquivo",
                              params={"tipo": "assinado"}, headers=h)
         assert r.content == b"%PDF-1.4 baixado de https://x/doc-1/s.pdf"
+
+
+
+# ── 054: aviso de contrato assinado ──────────────────────────────────
+
+from email import message_from_bytes, policy  # noqa: E402
+
+from services import gmail  # noqa: E402
+
+DESTINOS = "faturamento@controllermedseg.com.br, contratos@controllermedseg.com.br; adm@controllermedseg.com.br"
+
+
+class GmailFalso:
+    def __init__(self):
+        self.enviados = []
+        self.falhar = None
+
+    async def assinatura(self, email):
+        return gmail.Assinatura(html="<p>Assinatura do EV</p>")
+
+    async def enviar(self, email, mensagem):
+        if self.falhar:
+            return gmail.ResultadoEnvio(ok=False, erro=self.falhar)
+        self.enviados.append((email, message_from_bytes(mensagem, policy=policy.default)))
+        return gmail.ResultadoEnvio(ok=True, message_id="m1", thread_id="t1")
+
+
+@pytest.fixture
+def correio(monkeypatch, fake):
+    g = GmailFalso()
+    monkeypatch.setattr(gmail, "configurado", lambda: True)
+    monkeypatch.setattr(gmail, "assinatura", g.assinatura)
+    monkeypatch.setattr(gmail, "enviar", g.enviar)
+    monkeypatch.setattr(settings, "CONTRATO_AVISO_DESTINATARIOS", DESTINOS)
+    monkeypatch.setattr(settings, "HIPO_URL_PUBLICA", "")
+    # Fora de produção todo contrato nasce sandbox, e contrato de teste não
+    # avisa sozinho. Estes testes são do contrato de verdade.
+    monkeypatch.setattr(autentique, "em_sandbox", lambda: False)
+    return g
+
+
+async def assinado_por_todos(client, h, c, fake, evento="e-fim"):
+    contrato = (await enviar(client, h, c)).json()
+    fake.assinar_todos("doc-1")
+    r = await webhook(client, "doc-1", evento)
+    assert r.status_code == 200, r.text
+    return contrato
+
+
+def _texto(msg):
+    for parte in msg.walk():
+        if parte.get_content_type() == "text/plain" and not parte.get_filename():
+            return parte.get_content()
+    return ""
+
+
+class TestAviso:
+    async def test_sai_quando_todos_assinam(self, db_conn, client, usuario_adm, fake, correio):
+        h = usuario_adm["headers"]
+        c = await cenario(client, h)
+        contrato = await assinado_por_todos(client, h, c, fake)
+        [(remetente, msg)] = correio.enviados
+        assert remetente == "adm@teste.com"  # o executivo da proposta
+        para = [e.strip() for e in " ".join(str(msg["To"]).split()).split(",")]
+        assert para == ["faturamento@controllermedseg.com.br",
+                        "contratos@controllermedseg.com.br", "adm@controllermedseg.com.br"]
+        assert msg["Subject"].startswith("Contrato assinado — Metalurgica Alfa LTDA")
+        corpo = _texto(msg)
+        assert "11.222.333/0001-81" in corpo
+        assert "R$ 20,00 por funcionário registrado/mês" in corpo
+        assert "Vencimento: todo dia 10" in corpo
+        assert "Contratada: Marcelo Canton Dick" in corpo
+        assert f"/crm/oportunidades?abrir={c.opp['id']}" in corpo
+        anexos = [p for p in msg.walk() if p.get_filename()]
+        assert anexos[0].get_filename().endswith("_assinado.pdf")
+        assert anexos[0].get_payload(decode=True).startswith(b"%PDF")
+
+        body = (await client.get(f"/crm/contratos/{contrato['id']}", headers=h)).json()
+        assert body["aviso_enviado_em"] is not None
+        assert body["aviso_remetente"] == "adm@teste.com"
+        assert len(body["aviso_para"]) == 3
+        assert any(e["tipo"] == "aviso_enviado" for e in body["eventos"])
+
+    async def test_nao_repete(self, db_conn, client, usuario_adm, fake, correio):
+        h = usuario_adm["headers"]
+        c = await cenario(client, h)
+        contrato = await assinado_por_todos(client, h, c, fake)
+        await webhook(client, "doc-1", "e-outro")
+        await client.post(f"/crm/contratos/{contrato['id']}/sincronizar", headers=h)
+        assert len(correio.enviados) == 1
+
+    async def test_remetente_fora_da_lista(self, db_conn, client, usuario_adm, fake, correio,
+                                           monkeypatch):
+        monkeypatch.setattr(settings, "CONTRATO_AVISO_DESTINATARIOS",
+                            DESTINOS + ", adm@teste.com, invalido")
+        h = usuario_adm["headers"]
+        c = await cenario(client, h)
+        await assinado_por_todos(client, h, c, fake)
+        [(_, msg)] = correio.enviados
+        assert "adm@teste.com" not in msg["To"]
+        assert "invalido" not in msg["To"]
+
+    async def test_desligado_sem_destinatarios(self, db_conn, client, usuario_adm, fake, correio,
+                                               monkeypatch):
+        monkeypatch.setattr(settings, "CONTRATO_AVISO_DESTINATARIOS", "")
+        h = usuario_adm["headers"]
+        c = await cenario(client, h)
+        contrato = await assinado_por_todos(client, h, c, fake)
+        assert correio.enviados == []
+        assert await crm_contratos.pendentes_de_sincronizacao(db_conn) == []
+        r = await client.post(f"/crm/contratos/{contrato['id']}/aviso", headers=h)
+        assert r.status_code == 503
+
+    async def test_falha_do_gmail_nao_derruba_e_o_timer_tenta_de_novo(
+        self, db_conn, client, usuario_adm, fake, correio,
+    ):
+        correio.falhar = "O Gmail recusou: delegação sem o escopo de envio."
+        h = usuario_adm["headers"]
+        c = await cenario(client, h)
+        contrato = await assinado_por_todos(client, h, c, fake)
+        body = (await client.get(f"/crm/contratos/{contrato['id']}", headers=h)).json()
+        assert body["status"] == "assinado"
+        assert body["aviso_enviado_em"] is None
+        assert "delegação" in body["aviso_erro"]
+
+        fila = await crm_contratos.pendentes_de_sincronizacao(db_conn)
+        assert [f["id"] for f in fila] == [uuid.UUID(contrato["id"])]
+        correio.falhar = None
+        await crm_contratos.sincronizar_um(db_conn, fila[0])
+        assert len(correio.enviados) == 1
+        assert await crm_contratos.pendentes_de_sincronizacao(db_conn) == []
+
+    async def test_timer_desiste_depois_do_limite(self, db_conn, client, usuario_adm, fake,
+                                                  correio):
+        correio.falhar = "fora do ar"
+        h = usuario_adm["headers"]
+        c = await cenario(client, h)
+        await assinado_por_todos(client, h, c, fake)
+        for _ in range(10):
+            fila = await crm_contratos.pendentes_de_sincronizacao(db_conn)
+            if not fila:
+                break
+            await crm_contratos.sincronizar_um(db_conn, fila[0])
+        tentativas = await db_conn.fetchval("SELECT aviso_tentativas FROM contratos")
+        from services import contrato as regras_contrato
+        assert tentativas == regras_contrato.MAX_TENTATIVAS_AVISO
+        assert await crm_contratos.pendentes_de_sincronizacao(db_conn) == []
+
+    async def test_reenviar_manual(self, db_conn, client, usuario_adm, fake, correio):
+        h = usuario_adm["headers"]
+        c = await cenario(client, h)
+        contrato = await assinado_por_todos(client, h, c, fake)
+        lido = (await client.get(f"/crm/contratos/{contrato['id']}", headers=h)).json()
+        assert lido["pode_reenviar_aviso"] is True
+        r = await client.post(f"/crm/contratos/{contrato['id']}/aviso", headers=h)
+        assert r.status_code == 200, r.text
+        assert len(correio.enviados) == 2
+
+    async def test_reenviar_antes_de_assinar(self, db_conn, client, usuario_adm, fake, correio):
+        h = usuario_adm["headers"]
+        c = await cenario(client, h)
+        contrato = (await enviar(client, h, c)).json()
+        r = await client.post(f"/crm/contratos/{contrato['id']}/aviso", headers=h)
+        assert r.status_code == 409
+
+    async def test_outro_operacional_nao_reenvia(self, db_conn, client, usuario_adm, fake,
+                                                 correio):
+        h = usuario_adm["headers"]
+        c = await cenario(client, h)
+        contrato = await assinado_por_todos(client, h, c, fake)
+        sdr = await criar_usuario(db_conn, client, "SDR", "sdr@teste.com")
+        r = await client.post(f"/crm/contratos/{contrato['id']}/aviso", headers=sdr["headers"])
+        assert r.status_code == 403
+
+    async def test_contrato_de_teste_nao_avisa_sozinho(self, db_conn, client, usuario_adm,
+                                                       fake, correio, monkeypatch):
+        monkeypatch.setattr(autentique, "em_sandbox", lambda: True)
+        h = usuario_adm["headers"]
+        c = await cenario(client, h)
+        contrato = await assinado_por_todos(client, h, c, fake)
+        assert correio.enviados == []
+        assert await crm_contratos.pendentes_de_sincronizacao(db_conn) == []
+        # Pelo botão sai, marcado como teste.
+        r = await client.post(f"/crm/contratos/{contrato['id']}/aviso", headers=h)
+        assert r.status_code == 200, r.text
+        [(_, msg)] = correio.enviados
+        assert msg["Subject"].startswith("[TESTE] ")
+
+
+# ── 055: grupos de CNPJ, substituição e serviços ─────────────────────
+
+from tests.test_crm_proposta_multi_cnpj import (  # noqa: E402
+    FILIAL_1, FILIAL_2, MATRIZ, OUTRA, corpo as corpo_multi, vincular,
+)
+
+
+async def cenario_grupos(client, h, *, filiais=(FILIAL_1,), outra=True):
+    """Matriz + filiais (mesma raiz) e, opcionalmente, uma empresa de outra raiz."""
+    matriz = (await client.post("/crm/contas", json={
+        "razao_social": "PATIMIRIM PARTICIPACOES LTDA", "cnpj": MATRIZ, **ENDERECO,
+    }, headers=h)).json()
+    opp = (await client.post("/crm/oportunidades", json={"conta_id": matriz["id"]},
+                             headers=h)).json()
+    contas = [matriz]
+    for i, cnpj in enumerate(filiais, start=1):
+        c = (await client.post("/crm/contas", json={
+            "razao_social": f"PATIMIRIM FILIAL {i} LTDA", "cnpj": cnpj, **ENDERECO,
+        }, headers=h)).json()
+        assert (await vincular(client, h, opp["id"], c["id"])).status_code == 201
+        contas.append(c)
+    if outra:
+        c = (await client.post("/crm/contas", json={
+            "razao_social": "OUTRA EMPRESA LTDA", "cnpj": OUTRA, **ENDERECO,
+        }, headers=h)).json()
+        assert (await vincular(client, h, opp["id"], c["id"])).status_code == 201
+        contas.append(c)
+    itens = [{"conta_id": c["id"], "vidas": 4} for c in contas]
+    prop = (await client.post(f"/crm/oportunidades/{opp['id']}/propostas",
+                              json=corpo_multi(itens, escopo=["PGR", "CIPA - NR-05"]),
+                              headers=h)).json()
+    r = await client.post(f"/crm/propostas/{prop['id']}/aprovar", headers=h)
+    assert r.status_code == 200, r.text
+    contato = (await client.post("/crm/contatos", json={
+        "nome": "Eladir Quadros", "email": "eladir@cliente.com.br", "conta_id": matriz["id"],
+    }, headers=h)).json()
+    return SimpleNamespace(opp=opp, prop=prop, contas=contas, contato=contato)
+
+
+class TestGrupos:
+    async def test_padrao_separa_por_raiz(self, db_conn, client, usuario_adm, fake):
+        h = usuario_adm["headers"]
+        c = await cenario_grupos(client, h)
+        body = (await client.get(f"/crm/propostas/{c.prop['id']}/contrato-padrao",
+                                 headers=h)).json()
+        assert [g["raiz"] for g in body["grupos"]] == [MATRIZ[:8], OUTRA[:8]]
+        g1, g2 = body["grupos"]
+        assert g1["principal"] and not g2["principal"]
+        assert g1["contratante_razao_social"] == "PATIMIRIM PARTICIPACOES LTDA"
+        assert [x["cnpj"] for x in g1["cnpjs"]] == [MATRIZ, FILIAL_1]
+        assert [x["cnpj"] for x in g2["cnpjs"]] == [OUTRA]
+        assert body["servicos_sugeridos"] == ["cipa"]
+        assert {s["chave"] for s in body["servicos_catalogo"]} >= {"cipa", "ppp", "brigada"}
+
+    async def test_um_contrato_por_raiz(self, db_conn, client, usuario_adm, fake):
+        h = usuario_adm["headers"]
+        c = await cenario_grupos(client, h)
+        r1 = await enviar(client, h, c)  # sem raiz: o grupo do CNPJ principal
+        assert r1.status_code == 201, r1.text
+        b1 = r1.json()
+        assert b1["raiz_cnpj"] == MATRIZ[:8]
+        assert [x["cnpj"] for x in b1["cnpjs"]] == [MATRIZ, FILIAL_1]
+        # O outro grupo pode ir em paralelo: a trava é por raiz.
+        r2 = await enviar(client, h, c, raiz_cnpj=OUTRA[:8])
+        assert r2.status_code == 201, r2.text
+        assert r2.json()["contratante_razao_social"] == "OUTRA EMPRESA LTDA"
+        # O mesmo grupo de novo, não.
+        r3 = await enviar(client, h, c, raiz_cnpj=MATRIZ[:8])
+        assert r3.status_code == 409
+        assert "PATIMIRIM PARTICIPACOES" in r3.json()["detail"]
+
+    async def test_raiz_de_fora_da_proposta(self, db_conn, client, usuario_adm, fake):
+        h = usuario_adm["headers"]
+        c = await cenario_grupos(client, h)
+        r = await enviar(client, h, c, raiz_cnpj="12345678")
+        assert r.status_code == 422
+
+    async def test_servicos_vao_para_o_contrato(self, db_conn, client, usuario_adm, fake):
+        h = usuario_adm["headers"]
+        c = await cenario_grupos(client, h, outra=False)
+        r = await enviar(client, h, c, servicos=["cipa", "ppp"],
+                         servicos_livres=["Treinamento NR-35"])
+        assert r.status_code == 201, r.text
+        assert r.json()["servicos"] == ["cipa", "ppp"]
+        listas = json.loads(await db_conn.fetchval("SELECT campos FROM contratos"))["listas"]
+        assert listas["SERVICO_EXTRA"][0].startswith("2.7) Elaboração do PPP")
+        assert listas["SERVICO_EXTRA"][2] == "2.9) Treinamento NR-35;"
+        assert listas["ANEXO_LINHA"][0].startswith("PATIMIRIM FILIAL 1 LTDA – CNPJ")
+
+    async def test_servico_desconhecido(self, db_conn, client, usuario_adm, fake):
+        h = usuario_adm["headers"]
+        c = await cenario_grupos(client, h, outra=False)
+        r = await enviar(client, h, c, servicos=["xpto"])
+        assert r.status_code == 422
+
+
+class TestSubstituicao:
+    async def test_contrato_novo_substitui_o_assinado(self, db_conn, client, usuario_adm, fake):
+        h = usuario_adm["headers"]
+        c = await cenario_grupos(client, h, outra=False)
+        antigo = (await enviar(client, h, c)).json()
+        fake.assinar_todos("doc-1")
+        await webhook(client, "doc-1", "e1")
+
+        # Entrou mais uma filial: proposta nova com todos os CNPJs.
+        f2 = (await client.post("/crm/contas", json={
+            "razao_social": "PATIMIRIM FILIAL 2 LTDA", "cnpj": FILIAL_2, **ENDERECO,
+        }, headers=h)).json()
+        assert (await vincular(client, h, c.opp["id"], f2["id"])).status_code == 201
+        itens = [{"conta_id": x["id"], "vidas": 4} for x in c.contas + [f2]]
+        prop2 = (await client.post(f"/crm/oportunidades/{c.opp['id']}/propostas",
+                                   json=corpo_multi(itens), headers=h)).json()
+        await client.post(f"/crm/propostas/{prop2['id']}/aprovar", headers=h)
+
+        padrao = (await client.get(f"/crm/propostas/{prop2['id']}/contrato-padrao",
+                                   headers=h)).json()
+        assert [s["id"] for s in padrao["grupos"][0]["substitui"]] == [antigo["id"]]
+
+        c2 = SimpleNamespace(**{**vars(c), "prop": prop2})
+        novo = (await enviar(client, h, c2)).json()
+        assert [x["cnpj"] for x in novo["cnpjs"]] == [MATRIZ, FILIAL_1, FILIAL_2]
+        assert [s["versao"] for s in novo["substitui"]] == [1]
+        listas = json.loads(await db_conn.fetchval(
+            "SELECT campos FROM contratos WHERE id = $1", uuid.UUID(novo["id"])))["listas"]
+        assert "substitui integralmente" in listas["SUBSTITUICAO"][0]
+
+        # Enquanto o novo não é assinado, o antigo continua valendo.
+        lido = (await client.get(f"/crm/contratos/{antigo['id']}", headers=h)).json()
+        assert lido["status"] == "assinado"
+
+        fake.assinar_todos("doc-2")
+        await webhook(client, "doc-2", "e2")
+        lido = (await client.get(f"/crm/contratos/{antigo['id']}", headers=h)).json()
+        assert lido["status"] == "substituido"
+        assert lido["substituido_por_versao"] == 2
+        assert any(e["tipo"] == "substituido" for e in lido["eventos"])
+
+    async def test_cancelar_o_novo_nao_mexe_no_antigo(self, db_conn, client, usuario_adm, fake):
+        h = usuario_adm["headers"]
+        c = await cenario_grupos(client, h, outra=False)
+        antigo = (await enviar(client, h, c)).json()
+        fake.assinar_todos("doc-1")
+        await webhook(client, "doc-1", "e1")
+        novo = (await enviar(client, h, c)).json()
+        await client.post(f"/crm/contratos/{novo['id']}/cancelar",
+                          json={"motivo": "desistiu"}, headers=h)
+        lido = (await client.get(f"/crm/contratos/{antigo['id']}", headers=h)).json()
+        assert lido["status"] == "assinado"

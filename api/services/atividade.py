@@ -119,6 +119,8 @@ CATALOGO: dict[tuple[str, str], Tipo] = {
     ("POST", "/crm/propostas/{proposta_id}/contratos"): _t("Propostas", "Contrato enviado para assinatura", 46),
     ("POST", "/crm/contratos/{contrato_id}/reenviar"): _t("Propostas", "Contrato reenviado ao signatário", 47),
     ("POST", "/crm/contratos/{contrato_id}/cancelar"): _t("Propostas", "Contrato cancelado", 48),
+    # 054: aviso de contrato assinado ao faturamento, contratos e ADM.
+    ("POST", "/crm/contratos/{contrato_id}/aviso"): _t("Propostas", "Aviso de contrato reenviado", 49),
 
     # Contas e contatos
     ("POST", "/crm/contas"): _t("Contas e contatos", "Conta criada", 50),

@@ -32,7 +32,12 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 
 from config import settings
 from database import get_conn
-from routers.crm_contratos import _linha_contrato, aplicar_documento, guardar_assinado
+from routers.crm_contratos import (
+    _linha_contrato,
+    aplicar_documento,
+    avisar_assinado,
+    guardar_assinado,
+)
 from services import autentique
 from services import contrato as regras
 
@@ -89,4 +94,6 @@ async def autentique_webhook(request: Request, conn=Depends(get_conn)):
         evento_externo_id=evento["id"], evento_tipo=evento["tipo"],
     )
     await guardar_assinado(conn, atualizado, documento)
+    # 054: o último assinou -> faturamento, contratos e ADM. Nunca levanta.
+    await avisar_assinado(conn, await _linha_contrato(conn, contrato_id), documento)
     return {"ok": True, "status": atualizado["status"]}

@@ -39,6 +39,7 @@ import asyncio
 import json
 import logging
 from datetime import date, datetime, timezone
+from decimal import Decimal
 from types import SimpleNamespace
 from uuid import UUID
 from zoneinfo import ZoneInfo
@@ -62,6 +63,9 @@ from services import autentique
 from services import cnpj as cnpj_svc
 from services import contrato as regras
 from services import contrato_render as render
+from services import email_comercial
+from services import gmail
+from services.instancia import empresa_sigla
 from services.oportunidade import STATUS_ABERTOS
 
 log = logging.getLogger("hipo.contratos")
@@ -82,20 +86,23 @@ class SignatarioIn(BaseModel):
     usuario_id: UUID | None = None
 
 
-class ContratoIn(BaseModel):
+class PreviaIn(BaseModel):
+    # 055: qual grupo de CNPJ (raiz) vira este contrato. Em branco, o grupo
+    # do CNPJ principal da oportunidade.
+    raiz_cnpj: str | None = Field(default=None, pattern=r"^\d{8}$")
+    data_contrato: date | None = None
+    inicio_vigencia: date | None = None
+    dia_vencimento: int = Field(default=regras.DIA_VENCIMENTO_PADRAO, ge=1,
+                                le=regras.DIA_VENCIMENTO_MAX)
+    # 055: serviços além do básico (Cláusula 2, itens 2.7 em diante).
+    servicos: list[str] = Field(default_factory=list, max_length=len(regras.SERVICOS_EXTRAS))
+    servicos_livres: list[str] = Field(default_factory=list,
+                                       max_length=regras.MAX_SERVICOS_LIVRES)
+
+
+class ContratoIn(PreviaIn):
     # A contratada NÃO vem da tela: é o CEO, do .env (ver cabeçalho).
     signatarios: list[SignatarioIn] = Field(..., min_length=3, max_length=3)
-    data_contrato: date | None = None
-    inicio_vigencia: date | None = None
-    dia_vencimento: int = Field(default=regras.DIA_VENCIMENTO_PADRAO, ge=1,
-                                le=regras.DIA_VENCIMENTO_MAX)
-
-
-class PreviaIn(BaseModel):
-    data_contrato: date | None = None
-    inicio_vigencia: date | None = None
-    dia_vencimento: int = Field(default=regras.DIA_VENCIMENTO_PADRAO, ge=1,
-                                le=regras.DIA_VENCIMENTO_MAX)
 
 
 class CancelarIn(BaseModel):
@@ -128,6 +135,21 @@ class EventoOut(BaseModel):
     criado_em: datetime
 
 
+class CnpjContratoOut(BaseModel):
+    cnpj: str
+    cnpj_formatado: str
+    razao_social: str
+    vidas: int
+    mensalidade: Decimal
+
+
+class ContratoRefOut(BaseModel):
+    id: UUID
+    versao: int
+    data_contrato: date
+    oportunidade_numero: str | None = None
+
+
 class ContratoOut(BaseModel):
     id: UUID
     oportunidade_id: UUID
@@ -157,6 +179,21 @@ class ContratoOut(BaseModel):
     total_signatarios: int
     proximo_nome: str | None
     pode_cancelar: bool
+    # 054: aviso ao faturamento, contratos e ADM.
+    aviso_enviado_em: datetime | None = None
+    aviso_para: list[str] | None = None
+    aviso_remetente: str | None = None
+    aviso_erro: str | None = None
+    pode_reenviar_aviso: bool = False
+    # 055: grupo de CNPJ, serviços e substituição.
+    raiz_cnpj: str | None = None
+    contratante_razao_social: str | None = None
+    cnpjs: list[CnpjContratoOut] = []
+    servicos: list[str] = []
+    servicos_livres: list[str] = []
+    substitui: list[ContratoRefOut] = []
+    substituido_por_versao: int | None = None
+    substituido_em: datetime | None = None
 
 
 class SituacaoOut(BaseModel):
@@ -164,6 +201,8 @@ class SituacaoOut(BaseModel):
     problemas: list[str]
     sandbox: bool
     previa_disponivel: bool
+    # 054: para quem vai o aviso de contrato assinado. Vazio = desligado.
+    aviso_destinatarios: list[str] = []
 
 
 class PessoaOut(BaseModel):
@@ -171,6 +210,26 @@ class PessoaOut(BaseModel):
     nome: str
     email: str | None
     detalhe: str | None
+
+
+class ServicoOut(BaseModel):
+    chave: str
+    texto: str
+
+
+class GrupoOut(BaseModel):
+    """Um contrato possível: os CNPJs de uma raiz (matriz + filiais)."""
+    raiz: str
+    principal: bool
+    contratante_razao_social: str
+    contratante_cnpj: str
+    conta_id: UUID | None
+    endereco: str
+    pendencias_endereco: list[str]
+    cnpjs: list[CnpjContratoOut]
+    linhas_preco: list[str]
+    contrato_em_aberto_id: UUID | None
+    substitui: list[ContratoRefOut]
 
 
 class PadraoOut(BaseModel):
@@ -194,6 +253,10 @@ class PadraoOut(BaseModel):
     sugestao_testemunha_contratada_id: UUID | None
     contrato_em_aberto_id: UUID | None
     linhas_preco: list[str]
+    # 055
+    grupos: list[GrupoOut]
+    servicos_catalogo: list[ServicoOut]
+    servicos_sugeridos: list[str]
 
 
 # ── Helpers ──────────────────────────────────────────────────────────
@@ -250,16 +313,100 @@ def _datas(payload, hoje: date | None = None) -> tuple[date, date, int]:
     return data_contrato, inicio, payload.dia_vencimento
 
 
-def _campos(proposta: dict, conta: dict, data_contrato: date, inicio: date,
-            dia: int) -> tuple[dict, dict]:
+_COLUNAS_CONTA = """id, razao_social, cnpj, cep, logradouro, numero, complemento,
+                   bairro, cidade, uf"""
+
+
+async def _grupo(conn, proposta: dict, opp: dict, raiz: str | None) -> dict:
+    """
+    O grupo de CNPJs (uma raiz) que vira este contrato, com a conta da
+    contratante (para o endereço) e os endereços das demais (Anexo 1).
+    """
+    itens = proposta.get("itens") or []
+    grupos = regras.agrupar_itens(itens)
+    if not grupos:
+        raise HTTPException(422, "Esta proposta não tem CNPJ.")
+    principal = await conn.fetchval("SELECT cnpj FROM contas WHERE id = $1", opp["conta_id"])
+    raiz_principal = regras.raiz(principal)
+    if raiz is None:
+        grupo = next((g for g in grupos if g["raiz"] == raiz_principal), grupos[0])
+    else:
+        try:
+            grupo = regras.grupo_da_raiz(itens, raiz)
+        except regras.ContratoInvalido as e:
+            raise HTTPException(422, str(e))
+
+    contas_ids = [i["conta_id"] for i in grupo["itens"] if i.get("conta_id")]
+    rows = await conn.fetch(
+        f"SELECT {_COLUNAS_CONTA} FROM contas WHERE id = ANY($1::uuid[])", contas_ids,
+    )
+    por_id = {r["id"]: dict(r) for r in rows}
+    contratante = grupo["contratante"]
+    conta = por_id.get(contratante.get("conta_id")) or {
+        "id": None, "razao_social": contratante["razao_social"], "cnpj": contratante["cnpj"],
+    }
+    # Snapshot da proposta vence o cadastro na razão social: o contrato sai
+    # com o nome que foi negociado.
+    conta = {**conta, "razao_social": contratante["razao_social"],
+             "cnpj": cnpj_svc.normalizar(contratante["cnpj"])}
+    enderecos = {}
+    for i in grupo["itens"][1:]:
+        c = por_id.get(i.get("conta_id"))
+        if c and not regras.pendencias_endereco(c):
+            enderecos[cnpj_svc.normalizar(i["cnpj"])] = regras.endereco_formatado(c)
+    return {
+        **grupo,
+        "conta": conta,
+        "enderecos": enderecos,
+        "principal": grupo["raiz"] == raiz_principal,
+    }
+
+
+async def _substituiveis(conn, raiz: str, excluir: UUID | None = None) -> list[dict]:
+    """Os contratos ASSINADOS desta raiz (de qualquer oportunidade)."""
+    rows = await conn.fetch(
+        """
+        SELECT k.id, k.versao, k.data_contrato, o.numero AS oportunidade_numero
+          FROM contratos k
+          JOIN oportunidades o ON o.id = k.oportunidade_id
+         WHERE k.raiz_cnpj = $1 AND k.status = 'assinado'
+           AND ($2::uuid IS NULL OR k.id <> $2)
+         ORDER BY k.data_contrato, k.versao
+        """,
+        raiz, excluir,
+    )
+    return [dict(r) for r in rows]
+
+
+def _campos(proposta: dict, grupo: dict, data_contrato: date, inicio: date, dia: int,
+            servicos: list[str], livres: list[str],
+            substituidos: list[dict]) -> tuple[dict, dict]:
+    conta = grupo["conta"]
     faltam = regras.pendencias_endereco(conta)
     if faltam:
         raise HTTPException(
-            422, "Complete o endereço da conta antes do contrato (falta: "
-                 + ", ".join(faltam) + "). A contratante é qualificada com ele.",
+            422, f"Complete o endereço de {conta['razao_social']} antes do contrato "
+                 "(falta: " + ", ".join(faltam) + "). A contratante é qualificada com ele.",
         )
-    return regras.campos(proposta=proposta, conta=conta, data_contrato=data_contrato,
-                         inicio_vigencia=inicio, dia_vencimento=dia)
+    try:
+        return regras.campos(
+            proposta=proposta, conta=conta, itens_grupo=grupo["itens"],
+            data_contrato=data_contrato, inicio_vigencia=inicio, dia_vencimento=dia,
+            com_extras=grupo["principal"], servicos=servicos, servicos_livres=livres,
+            enderecos=grupo["enderecos"], substituidos=substituidos,
+        )
+    except regras.ContratoInvalido as e:
+        raise HTTPException(422, str(e))
+
+
+def _cnpj_out(item: dict) -> dict:
+    return {
+        "cnpj": cnpj_svc.normalizar(item["cnpj"]),
+        "cnpj_formatado": cnpj_svc.formatar(item["cnpj"]),
+        "razao_social": item["razao_social"],
+        "vidas": item["vidas"],
+        "mensalidade": item["mensalidade"],
+    }
 
 
 async def _pdf(simples: dict, listas: dict) -> bytes:
@@ -338,10 +485,13 @@ async def _validar_origens(conn, oportunidade_id: UUID, payload: ContratoIn) -> 
                 raise HTTPException(422, "Um dos usuários escolhidos não está ativo.")
 
 
-async def _em_aberto(conn, oportunidade_id: UUID) -> dict | None:
+async def _em_aberto(conn, oportunidade_id: UUID, raiz: str) -> dict | None:
     row = await conn.fetchrow(
-        "SELECT id, versao FROM contratos WHERE oportunidade_id = $1 AND status = 'enviado'",
-        oportunidade_id,
+        """
+        SELECT id, versao FROM contratos
+         WHERE oportunidade_id = $1 AND raiz_cnpj = $2 AND status = 'enviado'
+        """,
+        oportunidade_id, raiz,
     )
     return dict(row) if row else None
 
@@ -349,13 +499,22 @@ async def _em_aberto(conn, oportunidade_id: UUID) -> dict | None:
 _SELECT_CONTRATO = """
     SELECT c.*, p.versao AS proposta_versao, p.executivo_id,
            u.nome AS criado_por_nome, uc.nome AS cancelado_por_nome,
-           ct.razao_social AS conta_razao_social, o.numero AS oportunidade_numero
+           ct.razao_social AS conta_razao_social, ct.cnpj AS conta_cnpj,
+           o.numero AS oportunidade_numero,
+           -- 055: a contratante DESTE contrato (o 1o CNPJ do grupo), que nem
+           -- sempre e o CNPJ principal da oportunidade.
+           (SELECT x.razao_social FROM contrato_cnpjs x
+             WHERE x.contrato_id = c.id ORDER BY x.ordem LIMIT 1) AS contratante_razao_social,
+           (SELECT x.cnpj FROM contrato_cnpjs x
+             WHERE x.contrato_id = c.id ORDER BY x.ordem LIMIT 1) AS contratante_cnpj,
+           sp.versao AS substituido_por_versao
       FROM contratos c
       JOIN propostas p      ON p.id = c.proposta_id
       JOIN oportunidades o  ON o.id = c.oportunidade_id
       JOIN contas ct        ON ct.id = o.conta_id
       LEFT JOIN usuarios u  ON u.id = c.criado_por
       LEFT JOIN usuarios uc ON uc.id = c.cancelado_por
+      LEFT JOIN contratos sp ON sp.id = c.substituido_por
 """
 
 
@@ -411,7 +570,41 @@ async def _saida(conn, contrato: dict, user: dict) -> dict:
         "total_signatarios": len(sigs),
         "proximo_nome": proximo["nome"] if proximo else None,
         "pode_cancelar": _pode_cancelar(contrato, user),
+        "aviso_para": list(contrato.get("aviso_para") or []) or None,
+        "pode_reenviar_aviso": (contrato["status"] == regras.STATUS_ASSINADO
+                                and _pode_cancelar({**contrato, "status": regras.STATUS_ENVIADO},
+                                                   user)),
+        "cnpjs": [_cnpj_out(c) for c in await _cnpjs_do_contrato(conn, contrato["id"])],
+        "servicos": list(contrato.get("servicos") or []),
+        "servicos_livres": list(contrato.get("servicos_livres") or []),
+        "substitui": await _refs(conn, list(contrato.get("substitui_ids") or [])),
     }
+
+
+async def _cnpjs_do_contrato(conn, contrato_id: UUID) -> list[dict]:
+    rows = await conn.fetch(
+        """
+        SELECT conta_id, cnpj, razao_social, vidas, mensalidade
+          FROM contrato_cnpjs WHERE contrato_id = $1 ORDER BY ordem
+        """,
+        contrato_id,
+    )
+    return [dict(r) for r in rows]
+
+
+async def _refs(conn, ids: list) -> list[dict]:
+    if not ids:
+        return []
+    rows = await conn.fetch(
+        """
+        SELECT k.id, k.versao, k.data_contrato, o.numero AS oportunidade_numero
+          FROM contratos k JOIN oportunidades o ON o.id = k.oportunidade_id
+         WHERE k.id = ANY($1::uuid[])
+         ORDER BY k.data_contrato, k.versao
+        """,
+        ids,
+    )
+    return [dict(r) for r in rows]
 
 
 # ── Sincronização (usada pela rota, pelo webhook e pelo timer) ───────
@@ -530,7 +723,11 @@ async def _responsavel_aviso(conn, contrato: dict) -> UUID | None:
 async def _virar(conn, contrato: dict, status_novo: str, sigs: list[dict],
                  casados: dict, origem: str) -> None:
     """Contrato concluído (todos assinaram) ou recusado: grava e avisa."""
+    # A contratante deste contrato (055: pode não ser o CNPJ principal).
     razao = await conn.fetchval(
+        "SELECT razao_social FROM contrato_cnpjs WHERE contrato_id = $1 ORDER BY ordem LIMIT 1",
+        contrato["id"],
+    ) or await conn.fetchval(
         "SELECT ct.razao_social FROM oportunidades o JOIN contas ct ON ct.id = o.conta_id "
         "WHERE o.id = $1", contrato["oportunidade_id"],
     )
@@ -549,6 +746,26 @@ async def _virar(conn, contrato: dict, status_novo: str, sigs: list[dict],
             "VALUES ($1, 'concluido', $2, 'Todos assinaram. Contrato concluído.')",
             contrato["id"], origem,
         )
+        # 055: o contrato novo da raiz substitui os anteriores que ainda
+        # estavam valendo. Só na assinatura: enquanto o novo não é assinado,
+        # o antigo segue sendo o contrato da empresa.
+        substituidos = await conn.fetch(
+            """
+            UPDATE contratos
+               SET status = 'substituido', substituido_em = $2, substituido_por = $3,
+                   atualizado_em = NOW()
+             WHERE id = ANY($1::uuid[]) AND status = 'assinado'
+            RETURNING id
+            """,
+            list(contrato.get("substitui_ids") or []), quando, contrato["id"],
+        )
+        for r in substituidos:
+            await conn.execute(
+                "INSERT INTO contrato_eventos (contrato_id, tipo, origem, descricao) "
+                "VALUES ($1, 'substituido', $2, $3)",
+                r["id"], origem,
+                f"Substituído pelo contrato v{contrato['versao']}, assinado por todos.",
+            )
         titulo = regras.titulo_tarefa_assinado(razao)
         descricao = ("O contrato foi assinado por todos na Autentique. O PDF "
                      "assinado está na aba Contrato da oportunidade. Faça o "
@@ -634,6 +851,7 @@ async def sincronizar_um(conn, contrato: dict, *, origem: str = "sincronizacao")
         raise
     atualizado = await aplicar_documento(conn, contrato, documento, origem=origem)
     await guardar_assinado(conn, atualizado, documento)
+    await avisar_assinado(conn, await _linha_contrato(conn, contrato["id"]), documento)
     return await _linha_contrato(conn, contrato["id"])
 
 
@@ -649,11 +867,191 @@ async def pendentes_de_sincronizacao(conn) -> list[dict]:
         + """
          WHERE c.status = 'enviado'
             OR ($1 AND c.status = 'assinado' AND c.s3_chave_assinado IS NULL)
+            OR ($2 AND c.status = 'assinado' AND c.aviso_enviado_em IS NULL
+                AND NOT c.sandbox AND c.aviso_tentativas < $3)
          ORDER BY c.sincronizado_em NULLS FIRST
         """,
-        s3.disponivel(),
+        s3.disponivel(), aviso_ligado(), regras.MAX_TENTATIVAS_AVISO,
     )
     return [dict(r) for r in rows]
+
+
+# ── Aviso de contrato assinado (054) ─────────────────────────────────
+
+def aviso_ligado() -> bool:
+    return bool(regras.destinatarios_aviso(settings.CONTRATO_AVISO_DESTINATARIOS))
+
+
+async def _remetente_aviso(conn, contrato: dict) -> dict | None:
+    """
+    O executivo da proposta, se ativo; senão quem mandou o contrato. O e-mail
+    sai da caixa dele pelo Gmail (delegação no domínio, a mesma do 050).
+    """
+    row = await conn.fetchrow(
+        """
+        SELECT ue.nome AS ex_nome, ue.email AS ex_email, ue.ativo AS ex_ativo,
+               uc.nome AS cr_nome, uc.email AS cr_email, uc.ativo AS cr_ativo
+          FROM contratos c
+          JOIN propostas p      ON p.id = c.proposta_id
+          LEFT JOIN usuarios ue ON ue.id = p.executivo_id
+          LEFT JOIN usuarios uc ON uc.id = c.criado_por
+         WHERE c.id = $1
+        """,
+        contrato["id"],
+    )
+    if row is None:
+        return None
+    if row["ex_ativo"] and row["ex_email"]:
+        return {"nome": row["ex_nome"], "email": row["ex_email"]}
+    if row["cr_ativo"] and row["cr_email"]:
+        return {"nome": row["cr_nome"], "email": row["cr_email"]}
+    return None
+
+
+async def _pdf_assinado(contrato: dict, documento: dict | None) -> bytes:
+    """Do S3 quando já está lá; senão da Autentique."""
+    chave = contrato.get("s3_chave_assinado")
+    if chave and s3.disponivel():
+        try:
+            return await asyncio.to_thread(_ler_s3, chave)
+        except Exception as exc:  # noqa: BLE001 - cai para a Autentique
+            log.warning("contrato %s: S3 falhou no aviso: %s", contrato["id"], exc)
+    documento = documento or await autentique.consultar(contrato["autentique_id"])
+    url = (documento.get("files") or {}).get("signed")
+    if not url:
+        raise autentique.AutentiqueErro("A Autentique ainda não tem o PDF assinado.")
+    return await autentique.baixar(url)
+
+
+async def _falha_aviso(conn, contrato_id, mensagem: str) -> None:
+    await conn.execute(
+        """
+        UPDATE contratos
+           SET aviso_erro = $2, aviso_tentativas = aviso_tentativas + 1
+         WHERE id = $1
+        """,
+        contrato_id, mensagem[:500],
+    )
+
+
+def _razao_contratante(contrato: dict) -> str:
+    return contrato.get("contratante_razao_social") or contrato["conta_razao_social"]
+
+
+def _com_extras(contrato: dict) -> bool:
+    """Treinamentos e laudos vão só no contrato do grupo do CNPJ principal."""
+    return regras.raiz(contrato.get("conta_cnpj")) == contrato.get("raiz_cnpj")
+
+
+async def avisar_assinado(
+    conn, contrato: dict, documento: dict | None = None, *,
+    forcar: bool = False, usuario_id=None,
+) -> bool:
+    """
+    Manda o aviso de contrato assinado. Devolve True se saiu.
+
+    NUNCA levanta: é chamada do webhook e do timer, e um Gmail fora do ar
+    não pode fazer a Autentique achar que o webhook falhou (ela tentaria de
+    novo e o contrato já está gravado). A falha fica em aviso_erro, e o timer
+    tenta de novo até MAX_TENTATIVAS_AVISO.
+
+    Idempotente: aviso já enviado não sai de novo, a não ser com `forcar`
+    (o botão "Reenviar aviso" da tela).
+    """
+    if contrato["status"] != regras.STATUS_ASSINADO:
+        return False
+    if contrato.get("aviso_enviado_em") and not forcar:
+        return False
+    # Contrato de teste (sandbox) não avisa o faturamento sozinho: cobrança
+    # cadastrada por engano a partir de um teste é pior que aviso nenhum.
+    # Pelo botão da tela sai, com "[TESTE]" no assunto.
+    if contrato.get("sandbox") and not forcar:
+        return False
+
+    try:
+        remetente = await _remetente_aviso(conn, contrato)
+        destinos = regras.destinatarios_aviso(
+            settings.CONTRATO_AVISO_DESTINATARIOS,
+            remetente["email"] if remetente else None,
+        )
+        if not destinos:
+            if forcar:
+                await _falha_aviso(conn, contrato["id"],
+                                   "Nenhum destinatário configurado "
+                                   "(CONTRATO_AVISO_DESTINATARIOS no .env).")
+            return False
+        if remetente is None:
+            await _falha_aviso(conn, contrato["id"],
+                               "Nem o executivo da proposta nem quem mandou o contrato "
+                               "estão ativos; não há caixa de onde enviar.")
+            return False
+        if not gmail.configurado():
+            await _falha_aviso(conn, contrato["id"],
+                               "O envio pelo Gmail está desligado neste servidor.")
+            return False
+
+        pdf = await _pdf_assinado(contrato, documento)
+        proposta = await buscar_proposta(conn, contrato["proposta_id"])
+        sigs = await _signatarios(conn, contrato["id"])
+        cnpjs = await _cnpjs_do_contrato(conn, contrato["id"])
+        razao = _razao_contratante(contrato)
+        corpo = regras.corpo_aviso(
+            razao_social=razao,
+            cnpj=contrato.get("contratante_cnpj") or contrato.get("conta_cnpj") or "",
+            numero_oportunidade=contrato.get("oportunidade_numero"),
+            executivo_nome=proposta.get("executivo_nome"),
+            proposta=proposta, contrato=contrato, signatarios=sigs,
+            link=regras.url_oportunidade(settings.HIPO_URL_PUBLICA, empresa_sigla(),
+                                         contrato["oportunidade_id"]),
+            itens=cnpjs or None,
+            com_extras=_com_extras(contrato),
+        )
+        assunto = regras.assunto_aviso(razao, contrato.get("oportunidade_numero"))
+        if contrato.get("sandbox"):
+            assunto = "[TESTE] " + assunto
+        assinatura = await gmail.assinatura(remetente["email"])
+        mensagem = email_comercial.montar_mensagem(
+            remetente_nome=remetente["nome"] or "",
+            remetente_email=remetente["email"],
+            envio=email_comercial.Envio(destinos, [], assunto, corpo),
+            assinatura_html=assinatura.html,
+            anexo=email_comercial.Anexo(
+                regras.nome_arquivo(contrato.get("oportunidade_numero"), razao,
+                                    contrato["versao"], assinado=True),
+                pdf,
+            ),
+        )
+        resultado = await gmail.enviar(remetente["email"], mensagem)
+    except Exception as exc:  # noqa: BLE001 - nunca derruba quem chamou
+        log.warning("contrato %s: aviso falhou: %s", contrato["id"], exc)
+        await _falha_aviso(conn, contrato["id"], f"Falha ao montar o aviso: {exc}")
+        return False
+
+    if not resultado.ok:
+        await _falha_aviso(conn, contrato["id"], resultado.erro or "O Gmail recusou o envio.")
+        return False
+
+    async with conn.transaction():
+        await conn.execute(
+            """
+            UPDATE contratos
+               SET aviso_enviado_em = NOW(), aviso_para = $2, aviso_remetente = $3,
+                   aviso_erro = NULL, aviso_tentativas = aviso_tentativas + 1
+             WHERE id = $1
+            """,
+            contrato["id"], destinos, remetente["email"],
+        )
+        await conn.execute(
+            """
+            INSERT INTO contrato_eventos (contrato_id, tipo, origem, descricao, usuario_id)
+            VALUES ($1, 'aviso_enviado', 'hipo', $2, $3)
+            """,
+            contrato["id"],
+            f"Aviso de contrato assinado enviado por {remetente['email']} para "
+            + ", ".join(destinos),
+            usuario_id,
+        )
+    return True
 
 
 # ── Situação e padrão ────────────────────────────────────────────────
@@ -669,13 +1067,20 @@ async def situacao():
         "problemas": problemas,
         "sandbox": autentique.em_sandbox(),
         "previa_disponivel": libreoffice_disponivel() is not None,
+        "aviso_destinatarios": regras.destinatarios_aviso(settings.CONTRATO_AVISO_DESTINATARIOS),
     }
 
 
 @router.get("/propostas/{proposta_id}/contrato-padrao", response_model=PadraoOut)
 async def padrao(proposta_id: UUID, conn=Depends(get_conn), user=Depends(usuario_atual)):
-    """Tudo o que o formulário de envio precisa, já sugerido."""
-    proposta, opp, conta = await _contexto(conn, proposta_id)
+    """
+    Tudo o que o formulário de envio precisa, já sugerido.
+
+    055: `grupos` traz um contrato possível por raiz de CNPJ. Os campos de
+    cliente no topo (razão, CNPJ, endereço, preço) são os do primeiro grupo,
+    o do CNPJ principal — compatibilidade com a tela de um grupo só.
+    """
+    proposta, opp, _conta = await _contexto(conn, proposta_id)
     hoje = _hoje()
     contatos = await _contatos_disponiveis(conn, opp["id"])
     usuarios = await _usuarios_ativos(conn)
@@ -683,17 +1088,38 @@ async def padrao(proposta_id: UUID, conn=Depends(get_conn), user=Depends(usuario
     com_email = next((c for c in contatos if c["email"]), None)
     executivo = proposta.get("executivo_id")
     testemunha = executivo if any(u["id"] == executivo for u in usuarios) else user["id"]
-    aberto = await _em_aberto(conn, opp["id"])
+
+    grupos = []
+    for g in regras.agrupar_itens(proposta.get("itens") or []):
+        grupo = await _grupo(conn, proposta, opp, g["raiz"])
+        aberto = await _em_aberto(conn, opp["id"], grupo["raiz"])
+        grupos.append({
+            "raiz": grupo["raiz"],
+            "principal": grupo["principal"],
+            "contratante_razao_social": grupo["conta"]["razao_social"],
+            "contratante_cnpj": cnpj_svc.formatar(grupo["conta"]["cnpj"]),
+            "conta_id": grupo["conta"].get("id"),
+            "endereco": regras.endereco_formatado(grupo["conta"]),
+            "pendencias_endereco": regras.pendencias_endereco(grupo["conta"]),
+            "cnpjs": [_cnpj_out(i) for i in grupo["itens"]],
+            "linhas_preco": regras.linhas_preco(proposta, grupo["itens"], grupo["principal"]),
+            "contrato_em_aberto_id": aberto["id"] if aberto else None,
+            "substitui": await _substituiveis(conn, grupo["raiz"]),
+        })
+    grupos.sort(key=lambda g: not g["principal"])
+    if not grupos:
+        raise HTTPException(422, "Esta proposta não tem CNPJ.")
+    primeiro = grupos[0]
     return {
         "proposta_id": proposta["id"],
         "proposta_versao": proposta["versao"],
         "aprovada": bool(proposta.get("aprovada_em")),
         "oportunidade_aberta": opp["status"] in STATUS_ABERTOS,
-        "cliente_razao_social": conta["razao_social"],
-        "cliente_cnpj": cnpj_svc.formatar(conta["cnpj"]),
-        "endereco": regras.endereco_formatado(conta),
-        "pendencias_endereco": regras.pendencias_endereco(conta),
-        "conta_id": conta["id"],
+        "cliente_razao_social": primeiro["contratante_razao_social"],
+        "cliente_cnpj": primeiro["contratante_cnpj"],
+        "endereco": primeiro["endereco"],
+        "pendencias_endereco": primeiro["pendencias_endereco"],
+        "conta_id": primeiro["conta_id"] or opp["conta_id"],
         "contratada_nome": settings.CONTRATO_CONTRATADA_NOME,
         "contratada_email": settings.CONTRATO_CONTRATADA_EMAIL,
         "data_contrato": hoje,
@@ -710,9 +1136,23 @@ async def padrao(proposta_id: UUID, conn=Depends(get_conn), user=Depends(usuario
         ],
         "sugestao_contratante_id": (decisor or com_email or {}).get("id"),
         "sugestao_testemunha_contratada_id": testemunha,
-        "contrato_em_aberto_id": aberto["id"] if aberto else None,
-        "linhas_preco": regras.linhas_preco(proposta),
+        "contrato_em_aberto_id": primeiro["contrato_em_aberto_id"],
+        "linhas_preco": primeiro["linhas_preco"],
+        "grupos": grupos,
+        "servicos_catalogo": [{"chave": x.chave, "texto": x.texto}
+                              for x in regras.SERVICOS_EXTRAS],
+        "servicos_sugeridos": regras.servicos_sugeridos(proposta.get("escopo")),
     }
+
+
+async def _montar(conn, proposta: dict, opp: dict, payload: PreviaIn):
+    """(grupo, substituíveis, data, início, dia, simples, listas) do contrato."""
+    grupo = await _grupo(conn, proposta, opp, payload.raiz_cnpj)
+    substituiveis = await _substituiveis(conn, grupo["raiz"])
+    data_contrato, inicio, dia = _datas(payload)
+    simples, listas = _campos(proposta, grupo, data_contrato, inicio, dia,
+                              payload.servicos, payload.servicos_livres, substituiveis)
+    return grupo, substituiveis, data_contrato, inicio, dia, simples, listas
 
 
 @router.post("/propostas/{proposta_id}/contrato/previa")
@@ -721,11 +1161,11 @@ async def previa(
     conn=Depends(get_conn), user=Depends(usuario_atual),
 ):
     """O PDF exatamente como vai para a Autentique, sem mandar nada."""
-    proposta, opp, conta = await _contexto(conn, proposta_id)
-    data_contrato, inicio, dia = _datas(payload)
-    simples, listas = _campos(proposta, conta, data_contrato, inicio, dia)
+    proposta, opp, _conta = await _contexto(conn, proposta_id)
+    grupo, _subs, _d, _i, _v, simples, listas = await _montar(conn, proposta, opp, payload)
     pdf = await _pdf(simples, listas)
-    nome = regras.nome_arquivo(opp["numero"], conta["razao_social"], 1, assinado=False)
+    nome = regras.nome_arquivo(opp["numero"], grupo["conta"]["razao_social"], 1,
+                               assinado=False)
     return Response(
         content=pdf, media_type="application/pdf",
         headers={"Content-Disposition": f'inline; filename="previa-{nome}"'},
@@ -745,16 +1185,8 @@ async def enviar(
         raise HTTPException(503, "O envio de contrato está desligado neste servidor: "
                                  + "; ".join(problemas) + ".")
 
-    proposta, opp, conta = await _contexto(conn, proposta_id)
+    proposta, opp, _conta = await _contexto(conn, proposta_id)
     _exigir_enviavel(proposta, opp)
-    aberto = await _em_aberto(conn, opp["id"])
-    if aberto:
-        raise HTTPException(
-            409, f"Já há um contrato (v{aberto['versao']}) aguardando assinatura nesta "
-                 "oportunidade. Cancele-o antes de mandar outro.",
-        )
-
-    data_contrato, inicio, dia = _datas(payload)
     try:
         signatarios = regras.validar_signatarios(
             [s.model_dump() for s in payload.signatarios] + [_contratada()]
@@ -764,7 +1196,17 @@ async def enviar(
     await _validar_origens(conn, opp["id"], payload)
     origem = {s.papel: s for s in payload.signatarios}
 
-    simples, listas = _campos(proposta, conta, data_contrato, inicio, dia)
+    (grupo, substituiveis, data_contrato, inicio, dia,
+     simples, listas) = await _montar(conn, proposta, opp, payload)
+    aberto = await _em_aberto(conn, opp["id"], grupo["raiz"])
+    if aberto:
+        raise HTTPException(
+            409, f"Já há um contrato (v{aberto['versao']}) de "
+                 f"{grupo['conta']['razao_social']} aguardando assinatura. "
+                 "Cancele-o antes de mandar outro.",
+        )
+    razao = grupo["conta"]["razao_social"]
+
     pdf = await _pdf(simples, listas)
     posicoes = render.localizar_assinaturas(pdf)
     modelo_hash = regras.sha256(render.ler_modelo())
@@ -773,13 +1215,13 @@ async def enviar(
         "SELECT COALESCE(MAX(versao), 0) FROM contratos WHERE oportunidade_id = $1",
         opp["id"],
     )) + 1
-    nome_doc = regras.nome_documento(opp["numero"], conta["razao_social"], versao)
-    nome_pdf = regras.nome_arquivo(opp["numero"], conta["razao_social"], versao, assinado=False)
+    nome_doc = regras.nome_documento(opp["numero"], razao, versao)
+    nome_pdf = regras.nome_arquivo(opp["numero"], razao, versao, assinado=False)
 
     try:
         criado = await autentique.criar_documento(
             nome=nome_doc,
-            mensagem=regras.mensagem_para_signatarios(conta["razao_social"]),
+            mensagem=regras.mensagem_para_signatarios(razao),
             pdf=pdf, nome_arquivo=nome_pdf,
             signatarios=signatarios, posicoes=posicoes,
         )
@@ -807,16 +1249,32 @@ async def enviar(
                 INSERT INTO contratos (
                     oportunidade_id, proposta_id, versao, autentique_id, sandbox,
                     nome_documento, data_contrato, inicio_vigencia, dia_vencimento,
-                    campos, hash_original, modelo_hash, tarefa_envio_id, criado_por
+                    campos, hash_original, modelo_hash, tarefa_envio_id, criado_por,
+                    raiz_cnpj, servicos, servicos_livres, substitui_ids
                 )
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11, $12, $13, $14)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11, $12, $13, $14,
+                        $15, $16, $17, $18)
                 RETURNING id
                 """,
                 opp["id"], proposta["id"], versao, criado.id, autentique.em_sandbox(),
                 nome_doc, data_contrato, inicio, dia,
                 json.dumps({"simples": simples, "listas": listas}, ensure_ascii=False),
                 hash_original, modelo_hash, tarefa_id, user["id"],
+                grupo["raiz"], list(dict.fromkeys(payload.servicos)),
+                [x for x in (" ".join(l.split()) for l in payload.servicos_livres) if x],
+                [x["id"] for x in substituiveis],
             )
+            for ordem, item in enumerate(grupo["itens"], start=1):
+                await conn.execute(
+                    """
+                    INSERT INTO contrato_cnpjs (contrato_id, ordem, conta_id, cnpj,
+                                                razao_social, vidas, mensalidade)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7)
+                    """,
+                    contrato_id, ordem, item.get("conta_id"),
+                    cnpj_svc.normalizar(item["cnpj"]), item["razao_social"],
+                    item["vidas"], item["mensalidade"],
+                )
             for s in signatarios:
                 vindo = origem.get(s["papel"])
                 a = por_email.get(s["email"])
@@ -833,15 +1291,22 @@ async def enviar(
                     vindo.usuario_id if vindo else None,
                     a.public_id if a else None,
                 )
+            descricao = (f"Contrato v{versao} de {razao} enviado pela Autentique "
+                         f"(proposta v{proposta['versao']}")
+            if len(grupo["itens"]) > 1:
+                descricao += f", {len(grupo['itens'])} CNPJs"
+            descricao += ")"
+            if substituiveis:
+                descricao += (" — substitui " + ", ".join(f"v{x['versao']}" for x in substituiveis)
+                              + " quando for assinado")
+            if autentique.em_sandbox():
+                descricao += " — documento de TESTE (sandbox)"
             await conn.execute(
                 """
                 INSERT INTO contrato_eventos (contrato_id, tipo, origem, descricao, usuario_id)
                 VALUES ($1, 'enviado', 'hipo', $2, $3)
                 """,
-                contrato_id,
-                f"Contrato v{versao} enviado pela Autentique (proposta v{proposta['versao']})"
-                + (" — documento de TESTE (sandbox)" if autentique.em_sandbox() else ""),
-                user["id"],
+                contrato_id, descricao, user["id"],
             )
     except Exception:
         log.exception("contrato: falha ao gravar; cancelando %s na Autentique", criado.id)
@@ -976,6 +1441,31 @@ async def cancelar(
     return await _saida(conn, await _linha_contrato(conn, contrato_id), user)
 
 
+@router.post("/contratos/{contrato_id}/aviso", response_model=ContratoOut)
+async def reenviar_aviso(contrato_id: UUID, conn=Depends(get_conn), user=Depends(usuario_atual)):
+    """
+    "Reenviar aviso": manda de novo para faturamento, contratos e ADM — ou
+    pela primeira vez, se as tentativas automáticas falharam. Mesmas pessoas
+    que podem cancelar um contrato em andamento.
+    """
+    contrato = await _linha_contrato(conn, contrato_id)
+    if contrato["status"] != regras.STATUS_ASSINADO:
+        raise HTTPException(409, "O aviso só sai depois que todos assinam.")
+    if not _pode_cancelar({**contrato, "status": regras.STATUS_ENVIADO}, user):
+        raise HTTPException(
+            403, "Só quem mandou o contrato, o executivo da proposta ou a gestão "
+                 "podem reenviar o aviso.",
+        )
+    if not aviso_ligado():
+        raise HTTPException(503, "Nenhum destinatário configurado para o aviso "
+                                 "(CONTRATO_AVISO_DESTINATARIOS no .env).")
+    ok = await avisar_assinado(conn, contrato, forcar=True, usuario_id=user["id"])
+    atualizado = await _linha_contrato(conn, contrato_id)
+    if not ok:
+        raise HTTPException(502, atualizado.get("aviso_erro") or "O aviso não pôde ser enviado.")
+    return await _saida(conn, atualizado, user)
+
+
 @router.get("/contratos/{contrato_id}/arquivo")
 async def arquivo(
     contrato_id: UUID,
@@ -1012,7 +1502,7 @@ async def arquivo(
         if tipo == "assinado":
             await guardar_assinado(conn, contrato, documento)
 
-    nome = regras.nome_arquivo(contrato["oportunidade_numero"], contrato["conta_razao_social"],
+    nome = regras.nome_arquivo(contrato["oportunidade_numero"], _razao_contratante(contrato),
                                contrato["versao"], assinado=tipo == "assinado")
     return Response(
         content=corpo, media_type="application/pdf",
