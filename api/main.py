@@ -45,6 +45,7 @@ from routers import (
     crm_dominio,
     crm_emails,
     crm_enriquecimento,
+    crm_ligacoes,
     crm_oportunidade_contatos,
     crm_oportunidades,
     crm_parceiros,
@@ -52,6 +53,7 @@ from routers import (
     crm_prospeccao,
     crm_relatorios,
     crm_tarefas,
+    ligacoes_gravador,
     monitor,
     pdi,
     roleplay,
@@ -296,10 +298,26 @@ app.include_router(
     dependencies=[Depends(requer_modulo("crm"))],
 )
 
-# Webhooks de servicos externos: o UNICO router sem login. Quem prova a
+# Webhooks de servicos externos: sem login (como o gravador de ligacoes). Quem prova a
 # origem e a assinatura HMAC do corpo, conferida dentro da rota (ver
 # routers/webhooks.py). Publico em /api/webhooks/autentique.
 app.include_router(webhooks.router, prefix="/webhooks", tags=["Webhooks"])
+
+# Ligacoes pelo Vivo Voz Negocio (056). Modulo 'crm': quem liga e todo
+# cargo operacional, e modulo novo so valeria depois de todo mundo relogar.
+# Quem ve cada ligacao e decidido por linha, dentro do router
+# (services/ligacao.pode_ver): a vinculada e da negociacao; a sem vinculo,
+# so de quem ligou e da gestao.
+app.include_router(
+    crm_ligacoes.router,
+    prefix="/crm/ligacoes", tags=["CRM - Ligações"],
+    dependencies=[Depends(requer_modulo("crm"))],
+)
+
+# O gravador (agente Windows) que grava as ligacoes na maquina. SEM login de
+# usuario, como os webhooks: quem prova a origem e o token do gravador,
+# conferido dentro do router. Publico em /api/ligacoes/gravador/...
+app.include_router(ligacoes_gravador.router, prefix="/ligacoes/gravador", tags=["Ligações - Gravador"])
 
 # Anexos de tarefa. Prefixo /crm e nao /crm/tarefas: as rotas de leitura e
 # remocao sao enderecadas pelo ID DO ANEXO, sem repetir a tarefa no caminho,

@@ -1,0 +1,12 @@
+# HIPO Gravador -- dependencias (Windows 10/11, Python 3.10 a 3.13).
+# Versoes com teto de major: o gravador roda na maquina de cada executivo
+# e uma atualizacao quebrando a captura em silencio e a pior falha possivel.
+soundcard>=0.4.3,<0.5
+numpy>=1.26,<3
+soundfile>=0.12,<0.15
+pycaw>=20240210
+comtypes>=1.4,<2
+psutil>=5.9,<8
+requests>=2.31,<3
+pystray>=0.19,<0.20
+Pillow>=10,<13

@@ -13,6 +13,7 @@ import { useState } from 'react';
 import { Phone, MessageCircle, Linkedin, Save, X } from 'lucide-react';
 
 import api from '../../api';
+import { registrarLigacao } from './ligacoes';
 import Button from '../ui/Button';
 import Badge from '../ui/Badge';
 import AlertMessage from '../ui/AlertMessage';
@@ -61,8 +62,13 @@ export function linkTelefone(numero) {
  * Os dois telefones do contato, clicáveis: o número liga, o ícone verde abre
  * o WhatsApp. É a ação que o SDR faz a partir da tarefa — "FUP do lead Y" —
  * e procurar o número em outra tela é o atrito que este componente tira.
+ *
+ * 056: com `ligacao` (de onde se está ligando: oportunidade, conta ou
+ * tarefa, e o contato), o clique também avisa o HIPO. É o que permite casar
+ * a gravação do Vivo Voz Negócio com esta negociação. O aviso não segura o
+ * tel: — o softphone abre na hora, responda o servidor ou não.
  */
-export function TelefonesDoContato({ contato, compacto = false }) {
+export function TelefonesDoContato({ contato, compacto = false, ligacao = null }) {
   const numeros = [
     { n: contato.telefone, wa: contato.telefone_whatsapp },
     { n: contato.telefone_2, wa: contato.telefone_2_whatsapp },
@@ -72,7 +78,12 @@ export function TelefonesDoContato({ contato, compacto = false }) {
     <span className={`inline-flex flex-wrap items-center gap-x-3 gap-y-1 ${compacto ? 'text-xs' : 'text-sm'}`}>
       {numeros.map(({ n, wa }) => (
         <span key={n} className="inline-flex items-center gap-1">
-          <a href={linkTelefone(n)} className="inline-flex items-center gap-1 text-hipo-slate hover:text-hipo-blue">
+          <a
+            href={linkTelefone(n)}
+            onClick={ligacao ? () => registrarLigacao(ligacao, n) : undefined}
+            title={ligacao ? 'Ligar pelo Vivo Voz Negócio (gravada no HIPO)' : undefined}
+            className="inline-flex items-center gap-1 text-hipo-slate hover:text-hipo-blue"
+          >
             <Phone size={11} aria-hidden="true" />{n}
           </a>
           {wa && (

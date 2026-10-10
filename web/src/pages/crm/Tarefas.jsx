@@ -69,6 +69,7 @@ import ContaDetalhe from '../../components/crm/ContaDetalhe';
 import ModalDesfecho from '../../components/crm/ModalDesfecho';
 import AnexosTarefa from '../../components/crm/AnexosTarefa';
 import TranscricaoReuniao from '../../components/crm/TranscricaoReuniao';
+import LigacoesSemVinculo from '../../components/crm/LigacoesSemVinculo';
 import ModalReuniao from '../../components/crm/ModalReuniao';
 import {
   PainelReuniaoDaTarefa, SeloDesfecho, agendarProximaSeForReuniao,
@@ -753,6 +754,10 @@ export default function Tarefas() {
         mensagem ao mesmo tempo — o usuário lia o erro em duplicado e não
         sabia qual dos dois era o dele.
       */}
+      {/* 056: gravações do Vivo Voz Negócio que ainda não são de ninguém.
+          Some sozinha quando não há nenhuma. */}
+      <LigacoesSemVinculo />
+
       {erro && !aberta && (
         <div className="shrink-0"><AlertMessage tipo="erro">{erro}</AlertMessage></div>
       )}

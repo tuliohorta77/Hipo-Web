@@ -87,20 +87,24 @@ def configurado() -> bool:
 # ── Montagem e leitura (puras) ───────────────────────────────────────
 
 
-def payload(texto: str, contexto_reuniao: dict) -> dict:
+def payload(texto: str, contexto_reuniao: dict, instrucao: str = INSTRUCAO,
+            rotulo: str = "reunião") -> dict:
     """
     O corpo da chamada. `contexto_reuniao` leva empresa, tipo e data — o que
     ajuda a IA a entender a conversa sem ter de adivinhar de quem é.
+
+    `instrucao` e `rotulo` existem para a ligação (056) reusar a mesma
+    chamada e a mesma guarda numérica com o texto dela.
     """
     cabecalho = json.dumps(contexto_reuniao, ensure_ascii=False, default=str)
     return {
         "model": settings.ANTHROPIC_MODEL,
         "max_tokens": 1500,
-        "system": INSTRUCAO,
+        "system": instrucao,
         "messages": [{
             "role": "user",
             "content": (
-                f"Dados da reunião (JSON): {cabecalho}\n\n"
+                f"Dados da {rotulo} (JSON): {cabecalho}\n\n"
                 "Transcrição:\n\n" + recorte_para_ia(texto)
             ),
         }],
@@ -166,7 +170,8 @@ def conferir_numeros(
 # ── A chamada ────────────────────────────────────────────────────────
 
 
-async def resumir(texto: str, contexto_reuniao: dict) -> Resumo:
+async def resumir(texto: str, contexto_reuniao: dict, instrucao: str = INSTRUCAO,
+                  rotulo: str = "reunião") -> Resumo:
     """Gera o resumo. Nunca levanta: erro volta em `Resumo.erro`."""
     if not configurado():
         return Resumo(erro="ANTHROPIC_API_KEY não configurada — resumo desligado.")
@@ -181,7 +186,7 @@ async def resumir(texto: str, contexto_reuniao: dict) -> Resumo:
     try:
         async with httpx.AsyncClient(timeout=ia.TIMEOUT_S) as cliente:
             resp = await cliente.post(
-                ia.URL_API, headers=cabecalhos, json=payload(texto, contexto_reuniao),
+                ia.URL_API, headers=cabecalhos, json=payload(texto, contexto_reuniao, instrucao, rotulo),
             )
     except Exception as e:
         log.warning("resumo_reuniao: chamada falhou (%s: %s)", type(e).__name__, e)

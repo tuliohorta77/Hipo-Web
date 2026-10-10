@@ -163,7 +163,11 @@ export default function ContatosDaConta({ contaId, contatos, onMudou }) {
                       <Mail size={11} />{c.email}
                     </span>
                   )}
-                  <TelefonesDoContato contato={c} compacto />
+                  <TelefonesDoContato
+                    contato={c}
+                    compacto
+                    ligacao={contaId ? { conta_id: contaId, contato_id: c.id } : null}
+                  />
                   <LinkLinkedin url={c.linkedin} />
                 </div>
               </div>

@@ -288,6 +288,14 @@ class Settings(BaseSettings):
     # sigla (MOS) vazio = sem link, para nao apontar para a base errada.
     HIPO_URL_PUBLICA: str = ""
 
+    # -- Ligacoes gravadas (Vivo Voz Negocio, 056) ------------------------
+    # O audio sobe para o mesmo bucket dos anexos (S3_BUCKET_ANEXOS), no
+    # prefixo ligacoes/, e a transcricao e do AWS Transcribe pela role da
+    # instancia -- nenhuma chave nova. Dias que o AUDIO fica guardado; a
+    # transcricao fica para sempre. 0 = guarda o audio para sempre. Mesmo
+    # prazo do roleplay (LGPD: guardar so o tempo que tem uso).
+    LIGACOES_RETENCAO_DIAS: int = 180
+
     class Config:
         env_file = _ENV_FILE
 

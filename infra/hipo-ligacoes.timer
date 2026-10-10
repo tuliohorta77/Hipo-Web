@@ -1,0 +1,14 @@
+[Unit]
+Description=HIPO -- coleta as transcricoes das ligacoes a cada 2 minutos
+Documentation=file:///home/hipo/app/api/scripts/coletar_ligacoes.py
+
+[Timer]
+# A cada 2 minutos. O Transcribe devolve uma ligacao de 5 min em ~1 min:
+# com 2 min de intervalo a transcricao aparece na tela poucos minutos
+# depois de desligar. Passada sem nada para olhar custa uma consulta.
+OnCalendar=*:0/2
+Persistent=true
+RandomizedDelaySec=15
+
+[Install]
+WantedBy=timers.target

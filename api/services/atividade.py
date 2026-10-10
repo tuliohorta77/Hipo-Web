@@ -71,6 +71,14 @@ CATALOGO: dict[tuple[str, str], Tipo] = {
     ("POST", "/crm/tarefas/{tarefa_id}/concluir"): _t("Tarefas", "Tarefa concluída", 11),
     ("PATCH", "/crm/tarefas/{tarefa_id}"): _t("Tarefas", "Tarefa editada", 12),
     ("POST", "/crm/tarefas/{tarefa_id}/cancelar"): _t("Tarefas", "Tarefa cancelada", 13),
+    # Ligacoes pelo Vivo Voz Negocio (056). O clique em "ligar" e o gesto:
+    # se a ligacao aconteceu, a gravacao confirma depois. Vincular uma
+    # gravacao avulsa e descartar uma pessoal tambem sao decisoes de quem
+    # ligou. O "Atualizar" e leitura que viaja em POST.
+    ("POST", "/crm/ligacoes"): _t("Tarefas", "Ligação feita pelo HIPO", 14),
+    ("POST", "/crm/ligacoes/{ligacao_id}/vincular"): _t("Tarefas", "Gravação de ligação vinculada", 15),
+    ("POST", "/crm/ligacoes/{ligacao_id}/resumo"): _t("Tarefas", "Resumo de ligação gerado", 16),
+    ("DELETE", "/crm/ligacoes/{ligacao_id}"): _t("Tarefas", "Gravação de ligação descartada", 17),
 
     # Reunioes (agenda)
     ("POST", "/crm/agenda/reunioes"): _t("Reuniões", "Reunião agendada", 20),
@@ -233,6 +241,15 @@ IGNORADAS: frozenset[tuple[str, str]] = frozenset({
     ("POST", "/crm/propostas/{proposta_id}/contrato/previa"),
     ("POST", "/crm/contratos/{contrato_id}/sincronizar"),
     ("POST", "/webhooks/autentique"),
+    # Ligacoes (056): o gravador falando (sem usuario logado), o
+    # "Atualizar" da tela (mesma passada do timer) e a configuracao do
+    # proprio gravador -- nada disso produz algo para a operacao.
+    ("POST", "/ligacoes/gravador/pulso"),
+    ("POST", "/ligacoes/gravador/gravacoes"),
+    ("POST", "/ligacoes/gravador/gravacoes/{ligacao_id}/concluir"),
+    ("POST", "/crm/ligacoes/{ligacao_id}/atualizar"),
+    ("POST", "/crm/ligacoes/gravadores"),
+    ("DELETE", "/crm/ligacoes/gravadores/{gravador_id}"),
     # Relatorios. A consulta, o drilldown e a lista de valores sao LEITURA
     # que viaja em POST (o corpo nao cabe numa query string). Salvar,
     # editar, compartilhar e duplicar um relatorio e preferencia pessoal,

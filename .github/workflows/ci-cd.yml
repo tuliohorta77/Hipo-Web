@@ -114,6 +114,14 @@ jobs:
           path: /tmp/snapshot/schema.sql
           retention-days: 14
 
+      # 056: o gravador de ligacoes (agente Windows). Captura e mixer so
+      # existem no Windows; a deteccao, a fila, o envio e o FLAC rodam aqui.
+      - name: Testes do gravador de ligacoes
+        run: |
+          pip install "numpy<3" "soundfile<0.15" "requests<3"
+          cd gravador
+          python -m pytest -q -p no:cacheprovider tests --doctest-modules app/deteccao.py app/fila.py
+
       - name: Executar testes com cobertura
         env:
           DATABASE_URL: postgresql://hipo_test:hipo_test@localhost:5432/hipo_test
@@ -172,6 +180,16 @@ jobs:
         run: |
           cd web
           npm run test -- --coverage --reporter=verbose
+
+      # 056: o instalador do gravador de ligacoes vai junto do front, em
+      # /downloads/hipo-gravador.zip (link no Perfil). Montado aqui, e nao
+      # versionado: o zip sempre sai do gravador/ deste mesmo commit.
+      - name: Empacotar o gravador de ligacoes
+        run: |
+          mkdir -p web/public/downloads
+          cd gravador
+          zip -qr ../web/public/downloads/hipo-gravador.zip . -x 'tests/*' '*__pycache__*' '*.pyc'
+          unzip -l ../web/public/downloads/hipo-gravador.zip | tail -1
 
       - name: Build de produÃ§Ã£o
         run: |

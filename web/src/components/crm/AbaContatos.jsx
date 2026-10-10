@@ -215,7 +215,11 @@ export default function AbaContatos({ oportunidade, onMudou }) {
                   {c.cargo && <span className="text-xs text-hipo-slate">{c.cargo}</span>}
                 </div>
                 <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-hipo-slate mt-0.5">
-                  <TelefonesDoContato contato={c} compacto />
+                  <TelefonesDoContato
+                    contato={c}
+                    compacto
+                    ligacao={{ oportunidade_id: oportunidade.id, contato_id: c.contato_id }}
+                  />
                   {c.email && (
                     <a href={`mailto:${c.email.split(/[;,\s]+/).filter(Boolean).join(',')}`} className="inline-flex items-center gap-1 hover:text-hipo-blue">
                       <Mail size={11} aria-hidden="true" />{c.email}

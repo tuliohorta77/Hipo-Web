@@ -68,6 +68,7 @@ export function ContatoDaTarefa({ tarefa }) {
       <span>com <span className="text-hipo-ink">{tarefa.contato_nome}</span></span>
       <TelefonesDoContato
         compacto
+        ligacao={{ tarefa_id: tarefa.id, contato_id: tarefa.contato_id }}
         contato={{
           telefone: tarefa.contato_telefone,
           telefone_whatsapp: tarefa.contato_whatsapp,

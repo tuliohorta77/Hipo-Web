@@ -1,0 +1,37 @@
+[Unit]
+# HIPO -- coletor das ligacoes gravadas pelo Vivo Voz Negocio (056).
+#
+# Instalacao: infra/instalar-ligacoes.sh (o deploy-056 manda por scp).
+# O rsync do CI NAO leva a pasta infra/: a unit vai por scp.
+#
+# Verificacao:
+#   systemctl list-timers hipo-ligacoes.timer
+#   sudo systemctl start hipo-ligacoes.service   # roda agora
+#   journalctl -u hipo-ligacoes.service -n 50 --no-pager
+Description=HIPO -- transcricao e resumo das ligacoes gravadas
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# ec2-user, o mesmo usuario de hipo-api.service e dos outros timers: com
+# `hipo`, o pydantic-settings nao le o .env (600 ec2-user).
+User=ec2-user
+Group=ec2-user
+WorkingDirectory=/home/hipo/app/api
+EnvironmentFile=/home/hipo/app/.env
+Environment=PYTHONPATH=/home/hipo/app/api
+Environment=PYTHONUNBUFFERED=1
+
+ExecStart=/usr/bin/python3 -m scripts.coletar_ligacoes
+
+# Sem Restart=: o proprio timer e a retentativa, e o script e idempotente.
+TimeoutStartSec=300
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=read-only
+
+[Install]
+WantedBy=multi-user.target

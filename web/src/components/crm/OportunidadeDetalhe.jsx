@@ -21,6 +21,7 @@ import AbaProposta from './AbaProposta';
 import AbaContatos from './AbaContatos';
 import AbaEmails from './AbaEmails';
 import AbaContrato from './AbaContrato';
+import AbaLigacoes from './AbaLigacoes';
 import { SeloComite } from './contatoComum';
 import Tabs from '../ui/Tabs';
 import Input, { Select } from '../ui/Input';
@@ -496,6 +497,9 @@ export default function OportunidadeDetalhe({
     // 045: o comitê (ABM / multithreading). Logo depois de Tarefas: é com
     // essas pessoas que as tarefas acontecem.
     { key: 'contatos', label: 'Contatos', badge: oportunidade.qtd_contatos || undefined },
+    // 056: as ligações pelo Vivo Voz Negócio, gravadas e transcritas. Logo
+    // depois de Contatos: é de lá (e da tarefa) que se liga.
+    { key: 'ligacoes', label: 'Ligações' },
     { key: 'proposta', label: 'Proposta' },
     // 050: primeiro contato e proposta saem pelo Gmail do vendedor. Logo
     // depois de Proposta: é dali que o e-mail mais importante parte.
@@ -722,6 +726,8 @@ export default function OportunidadeDetalhe({
         {aba === 'contatos' && (
           <AbaContatos oportunidade={oportunidade} onMudou={onRecarregar} />
         )}
+
+        {aba === 'ligacoes' && <AbaLigacoes oportunidade={oportunidade} />}
 
         {/*
           Proposta ainda não existe como modelo. Vidas, valor por vida e o

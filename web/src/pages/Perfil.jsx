@@ -14,6 +14,7 @@ import PageHeader from '../components/ui/PageHeader';
 import Button from '../components/ui/Button';
 import Input from '../components/ui/Input';
 import Badge from '../components/ui/Badge';
+import GravadorLigacoes from '../components/crm/GravadorLigacoes';
 
 // Rótulos amigáveis pros módulos
 const MODULOS_LABEL = {
@@ -213,6 +214,10 @@ export default function Perfil() {
             </Button>
           </form>
         </Card>
+
+        {/* 056: o gravador das ligacoes do Vivo Voz Negocio. So para quem
+            opera o CRM: a conta de TV e a da UC nao ligam para ninguem. */}
+        {(user.modulos || []).includes('crm') && <GravadorLigacoes />}
 
         {/* Coluna 2: troca de senha */}
         <Card>
