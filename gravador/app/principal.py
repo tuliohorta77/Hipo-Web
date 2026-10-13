@@ -23,6 +23,7 @@ import time
 
 from app import VERSAO
 from app import config as cfgmod
+from app.atendimento import houve_chamando, inicio_do_atendimento
 from app.captura import Gravacao, escolher_loopback, escolher_microfone, salvar_flac
 from app.cliente import Cliente, ErroHipo, TokenInvalido, iso
 from app.deteccao import MaquinaDeChamada, casa_processo, sessoes_windows, softphone_ativo
@@ -151,7 +152,9 @@ class App:
         while not self.encerrando.is_set():
             agora = time.time()
             try:
-                ativo = softphone_ativo(sessoes_windows(), self.cfg.processos, self.cfg.detectar_por)
+                ativo = softphone_ativo(
+                    sessoes_windows(), self.cfg.processos, self.cfg.detectar_por, self.cfg.limiar_som,
+                )
                 self.erro_deteccao = None
             except Exception as e:  # noqa: BLE001
                 ativo = False
@@ -198,6 +201,18 @@ class App:
             self.gravacao_ignorada = False
             return
         estereo, erros = grav.parar()
+        inicio = ev.inicio
+        # 1.0.2: o microfone abre quando a pessoa DISCA. Corta o "chamando"
+        # do começo -- só quando houve tom de chamada antes, para não comer o
+        # "Controller MedSeg, bom dia" de uma ligação recebida.
+        try:
+            corte = inicio_do_atendimento(estereo[:, 1], self.cfg.taxa)
+            if corte and houve_chamando(estereo[:, 1], self.cfg.taxa, corte + 0.6):
+                estereo = estereo[int(corte * self.cfg.taxa):]
+                inicio += corte
+                log.info("chamando cortado: %.1f s antes do atendimento", corte)
+        except Exception:  # noqa: BLE001 - corte é acessório; na dúvida, manda inteiro
+            log.exception("deteccao do atendimento falhou; gravacao segue inteira")
         duracao = len(estereo) / self.cfg.taxa
         if duracao < self.cfg.min_duracao_s:
             log.info("chamada de %.1f s: curta demais, nao envia", duracao)
@@ -210,10 +225,10 @@ class App:
             self._avisar("Não foi possível salvar a gravação da ligação. Veja o diário.")
             return
         self.fila.adicionar(id_, {
-            "inicio_ts": ev.inicio,
-            "fim_ts": ev.inicio + duracao,
+            "inicio_ts": inicio,
+            "fim_ts": inicio + duracao,
             "duracao_s": duracao,
-            "inicio": iso(ev.inicio),
+            "inicio": iso(inicio),
             "erros_captura": erros,
         })
         log.info("ligacao gravada: %.0f s, %d KB, na fila como %s", duracao, tamanho // 1024, id_)
@@ -268,6 +283,15 @@ class App:
 
 
 def _iniciar_com() -> None:
+    """
+    Garante a soundcard importada (ela inicia o COM do processo em MTA)
+    ANTES de qualquer coisa do comtypes nesta thread. O inverso faz a
+    soundcard receber S_FALSE e recusar o dispositivo (ver hipo_gravador.pyw).
+    """
+    try:
+        import soundcard  # noqa: F401
+    except Exception:  # noqa: BLE001 - fora do Windows
+        pass
     try:
         import comtypes
         comtypes.CoInitializeEx(0)
@@ -344,11 +368,41 @@ def cmd_descobrir(segundos: int) -> int:
     return 0
 
 
+def cmd_medir(segundos: int, processos: list[str]) -> int:
+    """
+    Diagnóstico: o pico de som das sessões do softphone a cada meio segundo.
+
+    Serve para quando o softphone deixa o áudio aberto o tempo todo (sessão
+    sempre "ativa"): mostra se, fora de chamada, o som dele é zero absoluto
+    -- e então dá para detectar a chamada pelo som que passa.
+    """
+    _iniciar_com()
+    print(f"Medindo o som do softphone por {segundos} s (meio segundo por linha).")
+    print("Fique uns 15 s SEM ligar, depois ligue, fale, desligue e espere mais 15 s.\n")
+    print("hora      saida      microfone")
+    fim = time.time() + segundos
+    while time.time() < fim:
+        try:
+            ss = [s for s in sessoes_windows() if casa_processo(s.processo, processos)]
+        except Exception as e:  # noqa: BLE001
+            print(f"erro lendo sessões: {e}")
+            ss = []
+
+        def maior(fluxo):
+            vals = [s.pico for s in ss if s.fluxo == fluxo and s.pico is not None]
+            return f"{max(vals):.5f}" if vals else "   -   "
+
+        print(f"{time.strftime('%H:%M:%S')}  {maior('saida'):>9}  {maior('microfone'):>9}", flush=True)
+        time.sleep(0.5)
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="hipo_gravador", description="HIPO Gravador de ligações")
     p.add_argument("--console", action="store_true")
     p.add_argument("--testar", action="store_true")
     p.add_argument("--descobrir", nargs="?", const=60, type=int, metavar="SEGUNDOS")
+    p.add_argument("--medir", nargs="?", const=90, type=int, metavar="SEGUNDOS")
     p.add_argument("--configurar", nargs=2, metavar=("URL", "TOKEN"))
     p.add_argument("--versao", action="store_true")
     a = p.parse_args(argv)
@@ -363,6 +417,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_testar(cfg)
     if a.descobrir is not None:
         return cmd_descobrir(a.descobrir)
+    if a.medir is not None:
+        return cmd_medir(a.medir, cfg.processos)
 
     configurar_log(a.console)
     if not instancia_unica():

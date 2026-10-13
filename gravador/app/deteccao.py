@@ -90,6 +90,9 @@ class Sessao:
     processo: str
     ativa: bool
     dispositivo: str
+    # Pico do som que passou pela sessão agora (0 a 1), pelo medidor do
+    # Windows. None quando o Windows não deu o medidor desta sessão.
+    pico: float | None = None
 
 
 def sessoes_windows() -> list[Sessao]:
@@ -100,6 +103,7 @@ def sessoes_windows() -> list[Sessao]:
     import comtypes
     import psutil
     from pycaw.api.audiopolicy import IAudioSessionControl2, IAudioSessionManager2
+    from pycaw.api.endpointvolume import IAudioMeterInformation
     from pycaw.utils import AudioUtilities
 
     saida: list[Sessao] = []
@@ -132,13 +136,30 @@ def sessoes_windows() -> list[Sessao]:
                     nome = psutil.Process(pid).name()
                 except Exception:  # noqa: BLE001
                     nome = f"pid {pid}"
-                saida.append(Sessao(fluxo, pid, nome, estado == 1, dev_id))
+                try:
+                    pico = float(ctl.QueryInterface(IAudioMeterInformation).GetPeakValue())
+                except Exception:  # noqa: BLE001 - nem toda sessão expõe o medidor
+                    pico = None
+                saida.append(Sessao(fluxo, pid, nome, estado == 1, dev_id, pico))
     return saida
 
 
-def softphone_ativo(sessoes: list[Sessao], processos: list[str], detectar_por: str) -> bool:
+def softphone_ativo(sessoes: list[Sessao], processos: list[str], detectar_por: str,
+                    limiar_som: float = 0.0002) -> bool:
+    """
+    Está em chamada agora?
+
+    "som" (padrão): passa som pela saída do softphone. Se o Windows não deu o
+    medidor de nenhuma sessão de saída dele, cai no modo "microfone".
+    """
+    do_soft = [s for s in sessoes if casa_processo(s.processo, processos)]
+    if detectar_por == "som":
+        picos = [s.pico for s in do_soft if s.fluxo == "saida" and s.pico is not None]
+        if picos:
+            return max(picos) > limiar_som
+        detectar_por = "microfone"
     fluxo = "saida" if detectar_por == "saida" else "microfone"
-    return any(s.ativa and s.fluxo == fluxo and casa_processo(s.processo, processos) for s in sessoes)
+    return any(s.ativa and s.fluxo == fluxo for s in do_soft)
 
 
 def softphone_aberto(sessoes: list[Sessao], processos: list[str]) -> bool:

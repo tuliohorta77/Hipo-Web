@@ -38,12 +38,21 @@ class Config:
     token: str = ""
     processos: list[str] = field(default_factory=lambda: list(PROCESSOS_PADRAO))
     # Como saber que a chamada está acontecendo:
-    #   microfone = o softphone abriu o microfone (padrão: o toque de uma
-    #               chamada recebida não abre o microfone, então não grava
-    #               o "trim-trim");
-    #   saida     = o softphone está tocando som (fallback, se o softphone
-    #               deixar o microfone aberto o tempo todo).
-    detectar_por: str = "microfone"
+    #   som       = está passando som pela SAÍDA do softphone (padrão desde a
+    #               1.0.4). Fora de chamada a saída dele é zero absoluto; na
+    #               chamada nunca é -- até no silêncio do cliente tem o ruído
+    #               da linha. Medido em 13/10/2026 com headset Logitech USB, em
+    #               que o Vivo deixa microfone e saída abertos o tempo todo.
+    #   microfone = o softphone abriu o microfone (o modo da 1.0.0 a 1.0.3;
+    #               só serve se o softphone fecha o microfone entre chamadas);
+    #   saida     = a sessão de saída do softphone está aberta.
+    detectar_por: str = "som"
+    # Pico de som (0 a 1) acima do qual a saída "está passando som". O ruído
+    # da linha numa chamada medido foi ~0,0013; fora de chamada, 0,00000.
+    limiar_som: float = 0.0002
+    # Versão do formato do config.json. A 2 trocou o padrão de detecção para
+    # "som"; config gravado antes disso é migrado no carregar().
+    config_versao: int = 2
     # Qual microfone e qual saída gravar:
     #   comunicacao = o dispositivo padrão de COMUNICAÇÃO do Windows (o
     #                 headset, normalmente — é o que softphone usa);
@@ -94,6 +103,16 @@ def carregar(caminho: Path | None = None) -> Config:
     campos = {k: bruto[k] for k in asdict(padrao) if k in bruto}
     cfg = Config(**{**asdict(padrao), **campos})
     cfg.url = (cfg.url or URL_PADRAO).rstrip("/")
+    if int(bruto.get("config_versao", 1) or 1) < 2:
+        # Instalações até a 1.0.3 gravaram "microfone" sem ninguém escolher.
+        # Passam para "som", que funciona com e sem o microfone preso.
+        if cfg.detectar_por == "microfone":
+            cfg.detectar_por = "som"
+        cfg.config_versao = 2
+        try:
+            salvar(cfg, caminho)
+        except OSError:
+            pass
     return cfg
 
 

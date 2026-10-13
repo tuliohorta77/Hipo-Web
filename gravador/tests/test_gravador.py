@@ -296,3 +296,134 @@ def test_cliente_monta_o_pedido_da_gravacao():
     assert corpo["inicio"] == "1970-01-01T00:00:00+00:00"
     assert corpo["duracao_s"] == 60.0 and corpo["tamanho_bytes"] == 999
     assert corpo["id_local"] == "abc12345" and corpo["formato"] == "flac"
+
+
+def test_soundcard_vem_antes_do_comtypes_no_ponto_de_entrada():
+    """
+    A 1.0.0 falhava com "Error 0x100000001": o comtypes iniciava o COM antes
+    e a soundcard tomava o S_FALSE por erro. A ordem no .pyw é a correção.
+    """
+    texto = (Path(__file__).resolve().parents[1] / "hipo_gravador.pyw").read_text(encoding="utf-8")
+    assert "import soundcard" in texto
+    assert texto.index("import soundcard") < texto.index("from app.principal import main")
+
+
+# ── Corte do "chamando" (1.0.2) ──────────────────────────────────────
+
+from app.atendimento import classificar_quadros, houve_chamando, inicio_do_atendimento  # noqa: E402
+
+TAXA = 16000
+
+
+def _tom(seg, freqs=(425,), amp=8000):
+    t = np.arange(int(seg * TAXA)) / TAXA
+    return sum(np.sin(2 * np.pi * f * t) for f in freqs) * (amp / len(freqs))
+
+
+def _silencio(seg):
+    return np.zeros(int(seg * TAXA))
+
+
+def _voz(seg, seed=1):
+    """Fala de mentira: fundamental que varia + harmônicos + ruído, até ~3 kHz."""
+    rng = np.random.default_rng(seed)
+    t = np.arange(int(seg * TAXA)) / TAXA
+    f0 = 140 + 40 * np.sin(2 * np.pi * 3 * t)
+    fase = 2 * np.pi * np.cumsum(f0) / TAXA
+    s = sum(np.sin(k * fase) / k for k in range(1, 20))
+    return (s * 3000 + rng.normal(0, 600, len(t)))
+
+
+def _cadencia_br(seg):
+    """425 Hz, 1 s ligado e 4 s desligado."""
+    partes, feito = [], 0.0
+    while feito < seg:
+        partes += [_tom(1.0), _silencio(4.0)]
+        feito += 5.0
+    return np.concatenate(partes)[: int(seg * TAXA)]
+
+
+def test_classifica_tom_silencio_e_voz():
+    sinal = np.concatenate([_tom(0.5), _silencio(0.5), _voz(0.5)])
+    letras = classificar_quadros(sinal.astype("int16"), TAXA)
+    assert letras[:10] == "t" * 10 and letras[10:20] == "s" * 10
+    assert letras[20:].count("v") >= 9
+
+
+def test_corta_o_chamando_brasileiro():
+    sinal = np.concatenate([_cadencia_br(12), _voz(5)]).astype("int16")
+    corte = inicio_do_atendimento(sinal, TAXA)
+    assert 11.0 <= corte <= 12.0
+    assert houve_chamando(sinal, TAXA, corte + 0.6)
+
+
+def test_chamando_americano_tambem():
+    sinal = np.concatenate([_tom(2, (440, 480)), _silencio(4), _voz(3)]).astype("int16")
+    corte = inicio_do_atendimento(sinal, TAXA)
+    assert 5.0 <= corte <= 6.0
+
+
+def test_ninguem_atendeu_nao_corta():
+    assert inicio_do_atendimento(_cadencia_br(20).astype("int16"), TAXA) is None
+
+
+def test_ligacao_recebida_sem_tom_nao_corta():
+    """Cliente quieto no começo (o executivo fala primeiro): não houve chamando."""
+    sinal = np.concatenate([_silencio(3), _voz(3)]).astype("int16")
+    corte = inicio_do_atendimento(sinal, TAXA)
+    assert corte is not None and not houve_chamando(sinal, TAXA, corte + 0.6)
+
+
+def test_versao_existe():
+    """A 1.0.2 saiu com app/__init__.py vazio e o gravador nem abria."""
+    from app import VERSAO
+    assert VERSAO.count(".") == 2
+
+
+# ── Detecção pelo som (1.0.4) ────────────────────────────────────────
+
+def _s(fluxo, pico, ativa=True, proc="VivoVozNegocio.exe"):
+    return Sessao(fluxo, 1, proc, ativa, "d", pico)
+
+
+def test_som_vivo_com_audio_preso_fora_de_chamada():
+    """Medido em 13/10: microfone e saída 'ativos' sempre; saída 0,00000 sem chamada."""
+    fora = [_s("microfone", 0.02), _s("saida", 0.0)]
+    assert not softphone_ativo(fora, ["VivoVoz"], "som")
+    assert softphone_ativo(fora, ["VivoVoz"], "microfone")      # o bug da 1.0.3
+
+
+def test_som_ruido_da_linha_conta_como_chamada():
+    assert softphone_ativo([_s("microfone", 0.02), _s("saida", 0.0013)], ["VivoVoz"], "som")
+
+
+def test_som_sem_medidor_cai_no_microfone():
+    assert softphone_ativo([_s("microfone", None), _s("saida", None, ativa=False)], ["VivoVoz"], "som")
+
+
+def test_som_de_outro_programa_nao_conta():
+    assert not softphone_ativo([_s("saida", 0.5, proc="chrome.exe")], ["VivoVoz"], "som")
+
+
+def test_maquina_com_amostras_reais():
+    """A sequência medida: zeros, chamada (com vales de 0,0013), zeros."""
+    picos = [0.0] * 20 + [0.27, 0.31, 0.0014, 0.0015, 0.46, 0.0013] * 10 + [0.0] * 10
+    m = MaquinaDeChamada(fim_apos_s=4)
+    eventos = []
+    for i, p in enumerate(picos):
+        ev = m.atualizar(softphone_ativo([_s("saida", p)], ["VivoVoz"], "som"), i * 0.5)
+        if ev:
+            eventos.append(ev.tipo)
+    assert eventos == ["inicio", "fim"]
+
+
+def test_config_antiga_migra_para_som(tmp_path):
+    c = tmp_path / "c.json"
+    c.write_text(json.dumps({"url": "https://x/api", "token": "hipograv_a", "detectar_por": "microfone"}))
+    cfg = cfgmod.carregar(c)
+    assert cfg.detectar_por == "som" and cfg.config_versao == 2
+    assert json.loads(c.read_text())["detectar_por"] == "som"
+    # Quem escolher "microfone" depois da migração fica com "microfone".
+    d = tmp_path / "d.json"
+    d.write_text(json.dumps({"token": "hipograv_a", "detectar_por": "microfone", "config_versao": 2}))
+    assert cfgmod.carregar(d).detectar_por == "microfone"

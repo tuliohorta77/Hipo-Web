@@ -174,14 +174,10 @@ class Gravacao:
             t.start()
 
     def _ler(self, canal: int, pedido: str) -> None:
-        try:
-            import comtypes  # noqa: F401 - garante COM nesta thread
-            try:
-                comtypes.CoInitializeEx(0)  # MTA, igual ao resto do programa
-            except OSError:
-                pass
-        except ImportError:
-            pass
+        # Sem CoInitialize aqui: o COM do processo já está em MTA (a
+        # soundcard iniciou no import, em hipo_gravador.pyw), e toda thread
+        # do processo entra nele sozinha. Chamar o comtypes antes da
+        # soundcard numa thread é exatamente o que derrubava a 1.0.0.
         try:
             dev = escolher_microfone(pedido) if canal == 0 else escolher_loopback(pedido)
             log.info("canal %d gravando de: %s", canal, getattr(dev, "name", dev))

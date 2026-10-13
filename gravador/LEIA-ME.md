@@ -22,7 +22,7 @@ No fim, aparece um ícone **verde** perto do relógio. O instalador também deix
 
 ## Como funciona
 
-- O gravador percebe a chamada pelo áudio do softphone: quando o Vivo Voz Negócio abre o **microfone**, a gravação começa. Quando o microfone fica 4 segundos sem uso, a gravação termina.
+- O gravador percebe a chamada pelo som que passa na saída do Vivo Voz Negócio. Fora de chamada, essa saída fica em silêncio absoluto. Durante a chamada nunca fica, porque até o silêncio do cliente traz o ruído da linha. Quando ela fica 4 segundos em silêncio absoluto, a gravação termina. O "chamando" do começo é cortado.
 - Ele grava em **dois canais**: o microfone (quem ligou) e o som que o computador toca (o cliente). Por isso a transcrição separa os dois lados.
 - O áudio sai do **dispositivo de comunicação** do Windows, que normalmente é o headset. Música tocando no mesmo fone durante a ligação também entra na gravação.
 - Antes de ir para o HIPO, a gravação fica em `%LOCALAPPDATA%\HIPO Gravador\fila`. Sem internet, ela espera ali e é enviada quando a conexão voltar, por até 7 dias.
@@ -49,7 +49,8 @@ Ele lista os programas que usaram o microfone durante a ligação. Acrescente um
 **Outros ajustes** em `config.json`:
 
 - `"entrada"` e `"saida"`: o valor `"comunicacao"` (padrão) usa o dispositivo de comunicação do Windows, `"padrao"` usa o dispositivo padrão comum, e um trecho do nome escolhe um dispositivo específico (ex.: `"Jabra"`).
-- `"detectar_por"`: use `"saida"` se o softphone deixar o microfone aberto o tempo todo.
+- `"detectar_por"`: `"som"` (padrão) detecta a chamada pelo som na saída do softphone. `"microfone"` detecta pelo microfone aberto e só funciona se o softphone fecha o microfone entre uma chamada e outra.
+- `"limiar_som"`: o pico de som acima do qual a saída conta como "passando som". O padrão é `0.0002`.
 
 ## Desinstalar
 

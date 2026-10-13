@@ -12,6 +12,17 @@ import sys
 # dois discordarem na mesma thread, o segundo falha com RPC_E_CHANGED_MODE.
 sys.coinit_flags = 0  # COINIT_MULTITHREADED
 
+# A soundcard PRIMEIRO. Ela chama CoInitializeEx no import e trata qualquer
+# resposta diferente de S_OK como erro -- inclusive S_FALSE ("o COM desta
+# thread ja estava iniciado"), que e o que volta quando o comtypes chegou
+# antes. Sintoma: "Microfone FALHOU: Error 0x100000001" (1.0.0). Importada
+# aqui, na thread principal e antes de tudo, ela inicia o COM do processo;
+# o comtypes recebe S_FALSE depois e aceita normalmente.
+try:
+    import soundcard  # noqa: F401,E402
+except Exception:  # noqa: BLE001 - fora do Windows, ou lib faltando: --testar diz
+    pass
+
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from app.principal import main  # noqa: E402
