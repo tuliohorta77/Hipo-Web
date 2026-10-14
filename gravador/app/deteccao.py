@@ -165,3 +165,25 @@ def softphone_ativo(sessoes: list[Sessao], processos: list[str], detectar_por: s
 def softphone_aberto(sessoes: list[Sessao], processos: list[str]) -> bool:
     """O softphone tem QUALQUER sessão (aberto, mesmo sem chamada)?"""
     return any(casa_processo(s.processo, processos) for s in sessoes)
+
+
+def dispositivos_do_softphone(sessoes: list[Sessao], processos: list[str]) -> tuple[str | None, str | None]:
+    """
+    (microfone, saída) que o SOFTPHONE está usando, como ids WASAPI.
+
+    O "dispositivo de comunicação" do Windows nem sempre é o que o softphone
+    usa: em 13/10/2026 o Vivo pegava o microfone do notebook (Realtek) com o
+    headset Logitech como padrão, e o gravador gravava o microfone do
+    headset, mudo. Seguir a sessão do próprio softphone acaba com isso.
+
+    Entre as sessões dele, fica a ativa de maior pico (a que está passando
+    som agora).
+    """
+    def melhor(fluxo):
+        cands = [s for s in sessoes if s.fluxo == fluxo and casa_processo(s.processo, processos)]
+        if not cands:
+            return None
+        cands.sort(key=lambda s: (s.ativa, s.pico or 0.0), reverse=True)
+        return cands[0].dispositivo
+
+    return melhor("microfone"), melhor("saida")

@@ -421,9 +421,51 @@ def test_config_antiga_migra_para_som(tmp_path):
     c = tmp_path / "c.json"
     c.write_text(json.dumps({"url": "https://x/api", "token": "hipograv_a", "detectar_por": "microfone"}))
     cfg = cfgmod.carregar(c)
-    assert cfg.detectar_por == "som" and cfg.config_versao == 2
+    assert cfg.detectar_por == "som" and cfg.config_versao == 3
     assert json.loads(c.read_text())["detectar_por"] == "som"
     # Quem escolher "microfone" depois da migração fica com "microfone".
     d = tmp_path / "d.json"
     d.write_text(json.dumps({"token": "hipograv_a", "detectar_por": "microfone", "config_versao": 2}))
     assert cfgmod.carregar(d).detectar_por == "microfone"
+
+
+
+# ── Dispositivos do softphone (1.0.6) ────────────────────────────────
+
+from app.deteccao import dispositivos_do_softphone  # noqa: E402
+
+
+def _d(fluxo, dev, ativa=True, pico=0.0, proc="VivoVozNegocio.exe"):
+    return Sessao(fluxo, 1, proc, ativa, dev, pico)
+
+
+def test_segue_o_microfone_que_o_vivo_usa():
+    """13/10: Vivo no microfone do notebook, headset Logitech como padrão do Windows."""
+    ss = [
+        _d("microfone", "{realtek-mic}", pico=0.05),
+        _d("saida", "{logitech-fone}", pico=0.3),
+        _d("microfone", "{logitech-mic}", proc="Teams.exe", pico=0.2),
+    ]
+    assert dispositivos_do_softphone(ss, ["VivoVoz"]) == ("{realtek-mic}", "{logitech-fone}")
+
+
+def test_prefere_a_sessao_ativa_com_som():
+    ss = [_d("microfone", "{a}", ativa=False, pico=0.0), _d("microfone", "{b}", pico=0.1)]
+    assert dispositivos_do_softphone(ss, ["VivoVoz"])[0] == "{b}"
+
+
+def test_resolver_cai_na_comunicacao_sem_sessao():
+    from app.principal import resolver_dispositivos
+    cfg = cfgmod.Config(token="hipograv_x")
+    assert resolver_dispositivos(cfg, []) == ("comunicacao", "comunicacao")
+    assert resolver_dispositivos(cfg, [_d("microfone", "{m}"), _d("saida", "{s}")]) == ("{m}", "{s}")
+    cfg.entrada = "Jabra"
+    assert resolver_dispositivos(cfg, [_d("microfone", "{m}")])[0] == "Jabra"
+
+
+def test_config_v2_migra_dispositivos_para_softphone(tmp_path):
+    c = tmp_path / "c.json"
+    c.write_text(json.dumps({"token": "hipograv_a", "detectar_por": "som", "config_versao": 2,
+                             "entrada": "comunicacao", "saida": "Jabra"}))
+    cfg = cfgmod.carregar(c)
+    assert (cfg.entrada, cfg.saida, cfg.config_versao) == ("softphone", "Jabra", 3)

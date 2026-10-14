@@ -26,7 +26,9 @@ from app import config as cfgmod
 from app.atendimento import houve_chamando, inicio_do_atendimento
 from app.captura import Gravacao, escolher_loopback, escolher_microfone, salvar_flac
 from app.cliente import Cliente, ErroHipo, TokenInvalido, iso
-from app.deteccao import MaquinaDeChamada, casa_processo, sessoes_windows, softphone_ativo
+from app.deteccao import (
+    MaquinaDeChamada, casa_processo, dispositivos_do_softphone, sessoes_windows, softphone_ativo,
+)
 from app.envio import Enviador
 from app.fila import Fila
 
@@ -64,6 +66,22 @@ def instancia_unica() -> bool:
     return ctypes.windll.kernel32.GetLastError() != 183  # ERROR_ALREADY_EXISTS
 
 
+def resolver_dispositivos(cfg: cfgmod.Config, sessoes) -> tuple[str, str]:
+    """
+    O que gravar de fato. "softphone" vira o id do dispositivo que o
+    softphone está usando; sem sessão dele, cai em "comunicacao".
+    """
+    mic, alto = (None, None)
+    if "softphone" in (cfg.entrada, cfg.saida):
+        try:
+            mic, alto = dispositivos_do_softphone(sessoes or [], cfg.processos)
+        except Exception:  # noqa: BLE001
+            mic, alto = None, None
+    entrada = (mic or "comunicacao") if cfg.entrada == "softphone" else cfg.entrada
+    saida = (alto or "comunicacao") if cfg.saida == "softphone" else cfg.saida
+    return entrada, saida
+
+
 def softphone_rodando(processos: list[str]) -> list[str]:
     import psutil
 
@@ -91,6 +109,7 @@ class App:
         self.bandeja = None
         # A pausa vem da thread da bandeja; o fim da chamada, da detecção.
         self._trava = threading.Lock()
+        self._sessoes = []
 
     # ── Estado para a bandeja ────────────────────────────────────────
 
@@ -152,8 +171,9 @@ class App:
         while not self.encerrando.is_set():
             agora = time.time()
             try:
+                self._sessoes = sessoes_windows()
                 ativo = softphone_ativo(
-                    sessoes_windows(), self.cfg.processos, self.cfg.detectar_por, self.cfg.limiar_som,
+                    self._sessoes, self.cfg.processos, self.cfg.detectar_por, self.cfg.limiar_som,
                 )
                 self.erro_deteccao = None
             except Exception as e:  # noqa: BLE001
@@ -193,7 +213,8 @@ class App:
                 return
             self.gravacao_ignorada = False
             log.info("chamada detectada: gravando")
-            self.gravacao = Gravacao(self.cfg.entrada, self.cfg.saida, self.cfg.taxa)
+            entrada, saida = resolver_dispositivos(self.cfg, self._sessoes)
+            self.gravacao = Gravacao(entrada, saida, self.cfg.taxa)
             return
         # fim
         grav, self.gravacao = self.gravacao, None
@@ -329,8 +350,15 @@ def cmd_testar(cfg: cfgmod.Config) -> int:
         print(f"  HIPO FALHOU: {type(e).__name__}: {e}")
         ok = False
     _iniciar_com()
-    for nome, f, pedido in (("Microfone", escolher_microfone, cfg.entrada),
-                            ("Saída (cliente)", escolher_loopback, cfg.saida)):
+    try:
+        sessoes = sessoes_windows()
+    except Exception:  # noqa: BLE001
+        sessoes = []
+    entrada, saida = resolver_dispositivos(cfg, sessoes)
+    if cfg.entrada == "softphone":
+        print("  (microfone e saída: os que o softphone estiver usando)")
+    for nome, f, pedido in (("Microfone", escolher_microfone, entrada),
+                            ("Saída (cliente)", escolher_loopback, saida)):
         try:
             print(f"  {nome}: {getattr(f(pedido), 'name', '?')}")
         except Exception as e:  # noqa: BLE001
@@ -365,6 +393,41 @@ def cmd_descobrir(segundos: int) -> int:
         print(f"  {'ativo ' if ativo else 'parado'}  {fluxo:9s}  {proc}")
     print("\nO softphone é o que ficou ATIVO no microfone durante a ligação. Se o nome dele")
     print("não estiver na lista 'processos' de config.json, acrescente um trecho do nome lá.")
+    return 0
+
+
+def cmd_gravar_teste(cfg: cfgmod.Config, segundos: int) -> int:
+    """
+    Diagnóstico: grava N segundos dos MESMOS dispositivos da gravação real e
+    diz o volume de cada canal. Fale no headset enquanto roda.
+
+    Canal 0 (microfone) com pico perto de zero enquanto a pessoa fala = o
+    Windows está entregando silêncio ao gravador (permissão de microfone,
+    dispositivo errado ou outro programa segurando o microfone).
+    """
+    import numpy as np
+
+    _iniciar_com()
+    print(f"Gravando {segundos} s. FALE no headset agora (conte até 10 em voz alta)...")
+    try:
+        sessoes = sessoes_windows()
+    except Exception:  # noqa: BLE001
+        sessoes = []
+    entrada, saida = resolver_dispositivos(cfg, sessoes)
+    g = Gravacao(entrada, saida, cfg.taxa)
+    time.sleep(segundos)
+    estereo, erros = g.parar()
+    for e in erros:
+        print(f"  ERRO {e}")
+    for canal, nome in ((0, "microfone (você)"), (1, "saída (cliente)")):
+        x = estereo[:, canal].astype("float64") / 32767 if len(estereo) else np.zeros(1)
+        rms = float(np.sqrt(np.mean(x ** 2))) if x.size else 0.0
+        pico = float(np.max(np.abs(x))) if x.size else 0.0
+        print(f"  canal {canal} {nome:18s} pico {pico:.4f}   rms {rms:.5f}")
+    destino = cfgmod.pasta_dados() / "teste-gravacao.flac"
+    salvar_flac(destino, estereo, cfg.taxa)
+    print(f"\nArquivo para ouvir: {destino}")
+    print("Microfone com pico abaixo de 0.01 enquanto você falava = o gravador está recebendo silêncio.")
     return 0
 
 
@@ -403,6 +466,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--testar", action="store_true")
     p.add_argument("--descobrir", nargs="?", const=60, type=int, metavar="SEGUNDOS")
     p.add_argument("--medir", nargs="?", const=90, type=int, metavar="SEGUNDOS")
+    p.add_argument("--gravar-teste", nargs="?", const=8, type=int, metavar="SEGUNDOS")
     p.add_argument("--configurar", nargs=2, metavar=("URL", "TOKEN"))
     p.add_argument("--versao", action="store_true")
     a = p.parse_args(argv)
@@ -419,6 +483,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_descobrir(a.descobrir)
     if a.medir is not None:
         return cmd_medir(a.medir, cfg.processos)
+    if a.gravar_teste is not None:
+        return cmd_gravar_teste(cfg, a.gravar_teste)
 
     configurar_log(a.console)
     if not instancia_unica():

@@ -52,14 +52,16 @@ class Config:
     limiar_som: float = 0.0002
     # Versão do formato do config.json. A 2 trocou o padrão de detecção para
     # "som"; config gravado antes disso é migrado no carregar().
-    config_versao: int = 2
+    config_versao: int = 3
     # Qual microfone e qual saída gravar:
+    #   softphone   = os que o SOFTPHONE está usando na hora (padrão desde a
+    #                 1.0.6); se não der para saber, cai em "comunicacao";
     #   comunicacao = o dispositivo padrão de COMUNICAÇÃO do Windows (o
     #                 headset, normalmente — é o que softphone usa);
     #   padrao      = o dispositivo padrão comum;
     #   outro texto = trecho do nome do dispositivo ("Jabra", "Headset").
-    entrada: str = "comunicacao"
-    saida: str = "comunicacao"
+    entrada: str = "softphone"
+    saida: str = "softphone"
     taxa: int = 16000
     # Segundos sem sinal de chamada para considerar que desligou.
     fim_apos_silencio_s: float = 4.0
@@ -108,7 +110,15 @@ def carregar(caminho: Path | None = None) -> Config:
         # Passam para "som", que funciona com e sem o microfone preso.
         if cfg.detectar_por == "microfone":
             cfg.detectar_por = "som"
-        cfg.config_versao = 2
+    if int(bruto.get("config_versao", 1) or 1) < 3:
+        # Até a 1.0.5 o padrão era "comunicacao", gravado sem ninguém
+        # escolher. Passa a seguir o softphone.
+        if cfg.entrada == "comunicacao":
+            cfg.entrada = "softphone"
+        if cfg.saida == "comunicacao":
+            cfg.saida = "softphone"
+    if int(bruto.get("config_versao", 1) or 1) < cfg.__class__.config_versao:
+        cfg.config_versao = cfg.__class__.config_versao
         try:
             salvar(cfg, caminho)
         except OSError:
