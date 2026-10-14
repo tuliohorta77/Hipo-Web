@@ -240,11 +240,11 @@ class TestEnvio:
         assert body["sandbox"] is True
         assert body["hash_original"] == hashlib.sha256(PDF_FALSO).hexdigest()
         assert [s["papel"] for s in body["signatarios"]] == [
-            "contratante", "testemunha_contratante", "contratada", "testemunha_contratada"]
-        contratada = body["signatarios"][2]
+            "contratada", "testemunha_contratada", "contratante", "testemunha_contratante"]
+        contratada = body["signatarios"][0]
         assert (contratada["nome"], contratada["email"]) == CEO
         assert body["signatarios"][0]["da_vez"] is True
-        assert body["proximo_nome"] == "Eladir Quadros"
+        assert body["proximo_nome"] == "Marcelo Canton Dick"
         assert body["eventos"][0]["tipo"] == "enviado"
         assert "sandbox" in body["eventos"][0]["descricao"].lower()
 
@@ -257,8 +257,12 @@ class TestEnvio:
         sig = await db_conn.fetch(
             "SELECT papel, autentique_public_id, contato_id FROM contrato_signatarios "
             "ORDER BY ordem")
+        assert sig[0]["papel"] == "contratada"
         assert sig[0]["autentique_public_id"] == "doc-1-p0"
-        assert str(sig[0]["contato_id"]) == c.contato["id"]
+        assert sig[0]["contato_id"] is None
+        assert sig[2]["papel"] == "contratante"
+        assert sig[2]["autentique_public_id"] == "doc-1-p2"
+        assert str(sig[2]["contato_id"]) == c.contato["id"]
 
     async def test_envio_vira_tarefa_concluida(self, db_conn, client, usuario_adm, fake):
         h = usuario_adm["headers"]
@@ -384,9 +388,9 @@ class TestWebhook:
         body = (await client.get(f"/crm/contratos/{contrato['id']}", headers=h)).json()
         assert body["signatarios"][0]["situacao"] == "assinado"
         assert body["assinados"] == 1
-        assert body["proximo_nome"] == "Ana RH"
+        assert body["proximo_nome"] == "Bruno Gonçalo"
         assert body["signatarios"][1]["da_vez"] is True
-        assert {e["descricao"] for e in body["eventos"]} >= {"Eladir Quadros assinou"}
+        assert {e["descricao"] for e in body["eventos"]} >= {"Marcelo Canton Dick assinou"}
 
     async def test_entrega_repetida(self, db_conn, client, usuario_adm, fake):
         h = usuario_adm["headers"]
@@ -427,11 +431,15 @@ class TestWebhook:
         h = usuario_adm["headers"]
         c = await cenario(client, h)
         contrato = (await enviar(client, h, c)).json()
-        fake.marcar("doc-1", 0, rejected=("2026-10-08 12:00:00", "valor errado"))
+        # A Controller assinou; o cliente (3o da fila) recusa.
+        fake.marcar("doc-1", 0, signed="2026-10-08 11:00:00")
+        fake.marcar("doc-1", 1, signed="2026-10-08 11:10:00")
+        fake.marcar("doc-1", 2, rejected=("2026-10-08 12:00:00", "valor errado"))
         await webhook(client, "doc-1", "e1", tipo="signature.rejected")
         body = (await client.get(f"/crm/contratos/{contrato['id']}", headers=h)).json()
         assert body["status"] == "recusado"
-        assert body["signatarios"][0]["motivo_recusa"] == "valor errado"
+        assert body["signatarios"][2]["papel"] == "contratante"
+        assert body["signatarios"][2]["motivo_recusa"] == "valor errado"
         aviso = await db_conn.fetchrow(
             "SELECT t.* FROM tarefas t JOIN contratos k ON k.tarefa_aviso_id = t.id")
         assert "recusado por Eladir Quadros" in aviso["titulo"]

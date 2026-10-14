@@ -14,8 +14,8 @@
 // De uma versão APROVADA da proposta (botão "Contrato" na aba Proposta, ou
 // "Novo contrato" aqui). O HIPO preenche o modelo com os números daquela
 // versão e manda para a Autentique com os quatro signatários da minuta, na
-// ordem: contratante, testemunha da contratante, contratada (o CEO, fixo
-// no servidor) e testemunha da contratada.
+// ordem: contratada (o CEO, fixo no servidor), testemunha da contratada,
+// contratante e testemunha da contratante (decisão do Tulio, 14/10/2026).
 //
 // ── O que acontece quando todos assinam ──────────────────────────────
 // Só registra e avisa: o PDF assinado fica disponível aqui e o executivo
@@ -289,9 +289,9 @@ export function FormContrato({ propostaId, situacao, onCancelar, onEnviado }) {
       const { data } = await api.post(`/crm/propostas/${propostaId}/contratos`, {
         ...corpoDatas(),
         signatarios: [
+          sig('testemunha_contratada', testContratada, 'usuario_id'),
           sig('contratante', contratante, 'contato_id'),
           sig('testemunha_contratante', testContratante, 'contato_id'),
-          sig('testemunha_contratada', testContratada, 'usuario_id'),
         ],
       });
       onEnviado(data);
@@ -391,23 +391,8 @@ export function FormContrato({ propostaId, situacao, onCancelar, onEnviado }) {
       )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-        <CampoPessoa
-          idBase="contratante"
-          titulo="1 · Contratante (quem assina pelo cliente)"
-          opcoes={contatosComEmail}
-          valor={contratante}
-          onChange={setContratante}
-        />
-        <CampoPessoa
-          idBase="test-contratante"
-          titulo="2 · Testemunha da contratante"
-          opcoes={contatosComEmail}
-          valor={testContratante}
-          onChange={setTestContratante}
-          ajuda="Alguém do cliente que não seja quem assina."
-        />
         <fieldset className="rounded-lg border border-hipo-border p-3">
-          <legend className="px-1 text-xs font-semibold text-hipo-ink">3 · Contratada</legend>
+          <legend className="px-1 text-xs font-semibold text-hipo-ink">1 · Contratada</legend>
           <p className="text-sm text-hipo-ink flex items-center gap-1.5">
             <UserCheck size={14} className="text-hipo-success" aria-hidden="true" />
             {padrao.contratada_nome || '—'}
@@ -417,10 +402,25 @@ export function FormContrato({ propostaId, situacao, onCancelar, onEnviado }) {
         </fieldset>
         <CampoPessoa
           idBase="test-contratada"
-          titulo="4 · Testemunha da contratada"
+          titulo="2 · Testemunha da contratada"
           opcoes={padrao.usuarios}
           valor={testContratada}
           onChange={setTestContratada}
+        />
+        <CampoPessoa
+          idBase="contratante"
+          titulo="3 · Contratante (quem assina pelo cliente)"
+          opcoes={contatosComEmail}
+          valor={contratante}
+          onChange={setContratante}
+        />
+        <CampoPessoa
+          idBase="test-contratante"
+          titulo="4 · Testemunha da contratante"
+          opcoes={contatosComEmail}
+          valor={testContratante}
+          onChange={setTestContratante}
+          ajuda="Alguém do cliente que não seja quem assina."
         />
       </div>
 

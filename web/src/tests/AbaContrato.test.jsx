@@ -176,6 +176,13 @@ describe('envio', () => {
       .toHaveValue('Eladir Quadros'));
     expect(within(form).getByText('Marcelo Canton Dick')).toBeInTheDocument();
     expect(within(form).getByText(/R\$ 180,00 mensais/)).toBeInTheDocument();
+    // Ordem de assinatura: a Controller primeiro, depois o cliente.
+    const titulos = [...form.querySelectorAll('legend')].map((l) => l.textContent)
+      .filter((t) => /^\d · /.test(t));
+    expect(titulos).toEqual([
+      '1 · Contratada', '2 · Testemunha da contratada',
+      '3 · Contratante (quem assina pelo cliente)', '4 · Testemunha da contratante',
+    ]);
 
     const enviar = within(form).getByRole('button', { name: /Enviar para assinatura/ });
     // Falta a testemunha da contratante.
@@ -188,10 +195,10 @@ describe('envio', () => {
     const [url, corpo] = mockPost.mock.calls[0];
     expect(url).toBe('/crm/propostas/p2/contratos');
     expect(corpo.signatarios).toEqual([
-      { papel: 'contratante', nome: 'Eladir Quadros', email: 'eladir@cliente.com', contato_id: 'k1' },
-      { papel: 'testemunha_contratante', nome: 'Ana RH', email: 'ana@cliente.com', contato_id: 'k2' },
       { papel: 'testemunha_contratada', nome: 'Bruno Gonçalo',
         email: 'bruno@controllermedseg.com.br', usuario_id: 'u1' },
+      { papel: 'contratante', nome: 'Eladir Quadros', email: 'eladir@cliente.com', contato_id: 'k1' },
+      { papel: 'testemunha_contratante', nome: 'Ana RH', email: 'ana@cliente.com', contato_id: 'k2' },
     ]);
     expect(corpo.dia_vencimento).toBe(10);
     expect(corpo.raiz_cnpj).toBe('11222333');

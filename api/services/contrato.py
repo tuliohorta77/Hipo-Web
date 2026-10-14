@@ -4,8 +4,9 @@ HIPO — Contrato para assinatura eletrônica (entrega 053): regras puras.
 O contrato nasce de uma VERSÃO APROVADA da proposta. O HIPO preenche o
 modelo .docx (services/contrato_render.py), converte em PDF e manda para a
 Autentique (services/autentique.py) com os quatro signatários da minuta da
-Controller: contratante, testemunha da contratante, contratada (o CEO) e
-testemunha da contratada — nessa ordem, assinatura sequencial.
+Controller: contratada (o CEO), testemunha da contratada (o executivo),
+contratante e testemunha da contratante — nessa ordem, assinatura
+sequencial (ordem trocada em 14/10/2026: a Controller assina primeiro).
 
 Este módulo não toca banco, rede nem arquivo: as regras rodam no pytest do
 Windows, sem Postgres, e no CI.
@@ -51,12 +52,15 @@ class Papel:
 
 
 # A ORDEM é a ordem de assinatura (documento `sortable` na Autentique) e a
-# ordem do bloco de assinaturas do modelo.
+# ordem em que o formulário pede. A posição do carimbo no PDF não depende
+# dela: vem do rótulo de cada linha (contrato_render.ROTULOS).
+# Decisão do Tulio (14/10/2026): a Controller assina primeiro -- o CEO, depois
+# a testemunha da Controller (o executivo) -- e só então o cliente.
 PAPEIS: tuple[Papel, ...] = (
-    Papel("contratante", "Contratante", ACAO_ASSINAR),
-    Papel("testemunha_contratante", "Testemunha da contratante", ACAO_TESTEMUNHA),
     Papel("contratada", "Contratada", ACAO_ASSINAR),
     Papel("testemunha_contratada", "Testemunha da contratada", ACAO_TESTEMUNHA),
+    Papel("contratante", "Contratante", ACAO_ASSINAR),
+    Papel("testemunha_contratante", "Testemunha da contratante", ACAO_TESTEMUNHA),
 )
 CHAVES_PAPEIS = tuple(p.chave for p in PAPEIS)
 PAPEL_POR_CHAVE = {p.chave: p for p in PAPEIS}
