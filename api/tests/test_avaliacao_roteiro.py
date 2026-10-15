@@ -77,6 +77,31 @@ class TestRoteiro:
             assert f"{i.numero}. {i.nome}" in texto
         assert "registrar_avaliacao" in texto
 
+    def test_frase_do_roteiro_e_exemplo_nao_obrigacao(self):
+        """
+        Caso real (out/2026): o vendedor disse "deixa eu so recapitular com
+        voce para entender", resumiu e a cliente confirmou com "isso"; a IA
+        deu 0 no item 6 porque a frase-modelo "Deixa eu ver se entendi" nao
+        apareceu. O prompt tem de dizer que a frase entre aspas e exemplo.
+        """
+        texto = aval.instrucao()
+        assert "Avalie o COMPORTAMENTO, não as palavras" in texto
+        assert "EXEMPLO de como fazer, nunca fala obrigatória" in texto
+        assert "Antes de dar nota 0, procure o comportamento" in texto
+        assert "literal com o critério" not in texto
+
+    def test_item_6_aceita_qualquer_formulacao_e_confirmacao_curta(self):
+        i6 = sc.POR_NUMERO[6]
+        assert "nenhuma frase é obrigatória" in i6.o_que_procurar
+        assert "deixa eu recapitular" in i6.o_que_procurar
+        assert "uhum" in i6.criterio_2
+        assert "não precisa ser literal" in i6.criterio_2
+
+    def test_roleplay_tambem_avalia_comportamento(self):
+        from services import roleplay_avaliacao as rp
+        assert "Avalie o COMPORTAMENTO, não as palavras" in rp.INSTRUCAO
+        assert "literal com o critério" not in rp.INSTRUCAO
+
 
 # ── Elegibilidade e texto ────────────────────────────────────────────
 

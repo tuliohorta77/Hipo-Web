@@ -135,7 +135,14 @@ O TREINO
 
 COMO AVALIAR
 - Avalie só o executivo. As falas do cliente são da IA.
-- Seja justo e literal com o critério. Não dê nota por boa intenção.
+- Seja fiel ao critério. Não dê nota por boa intenção.
+- Avalie o COMPORTAMENTO, não as palavras. Toda frase entre aspas no
+  roteiro e no scorecard é EXEMPLO de como fazer, nunca fala obrigatória.
+  Se o executivo fez a mesma coisa com outras palavras, o item conta igual.
+- Antes de dar nota 0, procure o comportamento na transcrição INTEIRA.
+- Item 6 (Resumo de confirmação): conta qualquer recapitulação do que o
+  cliente disse ("deixa eu recapitular", "então hoje vocês..."). Resposta
+  curta do cliente ("é", "isso", "uhum") conta como confirmação.
 - Item 5 (Implicação): só conta PERGUNTA que faz o cliente dizer o custo do
   problema. Afirmar o risco não conta.
 - Item 3 (Situação): conte as perguntas factuais antes da primeira pergunta

@@ -94,11 +94,16 @@ ITENS: tuple[Item, ...] = (
     ),
     Item(
         6, "Resumo de confirmação", "2. Diagnóstico (SPIN)",
-        "Antes de apresentar, o vendedor resume o que ouviu (\"Deixa eu ver se "
-        "entendi: hoje vocês têm..., o que mais pesa é...\") e o cliente confirma.",
-        "Não resume o que ouviu antes de apresentar.",
-        "Resume, mas não pede nem recebe a confirmação do cliente.",
-        "Resume com as palavras do cliente e o cliente confirma (\"é isso\", \"isso mesmo\").",
+        "Antes de apresentar a solução, o vendedor recapitula para o cliente o "
+        "que ouviu dele (situação e/ou dor) e checa se entendeu certo. Vale "
+        "qualquer formulação: \"deixa eu ver se entendi\", \"deixa eu "
+        "recapitular\", \"então hoje vocês...\", \"se entendi bem...\" são "
+        "exemplos, nenhuma frase é obrigatória. Confirmação curta do cliente "
+        "(\"é\", \"isso\", \"uhum\", \"exato\") vale como confirmação.",
+        "Não recapitula o que ouviu antes de apresentar a solução.",
+        "Recapitula, mas não busca nem recebe a confirmação do cliente.",
+        "Recapitula pontos concretos que o cliente disse (não precisa ser literal) "
+        "e o cliente confirma, mesmo que curto (\"é isso\", \"isso\", \"uhum\").",
     ),
     Item(
         7, "GPCT: prazo, decisor e consequência", "3. Qualificação",

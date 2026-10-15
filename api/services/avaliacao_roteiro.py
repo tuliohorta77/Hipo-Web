@@ -360,9 +360,23 @@ COMO AVALIAR
 - Avalie o lado da Controller na conversa. O responsável é o vendedor
   indicado nos dados da reunião; se um colega da Controller conduziu um
   trecho, ele conta para o item, mas a sugestão é dirigida ao vendedor.
-- Seja justo e literal com o critério: o roteiro foi criado em 30/09/2026 e
-  muitos vendedores ainda não foram treinados nele. Não dê nota por boa
-  intenção; dê pelo que aconteceu na conversa.
+- Seja fiel ao critério: o roteiro foi criado em 30/09/2026 e muitos
+  vendedores ainda não foram treinados nele. Não dê nota por boa intenção;
+  dê pelo que aconteceu na conversa.
+- Avalie o COMPORTAMENTO, não as palavras. Toda frase entre aspas no
+  roteiro e no scorecard é EXEMPLO de como fazer, nunca fala obrigatória.
+  Se o vendedor fez a mesma coisa com outras palavras, o item conta igual.
+  Nunca dê nota menor porque a frase-modelo não foi dita.
+- Antes de dar nota 0, procure o comportamento na transcrição INTEIRA. A
+  justificativa de uma nota 0 não pode afirmar que algo não aconteceu se
+  há trecho em que aconteceu.
+- Item 6 (Resumo de confirmação): conta qualquer recapitulação do que o
+  cliente disse ("deixa eu recapitular", "então hoje vocês...", "se
+  entendi bem..."). Resposta curta do cliente ("é", "isso", "uhum")
+  conta como confirmação. "Antes de apresentar" é antes da apresentação
+  estruturada da solução; citar a Controller de passagem antes disso não
+  invalida o resumo. Nota 2 com recapitulação + confirmação; nota 1 se
+  recapitulou sem confirmação.
 - Item 5 (Implicação): só conta PERGUNTA que faz o cliente dizer o custo do
   problema. O vendedor contar uma história de multa ou de processo é
   afirmação, não pergunta: nota 0 nesse caso.
