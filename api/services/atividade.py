@@ -71,11 +71,11 @@ CATALOGO: dict[tuple[str, str], Tipo] = {
     ("POST", "/crm/tarefas/{tarefa_id}/concluir"): _t("Tarefas", "Tarefa concluída", 11),
     ("PATCH", "/crm/tarefas/{tarefa_id}"): _t("Tarefas", "Tarefa editada", 12),
     ("POST", "/crm/tarefas/{tarefa_id}/cancelar"): _t("Tarefas", "Tarefa cancelada", 13),
-    # Ligacoes pelo Vivo Voz Negocio (056). O clique em "ligar" e o gesto:
-    # se a ligacao aconteceu, a gravacao confirma depois. Vincular uma
-    # gravacao avulsa e descartar uma pessoal tambem sao decisoes de quem
-    # ligou. O "Atualizar" e leitura que viaja em POST.
-    ("POST", "/crm/ligacoes"): _t("Tarefas", "Ligação feita pelo HIPO", 14),
+    # Ligacoes pelo Vivo Voz Negocio (056). A LIGACAO nao entra por rota:
+    # o clique em "ligar" so diz que a pessoa clicou no numero (ele fica
+    # nas IGNORADAS). Quem conta e a gravacao que chegou -- ver
+    # LIGACAO_GRAVADA abaixo, lida da tabela `ligacoes`. Vincular uma
+    # gravacao avulsa e descartar uma pessoal sao decisoes de quem ligou.
     ("POST", "/crm/ligacoes/{ligacao_id}/vincular"): _t("Tarefas", "Gravação de ligação vinculada", 15),
     ("POST", "/crm/ligacoes/{ligacao_id}/resumo"): _t("Tarefas", "Resumo de ligação gerado", 16),
     ("DELETE", "/crm/ligacoes/{ligacao_id}"): _t("Tarefas", "Gravação de ligação descartada", 17),
@@ -216,6 +216,38 @@ CATALOGO: dict[tuple[str, str], Tipo] = {
         _t("Cadastros", "CNAE mapeado (vertical e grau de risco)", 88),
 }
 
+# Ligacoes que CONTAM como atividade. Nao saem do log de escritas, e sim
+# da tabela `ligacoes`: o clique em "ligar" acontece em qualquer maquina,
+# inclusive na de quem nao tem o gravador instalado, e nao prova que houve
+# ligacao. O que prova e o audio no S3 -- os status abaixo sao os que so
+# existem depois dele. `discando` e `sem_gravacao` sao clique sem audio;
+# `enviando` ainda nao confirmou o upload; `erro` pode ser upload que
+# nunca chegou. Por isso ficam de fora.
+LIGACAO_GRAVADA = _t("Tarefas", "Ligação gravada pelo HIPO", 14)
+LIGACAO_SEM_CONVERSA = _t("Tarefas", "Ligação sem conversa (só chamou)", 14)
+STATUS_LIGACAO_COM_CONVERSA = ("transcrevendo", "pronta")
+STATUS_LIGACAO_SEM_CONVERSA = ("sem_fala",)
+STATUS_LIGACAO_CONTA = STATUS_LIGACAO_COM_CONVERSA + STATUS_LIGACAO_SEM_CONVERSA
+
+
+def tipo_da_ligacao(status: str) -> Tipo | None:
+    """
+    Tipo de atividade de uma ligacao pelo status, ou None se nao conta.
+
+    >>> tipo_da_ligacao("pronta").rotulo
+    'Ligação gravada pelo HIPO'
+    >>> tipo_da_ligacao("sem_fala").rotulo
+    'Ligação sem conversa (só chamou)'
+    >>> tipo_da_ligacao("sem_gravacao") is None
+    True
+    """
+    if status in STATUS_LIGACAO_COM_CONVERSA:
+        return LIGACAO_GRAVADA
+    if status in STATUS_LIGACAO_SEM_CONVERSA:
+        return LIGACAO_SEM_CONVERSA
+    return None
+
+
 # Escritas que NAO sao atividade no CRM. Entrar no sistema, trocar a
 # propria senha e guardar a coluna do kanban preferida nao produzem nada
 # para a operacao -- e `preferencias` sozinha poderia inflar o numero de
@@ -241,9 +273,12 @@ IGNORADAS: frozenset[tuple[str, str]] = frozenset({
     ("POST", "/crm/propostas/{proposta_id}/contrato/previa"),
     ("POST", "/crm/contratos/{contrato_id}/sincronizar"),
     ("POST", "/webhooks/autentique"),
-    # Ligacoes (056): o gravador falando (sem usuario logado), o
+    # Ligacoes (056): o clique em "ligar" (abre o tel: em qualquer maquina,
+    # com gravador ou sem; a ligacao so conta quando a gravacao chega), o
+    # gravador falando (sem usuario logado), o
     # "Atualizar" da tela (mesma passada do timer) e a configuracao do
     # proprio gravador -- nada disso produz algo para a operacao.
+    ("POST", "/crm/ligacoes"),
     ("POST", "/ligacoes/gravador/pulso"),
     ("POST", "/ligacoes/gravador/gravacoes"),
     ("POST", "/ligacoes/gravador/gravacoes/{ligacao_id}/concluir"),
@@ -316,7 +351,8 @@ def janela_de_horas(horas_com_atividade) -> list[int]:
 
 def agregar(linhas: list[dict], presencas: list[dict],
             oportunidades: list[dict] | None = None,
-            oportunidades_total: dict | None = None) -> dict:
+            oportunidades_total: dict | None = None,
+            ligacoes: list[dict] | None = None) -> dict:
     """
     Monta o bloco `atividades` do fechamento.
 
@@ -331,6 +367,11 @@ def agregar(linhas: list[dict], presencas: list[dict],
       contadas com DISTINCT no banco. NAO e a soma das pessoas: uma
       oportunidade trabalhada por duas pessoas no mesmo dia conta uma vez no
       total e uma vez para cada uma.
+
+    `ligacoes`: ligacoes gravadas ja agrupadas pelo banco -- usuario_id,
+      nome, cargo, status, hora (do inicio do audio, no fuso), qtd. Status
+      fora de STATUS_LIGACAO_CONTA e descartado aqui tambem, para a regra
+      morar num lugar so.
 
     Quem entrou e nao lancou nada aparece com zero. Esse zero e informacao
     -- "abriu o sistema o dia inteiro e nao registrou nada" -- e some se a
@@ -360,20 +401,28 @@ def agregar(linhas: list[dict], presencas: list[dict],
         alvo["opp_primeira"] = int(o["primeira_vez"])
 
     horas_vistas: set[int] = set()
-    for r in linhas:
-        if not conta_como_atividade(r["metodo"], r["rota"], r["status"]):
-            continue
+
+    def _somar(r: dict, tipo: Tipo) -> None:
         alvo = _pessoa(r["usuario_id"], r["nome"], r["cargo"])
         qtd = int(r["qtd"])
         hora = int(r["hora"])
         horas_vistas.add(hora)
         alvo["total"] += qtd
         alvo["_hora"][hora] = alvo["_hora"].get(hora, 0) + qtd
-        tipo = classificar(r["metodo"], r["rota"])
         chave_tipo = (tipo.grupo, tipo.rotulo)
         if chave_tipo not in alvo["_tipo"]:
             alvo["_tipo"][chave_tipo] = {"tipo": tipo, "qtd": 0}
         alvo["_tipo"][chave_tipo]["qtd"] += qtd
+
+    for r in linhas:
+        if not conta_como_atividade(r["metodo"], r["rota"], r["status"]):
+            continue
+        _somar(r, classificar(r["metodo"], r["rota"]))
+
+    for r in ligacoes or []:
+        tipo = tipo_da_ligacao(r["status"])
+        if tipo is not None:
+            _somar(r, tipo)
 
     horas = janela_de_horas(horas_vistas)
 

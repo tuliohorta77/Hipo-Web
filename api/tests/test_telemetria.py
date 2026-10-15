@@ -247,6 +247,43 @@ class TestTelemetriaIndisponivel:
 
 
 class TestOperacao:
+    async def test_ligacao_conta_pela_gravacao_e_nao_pelo_clique(self, db_conn):
+        """
+        Caso da Kethlleen (15/10): clicou no telefone tres vezes sem gravador
+        instalado. O clique cai no log de escritas e gera linha `sem_gravacao`
+        -- nada disso e ligacao feita. So a gravacao que chegou conta, na hora
+        em que o audio comecou.
+        """
+        uid = await _usuario(db_conn, "Kethlleen Gomes", "SDR", "kl@teste.com")
+        await _evento(db_conn, uid, "SDR", "POST", "/crm/ligacoes", 201, _em_sp(9), n=3)
+
+        async def _ligacao(status, inicio, clique=None):
+            await db_conn.execute("""
+                INSERT INTO ligacoes (usuario_id, telefone, origem, clicada_em,
+                                      inicio_em, status)
+                VALUES ($1, '11999990000', $2, $3, $4, $5)
+            """, uid, "clique" if clique else "gravador", clique, inicio, status)
+
+        await _ligacao("sem_gravacao", None, clique=_em_sp(9))
+        await _ligacao("discando", None, clique=_em_sp(9, 30))
+        await _ligacao("erro", _em_sp(10))
+        await _ligacao("pronta", _em_sp(10, 5), clique=_em_sp(10, 4))
+        await _ligacao("transcrevendo", _em_sp(10, 20))
+        await _ligacao("sem_fala", _em_sp(14))
+        # Gravada no dia seguinte: nao entra.
+        await _ligacao("pronta", _em_sp(10, dia=DIA_FIXO + timedelta(days=1)))
+
+        r = await tel.atividades(db_conn, DIA_FIXO)
+        p = r["por_pessoa"][0]
+        assert {t["tipo"]: t["qtd"] for t in p["por_tipo"]} == {
+            "Ligação gravada pelo HIPO": 2,
+            "Ligação sem conversa (só chamou)": 1,
+        }
+        assert r["total"] == 3
+        assert p["por_hora"][r["horas"].index(10)] == 2
+        assert p["por_hora"][r["horas"].index(14)] == 1
+        assert p["por_hora"][r["horas"].index(9)] == 0
+
     async def test_dia_vazio(self, db_conn):
         r = await tel.operacao(db_conn, date(2020, 1, 1))
         assert r["oportunidades_criadas"] == 0

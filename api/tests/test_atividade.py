@@ -197,3 +197,49 @@ class TestAgregarOportunidades:
         r = a.agregar([_linha()], [])
         assert r["oportunidades_trabalhadas"] == 0
         assert r["por_pessoa"][0]["oportunidades_primeira_vez"] == 0
+
+
+def _lig(uid="u1", nome="Kethlleen Gomes", cargo="SDR", status="pronta", hora=10, qtd=1):
+    return {"usuario_id": uid, "nome": nome, "cargo": cargo, "status": status,
+            "hora": hora, "qtd": qtd}
+
+
+class TestLigacoes:
+    def test_clique_em_ligar_nao_e_atividade(self):
+        """Clicar no numero abre o tel: em qualquer maquina, com gravador ou
+        sem. Nao prova ligacao: quem conta e a gravacao."""
+        assert ("POST", "/crm/ligacoes") in a.IGNORADAS
+        assert ("POST", "/crm/ligacoes") not in a.CATALOGO
+        r = a.agregar([_linha(rota="/crm/ligacoes", qtd=3)], [])
+        assert r["total"] == 0
+
+    @pytest.mark.parametrize("status", ["discando", "enviando", "sem_gravacao", "erro"])
+    def test_ligacao_sem_audio_confirmado_nao_conta(self, status):
+        assert a.tipo_da_ligacao(status) is None
+        assert a.agregar([], [], ligacoes=[_lig(status=status, qtd=4)])["total"] == 0
+
+    def test_gravada_e_sem_conversa_saem_separadas(self):
+        r = a.agregar(
+            [_linha(rota="/crm/tarefas", hora=9, qtd=2)],
+            [],
+            ligacoes=[
+                _lig(status="pronta", hora=10, qtd=2),
+                _lig(status="transcrevendo", hora=10, qtd=1),
+                _lig(status="sem_fala", hora=11, qtd=4),
+            ],
+        )
+        p = r["por_pessoa"][0]
+        assert p["total"] == r["total"] == 9
+        assert p["por_hora"][r["horas"].index(10)] == 3
+        assert p["por_hora"][r["horas"].index(11)] == 4
+        assert {t["tipo"]: t["qtd"] for t in p["por_tipo"]} == {
+            "Tarefa criada": 2,
+            "Ligação gravada pelo HIPO": 3,
+            "Ligação sem conversa (só chamou)": 4,
+        }
+        assert all(t["grupo"] == "Tarefas" for t in p["por_tipo"])
+
+    def test_ligacao_de_quem_nao_lancou_mais_nada(self):
+        r = a.agregar([], [], ligacoes=[_lig(uid="u9", nome="Jakeline Santana", cargo="EV")])
+        assert [p["nome"] for p in r["por_pessoa"]] == ["Jakeline Santana"]
+        assert r["por_pessoa"][0]["total"] == 1

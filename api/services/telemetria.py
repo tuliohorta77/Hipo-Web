@@ -329,9 +329,26 @@ async def atividades(conn, dia: date) -> dict:
         JOIN primeira p ON p.oportunidade_id = d.oportunidade_id
     """, dia)
 
+    # LIGACOES: as que tem gravacao, pela hora em que o AUDIO comecou. O
+    # clique em "ligar" fica nas IGNORADAS -- acontece em maquina sem
+    # gravador e nao prova ligacao nenhuma (ver services/atividade.py).
+    janela_l = _JANELA.replace("criado_em", "l.inicio_em")
+    ligacoes = await conn.fetch(f"""
+        SELECT l.usuario_id, u.nome, u.cargo, l.status,
+               extract(hour FROM l.inicio_em AT TIME ZONE '{FUSO_OPERACAO}')::int AS hora,
+               count(*) AS qtd
+        FROM ligacoes l
+        JOIN usuarios u ON u.id = l.usuario_id
+        WHERE l.inicio_em IS NOT NULL
+          AND {janela_l}
+          AND l.status = ANY($2::text[])
+        GROUP BY l.usuario_id, u.nome, u.cargo, l.status, hora
+    """, dia, list(svc.STATUS_LIGACAO_CONTA))
+
     return svc.agregar(
         [dict(r) for r in linhas], [dict(r) for r in presencas],
         [dict(r) for r in opp_pessoa], dict(opp_total) if opp_total else None,
+        [dict(r) for r in ligacoes],
     )
 
 
