@@ -381,6 +381,65 @@ class TestVendas:
         assert indicador(corpo, "contratos")["resultado"] == 0
         assert indicador(corpo, "nmrr")["resultado"] == 0
 
+    async def _reabrir(self, client, h, opp_id):
+        resp = await client.post(
+            f"/crm/oportunidades/{opp_id}/reabrir", json={}, headers=h,
+        )
+        assert resp.status_code == 200, resp.text
+
+    async def test_venda_reaberta_sai_do_painel_e_do_detalhe(self, cenario, client):
+        """Ganho desfeito (volta para negociacao) nao e venda."""
+        h, uid = cenario["headers"], cenario["usuario_id"]
+        await self._ganhar(client, h, uid, cenario["conta"]["id"], 1000)
+        revertida = await self._ganhar(client, h, uid, cenario["conta"]["id"], 1350)
+        await self._reabrir(client, h, revertida["id"])
+
+        corpo = await painel(client, h)
+        assert indicador(corpo, "contratos")["resultado"] == 1
+        assert indicador(corpo, "nmrr")["resultado"] == 1000
+        assert indicador(corpo, "ticket_medio")["resultado"] == 1000
+
+        resp = await client.get("/monitor/detalhe/nmrr", headers=h)
+        assert resp.status_code == 200, resp.text
+        assert revertida["id"] not in resp.text
+
+    async def test_reaberta_e_ganha_de_novo_conta_uma_vez(self, cenario, client):
+        h, uid = cenario["headers"], cenario["usuario_id"]
+        opp = await self._ganhar(client, h, uid, cenario["conta"]["id"], 1350)
+        await self._reabrir(client, h, opp["id"])
+        resp = await client.post(
+            f"/crm/oportunidades/{opp['id']}/desfecho",
+            json={
+                "status": "conquistado",
+                "tarefa": {
+                    "tipo": "reuniao", "titulo": "Assinatura",
+                    "responsavel_id": uid, "prazo": em(hoje_op().day),
+                },
+            },
+            headers=h,
+        )
+        assert resp.status_code == 200, resp.text
+        corpo = await painel(client, h)
+        assert indicador(corpo, "contratos")["resultado"] == 1
+        assert indicador(corpo, "nmrr")["resultado"] == 1350
+
+    async def test_ganho_de_mes_anterior_reaberto_sai_do_mes_anterior(
+        self, cenario, client, db_conn,
+    ):
+        h, uid = cenario["headers"], cenario["usuario_id"]
+        opp = await self._ganhar(client, h, uid, cenario["conta"]["id"], 1350)
+        await db_conn.execute(
+            """
+            UPDATE oportunidade_eventos SET criado_em = criado_em - interval '45 days'
+             WHERE tipo = 'status' AND para = 'conquistado'
+            """
+        )
+        await self._reabrir(client, h, opp["id"])
+        antes = datetime.now(regras_tarefa.FUSO_OPERACAO) - timedelta(days=45)
+        corpo = await painel(client, h, ano=antes.year, mes=antes.month)
+        assert indicador(corpo, "contratos")["resultado"] == 0
+        assert indicador(corpo, "nmrr")["resultado"] == 0
+
 
 # ── Meta MTD ─────────────────────────────────────────────────────────
 

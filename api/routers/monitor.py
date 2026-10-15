@@ -446,9 +446,14 @@ async def _linhas_vendas(conn, inicio: datetime, fim: datetime) -> list[dict]:
     oportunidade: qualquer edicao posterior mexe em `atualizado_em` e
     moveria uma venda de agosto para setembro sozinha.
 
-    Uma linha por OPORTUNIDADE (DISTINCT ON): reabrir e ganhar de novo grava
-    dois eventos, e uma venda so aconteceu uma vez. Fica o primeiro ganho do
-    mes.
+    Ganho desfeito nao e venda: se depois do evento de ganho veio outro
+    evento de status saindo de 'conquistado' (a reabertura volta a
+    oportunidade para 'ativa'), aquele ganho nao conta -- nem neste mes nem
+    no mes em que foi registrado. Se a oportunidade for ganha de novo, a
+    venda passa a valer pela data do novo ganho. Por garantia, so entra
+    oportunidade cujo status ATUAL e 'conquistado'.
+
+    Uma linha por OPORTUNIDADE (DISTINCT ON): uma venda so aconteceu uma vez.
     """
     rows = await conn.fetch(
         """
@@ -465,6 +470,13 @@ async def _linhas_vendas(conn, inicio: datetime, fim: datetime) -> list[dict]:
               LEFT JOIN usuarios u ON u.id = e.usuario_id
              WHERE e.tipo = 'status' AND e.para = 'conquistado'
                AND e.criado_em >= $1 AND e.criado_em < $2
+               AND o.status = 'conquistado'
+               AND NOT EXISTS (
+                   SELECT 1 FROM oportunidade_eventos d
+                    WHERE d.oportunidade_id = e.oportunidade_id
+                      AND d.tipo = 'status' AND d.de = 'conquistado'
+                      AND d.criado_em > e.criado_em
+               )
              ORDER BY o.id, e.criado_em
         ) ganhas
         ORDER BY data DESC

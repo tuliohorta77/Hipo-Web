@@ -152,6 +152,13 @@ async def _vendas(conn, inicio, fim) -> list[dict]:
               JOIN contas c        ON c.id = o.conta_id
              WHERE e.tipo = 'status' AND e.para = 'conquistado'
                AND e.criado_em >= $1 AND e.criado_em < $2
+               AND o.status = 'conquistado'
+               AND NOT EXISTS (
+                   SELECT 1 FROM oportunidade_eventos d
+                    WHERE d.oportunidade_id = e.oportunidade_id
+                      AND d.tipo = 'status' AND d.de = 'conquistado'
+                      AND d.criado_em > e.criado_em
+               )
              ORDER BY o.id, e.criado_em
         ) ganhas
         ORDER BY valor DESC NULLS LAST
