@@ -266,9 +266,13 @@ function LinhaCnpj({
 
 function BotoesArquivo({
   ocupado, pdfDisponivel, aprovada, onBaixar, onEnviar, onVer, onContrato,
+  alinhar = 'end',
 }) {
+  // Sem shrink-0: com ele, a fileira de botoes nunca quebra linha e espreme
+  // o texto da versao numa coluna de uma palavra por linha.
+  const justify = alinhar === 'start' ? 'justify-start' : 'justify-end';
   return (
-    <div className="flex flex-wrap justify-end gap-1 shrink-0">
+    <div className={`flex flex-wrap ${justify} gap-1`}>
       {/*
         051: "Ver" abre o visualizador do HIPO — conferir não exige mais
         baixar e abrir no PC. É lá que o EV aprova.
@@ -363,7 +367,11 @@ function Versao({ proposta, ocupado, pdfDisponivel, onBaixar, onEnviar, onVer, o
             )}
           </p>
         </div>
+      </div>
+
+      <div className="mt-2 border-t border-hipo-border pt-2">
         <BotoesArquivo
+          alinhar="start"
           ocupado={ocupado}
           pdfDisponivel={pdfDisponivel}
           aprovada={Boolean(proposta.aprovada_em)}
@@ -388,8 +396,8 @@ function Versao({ proposta, ocupado, pdfDisponivel, onBaixar, onEnviar, onVer, o
           {aberta && (
             <ul className="mt-2 space-y-1.5" aria-label={`CNPJs da versão ${proposta.versao}`}>
               {itens.map((i) => (
-                <li key={i.id || i.cnpj} className="flex items-center gap-2">
-                  <div className="min-w-0 flex-1">
+                <li key={i.id || i.cnpj} className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                  <div className="min-w-[12rem] flex-1">
                     <p className="text-xs text-hipo-ink truncate" title={i.razao_social}>
                       {i.razao_social}
                     </p>
