@@ -890,3 +890,100 @@ class TestResumo:
         mapa = {s["situacao"]: s["quantidade"] for s in body["por_situacao"]}
         assert mapa["sem_indicacao"] == 1
         assert mapa["ativo"] == 0
+
+
+# ── Contatos do parceiro ─────────────────────────────────────────────
+
+async def novo_contato(client, headers, conta_id, nome, **extra):
+    corpo = {"nome": nome, "conta_id": conta_id, **extra}
+    resp = await client.post("/crm/contatos", json=corpo, headers=headers)
+    assert resp.status_code == 201, resp.text
+    return resp.json()
+
+
+class TestContatosDoParceiro:
+    """
+    As pessoas do escritório vêm na linha e no detalhe do parceiro, com a
+    temperatura de cada uma — mesmo padrão do comitê da oportunidade. Sem
+    isso o EC só descobria com quem falar abrindo a tela de Contas.
+    """
+
+    async def _cenario(self, db_conn, client, usuario_adm):
+        h = usuario_adm["headers"]
+        conta = await nova_conta(client, h, CNPJ_PARCEIRO, "Monteiro Contabilidade")
+        await marcar_parceiro(client, h, conta["id"])
+        camila = await novo_contato(client, h, conta["id"], "Camila", cargo="DP/RH")
+        flavia = await novo_contato(client, h, conta["id"], "Flavia Damasceno")
+        await db_conn.execute(
+            "UPDATE conta_contatos SET principal = TRUE "
+            "WHERE conta_id = $1::uuid AND contato_id = $2::uuid",
+            conta["id"], camila["id"],
+        )
+        # Reunião concluída hoje com a Camila: 3 (recência) x 2 (reunião)
+        # = 6 pontos e última conversa hoje -> quente.
+        await db_conn.execute(
+            """
+            INSERT INTO tarefas (conta_id, tipo, titulo, responsavel_id, prazo,
+                                 concluida_em, contato_id)
+            VALUES ($1::uuid, 'reuniao', 'Café com a Camila', $2::uuid,
+                    NOW(), NOW(), $3::uuid)
+            """,
+            conta["id"], await id_do_usuario(db_conn, usuario_adm["email"]),
+            camila["id"],
+        )
+        return conta, camila, flavia
+
+    async def test_detalhe_traz_contatos_com_temperatura(
+        self, db_conn, client, usuario_adm,
+    ):
+        conta, camila, flavia = await self._cenario(db_conn, client, usuario_adm)
+        body = (await client.get(
+            f"/crm/parceiros/{conta['id']}", headers=usuario_adm["headers"]
+        )).json()
+
+        assert body["qtd_contatos"] == 2
+        nomes = [c["nome"] for c in body["contatos"]]
+        # Principal primeiro, depois por nome.
+        assert nomes == ["Camila", "Flavia Damasceno"]
+        cam, fla = body["contatos"]
+        assert cam["principal"] is True and cam["cargo"] == "DP/RH"
+        assert cam["temperatura"] == "quente"
+        assert cam["temperatura_rotulo"] == "Quente"
+        assert cam["interacoes_60d"] == 1
+        assert fla["principal"] is False
+        assert fla["temperatura"] == "frio"
+        assert fla["dias_desde_ultima_conversa"] is None
+
+    async def test_lista_traz_os_contatos_na_linha(
+        self, db_conn, client, usuario_adm,
+    ):
+        conta, _, _ = await self._cenario(db_conn, client, usuario_adm)
+        lista = (await client.get(
+            "/crm/parceiros", headers=usuario_adm["headers"]
+        )).json()
+        linha = next(i for i in lista["itens"] if i["id"] == conta["id"])
+        assert linha["qtd_contatos"] == 2
+        assert linha["contatos"][0]["nome"] == "Camila"
+        assert linha["contatos"][0]["temperatura"] == "quente"
+
+    async def test_vinculo_desfeito_nao_conta(
+        self, db_conn, client, usuario_adm,
+    ):
+        conta, camila, flavia = await self._cenario(db_conn, client, usuario_adm)
+        h = usuario_adm["headers"]
+        resp = await client.delete(
+            f"/crm/contatos/{flavia['id']}/vinculos/{conta['id']}", headers=h
+        )
+        assert resp.status_code == 200, resp.text
+        body = (await client.get(f"/crm/parceiros/{conta['id']}", headers=h)).json()
+        assert [c["nome"] for c in body["contatos"]] == ["Camila"]
+        assert body["qtd_contatos"] == 1
+
+    async def test_parceiro_sem_contato_vem_com_lista_vazia(
+        self, db_conn, client, usuario_adm,
+    ):
+        h = usuario_adm["headers"]
+        conta = await nova_conta(client, h, CNPJ_PARCEIRO_2, "Contabilidade Sem Gente")
+        body = await marcar_parceiro(client, h, conta["id"])
+        assert body["qtd_contatos"] == 0
+        assert body["contatos"] == []

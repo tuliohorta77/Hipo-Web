@@ -59,6 +59,9 @@ ROTAS_INSTRUMENTADAS: dict[tuple[str, str], str] = {
     ("GET", "/crm/contatos/por-alvo"): RECURSO_CONTATO,
     ("GET", "/crm/contatos/duplicatas"): RECURSO_CONTATO,
     ("GET", "/crm/oportunidades/{oportunidade_id}/contatos"): RECURSO_CONTATO,
+    # Os contatos do escritorio parceiro vem na linha e no detalhe.
+    ("GET", "/crm/parceiros"): RECURSO_CONTATO,
+    ("GET", "/crm/parceiros/{conta_id}"): RECURSO_CONTATO,
     ("GET", "/crm/enriquecimento/contas/{conta_id}/socios"): RECURSO_SOCIO,
     ("GET", "/crm/enriquecimento/socios/empresas"): RECURSO_SOCIO,
     ("GET", "/crm/enriquecimento/cnpj/{cnpj}"): RECURSO_SOCIO,

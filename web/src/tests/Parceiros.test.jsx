@@ -85,6 +85,28 @@ const USUARIOS = [
   { id: 'u3', nome: 'Carla SDR', cargo: 'SDR' },
 ];
 
+// As pessoas do escritório, com a temperatura pronta do backend — mesma
+// disciplina do farol: a tela não recalcula.
+const CONTATOS_ALFA = [
+  {
+    id: 'ct9', nome: 'Camila', cargo: 'DP/RH', principal: true,
+    email: null, telefone: '11947775553', telefone_whatsapp: true,
+    telefone_2: null, telefone_2_whatsapp: false, linkedin: null,
+    data_nascimento: null, observacoes: null,
+    temperatura: 'quente', temperatura_rotulo: 'Quente', temperatura_pontos: 6,
+    interacoes_60d: 1, ultima_conversa: '2026-08-10T12:00:00Z',
+    dias_desde_ultima_conversa: 2,
+  },
+  {
+    id: 'ct8', nome: 'Flavia Damasceno', cargo: null, principal: false,
+    email: 'flavia@exemplo.com.br', telefone: '11963858300', telefone_whatsapp: false,
+    telefone_2: null, telefone_2_whatsapp: false, linkedin: null,
+    data_nascimento: null, observacoes: null,
+    temperatura: 'frio', temperatura_rotulo: 'Frio', temperatura_pontos: 0,
+    interacoes_60d: 0, ultima_conversa: null, dias_desde_ultima_conversa: null,
+  },
+];
+
 const ALFA = {
   id: 'p1', razao_social: 'Contabilidade Alfa', nome_fantasia: null,
   cnpj: '11111111000191', cnpj_formatado: '11.111.111/0001-91',
@@ -97,6 +119,7 @@ const ALFA = {
   farol: FAROL_VERDE, semanas_sem_contato: 0, sem_contato: false,
   tarefas_abertas: 1, proxima_tarefa_em: DAQUI_A_DOIS_DIAS,
   funil: FUNIL_CHEIO,
+  qtd_contatos: 2, contatos: CONTATOS_ALFA,
 };
 
 const BETA = {
@@ -112,6 +135,7 @@ const BETA = {
   farol: FAROL_VERMELHO, semanas_sem_contato: 4, sem_contato: true,
   tarefas_abertas: 0, proxima_tarefa_em: null,
   funil: FUNIL_VAZIO,
+  qtd_contatos: 0, contatos: [],
 };
 
 const RESUMO = {
@@ -440,14 +464,14 @@ describe('Parceiros — o drilldown', () => {
     expect(within(dialogo).getByText('11.111.111/0001-91')).toBeInTheDocument();
   });
 
-  it('as abas do parceiro sao Dados, Tarefas, Indicacoes e Carteira', async () => {
+  it('as abas do parceiro sao Dados, Tarefas, Contatos, Indicacoes e Carteira', async () => {
     /*
       O que vai divergir da venda com o tempo é SÓ este conjunto. A casca, o
       trilho e o mecanismo de tarefa são os mesmos.
     */
     montar();
     const dialogo = await abrirParceiro();
-    ['dados', 'tarefas', 'indicacoes', 'carteira'].forEach((k) => {
+    ['dados', 'tarefas', 'contatos', 'indicacoes', 'carteira'].forEach((k) => {
       expect(within(dialogo).getByTestId(`tab-${k}`)).toBeInTheDocument();
     });
   });
@@ -879,3 +903,90 @@ describe('Parceiros — reunião com o contador', () => {
   });
 });
 
+
+
+describe('Parceiros — os contatos do escritório', () => {
+  it('a linha mostra o principal, a temperatura dele e quantos contatos', async () => {
+    montar();
+    const linha = (await screen.findByText('Contabilidade Alfa')).closest('tr');
+    expect(within(linha).getByText('Camila')).toBeInTheDocument();
+    expect(within(linha).getByText('Quente')).toBeInTheDocument();
+    expect(within(linha).getByText('2 contatos')).toBeInTheDocument();
+  });
+
+  it('parceiro sem ninguém cadastrado aparece como sem contato', async () => {
+    montar();
+    const linha = (await screen.findByText('Escritorio Beta')).closest('tr');
+    expect(within(linha).getByText('sem contato')).toBeInTheDocument();
+  });
+
+  it('clicar na temperatura da linha explica, sem abrir o painel', async () => {
+    montar();
+    const linha = (await screen.findByText('Contabilidade Alfa')).closest('tr');
+    fireEvent.click(within(linha).getByRole('button', { name: /Contato quente/ }));
+    expect(within(linha).getByText(/1 conversa concluída/)).toBeInTheDocument();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('a aba Dados lista cada contato com a temperatura', async () => {
+    montar();
+    const dialogo = await abrirParceiro();
+    const bloco = dialogo.querySelector('[data-tour="par-det-contatos"]');
+    expect(within(bloco).getByText('2 contatos')).toBeInTheDocument();
+    expect(within(bloco).getByText('Camila')).toBeInTheDocument();
+    expect(within(bloco).getByText('Principal')).toBeInTheDocument();
+    expect(within(bloco).getByText('Quente')).toBeInTheDocument();
+    expect(within(bloco).getByText('Flavia Damasceno')).toBeInTheDocument();
+    expect(within(bloco).getByText('Frio')).toBeInTheDocument();
+  });
+
+  it('"Ver e editar" leva para a aba Contatos, a mesma da tela de Contas', async () => {
+    montar();
+    const dialogo = await abrirParceiro();
+    fireEvent.click(within(dialogo).getByText('Ver e editar'));
+    expect(within(dialogo).getByText('Tornar principal')).toBeInTheDocument();
+    expect(within(dialogo).getByText('Adicionar contato')).toBeInTheDocument();
+  });
+
+  it('sem contato, a aba Dados avisa e oferece cadastrar', async () => {
+    montar();
+    const dialogo = await abrirParceiro('Escritorio Beta');
+    expect(within(dialogo).getByText(/Nenhuma pessoa cadastrada/)).toBeInTheDocument();
+    fireEvent.click(within(dialogo).getByText('Cadastrar contato'));
+    expect(within(dialogo).getByText('Nenhum contato nesta conta')).toBeInTheDocument();
+  });
+});
+
+describe('Parceiros — reunião concluída pela aba de Tarefas', () => {
+  it('a próxima tarefa enxerga os contatos do parceiro', async () => {
+    /*
+      O defeito: o desfecho da reunião perdia o conta_id no caminho, o
+      seletor de contato da próxima não buscava ninguém e dizia "esta
+      empresa ainda não tem contato" com duas pessoas cadastradas.
+    */
+    const reuniao = {
+      ...TAREFAS_DO_PARCEIRO.itens[0],
+      id: 't2', tipo: 'reuniao', tipo_rotulo: 'Reunião', titulo: 'Café com o contador',
+      agendavel: true, reuniao_id: 'r2', reuniao_tipo_sigla: 'RP',
+      outras_abertas: 0, desfecho_sugerido: 'realizada', desfecho_efetivo: null,
+    };
+    mockGet.mockImplementation((url, cfg) => {
+      if (url === '/crm/tarefas') {
+        return Promise.resolve({ data: { ...TAREFAS_DO_PARCEIRO, itens: [reuniao] } });
+      }
+      return respostas(url, cfg);
+    });
+    montar();
+    const dialogo = await abrirParceiro();
+    fireEvent.click(within(dialogo).getByTestId('tab-tarefas'));
+    fireEvent.click(await within(dialogo).findByText('Café com o contador'));
+    fireEvent.click(await within(dialogo).findByText('O que aconteceu?'));
+
+    await waitFor(() => expect(mockGet).toHaveBeenCalledWith(
+      '/crm/contatos/por-alvo', { params: { conta_id: 'p1' } },
+    ));
+    const seletor = within(dialogo).getByLabelText('Próxima: Contato (obrigatório)');
+    await waitFor(() => expect(seletor).toHaveValue('ct9'));
+    expect(within(dialogo).queryByText(/ainda não tem contato/)).not.toBeInTheDocument();
+  });
+});

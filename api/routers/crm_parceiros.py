@@ -50,12 +50,14 @@ from datetime import date, datetime
 from decimal import Decimal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
 from database import get_conn
 from routers.auth import usuario_atual
+from routers.crm_oportunidade_contatos import temperaturas
 from routers.permissions import CARGOS_COM_PARCEIROS
+from services import auditoria
 from services import cnpj as cnpj_svc
 from services import oportunidade as regras_opp
 from services import parceiro as regras
@@ -124,6 +126,35 @@ class FunilParceiro(BaseModel):
     negociacao: FaseFunil
 
 
+class ContatoDoParceiro(BaseModel):
+    """
+    Uma pessoa do escritório parceiro, com a temperatura da relação.
+
+    Mesmos campos que a ficha da conta (`ContatoDaConta`) devolve, para a
+    aba Contatos do parceiro usar o MESMO componente da tela de Contas —
+    editar, promover a principal e desvincular sem uma segunda chamada.
+    """
+    id: UUID
+    nome: str
+    cargo: str | None
+    principal: bool
+    email: str | None
+    telefone: str | None
+    telefone_whatsapp: bool = False
+    telefone_2: str | None = None
+    telefone_2_whatsapp: bool = False
+    linkedin: str | None = None
+    data_nascimento: date | None = None
+    observacoes: str | None = None
+    # 046: quente / morno / frio, pelas conversas concluídas com a pessoa.
+    temperatura: str = "frio"
+    temperatura_rotulo: str = "Frio"
+    temperatura_pontos: int = 0
+    interacoes_60d: int = 0
+    ultima_conversa: datetime | None = None
+    dias_desde_ultima_conversa: int | None = None
+
+
 class ParceiroResumo(BaseModel):
     id: UUID
     razao_social: str
@@ -167,6 +198,14 @@ class ParceiroResumo(BaseModel):
 
     # ── O que ele nos deu, e em que pé está ──────────────────────────
     funil: FunilParceiro
+
+    # ── Com quem falamos lá dentro ───────────────────────────────────
+    # As pessoas ATIVAS do escritório, o principal primeiro. Vem na linha
+    # (e não só no detalhe) porque a tabela mostra o principal e a
+    # temperatura dele: parceiro com um contato só e frio é relação que
+    # depende de um nome e está esfriando — e isso tem que saltar na lista.
+    qtd_contatos: int = 0
+    contatos: list[ContatoDoParceiro] = Field(default_factory=list)
 
 
 class EventoCarteira(BaseModel):
@@ -381,6 +420,22 @@ _SQL_FUNIL = """
 """
 
 
+# As pessoas ativas de cada parceiro, em lote. Mesma ordem da ficha da
+# conta: o principal primeiro, depois por nome.
+_SQL_CONTATOS = """
+    SELECT cc.conta_id, ct.id, ct.nome, cc.cargo, cc.principal,
+           ct.email, ct.telefone,
+           COALESCE(ct.telefone_whatsapp, FALSE)   AS telefone_whatsapp,
+           ct.telefone_2,
+           COALESCE(ct.telefone_2_whatsapp, FALSE) AS telefone_2_whatsapp,
+           ct.linkedin, ct.data_nascimento, ct.observacoes
+      FROM conta_contatos cc
+      JOIN contatos ct ON ct.id = cc.contato_id AND ct.ativo
+     WHERE cc.conta_id = ANY($1::uuid[]) AND cc.ativo
+     ORDER BY cc.principal DESC, ct.nome
+"""
+
+
 def _funil_vazio() -> dict:
     return {f: {"qtd": 0, "ticket": Decimal(0)} for f in regras_opp.FASES_ABERTAS}
 
@@ -388,9 +443,10 @@ def _funil_vazio() -> dict:
 async def _enriquecer(conn, itens: list[dict], hoje: date | None,
                       inicio: date | None) -> list[dict]:
     """
-    Acrescenta farol, tarefas em aberto e mini-funil às linhas já montadas.
+    Acrescenta farol, tarefas em aberto, mini-funil e contatos (com a
+    temperatura de cada um) às linhas já montadas.
 
-    Três consultas em lote, independentemente de quantos parceiros. Sai daqui
+    Consultas em lote, independentemente de quantos parceiros. Sai daqui
     com tudo que a linha da tela desenha.
     """
     if not itens:
@@ -404,6 +460,16 @@ async def _enriquecer(conn, itens: list[dict], hoje: date | None,
     linhas_farol = await conn.fetch(_SQL_FAROL, ids, _NOME_FUSO, primeira, ultima)
     linhas_tarefas = await conn.fetch(_SQL_TAREFAS_ABERTAS, ids)
     linhas_funil = await conn.fetch(_SQL_FUNIL, ids, inicio)
+    linhas_contatos = await conn.fetch(_SQL_CONTATOS, ids)
+    # Temperatura em lote também (duas consultas para todos os contatos de
+    # todos os parceiros), pela mesma regra da ficha da conta e do comitê.
+    temps = await temperaturas(conn, [r["id"] for r in linhas_contatos])
+    contatos: dict[UUID, list[dict]] = {}
+    for r in linhas_contatos:
+        c = dict(r)
+        conta_id = c.pop("conta_id")
+        c.update(temps.get(c["id"], {}))
+        contatos.setdefault(conta_id, []).append(c)
 
     contagens: dict[UUID, dict[date, dict]] = {}
     for r in linhas_farol:
@@ -433,6 +499,9 @@ async def _enriquecer(conn, itens: list[dict], hoje: date | None,
         item["proxima_tarefa_em"] = t["proxima_em"] if t else None
 
         item["funil"] = funis.get(item["id"]) or _funil_vazio()
+
+        item["contatos"] = contatos.get(item["id"], [])
+        item["qtd_contatos"] = len(item["contatos"])
 
     return itens
 
@@ -672,8 +741,13 @@ async def transferir_carteira(
     return {"transferidos": len(ids), "conta_ids": ids}
 
 
+def _ids_dos_contatos(itens: list[dict]) -> list:
+    return [c["id"] for i in itens for c in i.get("contatos", [])]
+
+
 @router.get("", response_model=ParceiroLista)
 async def listar(
+    request: Request,
     q: str | None = Query(None, max_length=200),
     ec_responsavel_id: UUID | None = None,
     sem_ec: bool = False,
@@ -752,17 +826,26 @@ async def listar(
         # crescendo. Invertido, a lista abriria mostrando quem está bem.
         itens.sort(key=lambda i: regras.ORDEM_SITUACAO[i["situacao"]], reverse=not desc)
 
+    pagina = itens[offset:offset + limit]
+    # A linha agora traz telefone e e-mail das pessoas do escritório: é
+    # leitura de dado pessoal e entra na trilha (032), com os ids da
+    # PÁGINA devolvida — mesma regra de GET /crm/contatos.
+    await auditoria.registrar_leitura(
+        conn, request, user, auditoria.RECURSO_CONTATO, _ids_dos_contatos(pagina),
+        {"q": q, "periodo": periodo},
+    )
     return {
         "total": len(itens),
         "limit": limit,
         "offset": offset,
         "periodo": periodo,
-        "itens": itens[offset:offset + limit],
+        "itens": pagina,
     }
 
 
 @router.get("/{conta_id}", response_model=ParceiroDetalhe)
 async def obter(
+    request: Request,
     conta_id: UUID,
     periodo: str = Query("sempre"),
     hoje: date | None = Query(None, description="Só para teste determinístico."),
@@ -772,7 +855,12 @@ async def obter(
     conta = await _conta_ou_404(conn, conta_id)
     if not conta["eh_finder"]:
         raise HTTPException(404, f"{conta['razao_social']} não é um parceiro.")
-    return await _detalhe(conn, conta_id, periodo, hoje)
+    detalhe = await _detalhe(conn, conta_id, periodo, hoje)
+    await auditoria.registrar_leitura(
+        conn, request, user, auditoria.RECURSO_CONTATO, _ids_dos_contatos([detalhe]),
+        {"conta_id": conta_id},
+    )
+    return detalhe
 
 
 @router.get("/{conta_id}/indicacoes", response_model=list[Indicacao])

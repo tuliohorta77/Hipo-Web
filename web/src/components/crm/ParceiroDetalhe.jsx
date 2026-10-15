@@ -32,6 +32,8 @@ import {
 
 import api from '../../api';
 import AbaTarefas from './AbaTarefas';
+import ContatosDaConta from './ContatosDaConta';
+import { SeloContatos, SinalTemperatura, TelefonesDoContato } from './contatoComum';
 import Tabs from '../ui/Tabs';
 import Button from '../ui/Button';
 import Badge from '../ui/Badge';
@@ -107,6 +109,80 @@ function Numero({ rotulo, valor, detalhe, tom = 'text-hipo-ink' }) {
       <span className="block text-[11px] text-hipo-slate">{rotulo}</span>
       <span className={`block text-lg font-semibold ${tom}`}>{valor}</span>
       {detalhe && <span className="block text-[11px] text-hipo-slate">{detalhe}</span>}
+    </div>
+  );
+}
+
+// ── Contatos no painel de dados ──────────────────────────────────────
+
+/*
+  Com quem falamos no escritório, e como está cada relação. Mesmo padrão
+  da oportunidade: o principal em destaque, o selo de quantas pessoas, e a
+  temperatura de cada uma (quente / morno / frio, pelas conversas
+  concluídas — services/temperatura_contato). Clicar leva para a aba
+  Contatos, onde se cadastra, edita e promove a principal.
+
+  Lista curta e não só o principal: parceiro costuma ter duas ou três
+  pessoas, e ver de uma vez que só a Camila está quente é a leitura que
+  importa — a relação depende de um nome.
+*/
+const MAX_CONTATOS_NO_RESUMO = 4;
+
+function ResumoContatos({ parceiro, onVerTodos }) {
+  const contatos = parceiro.contatos || [];
+  const qtd = parceiro.qtd_contatos ?? contatos.length;
+  const visiveis = contatos.slice(0, MAX_CONTATOS_NO_RESUMO);
+  const resto = contatos.length - visiveis.length;
+
+  return (
+    <div data-tour="par-det-contatos" className="rounded-lg border border-hipo-border bg-hipo-card p-3">
+      <span className="flex items-center justify-between gap-2 mb-1.5">
+        <span className="flex items-center gap-2 text-xs font-medium text-hipo-slate">
+          Contatos
+          <SeloContatos qtd={qtd} />
+        </span>
+        <button
+          type="button"
+          onClick={onVerTodos}
+          className="text-xs text-hipo-blue hover:underline"
+        >
+          {qtd === 0 ? 'Cadastrar contato' : 'Ver e editar'}
+        </button>
+      </span>
+
+      {qtd === 0 ? (
+        <p className="text-sm text-hipo-warning">
+          Nenhuma pessoa cadastrada neste escritório. Sem contato não dá para
+          marcar ligação, reunião nem WhatsApp com o parceiro.
+        </p>
+      ) : (
+        <ul className="divide-y divide-hipo-border">
+          {visiveis.map((c) => (
+            <li key={c.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 py-1.5">
+              <span className="flex items-center gap-2 min-w-0">
+                <span className="text-sm font-medium text-hipo-ink truncate">{c.nome}</span>
+                {c.principal && <Badge tone="info">Principal</Badge>}
+                <SinalTemperatura contato={c} />
+              </span>
+              <span className="flex flex-wrap items-center gap-x-3 text-xs text-hipo-slate">
+                {c.cargo && <span>{c.cargo}</span>}
+                <TelefonesDoContato
+                  contato={c}
+                  compacto
+                  ligacao={{ conta_id: parceiro.id, contato_id: c.id }}
+                />
+              </span>
+            </li>
+          ))}
+          {resto > 0 && (
+            <li className="pt-1.5">
+              <button type="button" onClick={onVerTodos} className="text-xs text-hipo-blue hover:underline">
+                + {resto} {resto === 1 ? 'outro' : 'outros'}
+              </button>
+            </li>
+          )}
+        </ul>
+      )}
     </div>
   );
 }
@@ -254,6 +330,9 @@ export default function ParceiroDetalhe({
     // Tarefas em segundo, igual à oportunidade: é a aba que responde "e
     // agora?", que é a pergunta que traz o EC a esta tela.
     { key: 'tarefas', label: 'Tarefas', badge: parceiro.tarefas_abertas || undefined },
+    // Mesma posição da oportunidade: depois de Tarefas, porque é de lá que
+    // sai a pergunta "com quem vai ser?".
+    { key: 'contatos', label: 'Contatos', badge: parceiro.qtd_contatos || undefined },
     { key: 'indicacoes', label: 'Indicações', badge: parceiro.indicacoes || undefined },
     { key: 'carteira', label: 'Carteira' },
   ];
@@ -343,6 +422,8 @@ export default function ParceiroDetalhe({
                 </div>
               </div>
 
+              <ResumoContatos parceiro={parceiro} onVerTodos={() => setAba('contatos')} />
+
               <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
                 <Numero
                   rotulo="Conversão"
@@ -384,10 +465,11 @@ export default function ParceiroDetalhe({
                 Cadastro da empresa se edita na tela de Contas, que é a dona
                 dele. Duplicar o formulário aqui criaria dois lugares para
                 mudar a mesma razão social — e eles divergem no primeiro
-                ajuste.
+                ajuste. Contatos são a exceção: a aba usa o MESMO componente
+                da tela de Contas, então não há segundo formulário.
               */}
               <p className="text-xs text-hipo-slate">
-                Razão social, endereço e contatos se editam na tela de Contas.
+                Razão social e endereço se editam na tela de Contas.
               </p>
             </div>
           )}
@@ -398,6 +480,20 @@ export default function ParceiroDetalhe({
           */}
           {aba === 'tarefas' && (
             <AbaTarefas parceiro={parceiro} onMudou={onRecarregar} versao={versaoTarefas} />
+          )}
+
+          {/*
+            O MESMO componente da ficha da conta (tela de Contas): vincular,
+            cadastrar, editar, tornar principal e remover. Mudou algo, o
+            parceiro recarrega — e o seletor de contato das tarefas já
+            enxerga a pessoa nova.
+          */}
+          {aba === 'contatos' && (
+            <ContatosDaConta
+              contaId={parceiro.id}
+              contatos={parceiro.contatos || []}
+              onMudou={onRecarregar}
+            />
           )}
 
           {aba === 'indicacoes' && (

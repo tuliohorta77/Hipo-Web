@@ -12,9 +12,10 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, cleanup, waitFor } from '@testing-library/react';
 
 const mockPost = vi.fn();
+const mockGet = vi.fn();
 
 vi.mock('../api', () => ({
-  default: { post: (...a) => mockPost(...a) },
+  default: { post: (...a) => mockPost(...a), get: (...a) => mockGet(...a) },
 }));
 
 import {
@@ -57,7 +58,11 @@ function montar(props = {}) {
   return { ...utils, ...handlers };
 }
 
-beforeEach(() => { mockPost.mockReset(); });
+beforeEach(() => {
+  mockPost.mockReset();
+  mockGet.mockReset();
+  mockGet.mockResolvedValue({ data: [] });
+});
 afterEach(cleanup);
 
 describe('PainelReuniaoDaTarefa — as ações', () => {
@@ -140,6 +145,56 @@ describe('reuniaoDaTarefa', () => {
       inicio: '2026-09-08T12:00:00Z', anfitriao_id: 'u1',
       desfecho_sugerido: 'no_show', status_oportunidade: 'ativa',
     });
+  });
+
+  it('leva a empresa e a pessoa da reunião', () => {
+    expect(reuniaoDaTarefa(tarefa({ conta_id: 'c1', contato_id: 'p1' }))).toMatchObject({
+      conta_id: 'c1', contato_id: 'p1',
+    });
+  });
+});
+
+describe('PainelReuniaoDaTarefa — contato da próxima', () => {
+  // O defeito: reunião de PARCEIRO concluída pela aba de tarefas. O painel
+  // perdia o conta_id no caminho, o seletor não buscava ninguém e dizia
+  // "esta empresa ainda não tem contato" com duas pessoas cadastradas.
+  const CONTATOS = [
+    { id: 'p1', nome: 'Camila', cargo: 'DP/RH', principal: true, no_comite: false },
+    { id: 'p2', nome: 'Flavia Damasceno', cargo: null, principal: false, no_comite: false },
+  ];
+
+  it('reunião de parceiro busca os contatos da conta e já sugere a mesma pessoa', async () => {
+    mockGet.mockResolvedValue({ data: CONTATOS });
+    montar({
+      painel: 'desfecho',
+      tarefa: tarefa({
+        alvo: 'parceiro', oportunidade_id: null, status_oportunidade: null,
+        outras_abertas: 0, conta_id: 'c1', contato_id: 'p1', desfecho_sugerido: 'realizada',
+      }),
+    });
+    await waitFor(() => expect(mockGet).toHaveBeenCalledWith(
+      '/crm/contatos/por-alvo', { params: { conta_id: 'c1' } },
+    ));
+    const seletor = screen.getByLabelText('Próxima: Contato (obrigatório)');
+    await waitFor(() => expect(screen.getByRole('option', { name: /Camila/ })).toBeInTheDocument());
+    expect(screen.getByRole('option', { name: /Flavia Damasceno/ })).toBeInTheDocument();
+    expect(seletor).toHaveValue('p1');
+    expect(screen.queryByText(/ainda não tem contato/)).not.toBeInTheDocument();
+  });
+
+  it('reunião de oportunidade continua buscando pelo comitê', async () => {
+    mockGet.mockResolvedValue({ data: CONTATOS });
+    montar({
+      painel: 'desfecho',
+      tarefa: tarefa({ outras_abertas: 0, conta_id: 'c9', desfecho_sugerido: 'realizada' }),
+    });
+    await waitFor(() => expect(mockGet).toHaveBeenCalledWith(
+      '/crm/contatos/por-alvo', { params: { oportunidade_id: 'o1' } },
+    ));
+    // Com a conta, o "cadastrar novo" volta a aparecer.
+    await waitFor(() => expect(
+      screen.getByRole('option', { name: /Cadastrar novo contato/ }),
+    ).toBeInTheDocument());
   });
 });
 

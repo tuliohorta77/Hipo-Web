@@ -70,8 +70,37 @@ import MiniFunil from '../../components/ui/MiniFunil';
 import ParceiroDetalhe from '../../components/crm/ParceiroDetalhe';
 import TransferirCarteira, { SEM_EC } from '../../components/crm/TransferirCarteira';
 import ModalReuniao from '../../components/crm/ModalReuniao';
+import { SeloContatos, SinalTemperatura } from '../../components/crm/contatoComum';
 
 const POR_PAGINA = 50;
+
+/*
+  Com quem se fala no escritório, na própria linha: o principal (ou o
+  primeiro), a temperatura dele e quantas pessoas conhecemos. Mesmo selo
+  do cartão da oportunidade no kanban. Parceiro com uma pessoa só e fria
+  é relação por um fio — e isso precisa aparecer sem abrir o painel.
+
+  O stopPropagation existe porque a temperatura é um botão (mostra o
+  porquê) e a linha inteira já abre o painel.
+*/
+function ContatoDaLinha({ parceiro }) {
+  const contatos = parceiro.contatos || [];
+  const qtd = parceiro.qtd_contatos ?? contatos.length;
+  const principal = contatos.find((c) => c.principal) || contatos[0];
+  return (
+    <span className="mt-1 flex flex-wrap items-center gap-1.5">
+      {principal && (
+        <>
+          <span className="text-xs text-hipo-ink truncate max-w-[10rem]">{principal.nome}</span>
+          <span onClick={(e) => e.stopPropagation()}>
+            <SinalTemperatura contato={principal} />
+          </span>
+        </>
+      )}
+      <SeloContatos qtd={qtd} />
+    </span>
+  );
+}
 
 const PERIODOS = [
   { valor: 'sempre', rotulo: 'Desde sempre' },
@@ -483,6 +512,7 @@ export default function Parceiros() {
                             <span className="block text-xs font-mono text-hipo-slate">
                               {p.cnpj_formatado}
                             </span>
+                            <ContatoDaLinha parceiro={p} />
                           </Td>
                           <Td>
                             {/*

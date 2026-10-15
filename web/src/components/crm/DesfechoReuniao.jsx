@@ -39,6 +39,12 @@ export function reuniaoDaTarefa(tarefa) {
     inicio: tarefa.prazo,
     anfitriao_id: tarefa.responsavel_id,
     oportunidade_id: tarefa.oportunidade_id,
+    // A empresa e a pessoa da reunião. Sem `conta_id`, a próxima tarefa de
+    // uma reunião de PARCEIRO não tinha de onde buscar contatos (o seletor
+    // dizia "esta empresa ainda não tem contato" com dois cadastrados), e
+    // sem `contato_id` a próxima não nascia com a mesma pessoa.
+    conta_id: tarefa.conta_id,
+    contato_id: tarefa.contato_id,
     status_oportunidade: tarefa.status_oportunidade,
     outras_abertas: tarefa.outras_abertas,
     desfecho_sugerido: tarefa.desfecho_sugerido,

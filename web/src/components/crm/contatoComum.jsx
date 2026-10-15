@@ -148,6 +148,23 @@ export function SeloComite({ qtd = 0, temDecisor = false }) {
   );
 }
 
+/**
+ * O selo de quantas pessoas da empresa conhecemos, sem a régua do decisor.
+ * É o selo do parceiro: escritório indicador não tem comitê de compra, mas
+ * tem o mesmo risco de depender de um nome só — mesma cor do comitê (nenhum
+ * vermelho, um amarelo, dois ou mais verde).
+ */
+export function SeloContatos({ qtd = 0 }) {
+  const texto = qtd === 0 ? 'sem contato' : qtd === 1 ? '1 contato' : `${qtd} contatos`;
+  return (
+    <Badge tone={tomDoComite(qtd)} className="!px-2 !py-0.5">
+      <span title={qtd >= 2 ? 'Relação com mais de uma pessoa' : 'Ideal: 2 ou mais contatos'}>
+        {texto}
+      </span>
+    </Badge>
+  );
+}
+
 // ── Editar contato ───────────────────────────────────────────────────
 
 export function formDoContato(c, cargo) {

@@ -121,6 +121,35 @@ class TestContatos:
         assert l["registro_ids"] == [cenario["contato"]["id"]]
         assert l["contexto"]["conta_id"] == cenario["conta"]["id"]
 
+    async def test_parceiro_detalhe_e_lista_gravam_os_contatos(
+        self, db_conn, client, cenario,
+    ):
+        """
+        A carteira de parceiros passou a trazer telefone e e-mail das
+        pessoas do escritorio -- na linha e no painel. E leitura de dado
+        pessoal como qualquer outra.
+        """
+        conta_id = cenario["conta"]["id"]
+        r = await client.patch(
+            f"/crm/parceiros/{conta_id}", json={"eh_finder": True}, headers=cenario["h"],
+        )
+        assert r.status_code == 200, r.text
+        # Escrita nao e leitura: o PATCH devolve o parceiro mas nao grava.
+        assert await leituras(db_conn) == []
+
+        r = await client.get(f"/crm/parceiros/{conta_id}", headers=cenario["h"])
+        assert r.status_code == 200
+        [l] = await leituras(db_conn, "/crm/parceiros/{conta_id}")
+        assert l["registro_ids"] == [cenario["contato"]["id"]]
+        assert l["contexto"]["conta_id"] == conta_id
+
+        r = await client.get("/crm/parceiros", headers=cenario["h"])
+        assert r.status_code == 200
+        [l] = await leituras(db_conn, "/crm/parceiros")
+        assert l["registro_ids"] == [cenario["contato"]["id"]]
+        # O conteudo nunca vai para a trilha.
+        assert "11999990000" not in json.dumps(l["contexto"])
+
     async def test_duplicatas_nao_guarda_o_dado_digitado(self, db_conn, client, cenario):
         r = await client.get(
             "/crm/contatos/duplicatas", params={"email": "maria@alfa.com"},
