@@ -136,11 +136,15 @@ class TestModeloVersionado:
         simples, listas = regras.campos(proposta=proposta, conta=conta,
                                         itens_grupo=proposta["itens"],
                                         data_contrato=date(2026, 10, 8),
-                                        inicio_vigencia=date(2026, 10, 9), dia_vencimento=10)
+                                        inicio_vigencia=date(2026, 10, 9),
+                                        primeiro_vencimento=date(2026, 11, 7))
         out = render.preencher(render.ler_modelo(), simples, listas)
         assert render.campos_do_modelo(out) == set()
         tudo = "\n".join(texto(out))
         assert "08.363.161/0001-51" in tudo
+        # 058: 1o vencimento em 30 dias, os demais no mesmo dia.
+        assert ("com o primeiro vencimento em 07 de novembro de 2026 e os demais "
+                "todo dia 07 de cada mês:") in tudo
         assert "vigorará a partir de 09 de outubro de 2026" in tudo
         assert "Guarulhos, 08 de outubro de 2026." in tudo
         # Um CNPJ só: sem Anexo 1, sem "demais CNPJs", sem substituição.
@@ -163,11 +167,14 @@ class TestModeloVersionado:
         simples, listas = regras.campos(
             proposta=proposta, conta=conta, itens_grupo=itens,
             data_contrato=date(2026, 10, 9), inicio_vigencia=date(2026, 10, 10),
-            dia_vencimento=10, servicos=["cipa"], servicos_livres=["Treinamento NR-35"],
+            primeiro_vencimento=date(2026, 11, 30), servicos=["cipa"], servicos_livres=["Treinamento NR-35"],
             substituidos=[{"data_contrato": date(2026, 1, 5)}],
         )
         out = render.preencher(render.ler_modelo(), simples, listas)
         tudo = "\n".join(texto(out))
+        # Dia 30: o contrato diz o que acontece em fevereiro.
+        assert ("todo dia 30 de cada mês (nos meses que não tiverem esse dia, "
+                "no último dia do mês):") in tudo
         assert "42.385.626/0001-03, e demais CNPJs do mesmo grupo" in tudo
         assert "2.7) CIPA" in tudo and "2.8) Treinamento NR-35;" in tudo
         assert "substitui integralmente" in tudo and "05/01/2026" in tudo

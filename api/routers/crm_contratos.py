@@ -92,8 +92,9 @@ class PreviaIn(BaseModel):
     raiz_cnpj: str | None = Field(default=None, pattern=r"^\d{8}$")
     data_contrato: date | None = None
     inicio_vigencia: date | None = None
-    dia_vencimento: int = Field(default=regras.DIA_VENCIMENTO_PADRAO, ge=1,
-                                le=regras.DIA_VENCIMENTO_MAX)
+    # 058: em branco, 30 dias depois da data do contrato. O dia dele é o dia
+    # de vencimento dos meses seguintes.
+    primeiro_vencimento: date | None = None
     # 055: serviços além do básico (Cláusula 2, itens 2.7 em diante).
     servicos: list[str] = Field(default_factory=list, max_length=len(regras.SERVICOS_EXTRAS))
     servicos_livres: list[str] = Field(default_factory=list,
@@ -162,6 +163,7 @@ class ContratoOut(BaseModel):
     data_contrato: date
     inicio_vigencia: date
     dia_vencimento: int
+    primeiro_vencimento: date | None = None
     hash_original: str
     tem_assinado: bool
     assinado_em: datetime | None
@@ -247,6 +249,7 @@ class PadraoOut(BaseModel):
     data_contrato: date
     inicio_vigencia: date
     dia_vencimento: int
+    primeiro_vencimento: date | None = None
     contatos: list[PessoaOut]
     usuarios: list[PessoaOut]
     sugestao_contratante_id: UUID | None
@@ -303,14 +306,16 @@ def _exigir_enviavel(proposta: dict, opp: dict) -> None:
         )
 
 
-def _datas(payload, hoje: date | None = None) -> tuple[date, date, int]:
+def _datas(payload, hoje: date | None = None) -> tuple[date, date, date]:
     data_contrato = payload.data_contrato or (hoje or _hoje())
     inicio = payload.inicio_vigencia or regras.inicio_vigencia_padrao(data_contrato)
+    vencimento = (payload.primeiro_vencimento
+                  or regras.primeiro_vencimento_padrao(data_contrato))
     try:
-        regras.validar_datas(data_contrato, inicio, payload.dia_vencimento)
+        regras.validar_datas(data_contrato, inicio, vencimento)
     except regras.ContratoInvalido as e:
         raise HTTPException(422, str(e))
-    return data_contrato, inicio, payload.dia_vencimento
+    return data_contrato, inicio, vencimento
 
 
 _COLUNAS_CONTA = """id, razao_social, cnpj, cep, logradouro, numero, complemento,
@@ -378,7 +383,8 @@ async def _substituiveis(conn, raiz: str, excluir: UUID | None = None) -> list[d
     return [dict(r) for r in rows]
 
 
-def _campos(proposta: dict, grupo: dict, data_contrato: date, inicio: date, dia: int,
+def _campos(proposta: dict, grupo: dict, data_contrato: date, inicio: date,
+            vencimento: date,
             servicos: list[str], livres: list[str],
             substituidos: list[dict]) -> tuple[dict, dict]:
     conta = grupo["conta"]
@@ -391,7 +397,8 @@ def _campos(proposta: dict, grupo: dict, data_contrato: date, inicio: date, dia:
     try:
         return regras.campos(
             proposta=proposta, conta=conta, itens_grupo=grupo["itens"],
-            data_contrato=data_contrato, inicio_vigencia=inicio, dia_vencimento=dia,
+            data_contrato=data_contrato, inicio_vigencia=inicio,
+            primeiro_vencimento=vencimento,
             com_extras=grupo["principal"], servicos=servicos, servicos_livres=livres,
             enderecos=grupo["enderecos"], substituidos=substituidos,
         )
@@ -1124,7 +1131,8 @@ async def padrao(proposta_id: UUID, conn=Depends(get_conn), user=Depends(usuario
         "contratada_email": settings.CONTRATO_CONTRATADA_EMAIL,
         "data_contrato": hoje,
         "inicio_vigencia": regras.inicio_vigencia_padrao(hoje),
-        "dia_vencimento": regras.DIA_VENCIMENTO_PADRAO,
+        "primeiro_vencimento": regras.primeiro_vencimento_padrao(hoje),
+        "dia_vencimento": regras.primeiro_vencimento_padrao(hoje).day,
         "contatos": [
             {"id": c["id"], "nome": c["nome"], "email": c["email"],
              "detalhe": " · ".join(x for x in (c.get("cargo"), c.get("papel")) if x) or None}
@@ -1146,13 +1154,13 @@ async def padrao(proposta_id: UUID, conn=Depends(get_conn), user=Depends(usuario
 
 
 async def _montar(conn, proposta: dict, opp: dict, payload: PreviaIn):
-    """(grupo, substituíveis, data, início, dia, simples, listas) do contrato."""
+    """(grupo, substituíveis, data, início, 1º vencimento, simples, listas)."""
     grupo = await _grupo(conn, proposta, opp, payload.raiz_cnpj)
     substituiveis = await _substituiveis(conn, grupo["raiz"])
-    data_contrato, inicio, dia = _datas(payload)
-    simples, listas = _campos(proposta, grupo, data_contrato, inicio, dia,
+    data_contrato, inicio, vencimento = _datas(payload)
+    simples, listas = _campos(proposta, grupo, data_contrato, inicio, vencimento,
                               payload.servicos, payload.servicos_livres, substituiveis)
-    return grupo, substituiveis, data_contrato, inicio, dia, simples, listas
+    return grupo, substituiveis, data_contrato, inicio, vencimento, simples, listas
 
 
 @router.post("/propostas/{proposta_id}/contrato/previa")
@@ -1196,7 +1204,7 @@ async def enviar(
     await _validar_origens(conn, opp["id"], payload)
     origem = {s.papel: s for s in payload.signatarios}
 
-    (grupo, substituiveis, data_contrato, inicio, dia,
+    (grupo, substituiveis, data_contrato, inicio, vencimento,
      simples, listas) = await _montar(conn, proposta, opp, payload)
     aberto = await _em_aberto(conn, opp["id"], grupo["raiz"])
     if aberto:
@@ -1250,19 +1258,21 @@ async def enviar(
                     oportunidade_id, proposta_id, versao, autentique_id, sandbox,
                     nome_documento, data_contrato, inicio_vigencia, dia_vencimento,
                     campos, hash_original, modelo_hash, tarefa_envio_id, criado_por,
-                    raiz_cnpj, servicos, servicos_livres, substitui_ids
+                    raiz_cnpj, servicos, servicos_livres, substitui_ids,
+                    primeiro_vencimento
                 )
                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11, $12, $13, $14,
-                        $15, $16, $17, $18)
+                        $15, $16, $17, $18, $19)
                 RETURNING id
                 """,
                 opp["id"], proposta["id"], versao, criado.id, autentique.em_sandbox(),
-                nome_doc, data_contrato, inicio, dia,
+                nome_doc, data_contrato, inicio, vencimento.day,
                 json.dumps({"simples": simples, "listas": listas}, ensure_ascii=False),
                 hash_original, modelo_hash, tarefa_id, user["id"],
                 grupo["raiz"], list(dict.fromkeys(payload.servicos)),
                 [x for x in (" ".join(l.split()) for l in payload.servicos_livres) if x],
                 [x["id"] for x in substituiveis],
+                vencimento,
             )
             for ordem, item in enumerate(grupo["itens"], start=1):
                 await conn.execute(

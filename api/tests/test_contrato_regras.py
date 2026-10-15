@@ -5,7 +5,7 @@ Rodam no pytest do Windows (sem Postgres) e no CI.
 """
 import hashlib
 import hmac
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 
 import pytest
@@ -121,16 +121,11 @@ class TestDatas:
 
     def test_vigencia_antes_do_contrato(self):
         with pytest.raises(r.ContratoInvalido, match="antes"):
-            r.validar_datas(date(2026, 10, 8), date(2026, 10, 7), 10)
+            r.validar_datas(date(2026, 10, 8), date(2026, 10, 7), date(2026, 11, 7))
 
     def test_vigencia_longe_demais(self):
         with pytest.raises(r.ContratoInvalido, match="6 meses"):
-            r.validar_datas(date(2026, 10, 8), date(2027, 6, 1), 10)
-
-    @pytest.mark.parametrize("dia", [0, 29, 31])
-    def test_dia_de_vencimento(self, dia):
-        with pytest.raises(r.ContratoInvalido, match="vencimento"):
-            r.validar_datas(date(2026, 10, 8), date(2026, 10, 9), dia)
+            r.validar_datas(date(2026, 10, 8), date(2027, 6, 1), date(2026, 11, 7))
 
 
 class TestPreco:
@@ -183,15 +178,53 @@ class TestPreco:
         simples, listas = r.campos(proposta=proposta_tabela(), conta=CONTA,
                                    itens_grupo=proposta_tabela()["itens"],
                                    data_contrato=date(2026, 10, 8),
-                                   inicio_vigencia=date(2026, 10, 9), dia_vencimento=5)
+                                   inicio_vigencia=date(2026, 10, 9),
+                                   primeiro_vencimento=date(2026, 11, 5))
         assert set(simples) == set(r.CAMPOS_SIMPLES)
         assert set(listas) == set(r.CAMPOS_LISTA)
         assert simples["CONTRATANTE_CNPJ"] == "08.363.161/0001-51"
         assert simples["CONTRATANTE_DEMAIS"] == ""
+        assert simples["PRIMEIRO_VENCIMENTO"] == "05 de novembro de 2026"
         assert simples["DIA_VENCIMENTO"] == "05"
+        assert simples["VENCIMENTO_AJUSTE"] == ""
         assert simples["INICIO_VIGENCIA"] == "09 de outubro de 2026"
         assert listas["ANEXO_TITULO"] == [] and listas["ANEXO_LINHA"] == []
         assert listas["SUBSTITUICAO"] == [] and listas["SERVICO_EXTRA"] == []
+
+
+class TestVencimento:
+    """058: 1o vencimento 30 dias depois da emissão; os demais no mesmo dia."""
+
+    def test_padrao_30_dias(self):
+        assert r.primeiro_vencimento_padrao(date(2026, 10, 15)) == date(2026, 11, 14)
+        assert r.primeiro_vencimento_padrao(date(2026, 12, 20)) == date(2027, 1, 19)
+
+    def test_campos_dia_comum(self):
+        c = r.campos_vencimento(date(2026, 11, 14))
+        assert c == {"PRIMEIRO_VENCIMENTO": "14 de novembro de 2026",
+                     "DIA_VENCIMENTO": "14", "VENCIMENTO_AJUSTE": ""}
+
+    @pytest.mark.parametrize("dia", [29, 30, 31])
+    def test_fim_de_mes_explica_fevereiro(self, dia):
+        c = r.campos_vencimento(date(2027, 1, dia))
+        assert c["DIA_VENCIMENTO"] == str(dia)
+        assert c["VENCIMENTO_AJUSTE"] == r.AJUSTE_FIM_DE_MES
+
+    def test_dia_28_nao_precisa_de_ajuste(self):
+        assert r.campos_vencimento(date(2027, 1, 28))["VENCIMENTO_AJUSTE"] == ""
+
+    def test_valida_primeiro_vencimento(self):
+        d = date(2026, 10, 15)
+        r.validar_datas(d, d, date(2026, 11, 14))
+        with pytest.raises(r.ContratoInvalido, match="depois da data do contrato"):
+            r.validar_datas(d, d, d)
+        with pytest.raises(r.ContratoInvalido, match="120 dias"):
+            r.validar_datas(d, d, d + timedelta(days=121))
+
+    def test_texto_para_tela_e_email(self):
+        assert r.texto_vencimento(date(2026, 11, 14), 14) == "1º em 14/11/2026, depois todo dia 14"
+        # Contrato anterior à 058: só o dia.
+        assert r.texto_vencimento(None, 10) == "todo dia 10"
 
 
 def _item(cnpj, razao, vidas=5, mensal="180.00"):

@@ -73,6 +73,25 @@ function dataCurta(iso) {
   return `${d}/${m}/${a}`;
 }
 
+// 058: o 1º vencimento é 30 dias depois da emissão do contrato; os demais
+// caem no mesmo dia dos meses seguintes. Conta em UTC para o fuso não
+// comer um dia.
+export const PRAZO_PRIMEIRO_VENCIMENTO_DIAS = 30;
+
+export function somarDias(iso, dias) {
+  if (!iso) return '';
+  const [a, m, d] = String(iso).slice(0, 10).split('-').map(Number);
+  const t = new Date(Date.UTC(a, m - 1, d + dias));
+  return t.toISOString().slice(0, 10);
+}
+
+export function textoVencimento(primeiro, dia) {
+  if (!primeiro) return `todo dia ${String(dia).padStart(2, '0')}`;
+  const diaDoMes = String(primeiro).slice(8, 10);
+  return `1º em ${dataCurta(primeiro)}, depois todo dia ${diaDoMes}`
+    + (Number(diaDoMes) > 28 ? ' (ou o último dia do mês)' : '');
+}
+
 function rotuloDias(n) {
   if (n === null || n === undefined) return '';
   if (n === 0) return 'hoje';
@@ -194,7 +213,9 @@ export function FormContrato({ propostaId, situacao, onCancelar, onEnviado }) {
   const [contratante, setContratante] = useState(VAZIA);
   const [testContratante, setTestContratante] = useState(VAZIA);
   const [testContratada, setTestContratada] = useState(VAZIA);
-  const [datas, setDatas] = useState({ data_contrato: '', inicio_vigencia: '', dia_vencimento: 10 });
+  const [datas, setDatas] = useState({ data_contrato: '', inicio_vigencia: '', primeiro_vencimento: '' });
+  // Mexeu à mão no 1º vencimento: trocar a data do contrato não o recalcula mais.
+  const [vencimentoManual, setVencimentoManual] = useState(false);
   const [ocupado, setOcupado] = useState(null);
   // 055: qual empresa (raiz de CNPJ) vira este contrato, e os serviços extras.
   const [raiz, setRaiz] = useState(null);
@@ -212,7 +233,8 @@ export function FormContrato({ propostaId, situacao, onCancelar, onEnviado }) {
         setDatas({
           data_contrato: data.data_contrato,
           inicio_vigencia: data.inicio_vigencia,
-          dia_vencimento: data.dia_vencimento,
+          primeiro_vencimento: data.primeiro_vencimento
+            || somarDias(data.data_contrato, PRAZO_PRIMEIRO_VENCIMENTO_DIAS),
         });
         const grupos = data.grupos || [];
         const livre = grupos.find((g) => !g.contrato_em_aberto_id) || grupos[0];
@@ -248,7 +270,7 @@ export function FormContrato({ propostaId, situacao, onCancelar, onEnviado }) {
       raiz_cnpj: raiz,
       data_contrato: datas.data_contrato || null,
       inicio_vigencia: datas.inicio_vigencia || null,
-      dia_vencimento: Number(datas.dia_vencimento) || 10,
+      primeiro_vencimento: datas.primeiro_vencimento || null,
       servicos,
       servicos_livres: livres.split('\n').map((l) => l.trim()).filter(Boolean),
     };
@@ -430,7 +452,16 @@ export function FormContrato({ propostaId, situacao, onCancelar, onEnviado }) {
           label="Data do contrato"
           type="date"
           value={datas.data_contrato || ''}
-          onChange={(e) => setDatas((d) => ({ ...d, data_contrato: e.target.value }))}
+          onChange={(e) => {
+            const nova = e.target.value;
+            setDatas((d) => ({
+              ...d,
+              data_contrato: nova,
+              primeiro_vencimento: vencimentoManual || !nova
+                ? d.primeiro_vencimento
+                : somarDias(nova, PRAZO_PRIMEIRO_VENCIMENTO_DIAS),
+            }));
+          }}
         />
         <Input
           id="contrato-inicio"
@@ -441,12 +472,17 @@ export function FormContrato({ propostaId, situacao, onCancelar, onEnviado }) {
         />
         <Input
           id="contrato-vencimento"
-          label="Vencimento (dia do mês)"
-          type="number"
-          min="1"
-          max="28"
-          value={datas.dia_vencimento}
-          onChange={(e) => setDatas((d) => ({ ...d, dia_vencimento: e.target.value }))}
+          label="1º vencimento"
+          type="date"
+          value={datas.primeiro_vencimento || ''}
+          hint={datas.primeiro_vencimento
+            ? `${vencimentoManual ? 'Escolhido à mão' : '30 dias da emissão'}; depois todo dia ${datas.primeiro_vencimento.slice(8, 10)}`
+              + (Number(datas.primeiro_vencimento.slice(8, 10)) > 28 ? ' (ou o último dia do mês).' : '.')
+            : '30 dias da emissão do contrato.'}
+          onChange={(e) => {
+            setVencimentoManual(true);
+            setDatas((d) => ({ ...d, primeiro_vencimento: e.target.value }));
+          }}
         />
       </div>
 
@@ -667,8 +703,8 @@ function CartaoContrato({ contrato, onMudou, agora, destinatarios }) {
       )}
 
       <p className="text-[11px] text-hipo-muted">
-        Vigência a partir de {dataCurta(contrato.inicio_vigencia)} · vencimento dia{' '}
-        {String(contrato.dia_vencimento).padStart(2, '0')} · hash {contrato.hash_original.slice(0, 12)}…
+        Vigência a partir de {dataCurta(contrato.inicio_vigencia)} · vencimento{' '}
+        {textoVencimento(contrato.primeiro_vencimento, contrato.dia_vencimento)} · hash {contrato.hash_original.slice(0, 12)}…
         {contrato.cancelado_em && ` · cancelado ${dataHora(contrato.cancelado_em)}`}
         {contrato.motivo_cancelamento && ` (${contrato.motivo_cancelamento})`}
       </p>

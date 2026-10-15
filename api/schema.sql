@@ -2479,3 +2479,21 @@ CREATE INDEX IF NOT EXISTS idx_ligacoes_sem_vinculo
 CREATE INDEX IF NOT EXISTS idx_ligacoes_em_andamento
     ON ligacoes (status, atualizado_em)
     WHERE status IN ('discando', 'enviando', 'transcrevendo');
+
+-- =====================================================================
+-- 041 -- Vencimento do contrato: 1o em 30 dias, depois mensal (058).
+-- Detalhes no cabecalho de migrations/041_contrato_primeiro_vencimento.sql.
+-- =====================================================================
+ALTER TABLE contratos ADD COLUMN IF NOT EXISTS primeiro_vencimento DATE;
+
+ALTER TABLE contratos DROP CONSTRAINT IF EXISTS ck_contrato_vencimento;
+ALTER TABLE contratos ADD CONSTRAINT ck_contrato_vencimento CHECK (
+    dia_vencimento BETWEEN 1 AND 31
+);
+
+ALTER TABLE contratos DROP CONSTRAINT IF EXISTS ck_contrato_primeiro_vencimento;
+ALTER TABLE contratos ADD CONSTRAINT ck_contrato_primeiro_vencimento CHECK (
+    primeiro_vencimento IS NULL
+    OR (primeiro_vencimento > data_contrato
+        AND EXTRACT(DAY FROM primeiro_vencimento) = dia_vencimento)
+);

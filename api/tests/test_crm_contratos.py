@@ -6,6 +6,7 @@ de verdade nem precisa do LibreOffice (o CI não tem). O que se prova aqui é
 o que só aparece com banco — o registro do envio, o estado que anda com o
 documento lido da Autentique, as tarefas, as travas e o webhook.
 """
+from datetime import date, timedelta
 import hashlib
 import hmac
 import json
@@ -143,7 +144,6 @@ def corpo_envio(c, **troca):
              "email": "bruno@controllermedseg.com.br"},
         ],
         "data_contrato": "2026-10-08",
-        "dia_vencimento": 10,
     }
     base.update(troca)
     return base
@@ -218,6 +218,10 @@ class TestPadrao:
                                         "Laudos: R$ 1.000,00 (valor único, conforme "
                                         "proposta comercial)."]
         assert body["contrato_em_aberto_id"] is None
+        # 058: 1o vencimento 30 dias depois de hoje (a data padrão do contrato).
+        hoje = date.fromisoformat(body["data_contrato"])
+        assert date.fromisoformat(body["primeiro_vencimento"]) == hoje + timedelta(days=30)
+        assert body["dia_vencimento"] == (hoje + timedelta(days=30)).day
 
     async def test_endereco_pendente(self, db_conn, client, usuario_adm, fake):
         c = await cenario(client, usuario_adm["headers"], endereco=False)
@@ -229,6 +233,32 @@ class TestPadrao:
 # ── Envio ────────────────────────────────────────────────────────────
 
 class TestEnvio:
+    async def test_vencimento_padrao_30_dias(self, db_conn, client, usuario_adm, fake):
+        h = usuario_adm["headers"]
+        c = await cenario(client, h)
+        body = (await enviar(client, h, c)).json()     # data do contrato: 08/10/2026
+        assert body["primeiro_vencimento"] == "2026-11-07"
+        assert body["dia_vencimento"] == 7
+        simples = json.loads(await db_conn.fetchval("SELECT campos FROM contratos"))["simples"]
+        assert simples["PRIMEIRO_VENCIMENTO"] == "07 de novembro de 2026"
+        assert simples["DIA_VENCIMENTO"] == "07"
+
+    async def test_vencimento_escolhido_e_fim_de_mes(self, db_conn, client, usuario_adm, fake):
+        h = usuario_adm["headers"]
+        c = await cenario(client, h)
+        body = (await enviar(client, h, c, primeiro_vencimento="2026-11-30")).json()
+        assert body["dia_vencimento"] == 30
+        simples = json.loads(await db_conn.fetchval("SELECT campos FROM contratos"))["simples"]
+        assert "último dia do mês" in simples["VENCIMENTO_AJUSTE"]
+
+    async def test_vencimento_antes_do_contrato_recusa(self, db_conn, client, usuario_adm,
+                                                       fake):
+        c = await cenario(client, usuario_adm["headers"])
+        r = await enviar(client, usuario_adm["headers"], c, primeiro_vencimento="2026-10-08")
+        assert r.status_code == 422
+        assert "primeiro vencimento" in r.json()["detail"]
+        assert fake.criados == []
+
     async def test_envia_e_registra(self, db_conn, client, usuario_adm, fake):
         h = usuario_adm["headers"]
         c = await cenario(client, h)
@@ -345,7 +375,8 @@ class TestEnvio:
     async def test_previa_devolve_o_pdf(self, db_conn, client, usuario_adm, fake):
         c = await cenario(client, usuario_adm["headers"])
         r = await client.post(f"/crm/propostas/{c.prop['id']}/contrato/previa",
-                              json={"dia_vencimento": 5}, headers=usuario_adm["headers"])
+                              json={"primeiro_vencimento": "2026-12-05"},
+                              headers=usuario_adm["headers"])
         assert r.status_code == 200
         assert r.content == PDF_FALSO
         assert fake.criados == []
@@ -505,7 +536,7 @@ class TestAcoes:
         assert r.json()["status"] == "cancelado"
         assert r.json()["motivo_cancelamento"] == "cliente pediu mudar o vencimento"
         assert fake.cancelados == ["doc-1"]
-        novo = await enviar(client, h, c, dia_vencimento=15)
+        novo = await enviar(client, h, c, primeiro_vencimento="2026-11-15")
         assert novo.status_code == 201
         assert novo.json()["versao"] == 2
 
@@ -654,7 +685,7 @@ class TestAviso:
         corpo = _texto(msg)
         assert "11.222.333/0001-81" in corpo
         assert "R$ 20,00 por funcionário registrado/mês" in corpo
-        assert "Vencimento: todo dia 10" in corpo
+        assert "Vencimento: 1º em 07/11/2026, depois todo dia 07" in corpo
         assert "Contratada: Marcelo Canton Dick" in corpo
         assert f"/crm/oportunidades?abrir={c.opp['id']}" in corpo
         anexos = [p for p in msg.walk() if p.get_filename()]

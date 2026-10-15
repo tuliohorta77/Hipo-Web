@@ -86,10 +86,15 @@ SIG_ASSINADO = "assinado"
 SIG_RECUSADO = "recusado"
 SIG_FALHA = "falha_entrega"
 
-DIA_VENCIMENTO_PADRAO = 10
-# Até 28: todo mês tem o dia. "Dia 31" em fevereiro vira discussão de
-# cobrança, e o contrato não é o lugar de resolver isso.
-DIA_VENCIMENTO_MAX = 28
+# 058 (decisão do Tulio, 15/10/2026): o primeiro vencimento é 30 dias depois
+# da emissão do contrato; os demais caem no mesmo dia dos meses seguintes.
+# Antes era "todo dia 10" fixo.
+PRAZO_PRIMEIRO_VENCIMENTO_DIAS = 30
+# Teto para quem mexe na data à mão: além disso é negociação, não contrato.
+PRAZO_PRIMEIRO_VENCIMENTO_MAX_DIAS = 120
+# Dia 29, 30 ou 31: nos meses que não têm o dia, vence no último dia do mês.
+# O contrato diz isso com todas as letras (VENCIMENTO_AJUSTE).
+AJUSTE_FIM_DE_MES = " (nos meses que não tiverem esse dia, no último dia do mês)"
 
 MAX_MOTIVO = 500
 
@@ -167,7 +172,12 @@ CAMPOS_SIMPLES = (
     # 055: ", e demais CNPJs ... listados no ANEXO 1 deste contrato" quando
     # o grupo tem mais de um CNPJ; vazio quando é um só.
     "CONTRATANTE_DEMAIS",
+    # 058: "o primeiro vencimento em 14 de novembro de 2026 e os demais todo
+    # dia 14 de cada mês" -- o ajuste vem vazio, ou com a regra do fim do mês
+    # quando o dia é 29, 30 ou 31.
+    "PRIMEIRO_VENCIMENTO",
     "DIA_VENCIMENTO",
+    "VENCIMENTO_AJUSTE",
     "INICIO_VIGENCIA",
     "CIDADE",
     "DATA_EXTENSO",
@@ -398,15 +408,41 @@ def inicio_vigencia_padrao(data_contrato: date) -> date:
     return data_contrato + timedelta(days=1)
 
 
-def validar_datas(data_contrato: date, inicio: date, dia_vencimento: int) -> None:
+def primeiro_vencimento_padrao(data_contrato: date) -> date:
+    """30 dias corridos depois da emissão do contrato."""
+    return data_contrato + timedelta(days=PRAZO_PRIMEIRO_VENCIMENTO_DIAS)
+
+
+def validar_datas(data_contrato: date, inicio: date, primeiro_vencimento: date) -> None:
     if inicio < data_contrato:
         raise ContratoInvalido("O início da vigência não pode ser antes da data do contrato.")
     if inicio > data_contrato + timedelta(days=180):
         raise ContratoInvalido("O início da vigência está a mais de 6 meses da data do contrato.")
-    if not (1 <= dia_vencimento <= DIA_VENCIMENTO_MAX):
+    if primeiro_vencimento <= data_contrato:
+        raise ContratoInvalido("O primeiro vencimento precisa ser depois da data do contrato.")
+    if primeiro_vencimento > data_contrato + timedelta(days=PRAZO_PRIMEIRO_VENCIMENTO_MAX_DIAS):
         raise ContratoInvalido(
-            f"O dia de vencimento precisa estar entre 1 e {DIA_VENCIMENTO_MAX}."
+            f"O primeiro vencimento está a mais de {PRAZO_PRIMEIRO_VENCIMENTO_MAX_DIAS} "
+            "dias da data do contrato."
         )
+
+
+def campos_vencimento(primeiro_vencimento: date) -> dict[str, str]:
+    """Os três campos da frase de vencimento da Cláusula 5."""
+    dia = primeiro_vencimento.day
+    return {
+        "PRIMEIRO_VENCIMENTO": data_extenso(primeiro_vencimento),
+        "DIA_VENCIMENTO": f"{dia:02d}",
+        "VENCIMENTO_AJUSTE": AJUSTE_FIM_DE_MES if dia > 28 else "",
+    }
+
+
+def texto_vencimento(primeiro_vencimento: date | None, dia_vencimento: int) -> str:
+    """Para tela e e-mail. Contrato anterior à 058 não tem primeiro vencimento."""
+    if primeiro_vencimento is None:
+        return f"todo dia {int(dia_vencimento):02d}"
+    return (f"1º em {_br_data(primeiro_vencimento)}, depois todo dia "
+            f"{primeiro_vencimento.day:02d}")
 
 
 def linhas_preco(proposta: dict, itens: list[dict] | None = None,
@@ -481,7 +517,7 @@ def campos(
     itens_grupo: list[dict],
     data_contrato: date,
     inicio_vigencia: date,
-    dia_vencimento: int,
+    primeiro_vencimento: date,
     com_extras: bool = True,
     servicos: list[str] | None = None,
     servicos_livres: list[str] | None = None,
@@ -500,7 +536,7 @@ def campos(
         "CONTRATANTE_ENDERECO": endereco_formatado(conta),
         "CONTRATANTE_CNPJ": cnpj_svc.formatar(conta["cnpj"]),
         "CONTRATANTE_DEMAIS": texto_demais(itens_grupo),
-        "DIA_VENCIMENTO": f"{dia_vencimento:02d}",
+        **campos_vencimento(primeiro_vencimento),
         "INICIO_VIGENCIA": data_extenso(inicio_vigencia),
         "CIDADE": (proposta.get("cidade") or proposta_regras.CIDADE_PADRAO).strip(),
         "DATA_EXTENSO": data_extenso(data_contrato),
@@ -846,7 +882,8 @@ def corpo_aviso(
         "DATAS",
         f"  Contrato: {_br_data(contrato['data_contrato'])}",
         f"  Início da vigência: {_br_data(contrato['inicio_vigencia'])}",
-        f"  Vencimento: todo dia {int(contrato['dia_vencimento']):02d}",
+        "  Vencimento: " + texto_vencimento(contrato.get("primeiro_vencimento"),
+                                            contrato["dia_vencimento"]),
         f"  Assinado por todos em: {_br_data(contrato.get('assinado_em'))}",
         "",
         "ASSINATURAS",

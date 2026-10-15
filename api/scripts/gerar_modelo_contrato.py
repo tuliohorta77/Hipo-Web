@@ -25,7 +25,8 @@ CAMPOS
   Simples (trocados no lugar, mantendo a formatacao do trecho):
     {{CONTRATANTE_RAZAO_SOCIAL}}  {{CONTRATANTE_ENDERECO}}  {{CONTRATANTE_CNPJ}}
     {{CONTRATANTE_DEMAIS}} (", e demais CNPJs ... ANEXO 1", ou vazio)
-    {{DIA_VENCIMENTO}}  {{INICIO_VIGENCIA}}  {{CIDADE}}  {{DATA_EXTENSO}}
+    {{PRIMEIRO_VENCIMENTO}}  {{DIA_VENCIMENTO}}  {{VENCIMENTO_AJUSTE}} (058)
+    {{INICIO_VIGENCIA}}  {{CIDADE}}  {{DATA_EXTENSO}}
   De lista (o paragrafo inteiro e repetido, um por item; lista vazia apaga
   o paragrafo). O campo precisa estar SOZINHO no paragrafo:
     {{SERVICO_EXTRA}}  itens 2.7, 2.8... da Clausula 2 (055)
@@ -237,8 +238,9 @@ def gerar(saida: Path) -> Path:
     clausula(5)
     par("A ", ("CONTRATANTE", "b"), " pagará mensalmente à ", ("CONTRATADA", "b"),
         ", pelos serviços constantes nas Cláusulas 1, 2 e 3, o valor "
-        "correspondente conforme segue, com vencimento todo dia ",
-        "{{DIA_VENCIMENTO}}", " de cada mês:")
+        "correspondente conforme segue, com o primeiro vencimento em ",
+        "{{PRIMEIRO_VENCIMENTO}}", " e os demais todo dia ", "{{DIA_VENCIMENTO}}",
+        " de cada mês", "{{VENCIMENTO_AJUSTE}}", ":")
     p = par("{{PRECO_LINHA}}", depois=2)
     p.paragraph_format.left_indent = Cm(0.6)
     par("Os exames laboratoriais serão pagos de acordo com tabela vigente no "

@@ -64,9 +64,10 @@ def main() -> int:
         return 1
 
     hoje = date.today()
-    simples, listas = regras.campos(proposta=PROPOSTA, conta=CONTA, data_contrato=hoje,
+    simples, listas = regras.campos(proposta=PROPOSTA, conta=CONTA,
+                                    itens_grupo=PROPOSTA["itens"], data_contrato=hoje,
                                     inicio_vigencia=regras.inicio_vigencia_padrao(hoje),
-                                    dia_vencimento=10)
+                                    primeiro_vencimento=regras.primeiro_vencimento_padrao(hoje))
     inicio = time.monotonic()
     try:
         pdf = render.montar_pdf(simples, listas)

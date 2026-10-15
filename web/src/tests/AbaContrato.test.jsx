@@ -23,7 +23,9 @@ vi.mock('../api', () => ({
   },
 }));
 
-import AbaContrato, { resumoContrato, contratoAtual } from '../components/crm/AbaContrato';
+import AbaContrato, {
+  resumoContrato, contratoAtual, somarDias, textoVencimento,
+} from '../components/crm/AbaContrato';
 
 const OPP = { id: 'o1', numero: 'OPP-2026-00001', conta_id: 'c1' };
 const AGORA = new Date('2026-10-10T15:00:00Z');
@@ -47,7 +49,8 @@ function contrato(troca = {}) {
   return {
     id: 'k1', oportunidade_id: 'o1', proposta_id: 'p2', proposta_versao: 2, versao: 1,
     status: 'enviado', sandbox: false, nome_documento: 'Contrato Controller MedSeg - NN',
-    data_contrato: '2026-10-05', inicio_vigencia: '2026-10-06', dia_vencimento: 10,
+    data_contrato: '2026-10-05', inicio_vigencia: '2026-10-06', dia_vencimento: 4,
+    primeiro_vencimento: '2026-11-04',
     hash_original: 'a'.repeat(64), tem_assinado: false, assinado_em: null, recusado_em: null,
     cancelado_em: null, cancelado_por_nome: null, motivo_cancelamento: null,
     sincronizado_em: null, sincronizacao_erro: null, criado_por_nome: 'Jakeline',
@@ -73,7 +76,8 @@ const PADRAO = {
   endereco: 'Rua A, 1, Centro – Guarulhos - SP, CEP: 07000-000', pendencias_endereco: [],
   conta_id: 'c1', contratada_nome: 'Marcelo Canton Dick',
   contratada_email: 'marcelod@controllermedseg.com.br',
-  data_contrato: '2026-10-10', inicio_vigencia: '2026-10-11', dia_vencimento: 10,
+  data_contrato: '2026-10-10', inicio_vigencia: '2026-10-11', dia_vencimento: 9,
+  primeiro_vencimento: '2026-11-09',
   contatos: [
     { id: 'k1', nome: 'Eladir Quadros', email: 'eladir@cliente.com', detalhe: 'Diretor · decisor' },
     { id: 'k2', nome: 'Ana RH', email: 'ana@cliente.com', detalhe: 'RH' },
@@ -125,6 +129,16 @@ describe('funções puras', () => {
     expect(contratoAtual([])).toBe(null);
   });
 
+  it('vencimento (058): 30 dias corridos, virando mês e ano', () => {
+    expect(somarDias('2026-10-15', 30)).toBe('2026-11-14');
+    expect(somarDias('2026-12-20', 30)).toBe('2027-01-19');
+    expect(somarDias('2027-01-30', 30)).toBe('2027-03-01');
+    expect(textoVencimento('2026-11-14', 14)).toBe('1º em 14/11/2026, depois todo dia 14');
+    expect(textoVencimento('2026-11-30', 30)).toMatch(/último dia do mês/);
+    // Contrato anterior à 058 não tem 1º vencimento.
+    expect(textoVencimento(null, 10)).toBe('todo dia 10');
+  });
+
   it('resumo: quem é a vez e há quanto tempo está parado', () => {
     const r = resumoContrato(contrato(), AGORA);
     expect(r.assinados).toBe(1);
@@ -139,6 +153,7 @@ describe('painel', () => {
     montarGets({ contratos: [contrato()] });
     render(<AbaContrato oportunidade={OPP} agora={AGORA} />);
     expect(await screen.findByTestId('kpi-assinaturas')).toHaveTextContent('1 de 4');
+    expect(screen.getByText(/vencimento 1º em 04\/11\/2026, depois todo dia 04/)).toBeInTheDocument();
     expect(screen.getByTestId('kpi-vez')).toHaveTextContent('Ana RH');
     expect(screen.getByTestId('kpi-vez')).toHaveTextContent('parado há 3 dias');
     // 055: com um em andamento ainda dá para abrir o formulário — a outra
@@ -200,11 +215,30 @@ describe('envio', () => {
       { papel: 'contratante', nome: 'Eladir Quadros', email: 'eladir@cliente.com', contato_id: 'k1' },
       { papel: 'testemunha_contratante', nome: 'Ana RH', email: 'ana@cliente.com', contato_id: 'k2' },
     ]);
-    expect(corpo.dia_vencimento).toBe(10);
+    expect(corpo.primeiro_vencimento).toBe('2026-11-09');
     expect(corpo.raiz_cnpj).toBe('11222333');
     expect(corpo.servicos).toEqual(['cipa']);
     expect(corpo.servicos_livres).toEqual([]);
     expect(await screen.findByText(/Contrato enviado/)).toBeInTheDocument();
+  });
+
+  it('1º vencimento acompanha a data do contrato até ser mexido à mão', async () => {
+    montarGets();
+    render(<AbaContrato oportunidade={OPP} agora={AGORA} preset={{ proposta_id: 'p2' }}
+      onPresetUsado={() => {}} />);
+    const form = await screen.findByRole('region', { name: 'Novo contrato' });
+    const venc = form.querySelector('#contrato-vencimento');
+    await waitFor(() => expect(venc).toHaveValue('2026-11-09'));
+    expect(within(form).getByText(/30 dias da emissão; depois todo dia 09/)).toBeInTheDocument();
+
+    fireEvent.change(form.querySelector('#contrato-data'), { target: { value: '2026-10-20' } });
+    expect(venc).toHaveValue('2026-11-19');
+
+    fireEvent.change(venc, { target: { value: '2026-11-30' } });
+    expect(within(form).getByText(/Escolhido à mão; depois todo dia 30 \(ou o último dia do mês\)/))
+      .toBeInTheDocument();
+    fireEvent.change(form.querySelector('#contrato-data'), { target: { value: '2026-10-22' } });
+    expect(venc).toHaveValue('2026-11-30');
   });
 
   it('e-mail repetido trava e diz por quê', async () => {
