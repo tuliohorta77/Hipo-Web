@@ -333,3 +333,33 @@ describe('Layout — selo da instancia', () => {
     expect(screen.queryByTestId('selo-instancia')).not.toBeInTheDocument();
   });
 });
+
+// ── 043: Contratos (repasse Controller -> Spectre) ───────────────────
+
+describe('Layout — Contratos', () => {
+  function textos() {
+    renderLayout();
+    const nav = screen.getByLabelText('Navegação principal');
+    return Array.from(nav.querySelectorAll('a')).map((a) => a.textContent);
+  }
+
+  it('a conta da administração (Financeiro) vê só Contratos', () => {
+    mockGetUser.mockReturnValue({ nome: 'Administração', email: 'administracao@x.com', cargo: 'Financeiro' });
+    mockGetModulos.mockReturnValue(['contratos']);
+    expect(textos()).toEqual(['Contratos']);
+  });
+
+  it('gestão vê Contratos junto com o resto', () => {
+    mockGetUser.mockReturnValue({ nome: 'Tulio', email: 't@x.com', cargo: 'Franqueado' });
+    mockGetModulos.mockReturnValue(['perfil', 'crm', 'usuarios', 'telemetria', 'parceiros', 'contratos']);
+    const links = textos();
+    expect(links).toContain('Contratos');
+    expect(links).toContain('Oportunidades');
+  });
+
+  it.each(['EC', 'SDR', 'EV', 'EP'])('%s não vê Contratos', (cargo) => {
+    mockGetUser.mockReturnValue({ nome: 'X', email: 'x@x.com', cargo });
+    mockGetModulos.mockReturnValue(cargo === 'EC' ? ['perfil', 'crm', 'parceiros'] : ['perfil', 'crm']);
+    expect(textos()).not.toContain('Contratos');
+  });
+});

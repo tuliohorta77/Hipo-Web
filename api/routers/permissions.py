@@ -22,6 +22,11 @@ Módulos:
   'monitor'    — SÓ o painel de parede; exclusivo do cargo Monitor (conta de
                  TV). Os demais cargos chegam ao Monitor pelo 'crm' — o router
                  aceita qualquer um dos dois (requer_qualquer_modulo).
+  'contratos'  — recebimento do repasse Controller -> Spectre (043):
+                 lançamento mensal de vidas, nota e recebimento. Franqueado,
+                 ADM e o cargo Financeiro (conta da administração, que só
+                 vê isto). EC, SDR, EV e EP não enxergam: é o caixa da
+                 empresa, não ferramenta de venda.
   'uc'         — SÓ a Universidade Corporativa; exclusivo do cargo UC (quem
                  estuda o conteúdo sem operar o CRM). Os demais cargos chegam
                  à UC pelo 'crm', do mesmo jeito que no Monitor.
@@ -74,9 +79,18 @@ CARGO_MONITOR = "Monitor"
 # trilhas publicadas, nenhuma como obrigatória (routers/uc.py).
 CARGO_UC = "UC"
 
+# Conta da administracao (administracao@controllermedseg.com): opera SO o
+# modulo Contratos -- lanca as vidas do mes, a nota e o recebimento. Mesmo
+# arranjo da UC e do Monitor: fora de CARGOS_VALIDOS, porque nao opera o CRM
+# (nao recebe a base, nao e envolvida, nao e dona de oportunidade).
+CARGO_FINANCEIRO = "Financeiro"
+
 # Contas que existem para UMA tela e não são gente da operação. Ficam fora
 # do seletor de envolvidos e da lista de ausentes da telemetria.
-CARGOS_DE_TELA = (CARGO_MONITOR, CARGO_UC)
+CARGOS_DE_TELA = (CARGO_MONITOR, CARGO_UC, CARGO_FINANCEIRO)
+
+# Quem enxerga o modulo Contratos (043): gestao + a conta da administracao.
+CARGOS_COM_CONTRATOS = CARGOS_GESTAO | {CARGO_FINANCEIRO}
 
 # Módulos que todo cargo válido enxerga.
 MODULOS_BASE = {"perfil", "crm"}
@@ -110,6 +124,11 @@ def modulos_do_cargo(cargo: str | None) -> set[str]:
     if cargo == CARGO_UC:
         return {"uc"}
 
+    # Conta da administracao: so o modulo Contratos. Sem 'crm', a API barra
+    # contas, oportunidades, tarefas e relatorios no guard do router.
+    if cargo == CARGO_FINANCEIRO:
+        return {"contratos"}
+
     if cargo not in CARGOS_VALIDOS:
         return set()
 
@@ -118,6 +137,9 @@ def modulos_do_cargo(cargo: str | None) -> set[str]:
     if cargo in CARGOS_GESTAO:
         modulos.add("usuarios")
         modulos.add("telemetria")
+
+    if cargo in CARGOS_COM_CONTRATOS:
+        modulos.add("contratos")
 
     if cargo in CARGOS_COM_PARCEIROS:
         modulos.add("parceiros")

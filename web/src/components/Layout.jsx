@@ -86,6 +86,10 @@ const NAV_ITEMS = [
   // 'crm' OU 'monitor': o segundo é exclusivo da conta de TV (cargo
   // Monitor), que enxerga só este item.
   { to: '/monitor', tour: 'nav-monitor', label: 'Monitor', modulo: ['crm', 'monitor'] },
+  // Contratos (043): repasse da Controller -> Spectre. Módulo PRÓPRIO, só
+  // gestão e a conta da administração (cargo Financeiro, que enxerga só
+  // este item). Fica depois do Monitor: não é tela do dia comercial.
+  { to: '/contratos', tour: 'nav-contratos', label: 'Contratos', modulo: 'contratos' },
 ];
 
 // Itens do dropdown do usuário (não da nav principal).

@@ -27,6 +27,16 @@ describe('primeiraRotaAcessivel', () => {
     expect(primeiraRotaAcessivel()).toBe('/uc');
   });
 
+  it('a conta da administração (só contratos) cai em Contratos', () => {
+    logarCom(['contratos']);
+    expect(primeiraRotaAcessivel()).toBe('/contratos');
+  });
+
+  it('gestão com contratos continua caindo no funil', () => {
+    logarCom(['perfil', 'crm', 'contratos']);
+    expect(primeiraRotaAcessivel()).toBe('/crm/oportunidades');
+  });
+
   it('sem módulo nenhum cai no Perfil', () => {
     logarCom([]);
     expect(primeiraRotaAcessivel()).toBe('/perfil');

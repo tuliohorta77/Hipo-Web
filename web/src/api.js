@@ -77,8 +77,11 @@ export function podeAcessar(modulo) {
 // Cada entrada é [módulo, rota].
 // 'monitor' só existe no cargo Monitor (conta de TV): cai direto no painel.
 // 'uc' só existe no cargo UC (conta que só estuda): cai direto na Universidade.
+// 'contratos' sem 'crm' é a conta da administração (cargo Financeiro): cai
+// direto no módulo Contratos.
 const ROTAS_INICIAIS = [
   ["crm", "/crm/oportunidades"],
+  ["contratos", "/contratos"],
   ["monitor", "/monitor"],
   ["uc", "/uc"],
 ];

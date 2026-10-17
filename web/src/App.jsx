@@ -18,6 +18,7 @@ import ReuniaoAoVivo from './pages/crm/ReuniaoAoVivo';
 import Relatorios from './pages/crm/Relatorios';
 import Prospeccao from './pages/crm/Prospeccao';
 import Monitor from './pages/Monitor';
+import Contratos from './pages/contratos/Contratos';
 import MinhaUC from './pages/uc/MinhaUC';
 import TrilhaUC from './pages/uc/Trilha';
 import AulaUC from './pages/uc/Aula';
@@ -116,6 +117,13 @@ export default function App() {
             comportamento correto: a permissão vive no servidor, não aqui.
           */}
           <Route path="crm/parceiros" element={<Parceiros />} />
+          {/*
+            Contratos (043): repasse da Controller para a Spectre. Fora de
+            /crm porque não é tela de venda -- é o caixa. Módulo próprio
+            'contratos' (Franqueado, ADM e a conta Financeiro); quem barra
+            é a API.
+          */}
+          <Route path="contratos" element={<Contratos />} />
           <Route path="perfil" element={<Perfil />} />
         </Route>
 

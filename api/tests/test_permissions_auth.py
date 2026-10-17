@@ -30,7 +30,9 @@ from tests.conftest import criar_usuario
 class TestModulosDoCargo:
     @pytest.mark.parametrize("cargo", sorted(CARGOS_GESTAO))
     def test_gestao_tem_base_mais_usuarios_e_parceiros(self, cargo):
-        assert modulos_do_cargo(cargo) == {"perfil", "crm", "usuarios", "parceiros", "telemetria"}
+        assert modulos_do_cargo(cargo) == {
+            "perfil", "crm", "usuarios", "parceiros", "telemetria", "contratos",
+        }
 
     @pytest.mark.parametrize(
         "cargo", sorted(CARGOS_OPERACIONAIS - CARGOS_COM_PARCEIROS)
@@ -124,7 +126,7 @@ class TestAuthMe:
         resp = await client.get("/auth/me", headers=usuario_franqueado["headers"])
         assert resp.status_code == 200
         assert sorted(resp.json()["modulos"]) == [
-            "crm", "parceiros", "perfil", "telemetria", "usuarios",
+            "contratos", "crm", "parceiros", "perfil", "telemetria", "usuarios",
         ]
 
     async def test_me_cargo_extinto_sem_modulos(self, db_conn, client):

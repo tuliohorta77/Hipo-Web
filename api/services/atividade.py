@@ -56,6 +56,7 @@ GRUPOS = (
     "Parceiros",
     "Anexos",
     "Universidade",
+    "Contratos",
     "Cadastros",
     "Outras alterações",
 )
@@ -192,6 +193,21 @@ CATALOGO: dict[tuple[str, str], Tipo] = {
     ("PATCH", "/carreira/roleplay/sessoes/{sessao_id}/itens/{item}"): _t("Universidade", "Nota de roleplay ajustada", 119),
     ("POST", "/carreira/roleplay/sessoes/{sessao_id}/validar"): _t("Universidade", "Nota de roleplay validada", 120),
     ("DELETE", "/carreira/roleplay/sessoes/{sessao_id}/validar"): _t("Universidade", "Validação de roleplay retirada", 121),
+
+    # Contratos (043): repasse Controller -> Spectre. Quem lanca e a
+    # administracao (cargo Financeiro) ou a gestao.
+    ("POST", "/repasses/contratos"): _t("Contratos", "Contrato de repasse criado", 130),
+    ("POST", "/repasses/contratos/da-oportunidade"): _t("Contratos", "Contratos gerados da oportunidade", 131),
+    ("PATCH", "/repasses/contratos/{contrato_id}"): _t("Contratos", "Contrato de repasse editado", 132),
+    ("PUT", "/repasses/contratos/{contrato_id}/lancamentos/{competencia}"):
+        _t("Contratos", "Vidas do mês lançadas", 133),
+    ("DELETE", "/repasses/contratos/{contrato_id}/lancamentos/{competencia}"):
+        _t("Contratos", "Lançamento do mês apagado", 134),
+    ("POST", "/repasses/competencias/{competencia}/lancar-sugestoes"):
+        _t("Contratos", "Sugestões do mês confirmadas", 135),
+    ("PUT", "/repasses/competencias/{competencia}"): _t("Contratos", "Nota do mês registrada", 136),
+    ("POST", "/repasses/competencias/{competencia}/descontos"): _t("Contratos", "Desconto do mês lançado", 137),
+    ("DELETE", "/repasses/descontos/{desconto_id}"): _t("Contratos", "Desconto do mês apagado", 138),
 
     # Monitor (metas e feriados)
     ("PUT", "/monitor/metas"): _t("Cadastros", "Metas do monitor definidas", 83),

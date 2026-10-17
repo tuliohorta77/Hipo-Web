@@ -56,6 +56,7 @@ from routers import (
     ligacoes_gravador,
     monitor,
     pdi,
+    repasses,
     roleplay,
     rper,
     telemetria,
@@ -463,6 +464,17 @@ app.include_router(
     telemetria.router,
     prefix="/telemetria", tags=["Telemetria"],
     dependencies=[Depends(requer_modulo("telemetria"))],
+)
+
+
+# Contratos (043): recebimento do repasse Controller -> Spectre. Modulo
+# proprio: Franqueado, ADM e o cargo Financeiro (conta da administracao,
+# que so enxerga isto). EC, EV, SDR e EP nao veem. Nao confundir com
+# /crm/contratos (o documento assinado na Autentique).
+app.include_router(
+    repasses.router,
+    prefix="/repasses", tags=["Contratos - Repasses"],
+    dependencies=[Depends(requer_modulo("contratos"))],
 )
 
 
