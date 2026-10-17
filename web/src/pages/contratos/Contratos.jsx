@@ -23,10 +23,9 @@ import {
   Plus, Trash2, Wallet, Search, Briefcase, CheckCircle2,
 } from 'lucide-react';
 import api from '../../api';
-import PageHeader from '../../components/ui/PageHeader';
 import Tabs from '../../components/ui/Tabs';
-import KpiCard from '../../components/ui/KpiCard';
-import Card, { CardHeader } from '../../components/ui/Card';
+import KpiInline from '../../components/ui/KpiInline';
+import Card from '../../components/ui/Card';
 import Button from '../../components/ui/Button';
 import Badge from '../../components/ui/Badge';
 import Modal from '../../components/ui/Modal';
@@ -208,10 +207,10 @@ function ModalLancamento({ linha, competencia, onFechar, onGravado }) {
             value={observacoes} onChange={(e) => setObservacoes(e.target.value)} />
         </Campo>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 rounded-lg bg-hipo-bg p-3" data-testid="previa">
-          <Previa rotulo="Contrato (K)" valor={previa?.valorContrato} />
-          <Previa rotulo="Repasse (L)" valor={previa?.valorRepasse} />
-          <Previa rotulo="Imposto (N)" valor={previa?.valorImposto} />
-          <Previa rotulo="Líquido (O)" valor={previa?.valorLiquido} destaque />
+          <Previa rotulo="Mensalidade do cliente" valor={previa?.valorContrato} />
+          <Previa rotulo="Repasse à Spectre" valor={previa?.valorRepasse} />
+          <Previa rotulo="Imposto" valor={previa?.valorImposto} />
+          <Previa rotulo="Líquido Spectre" valor={previa?.valorLiquido} destaque />
         </div>
         {erro && <AlertMessage tipo="erro">{erro}</AlertMessage>}
       </div>
@@ -291,54 +290,68 @@ function Fechamento({ painel, onMudou }) {
   }
 
   const t = painel.totais;
+  const mini =
+    'w-full h-8 px-2 rounded-md bg-hipo-card border border-hipo-border text-xs ' +
+    'text-hipo-ink outline-none focus:border-hipo-blue focus:ring-2 focus:ring-blue-100';
+  const rotulo = 'block text-[11px] text-hipo-slate mb-0.5';
   return (
-    <Card>
-      <CardHeader
-        title="Nota para a Controller"
-        hint={`Líquido ${reais(t.valor_liquido)} − descontos ${reais(t.descontos)}`}
-        right={<span className="text-h2 text-hipo-success" data-testid="valor-nf">{reais(t.valor_nf)}</span>}
-      />
-      <div className="space-y-2 mb-4">
+    <Card padding="sm">
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <p className="text-sm font-semibold text-hipo-ink">Nota para a Controller</p>
+          <p className="text-[11px] text-hipo-slate">
+            Líquido {reais(t.valor_liquido)} − descontos {reais(t.descontos)}
+          </p>
+        </div>
+        <span className="text-base font-bold text-hipo-success whitespace-nowrap" data-testid="valor-nf">
+          {reais(t.valor_nf)}
+        </span>
+      </div>
+      <div className="space-y-1 mt-2">
         {painel.descontos.map((d) => (
-          <div key={d.id} className="flex items-center justify-between text-sm border-b border-hipo-border pb-1">
-            <span className="text-hipo-ink">{d.descricao}</span>
-            <span className="flex items-center gap-2">
+          <div key={d.id} className="flex items-center justify-between text-xs border-b border-hipo-border pb-1">
+            <span className="text-hipo-ink truncate">{d.descricao}</span>
+            <span className="flex items-center gap-1.5 shrink-0">
               <span className="text-hipo-danger">− {reais(d.valor)}</span>
               <button type="button" aria-label={`Apagar desconto ${d.descricao}`}
                 className="text-hipo-muted hover:text-hipo-danger" onClick={() => apagarDesconto(d.id)}>
-                <Trash2 size={14} />
+                <Trash2 size={12} />
               </button>
             </span>
           </div>
         ))}
-        <div className="flex gap-2">
-          <input aria-label="Descrição do desconto" placeholder="Desconto (ex.: pagamento indevido)"
-            className={CAMPO} value={descricao} onChange={(e) => setDescricao(e.target.value)} />
+        <div className="flex gap-1.5">
+          <input aria-label="Descrição do desconto" placeholder="Desconto (ex.: pg. indevido)"
+            className={mini} value={descricao} onChange={(e) => setDescricao(e.target.value)} />
           <input aria-label="Valor do desconto" placeholder="R$" inputMode="decimal"
-            className={`${CAMPO} w-28`} value={valor} onChange={(e) => setValor(e.target.value)} />
-          <Button variant="secondary" icon={Plus} onClick={adicionarDesconto}
-            disabled={!descricao.trim() || !numero(valor)}>
+            className={`${mini} !w-20`} value={valor} onChange={(e) => setValor(e.target.value)} />
+          <Button variant="secondary" size="sm" className="!h-8 !px-2 !text-xs" icon={Plus}
+            onClick={adicionarDesconto} disabled={!descricao.trim() || !numero(valor)}>
             Desconto
           </Button>
         </div>
       </div>
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-        <Campo label="Nº da NF">
-          <input aria-label="Número da NF" className={CAMPO} value={nf} onChange={(e) => setNf(e.target.value)} />
-        </Campo>
-        <Campo label="Emitida em">
-          <input aria-label="NF emitida em" type="date" className={CAMPO} value={emitida}
+      <div className="grid grid-cols-2 gap-1.5 mt-2">
+        <label className="col-span-2">
+          <span className={rotulo}>Nº da NF</span>
+          <input aria-label="Número da NF" className={mini} value={nf} onChange={(e) => setNf(e.target.value)} />
+        </label>
+        <label>
+          <span className={rotulo}>Emitida em</span>
+          <input aria-label="NF emitida em" type="date" className={mini} value={emitida}
             onChange={(e) => setEmitida(e.target.value)} />
-        </Campo>
-        <Campo label="Recebida em">
-          <input aria-label="Recebida em" type="date" className={CAMPO} value={recebido}
+        </label>
+        <label>
+          <span className={rotulo}>Recebida em</span>
+          <input aria-label="Recebida em" type="date" className={mini} value={recebido}
             onChange={(e) => setRecebido(e.target.value)} />
-        </Campo>
+        </label>
       </div>
-      <div className="flex justify-end mt-3">
-        <Button onClick={gravarNota} loading={salvando} icon={FileText}>Gravar nota</Button>
-      </div>
-      {erro && <AlertMessage tipo="erro" className="mt-3">{erro}</AlertMessage>}
+      <Button onClick={gravarNota} loading={salvando} icon={FileText} size="sm"
+        className="!h-8 w-full mt-2 !text-xs">
+        Gravar nota
+      </Button>
+      {erro && <AlertMessage tipo="erro" className="mt-2">{erro}</AlertMessage>}
     </Card>
   );
 }
@@ -348,16 +361,16 @@ function Fechamento({ painel, onMudou }) {
 function Historico({ meses, atual }) {
   const max = Math.max(1, ...meses.map((m) => numero(m.valor_nf) || 0));
   return (
-    <div className="flex items-end gap-2 h-24" aria-label="Nota dos últimos meses">
+    <div className="flex items-end gap-1.5 h-16" aria-label="Nota dos últimos meses">
       {meses.map((m) => {
         const v = Math.max(0, numero(m.valor_nf) || 0);
         return (
           <div key={m.competencia} className="flex-1 flex flex-col items-center gap-1" title={`${m.rotulo}: ${reais(v)}`}>
             <div
               className={`w-full rounded-t ${m.competencia === atual ? 'bg-hipo-blue' : 'bg-hipo-blueSoft'}`}
-              style={{ height: `${Math.max(2, (v / max) * 72)}px` }}
+              style={{ height: `${Math.max(2, (v / max) * 44)}px` }}
             />
-            <span className="text-[11px] text-hipo-slate">{m.rotulo}</span>
+            <span className="text-[10px] text-hipo-slate">{m.rotulo.split('/')[0]}</span>
           </div>
         );
       })}
@@ -411,55 +424,59 @@ function AbaMes() {
   const t = painel.totais;
   const passo = painel.proximo_passo;
 
+  // Tudo que não é a lista cabe numa faixa de ~40px: mês, quatro KPIs de
+  // barra e a próxima ação. A lista ganha o resto da altura e rola sozinha,
+  // com o cabeçalho preso -- a tela inteira cabe num notebook sem rolar.
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-1">
-          <Button variant="ghost" size="sm" aria-label="Mês anterior"
+    <div className="h-full min-h-0 flex flex-col gap-2">
+      <div className="flex flex-wrap items-center gap-2 shrink-0">
+        <div className="flex items-center">
+          <Button variant="ghost" size="sm" aria-label="Mês anterior" className="!h-8 !px-2"
             onClick={() => setCompetencia(painel.anterior)}>
             <ChevronLeft size={16} />
           </Button>
-          <span className="text-h2 text-hipo-ink w-28 text-center" data-testid="competencia">
+          <span className="text-sm font-semibold text-hipo-ink w-20 text-center" data-testid="competencia">
             {painel.rotulo}
           </span>
-          <Button variant="ghost" size="sm" aria-label="Mês seguinte"
+          <Button variant="ghost" size="sm" aria-label="Mês seguinte" className="!h-8 !px-2"
             onClick={() => setCompetencia(painel.seguinte)}>
             <ChevronRight size={16} />
           </Button>
         </div>
+        <KpiInline label={`Mensalidades · ${t.vidas} vidas`} valor={reais(t.valor_contrato)}
+          icone={Briefcase} tom="bg-hipo-bg text-hipo-slate" />
+        <KpiInline label="Repasse à Spectre" valor={reais(t.valor_repasse)}
+          icone={Wallet} tom="bg-hipo-blueSoft text-hipo-blue" />
+        <KpiInline label="Imposto" valor={reais(t.valor_imposto)}
+          icone={Percent} tom="bg-hipo-warningSoft text-hipo-warning" />
+        <KpiInline label="Valor da nota" valor={reais(t.valor_nf)}
+          titulo={`Líquido pago pelos clientes: ${reais(t.liquido_pago)}`}
+          icone={Landmark} tom="bg-hipo-successSoft text-hipo-success" />
+        <div className="flex-1" />
         <div
           className={
-            'flex items-center gap-3 px-4 py-2 rounded-lg border text-sm ' +
+            'h-10 flex items-center gap-2 pl-3 pr-1 rounded-lg border text-xs ' +
             (passo.acao === 'fechado'
               ? 'bg-hipo-successSoft border-hipo-successBorder text-hipo-success'
               : 'bg-hipo-blueSoft border-hipo-blueSoft text-hipo-blueDark')
           }
           data-testid="proximo-passo"
         >
-          {passo.acao === 'fechado' ? <CheckCircle2 size={16} /> : <Receipt size={16} />}
+          {passo.acao === 'fechado' ? <CheckCircle2 size={14} /> : <Receipt size={14} />}
           <span>{passo.texto}</span>
           {passo.acao === 'lancar' && (
-            <Button size="sm" onClick={lancarSugestoes} loading={lancandoLote}>
+            <Button size="sm" className="!h-8" onClick={lancarSugestoes} loading={lancandoLote}>
               Confirmar sugestões ({painel.pendentes})
             </Button>
           )}
         </div>
       </div>
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <KpiCard label="Valor dos contratos (K)" value={reais(t.valor_contrato)} icon={Briefcase}
-          tone="slate" hint={`${t.vidas} vidas · ${painel.lancados} lançados`} />
-        <KpiCard label="Repasse bruto (L)" value={reais(t.valor_repasse)} icon={Wallet} tone="blue" />
-        <KpiCard label="Imposto (N)" value={reais(t.valor_imposto)} icon={Percent} tone="warning" />
-        <KpiCard label="Valor da nota" value={reais(t.valor_nf)} icon={Landmark} tone="success"
-          hint={`líquido pago pelos clientes: ${reais(t.liquido_pago)}`} />
-      </div>
-
       {erro && <AlertMessage tipo="erro">{erro}</AlertMessage>}
 
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
-        <Card padding="none" className="xl:col-span-2 overflow-hidden">
-          <div className="flex items-center gap-2 px-4 pt-4">
+      <div className="flex-1 min-h-0 grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_300px] gap-3">
+        <Card padding="none" className="!p-0 min-h-0 flex flex-col overflow-hidden">
+          <div className="flex items-center gap-1.5 px-3 py-2 border-b border-hipo-border shrink-0">
             {[
               ['todos', `Todos (${painel.linhas.length})`],
               ['pendentes', `Pendentes (${painel.pendentes})`],
@@ -467,7 +484,7 @@ function AbaMes() {
             ].map(([chave, rotulo]) => (
               <button key={chave} type="button" onClick={() => setFiltro(chave)}
                 className={
-                  'px-3 h-8 rounded-full text-xs font-medium border ' +
+                  'px-2.5 h-7 rounded-full text-xs font-medium border ' +
                   (filtro === chave
                     ? 'bg-hipo-blue text-white border-hipo-blue'
                     : 'bg-hipo-card text-hipo-slate border-hipo-border hover:text-hipo-ink')
@@ -475,22 +492,25 @@ function AbaMes() {
                 {rotulo}
               </button>
             ))}
+            <span className="ml-auto text-[11px] text-hipo-muted">
+              em itálico: sugestão ainda não lançada
+            </span>
           </div>
           {linhas.length === 0 ? (
             <Empty title="Nada por aqui" description="Nenhum contrato neste recorte do mês." />
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm mt-3">
-                <thead>
-                  <tr className="text-left text-xs text-hipo-slate border-b border-hipo-border">
-                    <th className="px-4 py-2 font-medium">Contrato</th>
-                    <th className="px-2 py-2 font-medium text-right">Vidas</th>
-                    <th className="px-2 py-2 font-medium text-right">K</th>
-                    <th className="px-2 py-2 font-medium text-right">%</th>
-                    <th className="px-2 py-2 font-medium text-right">L</th>
-                    <th className="px-2 py-2 font-medium text-right">N</th>
-                    <th className="px-2 py-2 font-medium text-right">O</th>
-                    <th className="px-4 py-2 font-medium" />
+            <div className="flex-1 min-h-0 overflow-auto">
+              <table className="w-full text-[13px]">
+                <thead className="sticky top-0 bg-hipo-card z-10">
+                  <tr className="text-left text-[11px] text-hipo-slate border-b border-hipo-border">
+                    <th className="px-3 py-1.5 font-medium">Contrato</th>
+                    <th className="px-2 py-1.5 font-medium text-right">Vidas</th>
+                    <th className="px-2 py-1.5 font-medium text-right" title="O que o cliente paga à Controller">Mensalidade</th>
+                    <th className="px-2 py-1.5 font-medium text-right" title="100% no primeiro mês, 30% depois">% repasse</th>
+                    <th className="px-2 py-1.5 font-medium text-right" title="Mensalidade × % repasse">Repasse</th>
+                    <th className="px-2 py-1.5 font-medium text-right">Imposto</th>
+                    <th className="px-2 py-1.5 font-medium text-right" title="Repasse − imposto: o que entra na Spectre">Líquido Spectre</th>
+                    <th className="px-3 py-1.5 font-medium" />
                   </tr>
                 </thead>
                 <tbody>
@@ -501,30 +521,39 @@ function AbaMes() {
                     return (
                       <tr key={c.id} className="border-b border-hipo-border hover:bg-hipo-bg"
                         data-testid={`linha-${c.id}`}>
-                        <td className="px-4 py-2">
-                          <p className="font-medium text-hipo-ink truncate max-w-[260px]">{c.razao_social}</p>
-                          <p className="text-xs text-hipo-slate">
+                        <td className="px-3 py-1 max-w-[280px]">
+                          <p className="font-medium text-hipo-ink truncate leading-tight" title={c.razao_social}>{c.razao_social}</p>
+                          <p className="text-[11px] text-hipo-slate truncate leading-tight">
                             {c.cnpj_formatado || 'CNPJ pendente'}
                             {c.oportunidade_numero ? ` · ${c.oportunidade_numero}` : ''}
                             {c.grupo ? ` · ${c.grupo}` : ''}
                           </p>
                         </td>
-                        <td className={`px-2 py-2 text-right ${tom}`}>{v?.vidas ?? '—'}</td>
-                        <td className={`px-2 py-2 text-right ${tom}`}>{reais(v?.valor_contrato)}</td>
-                        <td className={`px-2 py-2 text-right ${tom}`}>
+                        <td className={`px-2 py-1 text-right ${tom}`}>{v?.vidas ?? '—'}</td>
+                        <td className={`px-2 py-1 text-right whitespace-nowrap ${tom}`}>{reais(v?.valor_contrato)}</td>
+                        <td className={`px-2 py-1 text-right whitespace-nowrap ${tom}`}>
+                          {v?.primeiro_mes && (
+                            <span className="mr-1 px-1.5 py-0.5 rounded-full bg-hipo-blueSoft text-hipo-blue text-[10px] font-medium not-italic">
+                              1º mês
+                            </span>
+                          )}
                           {pct(v?.percentual_repasse)}
-                          {v?.primeiro_mes && <Badge tone="info" className="ml-1">1º mês</Badge>}
                         </td>
-                        <td className={`px-2 py-2 text-right ${tom}`}>{reais(v?.valor_repasse)}</td>
-                        <td className={`px-2 py-2 text-right ${tom}`}>{reais(v?.valor_imposto)}</td>
-                        <td className={`px-2 py-2 text-right font-semibold ${l ? 'text-hipo-success' : 'text-hipo-muted italic'}`}>
+                        <td className={`px-2 py-1 text-right whitespace-nowrap ${tom}`}>{reais(v?.valor_repasse)}</td>
+                        <td className={`px-2 py-1 text-right whitespace-nowrap ${tom}`}>{reais(v?.valor_imposto)}</td>
+                        <td className={`px-2 py-1 text-right whitespace-nowrap font-semibold ${l ? 'text-hipo-success' : 'text-hipo-muted italic'}`}>
                           {reais(v?.valor_liquido)}
                         </td>
-                        <td className="px-4 py-2 text-right whitespace-nowrap">
-                          {l && (l.pago
-                            ? <Badge tone="success" className="mr-2">pago</Badge>
-                            : <Badge tone="warning" className="mr-2">não pago</Badge>)}
-                          <Button size="sm" variant={l ? 'secondary' : 'primary'}
+                        <td className="px-3 py-1 text-right whitespace-nowrap">
+                          {l && (
+                            <span className={
+                              'mr-1.5 px-1.5 py-0.5 rounded-full text-[10px] font-medium ' +
+                              (l.pago ? 'bg-hipo-successSoft text-hipo-success' : 'bg-hipo-warningSoft text-hipo-warning')
+                            }>
+                              {l.pago ? 'pago' : 'não pago'}
+                            </span>
+                          )}
+                          <Button size="sm" variant={l ? 'secondary' : 'primary'} className="!h-7 !px-2.5 !text-xs"
                             onClick={() => setEditando(linha)}>
                             {l ? 'Editar' : 'Lançar'}
                           </Button>
@@ -538,10 +567,10 @@ function AbaMes() {
           )}
         </Card>
 
-        <div className="space-y-4">
+        <div className="min-h-0 overflow-y-auto space-y-3">
           <Fechamento painel={painel} onMudou={carregar} />
-          <Card>
-            <CardHeader title="Nota dos últimos meses" />
+          <Card padding="sm">
+            <p className="text-xs font-semibold text-hipo-ink mb-2">Nota dos últimos meses</p>
             <Historico meses={painel.historico} atual={painel.competencia} />
           </Card>
         </div>
@@ -740,10 +769,10 @@ function ModalContrato({ contratoId, onFechar, onMudou }) {
                   <tr className="text-left text-xs text-hipo-slate border-b border-hipo-border">
                     <th className="py-1 font-medium">Mês</th>
                     <th className="py-1 font-medium text-right">Vidas</th>
-                    <th className="py-1 font-medium text-right">K</th>
-                    <th className="py-1 font-medium text-right">%</th>
-                    <th className="py-1 font-medium text-right">L</th>
-                    <th className="py-1 font-medium text-right">O</th>
+                    <th className="py-1 font-medium text-right">Mensalidade</th>
+                    <th className="py-1 font-medium text-right">% repasse</th>
+                    <th className="py-1 font-medium text-right">Repasse</th>
+                    <th className="py-1 font-medium text-right">Líquido Spectre</th>
                     <th className="py-1 font-medium text-right">Pago</th>
                   </tr>
                 </thead>
@@ -888,7 +917,7 @@ function AbaContratos() {
 
       {erro && <AlertMessage tipo="erro">{erro}</AlertMessage>}
 
-      <Card padding="none" className="overflow-hidden">
+      <Card padding="none" className="!p-0 overflow-hidden">
         {!lista ? (
           <p className="p-4 text-sm text-hipo-slate">Carregando…</p>
         ) : lista.length === 0 ? (
@@ -965,21 +994,22 @@ function AbaContratos() {
 export default function Contratos() {
   const [aba, setAba] = useState('mes');
   return (
-    <div>
-      <PageHeader
-        title="Contratos"
-        subtitle="Repasse da Controller: vidas do mês, nota e recebimento."
-      />
-      <Tabs
-        className="mb-4"
-        value={aba}
-        onChange={setAba}
-        items={[
-          { key: 'mes', label: 'Mês' },
-          { key: 'contratos', label: 'Contratos' },
-        ]}
-      />
-      {aba === 'mes' ? <AbaMes /> : <AbaContratos />}
+    <div className="h-full min-h-0 flex flex-col">
+      <div className="flex items-end justify-between gap-3 shrink-0">
+        <h1 className="text-lg font-bold text-hipo-ink pb-2">Contratos</h1>
+        <Tabs
+          value={aba}
+          onChange={setAba}
+          items={[
+            { key: 'mes', label: 'Mês' },
+            { key: 'contratos', label: 'Contratos' },
+          ]}
+        />
+        <div className="flex-1 border-b border-hipo-border self-stretch" />
+      </div>
+      <div className="flex-1 min-h-0 pt-2">
+        {aba === 'mes' ? <AbaMes /> : <div className="h-full overflow-y-auto"><AbaContratos /></div>}
+      </div>
     </div>
   );
 }
