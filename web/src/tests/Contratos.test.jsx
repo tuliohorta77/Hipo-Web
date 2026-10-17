@@ -146,6 +146,9 @@ describe('Contratos — aba Mês', () => {
     expect(await screen.findByTestId('competencia')).toHaveTextContent('out/2026');
     expect(screen.getByTestId('proximo-passo')).toHaveTextContent('Lançar vidas e valores de 1 contrato');
     expect(screen.getByTestId('valor-nf')).toHaveTextContent('419,70');
+    // Somas do cabeçalho contam lançado + sugestão (1.633 + 180).
+    expect(screen.getByText((_, el) => el?.tagName === 'SPAN' && /1\.813,00/.test(el.textContent))).toBeInTheDocument();
+    expect(screen.getByText('147')).toBeInTheDocument();
 
     const pendente = screen.getByTestId('linha-c2');
     expect(within(pendente).getByText('1º mês')).toBeInTheDocument();

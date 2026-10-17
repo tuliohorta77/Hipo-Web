@@ -9,6 +9,8 @@
 #  - sem o titulo "Contratos"; filtros na mesma linha do mes; uma linha so
 #    antes da tabela; somas de cada coluna no cabecalho (no lugar dos KPIs);
 #  - sem migration, sem mudanca de API.
+#  - abas, mes, filtros e proxima acao numa linha so; somas do cabecalho
+#    contam lancado + sugestao (a nota da lateral segue so com lancados);
 #  Serve tanto antes quanto depois do primeiro push da 060b.
 #
 # Uso (na raiz do projeto):
@@ -22,9 +24,10 @@ $ok = $true
 
 $arquivos = @(
   "web/src/pages/contratos/Contratos.jsx",
+  "web/src/tests/Contratos.test.jsx",
   "deploy-060b-contratos-compacto.ps1"
 )
-$basesTela = @("972455cbb8f41bf5d619e748f01f141ecb1265da", "b36ca89f46f52792fe4930946cdcc88edf18b82a")
+$basesTela = @("972455cbb8f41bf5d619e748f01f141ecb1265da", "b36ca89f46f52792fe4930946cdcc88edf18b82a", "2ad1c9413a1a93b59a6ccdbbc0f995cac134275a")
 
 Write-Host "== Pre-voo ==" -ForegroundColor Cyan
 foreach ($f in $arquivos) {
@@ -60,7 +63,7 @@ if (-not $ok) {
   Write-Host "Simulacao OK. Rode sem -Simular para commitar e subir." -ForegroundColor Green
 } else {
   git add -- $arquivos
-  git commit -m "Contratos: tela compacta - filtros na linha do mes, somas no cabecalho da tabela, lista com rolagem propria" -- $arquivos
+  git commit -m "Contratos: abas, mes e filtros numa linha; somas do cabecalho com sugestoes" -- $arquivos
   git push
   Write-Host ""
   Write-Host "Push feito. Acompanhe os 3 jobs do CI. Depois: Ctrl+Shift+R na tela Contratos." -ForegroundColor Green

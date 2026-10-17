@@ -23,7 +23,6 @@ import {
   Plus, Trash2, Search, Briefcase, CheckCircle2,
 } from 'lucide-react';
 import api from '../../api';
-import Tabs from '../../components/ui/Tabs';
 import Card from '../../components/ui/Card';
 import Button from '../../components/ui/Button';
 import Badge from '../../components/ui/Badge';
@@ -389,7 +388,7 @@ function Historico({ meses, atual }) {
   );
 }
 
-function AbaMes() {
+function AbaMes({ abas }) {
   const [competencia, setCompetencia] = useState(competenciaAtual());
   const [painel, setPainel] = useState(null);
   const [erro, setErro] = useState(null);
@@ -429,11 +428,20 @@ function AbaMes() {
     return painel.linhas;
   }, [painel, filtro]);
 
-  if (erro && !painel) return <AlertMessage tipo="erro">{erro}</AlertMessage>;
-  if (!painel) return <p className="text-sm text-hipo-slate">Carregando…</p>;
+  if (erro && !painel) return <div className="space-y-2">{abas}<AlertMessage tipo="erro">{erro}</AlertMessage></div>;
+  if (!painel) return <div className="space-y-2">{abas}<p className="text-sm text-hipo-slate">Carregando…</p></div>;
 
-  const t = painel.totais;
   const passo = painel.proximo_passo;
+  // Somas do cabeçalho: o que está na lista, lançado OU sugerido -- o mês
+  // previsto. A nota (lateral) segue contando só o que já foi lançado.
+  const soma = (campo) => linhas.reduce((acc, l) => acc + (numero((l.lancamento || l.sugestao)?.[campo]) || 0), 0);
+  const t = {
+    vidas: soma('vidas'),
+    valor_contrato: soma('valor_contrato'),
+    valor_repasse: soma('valor_repasse'),
+    valor_imposto: soma('valor_imposto'),
+    valor_liquido: soma('valor_liquido'),
+  };
 
   // Tudo que não é a lista cabe numa faixa de ~40px: mês, quatro KPIs de
   // barra e a próxima ação. A lista ganha o resto da altura e rola sozinha,
@@ -441,6 +449,7 @@ function AbaMes() {
   return (
     <div className="h-full min-h-0 flex flex-col gap-2">
       <div className="flex flex-wrap items-center gap-2 shrink-0">
+        {abas}
         <div className="flex items-center">
           <Button variant="ghost" size="sm" aria-label="Mês anterior" className="!h-8 !px-2"
             onClick={() => setCompetencia(painel.anterior)}>
@@ -504,7 +513,7 @@ function AbaMes() {
                   <tr className="text-left text-[11px] text-hipo-slate border-b border-hipo-border align-bottom">
                     <th className="px-3 py-1.5 font-medium">
                       Contrato
-                      <Soma>{painel.lancados} de {painel.linhas.length} lançados</Soma>
+                      <Soma>{linhas.length} contratos · {painel.lancados} lançados</Soma>
                     </th>
                     <th className="px-2 py-1.5 font-medium text-right">
                       Vidas<Soma>{t.vidas}</Soma>
@@ -525,7 +534,7 @@ function AbaMes() {
                       Líquido Spectre<Soma destaque>{reais(t.valor_liquido)}</Soma>
                     </th>
                     <th className="px-3 py-1.5 font-medium text-right text-[10px] text-hipo-muted font-normal">
-                      somas dos lançados · itálico = sugestão
+                      somas com sugestões · itálico = não lançado
                     </th>
                   </tr>
                 </thead>
@@ -884,7 +893,7 @@ function ModalDaOportunidade({ onFechar, onMudou }) {
   );
 }
 
-function AbaContratos() {
+function AbaContratos({ abas }) {
   const [lista, setLista] = useState(null);
   const [q, setQ] = useState('');
   const [status, setStatus] = useState('ativo');
@@ -914,6 +923,7 @@ function AbaContratos() {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
+        {abas}
         <input aria-label="Buscar contrato" placeholder="Razão social, CNPJ, grupo ou oportunidade"
           className={`${CAMPO} max-w-sm`} value={q} onChange={(e) => setQ(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter') carregar(); }} />
@@ -1007,24 +1017,34 @@ function AbaContratos() {
 
 // ── Página ───────────────────────────────────────────────────────────
 
+// As abas moram na mesma linha do mês, dos filtros e da próxima ação: cada
+// aba recebe o seletor e o põe no começo da própria barra.
+function SeletorAba({ aba, setAba }) {
+  const itens = [['mes', 'Mês'], ['contratos', 'Contratos']];
+  return (
+    <div role="tablist" className="flex items-center p-0.5 rounded-lg bg-hipo-bg border border-hipo-border mr-1">
+      {itens.map(([chave, rotulo]) => (
+        <button key={chave} type="button" role="tab" aria-selected={aba === chave}
+          data-testid={`tab-${chave}`} onClick={() => setAba(chave)}
+          className={
+            'px-3 h-7 rounded-md text-xs font-medium transition-colors ' +
+            (aba === chave ? 'bg-hipo-card text-hipo-blue shadow-sm' : 'text-hipo-slate hover:text-hipo-ink')
+          }>
+          {rotulo}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export default function Contratos() {
   const [aba, setAba] = useState('mes');
+  const abas = <SeletorAba aba={aba} setAba={setAba} />;
   return (
-    <div className="h-full min-h-0 flex flex-col">
-      <div className="flex items-end justify-between gap-3 shrink-0">
-        <Tabs
-          value={aba}
-          onChange={setAba}
-          items={[
-            { key: 'mes', label: 'Mês' },
-            { key: 'contratos', label: 'Contratos' },
-          ]}
-        />
-        <div className="flex-1 border-b border-hipo-border self-stretch" />
-      </div>
-      <div className="flex-1 min-h-0 pt-2">
-        {aba === 'mes' ? <AbaMes /> : <div className="h-full overflow-y-auto"><AbaContratos /></div>}
-      </div>
+    <div className="h-full min-h-0">
+      {aba === 'mes'
+        ? <AbaMes abas={abas} />
+        : <div className="h-full overflow-y-auto"><AbaContratos abas={abas} /></div>}
     </div>
   );
 }
