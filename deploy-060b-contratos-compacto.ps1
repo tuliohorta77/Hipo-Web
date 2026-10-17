@@ -6,7 +6,10 @@
 #  - cabecalhos com o nome da coluna (Mensalidade, % repasse, Repasse,
 #    Imposto, Liquido Spectre) no lugar das letras da planilha (K, L, N, O);
 #  - nota para a Controller e historico compactos na lateral;
+#  - sem o titulo "Contratos"; filtros na mesma linha do mes; uma linha so
+#    antes da tabela; somas de cada coluna no cabecalho (no lugar dos KPIs);
 #  - sem migration, sem mudanca de API.
+#  Serve tanto antes quanto depois do primeiro push da 060b.
 #
 # Uso (na raiz do projeto):
 #   powershell -ExecutionPolicy Bypass -File .\deploy-060b-contratos-compacto.ps1 -Simular
@@ -21,7 +24,7 @@ $arquivos = @(
   "web/src/pages/contratos/Contratos.jsx",
   "deploy-060b-contratos-compacto.ps1"
 )
-$baseTela = "972455cbb8f41bf5d619e748f01f141ecb1265da"
+$basesTela = @("972455cbb8f41bf5d619e748f01f141ecb1265da", "b36ca89f46f52792fe4930946cdcc88edf18b82a")
 
 Write-Host "== Pre-voo ==" -ForegroundColor Cyan
 foreach ($f in $arquivos) {
@@ -29,7 +32,7 @@ foreach ($f in $arquivos) {
 }
 & cmd /c "git rev-parse HEAD:web/src/pages/contratos/Contratos.jsx > ""%TEMP%\hipo-060b.txt"" 2>nul"
 $head = (Get-Content "$env:TEMP\hipo-060b.txt" -ErrorAction SilentlyContinue | Select-Object -First 1)
-if ($head -ne $baseTela) {
+if ($basesTela -notcontains $head) {
   if ($Forcar) {
     Write-Host "  AVISO (forcado): Contratos.jsx no HEAD difere da 060" -ForegroundColor Yellow
   } else {
@@ -57,7 +60,7 @@ if (-not $ok) {
   Write-Host "Simulacao OK. Rode sem -Simular para commitar e subir." -ForegroundColor Green
 } else {
   git add -- $arquivos
-  git commit -m "Contratos: resumo do mes em barra, lista com rolagem propria e cabecalhos com nome da coluna" -- $arquivos
+  git commit -m "Contratos: tela compacta - filtros na linha do mes, somas no cabecalho da tabela, lista com rolagem propria" -- $arquivos
   git push
   Write-Host ""
   Write-Host "Push feito. Acompanhe os 3 jobs do CI. Depois: Ctrl+Shift+R na tela Contratos." -ForegroundColor Green

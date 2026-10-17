@@ -19,12 +19,11 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  ChevronLeft, ChevronRight, FileText, Landmark, Percent, Receipt,
-  Plus, Trash2, Wallet, Search, Briefcase, CheckCircle2,
+  ChevronLeft, ChevronRight, FileText, Receipt,
+  Plus, Trash2, Search, Briefcase, CheckCircle2,
 } from 'lucide-react';
 import api from '../../api';
 import Tabs from '../../components/ui/Tabs';
-import KpiInline from '../../components/ui/KpiInline';
 import Card from '../../components/ui/Card';
 import Button from '../../components/ui/Button';
 import Badge from '../../components/ui/Badge';
@@ -356,6 +355,18 @@ function Fechamento({ painel, onMudou }) {
   );
 }
 
+// Total da coluna, embaixo do nome dela no cabeçalho (soma dos lançados).
+function Soma({ children, destaque }) {
+  return (
+    <span className={
+      'block text-xs font-semibold whitespace-nowrap ' +
+      (destaque ? 'text-hipo-success' : 'text-hipo-ink')
+    }>
+      {children}
+    </span>
+  );
+}
+
 // ── Aba Mês ──────────────────────────────────────────────────────────
 
 function Historico({ meses, atual }) {
@@ -443,19 +454,27 @@ function AbaMes() {
             <ChevronRight size={16} />
           </Button>
         </div>
-        <KpiInline label={`Mensalidades · ${t.vidas} vidas`} valor={reais(t.valor_contrato)}
-          icone={Briefcase} tom="bg-hipo-bg text-hipo-slate" />
-        <KpiInline label="Repasse à Spectre" valor={reais(t.valor_repasse)}
-          icone={Wallet} tom="bg-hipo-blueSoft text-hipo-blue" />
-        <KpiInline label="Imposto" valor={reais(t.valor_imposto)}
-          icone={Percent} tom="bg-hipo-warningSoft text-hipo-warning" />
-        <KpiInline label="Valor da nota" valor={reais(t.valor_nf)}
-          titulo={`Líquido pago pelos clientes: ${reais(t.liquido_pago)}`}
-          icone={Landmark} tom="bg-hipo-successSoft text-hipo-success" />
+        <div className="flex items-center gap-1.5">
+          {[
+            ['todos', `Todos (${painel.linhas.length})`],
+            ['pendentes', `Pendentes (${painel.pendentes})`],
+            ['nao_pagos', 'Cliente não pagou'],
+          ].map(([chave, rotulo]) => (
+            <button key={chave} type="button" onClick={() => setFiltro(chave)}
+              className={
+                'px-2.5 h-7 rounded-full text-xs font-medium border ' +
+                (filtro === chave
+                  ? 'bg-hipo-blue text-white border-hipo-blue'
+                  : 'bg-hipo-card text-hipo-slate border-hipo-border hover:text-hipo-ink')
+              }>
+              {rotulo}
+            </button>
+          ))}
+        </div>
         <div className="flex-1" />
         <div
           className={
-            'h-10 flex items-center gap-2 pl-3 pr-1 rounded-lg border text-xs ' +
+            'h-9 flex items-center gap-2 pl-3 pr-1 rounded-lg border text-xs ' +
             (passo.acao === 'fechado'
               ? 'bg-hipo-successSoft border-hipo-successBorder text-hipo-success'
               : 'bg-hipo-blueSoft border-hipo-blueSoft text-hipo-blueDark')
@@ -465,7 +484,7 @@ function AbaMes() {
           {passo.acao === 'fechado' ? <CheckCircle2 size={14} /> : <Receipt size={14} />}
           <span>{passo.texto}</span>
           {passo.acao === 'lancar' && (
-            <Button size="sm" className="!h-8" onClick={lancarSugestoes} loading={lancandoLote}>
+            <Button size="sm" className="!h-7" onClick={lancarSugestoes} loading={lancandoLote}>
               Confirmar sugestões ({painel.pendentes})
             </Button>
           )}
@@ -476,41 +495,38 @@ function AbaMes() {
 
       <div className="flex-1 min-h-0 grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_300px] gap-3">
         <Card padding="none" className="!p-0 min-h-0 flex flex-col overflow-hidden">
-          <div className="flex items-center gap-1.5 px-3 py-2 border-b border-hipo-border shrink-0">
-            {[
-              ['todos', `Todos (${painel.linhas.length})`],
-              ['pendentes', `Pendentes (${painel.pendentes})`],
-              ['nao_pagos', 'Cliente não pagou'],
-            ].map(([chave, rotulo]) => (
-              <button key={chave} type="button" onClick={() => setFiltro(chave)}
-                className={
-                  'px-2.5 h-7 rounded-full text-xs font-medium border ' +
-                  (filtro === chave
-                    ? 'bg-hipo-blue text-white border-hipo-blue'
-                    : 'bg-hipo-card text-hipo-slate border-hipo-border hover:text-hipo-ink')
-                }>
-                {rotulo}
-              </button>
-            ))}
-            <span className="ml-auto text-[11px] text-hipo-muted">
-              em itálico: sugestão ainda não lançada
-            </span>
-          </div>
           {linhas.length === 0 ? (
             <Empty title="Nada por aqui" description="Nenhum contrato neste recorte do mês." />
           ) : (
             <div className="flex-1 min-h-0 overflow-auto">
               <table className="w-full text-[13px]">
                 <thead className="sticky top-0 bg-hipo-card z-10">
-                  <tr className="text-left text-[11px] text-hipo-slate border-b border-hipo-border">
-                    <th className="px-3 py-1.5 font-medium">Contrato</th>
-                    <th className="px-2 py-1.5 font-medium text-right">Vidas</th>
-                    <th className="px-2 py-1.5 font-medium text-right" title="O que o cliente paga à Controller">Mensalidade</th>
-                    <th className="px-2 py-1.5 font-medium text-right" title="100% no primeiro mês, 30% depois">% repasse</th>
-                    <th className="px-2 py-1.5 font-medium text-right" title="Mensalidade × % repasse">Repasse</th>
-                    <th className="px-2 py-1.5 font-medium text-right">Imposto</th>
-                    <th className="px-2 py-1.5 font-medium text-right" title="Repasse − imposto: o que entra na Spectre">Líquido Spectre</th>
-                    <th className="px-3 py-1.5 font-medium" />
+                  <tr className="text-left text-[11px] text-hipo-slate border-b border-hipo-border align-bottom">
+                    <th className="px-3 py-1.5 font-medium">
+                      Contrato
+                      <Soma>{painel.lancados} de {painel.linhas.length} lançados</Soma>
+                    </th>
+                    <th className="px-2 py-1.5 font-medium text-right">
+                      Vidas<Soma>{t.vidas}</Soma>
+                    </th>
+                    <th className="px-2 py-1.5 font-medium text-right" title="O que o cliente paga à Controller">
+                      Mensalidade<Soma>{reais(t.valor_contrato)}</Soma>
+                    </th>
+                    <th className="px-2 py-1.5 font-medium text-right" title="100% no primeiro mês, 30% depois">
+                      % repasse<Soma>&nbsp;</Soma>
+                    </th>
+                    <th className="px-2 py-1.5 font-medium text-right" title="Mensalidade × % repasse">
+                      Repasse<Soma>{reais(t.valor_repasse)}</Soma>
+                    </th>
+                    <th className="px-2 py-1.5 font-medium text-right">
+                      Imposto<Soma>{reais(t.valor_imposto)}</Soma>
+                    </th>
+                    <th className="px-2 py-1.5 font-medium text-right" title="Repasse − imposto: o que entra na Spectre">
+                      Líquido Spectre<Soma destaque>{reais(t.valor_liquido)}</Soma>
+                    </th>
+                    <th className="px-3 py-1.5 font-medium text-right text-[10px] text-hipo-muted font-normal">
+                      somas dos lançados · itálico = sugestão
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
@@ -996,7 +1012,6 @@ export default function Contratos() {
   return (
     <div className="h-full min-h-0 flex flex-col">
       <div className="flex items-end justify-between gap-3 shrink-0">
-        <h1 className="text-lg font-bold text-hipo-ink pb-2">Contratos</h1>
         <Tabs
           value={aba}
           onChange={setAba}
