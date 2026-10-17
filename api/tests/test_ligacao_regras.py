@@ -257,3 +257,68 @@ def test_kpis():
     ])
     assert k == {"total": 3, "gravadas": 2, "minutos": 4, "transcritas": 2, "fala_media_pct": 50}
     assert r.resumo_kpis([])["fala_media_pct"] is None
+
+
+# ── Duplicata ────────────────────────────────────────────────────────
+
+
+def json_frase(texto: str, canal: int = 1) -> dict:
+    """Um JSON do Transcribe com `texto` inteiro no canal pedido (0,4 s por palavra)."""
+    itens = [_palavra(round(i * 0.4, 2), round(i * 0.4 + 0.3, 2), p)
+             for i, p in enumerate(texto.split())]
+    canais = [{"channel_label": f"ch_{c}", "items": itens if c == canal else []} for c in (0, 1)]
+    return {"results": {"channel_labels": {"number_of_channels": 2, "channels": canais}}}
+
+
+# As duas transcrições reais de 13/10/2026: o mesmo áudio, transcrito duas
+# vezes, com o Transcribe errando palavras diferentes em cada uma.
+ORIGINAL_13_10 = ("Alô. Oi filha, tudo bem e você? Então tá internando, mas não saiu ainda. "
+                  "Como já estava pedido, é provavelmente não é, não sei. É. É. Tá, tá, obrigada.")
+COPIA_13_10 = ("Alô. Oi filha, tudo bem e você? Então. Tá internando, mas não sei ainda. "
+               "Como já estava pedido. É provavelmente, não sei.")
+
+
+class TestDuplicata:
+    def test_palavras_normaliza_acento_caixa_e_pontuacao(self):
+        assert r.palavras(["Então, TÁ internando!"]) == ["entao", "ta", "internando"]
+
+    def test_palavras_das_entradas_aceita_lista_e_json(self):
+        entradas = [{"texto": "Bom dia"}, {"texto": "Oi, tudo bem"}]
+        assert r.palavras_das_entradas(entradas) == ["bom", "dia", "oi", "tudo", "bem"]
+        assert r.palavras_das_entradas('[{"texto": "Bom dia"}]') == ["bom", "dia"]
+        assert r.palavras_das_entradas("não é json") == []
+        assert r.palavras_das_entradas(None) == []
+
+    def test_o_caso_real_de_13_10_e_a_mesma_conversa(self):
+        a, b = r.palavras([ORIGINAL_13_10]), r.palavras([COPIA_13_10])
+        assert r.semelhanca(a, b) > 0.9
+        assert r.mesma_conversa(a, b)
+
+    def test_trecho_reproduzido_dentro_de_conversa_maior_e_duplicata(self):
+        longa = r.palavras(["Bom dia, aqui é da Controller. " + ORIGINAL_13_10 + " Até logo então."])
+        assert r.mesma_conversa(r.palavras([COPIA_13_10]), longa)
+
+    def test_conversas_diferentes_nao_sao_duplicata(self):
+        outra = r.palavras(["Bom dia, falo com o responsável pelo RH da empresa? "
+                            "Queria apresentar a medicina ocupacional da Controller."])
+        assert not r.mesma_conversa(r.palavras([ORIGINAL_13_10]), outra)
+
+    def test_conversa_curta_nunca_e_duplicata(self):
+        alo = r.palavras(["Alô, alô, quem fala?"])
+        assert not r.mesma_conversa(alo, alo)
+
+    def test_qual_sai_nunca_e_a_vinculada(self):
+        vinc = {"id": "v", "vinculada": True, "inicio": T0 + timedelta(minutes=2)}
+        solta = {"id": "s", "vinculada": False, "inicio": T0}
+        assert r.qual_duplicada(vinc, solta) == "s"
+        assert r.qual_duplicada(solta, vinc) == "s"
+
+    def test_entre_duas_soltas_sai_a_mais_nova(self):
+        a = {"id": "a", "vinculada": False, "inicio": T0}
+        b = {"id": "b", "vinculada": False, "inicio": T0 + timedelta(minutes=2)}
+        assert r.qual_duplicada(a, b) == "b"
+        assert r.qual_duplicada(b, a) == "b"
+
+    def test_duas_vinculadas_ficam(self):
+        a = {"id": "a", "vinculada": True, "inicio": T0}
+        assert r.qual_duplicada(a, {**a, "id": "b"}) is None

@@ -56,14 +56,45 @@ def configurar_log(console: bool) -> None:
         raiz.addHandler(tela)
 
 
+# O mutex fica vivo enquanto o processo existir: perder a referência não
+# fecha o handle, mas guardar deixa isso explícito.
+_MUTEX = None
+FOLGA_FIM_S = 1.0
+
+
 def instancia_unica() -> bool:
-    """Um gravador por sessão do Windows (mutex nomeado)."""
+    """
+    Um gravador por sessão do Windows (mutex nomeado).
+
+    1.0.7: o erro é lido com use_last_error. `ctypes.windll` + GetLastError()
+    numa chamada separada pode ler o erro de outra chamada que o próprio
+    Python fez no meio -- e aí dois gravadores sobem e gravam a mesma
+    ligação duas vezes.
+    """
+    global _MUTEX
     if sys.platform != "win32":
         return True
     import ctypes
+    from ctypes import wintypes
 
-    ctypes.windll.kernel32.CreateMutexW(None, False, "Local\\HIPO-Gravador")
-    return ctypes.windll.kernel32.GetLastError() != 183  # ERROR_ALREADY_EXISTS
+    k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    k32.CreateMutexW.restype = wintypes.HANDLE
+    k32.CreateMutexW.argtypes = (ctypes.c_void_p, wintypes.BOOL, wintypes.LPCWSTR)
+    _MUTEX = k32.CreateMutexW(None, False, "Local\\HIPO-Gravador")
+    return ctypes.get_last_error() != 183  # ERROR_ALREADY_EXISTS
+
+
+def cortar_rabo(estereo, taxa: int, inicio: float, fim: float | None):
+    """
+    Corta o silêncio do fim: fica até o último som do softphone + 1 s.
+
+    `inicio`/`fim` são os horários do evento da detecção (time.time()).
+    Sem `fim` (gravação fechada à força), devolve inteiro.
+    """
+    if fim is None or fim <= inicio:
+        return estereo
+    amostras = int((fim - inicio + FOLGA_FIM_S) * taxa)
+    return estereo[:amostras] if amostras < len(estereo) else estereo
 
 
 def resolver_dispositivos(cfg: cfgmod.Config, sessoes) -> tuple[str, str]:
@@ -223,6 +254,11 @@ class App:
             return
         estereo, erros = grav.parar()
         inicio = ev.inicio
+        # 1.0.7: a gravação para FIM_APOS_SILENCIO segundos depois do último
+        # som do softphone (15 s desde esta versão). Esse rabo de silêncio
+        # sai: não é conversa, e somado deixaria bipe de 1 s do Vivo passar
+        # do mínimo de duração e ser enviado como ligação.
+        estereo = cortar_rabo(estereo, self.cfg.taxa, ev.inicio, ev.fim)
         # 1.0.2: o microfone abre quando a pessoa DISCA. Corta o "chamando"
         # do começo -- só quando houve tom de chamada antes, para não comer o
         # "Controller MedSeg, bom dia" de uma ligação recebida.

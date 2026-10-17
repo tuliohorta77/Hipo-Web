@@ -491,6 +491,112 @@ def pode_alterar(dono_id, usuario_id, gestao: bool) -> bool:
     return gestao or str(dono_id) == str(usuario_id)
 
 
+# ── Duplicata ────────────────────────────────────────────────────────
+#
+# O canal do cliente é o loopback do headset: grava TUDO que toca nele,
+# não só o softphone. Em 13/10/2026 a ligação ainda estava aberta no Vivo
+# quando o Tulio deu play na gravação pelo HIPO, e o gravador mandou uma
+# segunda gravação com a mesma conversa, sem clique para casar — caiu na
+# faixa "sem vínculo" como se fosse outra ligação.
+#
+# A regra: duas gravações da mesma pessoa a até JANELA_DUPLICATA uma da
+# outra, em que as palavras da mais curta aparecem quase todas, na mesma
+# ordem, na mais longa, são a mesma conversa. A comparação é por CONTEÚDO
+# (o áudio regravado nunca sai igual byte a byte) e tolera o Transcribe
+# errando palavras diferentes nas duas vezes.
+
+JANELA_DUPLICATA = timedelta(minutes=15)
+# Abaixo disto, "alô, alô" de duas ligações diferentes seria duplicata.
+MIN_PALAVRAS_DUPLICATA = 8
+SEMELHANCA_DUPLICATA = 0.7
+
+
+def palavras(textos) -> list[str]:
+    """
+    Palavras normalizadas (minúsculas, sem acento e sem pontuação), em ordem.
+
+    >>> palavras(["Alô. Oi, filha!", "Tá internando"])
+    ['alo', 'oi', 'filha', 'ta', 'internando']
+    """
+    import unicodedata
+
+    saida: list[str] = []
+    for t in textos or []:
+        base = unicodedata.normalize("NFKD", str(t or "").lower())
+        base = "".join(c for c in base if not unicodedata.combining(c))
+        saida.extend(re.findall(r"[a-z0-9]+", base))
+    return saida
+
+
+def palavras_das_entradas(entradas_json) -> list[str]:
+    """As palavras de `transcricao_entradas` (lista ou o JSON em texto)."""
+    import json
+
+    lista = entradas_json
+    if isinstance(lista, str):
+        try:
+            lista = json.loads(lista)
+        except ValueError:
+            return []
+    if not isinstance(lista, list):
+        return []
+    return palavras(e.get("texto") for e in lista if isinstance(e, dict))
+
+
+def semelhanca(a: list[str], b: list[str]) -> float:
+    """
+    Quanto da gravação MAIS CURTA está dentro da mais longa (0 a 1).
+
+    Contido e não "igual": a regravação costuma pegar só o trecho que foi
+    reproduzido, e o lado do executivo vem misturado no canal do cliente.
+
+    >>> semelhanca("a b c d".split(), "x a b c d y".split())
+    1.0
+    >>> semelhanca("a b c d".split(), "e f g h".split())
+    0.0
+    """
+    from difflib import SequenceMatcher
+
+    curta, longa = (a, b) if len(a) <= len(b) else (b, a)
+    if not curta:
+        return 0.0
+    blocos = SequenceMatcher(None, curta, longa, autojunk=False).get_matching_blocks()
+    return sum(bl.size for bl in blocos) / len(curta)
+
+
+def mesma_conversa(a: list[str], b: list[str]) -> bool:
+    if min(len(a), len(b)) < MIN_PALAVRAS_DUPLICATA:
+        return False
+    return semelhanca(a, b) >= SEMELHANCA_DUPLICATA
+
+
+def qual_duplicada(a: dict, b: dict):
+    """
+    De duas gravações da mesma conversa, o id da que sai de cena — ou None.
+
+    Cada dict: id, vinculada (bool), inicio (datetime). Vinculada é histórico
+    da negociação e nunca é escondida; entre duas sem vínculo, sai a mais
+    nova (a original é a primeira). Duas vinculadas ficam as duas: alguém
+    decidiu que cada uma é de uma negociação, e o HIPO não desfaz isso.
+
+    >>> t = datetime(2026, 10, 13, 15, 44, tzinfo=timezone.utc)
+    >>> qual_duplicada({"id": "a", "vinculada": True, "inicio": t},
+    ...                {"id": "b", "vinculada": False, "inicio": t - timedelta(minutes=1)})
+    'b'
+    >>> qual_duplicada({"id": "a", "vinculada": False, "inicio": t},
+    ...                {"id": "b", "vinculada": False, "inicio": t + timedelta(minutes=2)})
+    'b'
+    >>> qual_duplicada({"id": "a", "vinculada": True, "inicio": t},
+    ...                {"id": "b", "vinculada": True, "inicio": t}) is None
+    True
+    """
+    if a["vinculada"] and b["vinculada"]:
+        return None
+    if a["vinculada"] != b["vinculada"]:
+        return b["id"] if a["vinculada"] else a["id"]
+    return b["id"] if _utc(b["inicio"]) >= _utc(a["inicio"]) else a["id"]
+
+
 def resumo_kpis(linhas: list[dict]) -> dict:
     """
     Os números do topo da aba, da MESMA lista que aparece embaixo.

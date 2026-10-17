@@ -192,7 +192,63 @@ async def _guardar_texto(conn, lig: dict, dados: dict) -> dict:
         fala_usuario_pct=regras.fala_usuario_pct(trechos),
         erro=None,
     )
+    atual = await linha(conn, lig["id"])
+    await marcar_duplicata(conn, atual)
     return await linha(conn, lig["id"])
+
+
+async def marcar_duplicata(conn, lig: dict) -> UUID | None:
+    """
+    Procura, entre as ligações da mesma pessoa dos 15 minutos em volta, outra
+    gravação da MESMA conversa (services/ligacao.mesma_conversa). Achando,
+    marca a cópia com `duplicada_de` — sempre a sem vínculo, nunca histórico
+    de negociação — e devolve o id marcado.
+
+    Olha para os dois lados do tempo porque a ordem de transcrição não é a
+    ordem das ligações: a cópia pode ficar pronta antes da original.
+    """
+    if lig["status"] != "pronta" or lig.get("duplicada_de"):
+        return None
+    minhas = regras.palavras_das_entradas(lig.get("transcricao_entradas"))
+    if len(minhas) < regras.MIN_PALAVRAS_DUPLICATA:
+        return None
+    inicio = lig.get("inicio_em") or lig["criado_em"]
+    candidatas = await conn.fetch(
+        """
+        SELECT id, oportunidade_id, conta_id, inicio_em, criado_em, transcricao_entradas
+          FROM ligacoes
+         WHERE usuario_id = $1 AND id <> $2
+           AND status = 'pronta' AND duplicada_de IS NULL
+           AND COALESCE(inicio_em, criado_em)
+               BETWEEN $3::timestamptz - $4::interval AND $3::timestamptz + $4::interval
+         ORDER BY COALESCE(inicio_em, criado_em)
+        """,
+        lig["usuario_id"], lig["id"], inicio, regras.JANELA_DUPLICATA,
+    )
+    eu = {"id": lig["id"], "vinculada": regras.vinculada(lig["oportunidade_id"], lig["conta_id"]),
+          "inicio": inicio}
+    for c in candidatas:
+        if not regras.mesma_conversa(minhas, regras.palavras_das_entradas(c["transcricao_entradas"])):
+            continue
+        outra = {"id": c["id"], "vinculada": regras.vinculada(c["oportunidade_id"], c["conta_id"]),
+                 "inicio": c["inicio_em"] or c["criado_em"]}
+        sai = regras.qual_duplicada(eu, outra)
+        if sai is None:
+            continue
+        fica = outra["id"] if sai == eu["id"] else eu["id"]
+        marcou = await conn.fetchval(
+            """
+            UPDATE ligacoes SET duplicada_de = $2, atualizado_em = NOW()
+             WHERE id = $1 AND duplicada_de IS NULL
+               AND oportunidade_id IS NULL AND conta_id IS NULL
+            RETURNING id
+            """,
+            sai, fica,
+        )
+        if marcou:
+            log.info("ligacao %s: mesma conversa da %s, marcada como duplicata", sai, fica)
+            return marcou
+    return None
 
 
 async def _falha_no_job(conn, lig: dict, agora: datetime, mensagem: str) -> dict:
@@ -228,7 +284,9 @@ async def _conferir_job(conn, lig: dict, agora: datetime) -> dict:
         await asyncio.to_thread(aws.apagar_job, lig["transcricao_job"])
         # Resumo na mesma passada: quem abrir a ligação já encontra o "o que
         # ficou combinado", sem esperar o próximo tique do timer.
-        if atual["status"] == "pronta" and resumo_reuniao.configurado():
+        # Duplicata não gasta IA: a conversa já está resumida na original.
+        if (atual["status"] == "pronta" and not atual.get("duplicada_de")
+                and resumo_reuniao.configurado()):
             atual = await resumir(conn, lig["id"])
         return atual
 

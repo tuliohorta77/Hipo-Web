@@ -22,7 +22,8 @@ No fim, aparece um ícone **verde** perto do relógio. O instalador também deix
 
 ## Como funciona
 
-- O gravador percebe a chamada pelo som que passa na saída do Vivo Voz Negócio. Fora de chamada, essa saída fica em silêncio absoluto. Durante a chamada nunca fica, porque até o silêncio do cliente traz o ruído da linha. Quando ela fica 4 segundos em silêncio absoluto, a gravação termina. O "chamando" do começo é cortado.
+- O gravador percebe a chamada pelo som que passa na saída do Vivo Voz Negócio. Fora de chamada, essa saída fica em silêncio absoluto. Durante a chamada nunca fica, porque até o silêncio do cliente traz o ruído da linha. Quando ela fica 15 segundos em silêncio absoluto, a gravação termina (até a 1.0.6 eram 4, e uma pausa do cliente em ligação para celular partia a ligação em duas). O "chamando" do começo e o silêncio do fim são cortados.
+- O canal do cliente grava tudo o que toca no headset. Ouvir uma gravação no HIPO com a ligação ainda aberta gera uma cópia; o HIPO reconhece a mesma conversa e tira a cópia da lista de ligações sem vínculo.
 - Ele grava em **dois canais**: o microfone (quem ligou) e o som que o computador toca (o cliente). Por isso a transcrição separa os dois lados.
 - O gravador grava do **mesmo microfone e da mesma saída que o Vivo está usando** naquela chamada, sejam o headset ou o notebook. Música tocando no mesmo fone durante a ligação também entra na gravação.
 - Antes de ir para o HIPO, a gravação fica em `%LOCALAPPDATA%\HIPO Gravador\fila`. Sem internet, ela espera ali e é enviada quando a conexão voltar, por até 7 dias.

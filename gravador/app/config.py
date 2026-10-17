@@ -51,8 +51,9 @@ class Config:
     # da linha numa chamada medido foi ~0,0013; fora de chamada, 0,00000.
     limiar_som: float = 0.0002
     # Versão do formato do config.json. A 2 trocou o padrão de detecção para
-    # "som"; config gravado antes disso é migrado no carregar().
-    config_versao: int = 3
+    # "som", a 3 os dispositivos para "softphone" e a 4 o silêncio do fim
+    # para 15 s; config gravado antes disso é migrado no carregar().
+    config_versao: int = 4
     # Qual microfone e qual saída gravar:
     #   softphone   = os que o SOFTPHONE está usando na hora (padrão desde a
     #                 1.0.6); se não der para saber, cai em "comunicacao";
@@ -63,8 +64,11 @@ class Config:
     entrada: str = "softphone"
     saida: str = "softphone"
     taxa: int = 16000
-    # Segundos sem sinal de chamada para considerar que desligou.
-    fim_apos_silencio_s: float = 4.0
+    # Segundos sem sinal de chamada para considerar que desligou. Era 4 até a
+    # 1.0.6: em ligação para celular a rede manda silêncio absoluto enquanto
+    # o outro lado está calado, e 4 s de pausa partiam a ligação em duas
+    # (13/10/2026). O silêncio do fim é cortado da gravação (cortar_rabo).
+    fim_apos_silencio_s: float = 15.0
     # Chamada mais curta que isso não é enviada (discou errado, desligou).
     min_duracao_s: float = 8.0
     # Teto de uma gravação. Duas horas cobrem qualquer ligação de venda e
@@ -117,6 +121,10 @@ def carregar(caminho: Path | None = None) -> Config:
             cfg.entrada = "softphone"
         if cfg.saida == "comunicacao":
             cfg.saida = "softphone"
+    if int(bruto.get("config_versao", 1) or 1) < 4:
+        # Até a 1.0.6 o padrão era 4 s, gravado sem ninguém escolher.
+        if cfg.fim_apos_silencio_s == 4.0:
+            cfg.fim_apos_silencio_s = 15.0
     if int(bruto.get("config_versao", 1) or 1) < cfg.__class__.config_versao:
         cfg.config_versao = cfg.__class__.config_versao
         try:

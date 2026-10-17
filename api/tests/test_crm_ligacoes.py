@@ -578,3 +578,107 @@ async def test_lote_do_timer_ignora_clique_que_ainda_espera(client, base, aws_fa
     assert await coleta.pendentes(base["conn"]) == []
     await base["conn"].execute("UPDATE ligacoes SET clicada_em = NOW() - INTERVAL '7 hours'")
     assert len(await coleta.pendentes(base["conn"])) == 1
+
+
+# ── Duplicata (13/10/2026: play no HIPO com a ligação ainda aberta) ──
+
+
+async def test_regravacao_da_mesma_conversa_some_da_faixa(client, base, aws_falsa):
+    from tests.test_ligacao_regras import COPIA_13_10, ORIGINAL_13_10, json_frase
+
+    clique = await clicar(client, base)
+    _, gh = await novo_gravador(client, base["h"])
+    t = agora()
+    aws_falsa.resultado = json_frase(ORIGINAL_13_10)
+    await gravar_e_subir(client, aws_falsa, gh, t + timedelta(seconds=5), dur=49)
+    aws_falsa.terminar()
+    await coleta.passada(base["conn"])
+    assert aws_falsa.chamadas["resumir"] == 1
+
+    # 1:44 depois, sem clique: o play da gravação no headset.
+    aws_falsa.resultado = json_frase(COPIA_13_10)
+    copia, _ = await gravar_e_subir(client, aws_falsa, gh, t + timedelta(seconds=110),
+                                    dur=30, id_local="grav-copia-1310")
+    assert copia["vinculada"] is False
+    aws_falsa.terminar()
+    await coleta.passada(base["conn"])
+
+    marcada = await base["conn"].fetchval(
+        "SELECT duplicada_de FROM ligacoes WHERE id = $1", UUID(copia["ligacao_id"]))
+    assert str(marcada) == clique["id"]
+    faixa = (await client.get("/crm/ligacoes/sem-vinculo", headers=base["h"])).json()
+    assert faixa["ligacoes"] == []
+    # A cópia não gasta IA: a conversa já está resumida na original.
+    assert aws_falsa.chamadas["resumir"] == 1
+    # A original segue intacta na aba da oportunidade.
+    aba = (await client.get(f"/crm/ligacoes?oportunidade_id={base['opp']['id']}",
+                            headers=base["h"])).json()
+    assert [l["id"] for l in aba["ligacoes"]] == [clique["id"]]
+
+
+async def test_copia_transcrita_antes_da_original_tambem_e_marcada(client, base, aws_falsa):
+    from tests.test_ligacao_regras import COPIA_13_10, ORIGINAL_13_10, json_frase
+
+    _, gh = await novo_gravador(client, base["h"])
+    t = agora()
+    aws_falsa.resultado = json_frase(COPIA_13_10)
+    copia, _ = await gravar_e_subir(client, aws_falsa, gh, t + timedelta(seconds=110),
+                                    dur=30, id_local="grav-copia-antes")
+    aws_falsa.terminar()
+    await coleta.passada(base["conn"])
+    # Sozinha, ainda é uma ligação como outra qualquer.
+    faixa = (await client.get("/crm/ligacoes/sem-vinculo", headers=base["h"])).json()
+    assert [l["id"] for l in faixa["ligacoes"]] == [copia["ligacao_id"]]
+
+    aws_falsa.resultado = json_frase(ORIGINAL_13_10)
+    original, _ = await gravar_e_subir(client, aws_falsa, gh, t, dur=49,
+                                       id_local="grav-original-depois")
+    aws_falsa.terminar()
+    await coleta.passada(base["conn"])
+
+    faixa = (await client.get("/crm/ligacoes/sem-vinculo", headers=base["h"])).json()
+    assert [l["id"] for l in faixa["ligacoes"]] == [original["ligacao_id"]]
+
+
+async def test_conversas_diferentes_ficam_as_duas(client, base, aws_falsa):
+    from tests.test_ligacao_regras import ORIGINAL_13_10, json_frase
+
+    _, gh = await novo_gravador(client, base["h"])
+    t = agora()
+    aws_falsa.resultado = json_frase(ORIGINAL_13_10)
+    await gravar_e_subir(client, aws_falsa, gh, t, dur=49, id_local="grav-dif-0001")
+    aws_falsa.terminar()
+    await coleta.passada(base["conn"])
+    aws_falsa.resultado = json_frase(
+        "Bom dia, falo com o responsável pelo RH da empresa? Queria apresentar a "
+        "medicina ocupacional da Controller para vocês.")
+    await gravar_e_subir(client, aws_falsa, gh, t + timedelta(minutes=2), dur=40,
+                         id_local="grav-dif-0002")
+    aws_falsa.terminar()
+    await coleta.passada(base["conn"])
+
+    faixa = (await client.get("/crm/ligacoes/sem-vinculo", headers=base["h"])).json()
+    assert len(faixa["ligacoes"]) == 2
+    assert await base["conn"].fetchval(
+        "SELECT COUNT(*) FROM ligacoes WHERE duplicada_de IS NOT NULL") == 0
+
+
+async def test_descartar_a_original_leva_a_copia(client, base, aws_falsa):
+    from tests.test_ligacao_regras import COPIA_13_10, ORIGINAL_13_10, json_frase
+
+    _, gh = await novo_gravador(client, base["h"])
+    t = agora()
+    aws_falsa.resultado = json_frase(ORIGINAL_13_10)
+    original, _ = await gravar_e_subir(client, aws_falsa, gh, t, dur=49, id_local="grav-desc-0001")
+    aws_falsa.terminar()
+    await coleta.passada(base["conn"])
+    aws_falsa.resultado = json_frase(COPIA_13_10)
+    await gravar_e_subir(client, aws_falsa, gh, t + timedelta(seconds=110), dur=30,
+                         id_local="grav-desc-0002")
+    aws_falsa.terminar()
+    await coleta.passada(base["conn"])
+
+    r = await client.delete(f"/crm/ligacoes/{original['ligacao_id']}", headers=base["h"])
+    assert r.status_code == 200, r.text
+    assert await base["conn"].fetchval("SELECT COUNT(*) FROM ligacoes") == 0
+    assert len(aws_falsa.removidos) == 2

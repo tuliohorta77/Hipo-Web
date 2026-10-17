@@ -421,7 +421,7 @@ def test_config_antiga_migra_para_som(tmp_path):
     c = tmp_path / "c.json"
     c.write_text(json.dumps({"url": "https://x/api", "token": "hipograv_a", "detectar_por": "microfone"}))
     cfg = cfgmod.carregar(c)
-    assert cfg.detectar_por == "som" and cfg.config_versao == 3
+    assert cfg.detectar_por == "som" and cfg.config_versao == 4
     assert json.loads(c.read_text())["detectar_por"] == "som"
     # Quem escolher "microfone" depois da migração fica com "microfone".
     d = tmp_path / "d.json"
@@ -468,4 +468,59 @@ def test_config_v2_migra_dispositivos_para_softphone(tmp_path):
     c.write_text(json.dumps({"token": "hipograv_a", "detectar_por": "som", "config_versao": 2,
                              "entrada": "comunicacao", "saida": "Jabra"}))
     cfg = cfgmod.carregar(c)
-    assert (cfg.entrada, cfg.saida, cfg.config_versao) == ("softphone", "Jabra", 3)
+    assert (cfg.entrada, cfg.saida, cfg.config_versao) == ("softphone", "Jabra", 4)
+
+
+# ── Silêncio do fim e instância única (1.0.7) ────────────────────────
+
+
+def test_config_v3_migra_silencio_do_fim_para_15s(tmp_path):
+    c = tmp_path / "c.json"
+    c.write_text(json.dumps({"token": "hipograv_a", "config_versao": 3, "fim_apos_silencio_s": 4.0}))
+    cfg = cfgmod.carregar(c)
+    assert (cfg.fim_apos_silencio_s, cfg.config_versao) == (15.0, 4)
+    assert json.loads(c.read_text())["fim_apos_silencio_s"] == 15.0
+    # Quem escolheu outro valor fica com ele.
+    d = tmp_path / "d.json"
+    d.write_text(json.dumps({"token": "hipograv_a", "config_versao": 3, "fim_apos_silencio_s": 8.0}))
+    assert cfgmod.carregar(d).fim_apos_silencio_s == 8.0
+
+
+def test_pausa_de_10s_nao_parte_a_ligacao():
+    """13/10: celular manda silêncio absoluto enquanto o outro lado está calado."""
+    m = MaquinaDeChamada(fim_apos_s=cfgmod.Config().fim_apos_silencio_s)
+    eventos = []
+    for t in range(0, 60):
+        ativo = not (20 <= t < 30)          # 10 s de silêncio no meio
+        ev = m.atualizar(ativo, float(t))
+        if ev:
+            eventos.append(ev.tipo)
+    assert eventos == ["inicio"]
+
+
+def test_cortar_rabo_deixa_ate_o_ultimo_som_mais_um_segundo():
+    import numpy as np
+    from app.principal import cortar_rabo
+
+    taxa = 100
+    sinal = np.zeros((taxa * 30, 2), dtype="int16")      # 30 s gravados
+    cortado = cortar_rabo(sinal, taxa, inicio=1000.0, fim=1014.0)
+    assert len(cortado) == taxa * 15                     # 14 s de chamada + 1 s
+    assert len(cortar_rabo(sinal, taxa, 1000.0, None)) == len(sinal)
+    assert len(cortar_rabo(sinal, taxa, 1000.0, 1040.0)) == len(sinal)
+
+
+def test_bipe_curto_do_softphone_continua_curto_demais():
+    """Com 15 s de espera, o rabo cortado impede bipe de 1 s de virar ligação."""
+    import numpy as np
+    from app.principal import cortar_rabo
+
+    taxa = 100
+    gravado = np.zeros((taxa * 16, 2), dtype="int16")    # 1 s de bipe + 15 s de espera
+    cortado = cortar_rabo(gravado, taxa, inicio=0.0, fim=1.0)
+    assert len(cortado) / taxa < cfgmod.Config().min_duracao_s
+
+
+def test_instancia_unica_fora_do_windows_libera():
+    from app.principal import instancia_unica
+    assert instancia_unica() is True

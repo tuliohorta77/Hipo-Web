@@ -368,6 +368,7 @@ async def sem_vinculo(
         f"""{coleta._SELECT}
          WHERE l.usuario_id = $1 AND l.oportunidade_id IS NULL AND l.conta_id IS NULL
            AND l.status NOT IN ('discando', 'sem_gravacao')
+           AND l.duplicada_de IS NULL
          ORDER BY l.criado_em DESC LIMIT 50""",
         alvo,
     )
@@ -458,12 +459,22 @@ async def descartar(ligacao_id: UUID, conn=Depends(get_conn), user=Depends(usuar
         # O gravador está no meio do envio: apagar agora faria o reenvio
         # dele recriar a linha. Espera chegar e descarta depois.
         raise HTTPException(409, "A gravação ainda está chegando. Tente de novo em instantes.")
-    if lig.get("audio_s3_chave") and aws.disponivel():
-        try:
-            await asyncio.to_thread(aws.remover, lig["audio_s3_chave"])
-        except Exception as e:  # noqa: BLE001
-            raise HTTPException(502, f"Não foi possível apagar o áudio ({type(e).__name__}).") from e
-    if lig.get("transcricao_job"):
-        await asyncio.to_thread(aws.apagar_job, lig["transcricao_job"])
-    await conn.execute("DELETE FROM ligacoes WHERE id = $1", ligacao_id)
+    # As cópias desta gravação (services/ligacao.mesma_conversa) vão junto:
+    # sem a original, o ON DELETE SET NULL faria a cópia reaparecer na faixa
+    # — a mesma conversa pessoal pedindo para ser descartada de novo.
+    copias = await conn.fetch(
+        "SELECT id, audio_s3_chave, transcricao_job FROM ligacoes WHERE duplicada_de = $1",
+        ligacao_id,
+    )
+    for alvo in [lig, *[dict(c) for c in copias]]:
+        if alvo.get("audio_s3_chave") and aws.disponivel():
+            try:
+                await asyncio.to_thread(aws.remover, alvo["audio_s3_chave"])
+            except Exception as e:  # noqa: BLE001
+                raise HTTPException(502, f"Não foi possível apagar o áudio ({type(e).__name__}).") from e
+        if alvo.get("transcricao_job"):
+            await asyncio.to_thread(aws.apagar_job, alvo["transcricao_job"])
+    await conn.execute(
+        "DELETE FROM ligacoes WHERE id = $1 OR duplicada_de = $1", ligacao_id,
+    )
     return {"ok": True}

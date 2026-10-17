@@ -342,6 +342,7 @@ async def atividades(conn, dia: date) -> dict:
         WHERE l.inicio_em IS NOT NULL
           AND {janela_l}
           AND l.status = ANY($2::text[])
+          AND l.duplicada_de IS NULL
         GROUP BY l.usuario_id, u.nome, u.cargo, l.status, hora
     """, dia, list(svc.STATUS_LIGACAO_CONTA))
 

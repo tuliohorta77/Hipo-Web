@@ -2497,3 +2497,13 @@ ALTER TABLE contratos ADD CONSTRAINT ck_contrato_primeiro_vencimento CHECK (
     OR (primeiro_vencimento > data_contrato
         AND EXTRACT(DAY FROM primeiro_vencimento) = dia_vencimento)
 );
+
+-- =====================================================================
+-- 042 -- Gravacao duplicada de ligacao (gravador 1.0.7).
+-- Detalhes no cabecalho de migrations/042_ligacao_duplicada.sql.
+-- =====================================================================
+ALTER TABLE ligacoes ADD COLUMN IF NOT EXISTS duplicada_de UUID
+    REFERENCES ligacoes(id) ON DELETE SET NULL;
+
+CREATE INDEX IF NOT EXISTS idx_ligacoes_duplicada_de
+    ON ligacoes (duplicada_de) WHERE duplicada_de IS NOT NULL;
